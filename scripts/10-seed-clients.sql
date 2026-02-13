@@ -1,0 +1,453 @@
+-- Phase 3: Client Data Migration Script
+-- Migrates client data with proper institution mapping. Idempotent: ON CONFLICT DO NOTHING.
+
+DO $$
+DECLARE
+    kampala_sacco_id UUID;
+    quick_cash_id UUID;
+    opportunity_mfi_id UUID;
+BEGIN
+    -- Get institution IDs
+    SELECT id INTO kampala_sacco_id FROM senteloans_institutions WHERE name = 'Kampala Central SACCO';
+    SELECT id INTO quick_cash_id FROM senteloans_institutions WHERE name = 'Quick Cash Uganda';
+    SELECT id INTO opportunity_mfi_id FROM senteloans_institutions WHERE name = 'Opportunity Microfinance Uganda';
+
+    -- Insert clients for Kampala Central SACCO
+    INSERT INTO senteloans_clients (
+        id,
+        institution_id,
+        client_number,
+        full_name,
+        date_of_birth,
+        gender,
+        marital_status,
+        client_type,
+        phone_number,
+        email,
+        national_id,
+        district,
+        village,
+        occupation,
+        monthly_income,
+        loan_officer,
+        next_of_kin_name,
+        next_of_kin_relationship,
+        next_of_kin_phone,
+        passport_photo,
+        national_id_front,
+        national_id_back,
+        kyc_status,
+        status,
+        join_date
+    ) VALUES 
+    -- Sarah Nakamya
+    (
+        uuid_generate_v4(),
+        kampala_sacco_id,
+        'SL001',
+        'Sarah Nakamya',
+        '1985-03-15',
+        'Female',
+        'Married',
+        'Individual',
+        '+256701234567',
+        'sarah.nakamya@email.com',
+        'CM12345678901234',
+        'Kampala',
+        'Ntinda',
+        'Teacher',
+        800000,
+        'Annet Mukasa',
+        'John Nakamya',
+        'Spouse',
+        '+256701234568',
+        '/passport-photo-of-sarah-nakamya.png',
+        '/uganda-national-id-front-cm1234567890123.png',
+        '/uganda-national-id-back.png',
+        'Verified',
+        'Active',
+        '2023-01-15'
+    ),
+    -- David Ssemakula
+    (
+        uuid_generate_v4(),
+        kampala_sacco_id,
+        'SL002',
+        'David Ssemakula',
+        '1978-11-22',
+        'Male',
+        'Single',
+        'Individual',
+        '+256702345678',
+        NULL,
+        'CM23456789012345',
+        'Wakiso',
+        'Kira',
+        'Farmer',
+        500000,
+        'Annet Mukasa',
+        'Mary Ssemakula',
+        'Mother',
+        '+256702345679',
+        '/passport-photo-of-james-mukasa.png',
+        '/uganda-national-id-front-cm2345678901234.png',
+        '/uganda-national-id-back.png',
+        'Verified',
+        'Active',
+        '2023-02-20'
+    ),
+    -- Grace Namugga
+    (
+        uuid_generate_v4(),
+        kampala_sacco_id,
+        'SL003',
+        'Grace Namugga',
+        '1990-07-08',
+        'Female',
+        'Divorced',
+        'Individual',
+        '+256703456789',
+        'grace.namugga@email.com',
+        'CM34567890123456',
+        'Mukono',
+        'Seeta',
+        'Small Business Owner',
+        1200000,
+        'Samuel Kato',
+        'Peter Namugga',
+        'Brother',
+        '+256703456790',
+        '/passport-photo-of-grace-namugga.png',
+        '/uganda-national-id-front-cm3456789012345.png',
+        '/uganda-national-id-back.png',
+        'Pending',
+        'Active',
+        '2023-03-10'
+    ),
+    -- Robert Kiwanuka
+    (
+        uuid_generate_v4(),
+        kampala_sacco_id,
+        'SL004',
+        'Robert Kiwanuka',
+        '1965-12-03',
+        'Male',
+        'Widowed',
+        'Individual',
+        '+256704567890',
+        NULL,
+        'CM45678901234567',
+        'Kampala',
+        'Bugolobi',
+        'Civil Servant',
+        1500000,
+        'Samuel Kato',
+        'Alice Kiwanuka',
+        'Daughter',
+        '+256704567891',
+        '/passport-photo-of-robert-kiwanuka.png',
+        '/uganda-national-id-front-cm4567890123456.png',
+        '/uganda-national-id-back.png',
+        'Verified',
+        'Active',
+        '2023-04-12'
+    )
+    ON CONFLICT (institution_id, client_number) DO NOTHING;
+
+    -- Insert clients for Quick Cash Uganda (Money Lender)
+    INSERT INTO senteloans_clients (
+        id,
+        institution_id,
+        client_number,
+        full_name,
+        date_of_birth,
+        gender,
+        marital_status,
+        client_type,
+        phone_number,
+        email,
+        national_id,
+        district,
+        village,
+        occupation,
+        monthly_income,
+        loan_officer,
+        next_of_kin_name,
+        next_of_kin_relationship,
+        next_of_kin_phone,
+        passport_photo,
+        national_id_front,
+        national_id_back,
+        kyc_status,
+        status,
+        join_date
+    ) VALUES 
+    -- Moses Kiprotich
+    (
+        uuid_generate_v4(),
+        quick_cash_id,
+        'QC001',
+        'Moses Kiprotich',
+        '1988-05-12',
+        'Male',
+        'Married',
+        'Individual',
+        '+256707890123',
+        'moses.kiprotich@email.com',
+        'CM78901234567890',
+        'Kampala',
+        'Bwaise',
+        'Boda Boda Rider',
+        400000,
+        'Peter Ssali',
+        'Jane Kiprotich',
+        'Spouse',
+        '+256707890124',
+        '/passport-photo-of-moses-kiprotich.png',
+        '/uganda-national-id-front-cm7890123456789.png',
+        '/uganda-national-id-back.png',
+        'Verified',
+        'Active',
+        '2023-08-15'
+    ),
+    -- Betty Nakato
+    (
+        uuid_generate_v4(),
+        quick_cash_id,
+        'QC002',
+        'Betty Nakato',
+        '1995-02-28',
+        'Female',
+        'Single',
+        'Individual',
+        '+256708901234',
+        'betty.nakato@email.com',
+        'CM89012345678901',
+        'Wakiso',
+        'Nansana',
+        'Hair Salon Owner',
+        600000,
+        'Peter Ssali',
+        'Susan Nakato',
+        'Sister',
+        '+256708901235',
+        '/passport-photo-of-betty-nakato.png',
+        '/uganda-national-id-front-cm8901234567890.png',
+        '/uganda-national-id-back.png',
+        'Verified',
+        'Active',
+        '2023-09-20'
+    ),
+    -- James Okello
+    (
+        uuid_generate_v4(),
+        quick_cash_id,
+        'QC003',
+        'James Okello',
+        '1982-11-15',
+        'Male',
+        'Divorced',
+        'Individual',
+        '+256709012345',
+        NULL,
+        'CM90123456789012',
+        'Kampala',
+        'Katwe',
+        'Mechanic',
+        800000,
+        'Peter Ssali',
+        'Mary Okello',
+        'Mother',
+        '+256709012346',
+        '/passport-photo-of-james-okello.png',
+        '/uganda-national-id-front-cm9012345678901.png',
+        '/uganda-national-id-back.png',
+        'Verified',
+        'Active',
+        '2023-10-05'
+    )
+    ON CONFLICT (institution_id, client_number) DO NOTHING;
+
+    -- Insert clients for Opportunity Microfinance Uganda (MFI)
+    INSERT INTO senteloans_clients (
+        id,
+        institution_id,
+        client_number,
+        full_name,
+        date_of_birth,
+        gender,
+        marital_status,
+        client_type,
+        phone_number,
+        email,
+        national_id,
+        district,
+        village,
+        occupation,
+        monthly_income,
+        loan_officer,
+        next_of_kin_name,
+        next_of_kin_relationship,
+        next_of_kin_phone,
+        passport_photo,
+        national_id_front,
+        national_id_back,
+        kyc_status,
+        status,
+        join_date
+    ) VALUES 
+    -- Agnes Namutebi
+    (
+        uuid_generate_v4(),
+        opportunity_mfi_id,
+        'OM001',
+        'Agnes Namutebi',
+        '1987-04-18',
+        'Female',
+        'Married',
+        'Individual',
+        '+256710123456',
+        'agnes.namutebi@email.com',
+        'CM01234567890123',
+        'Mukono',
+        'Lugazi',
+        'Market Vendor',
+        350000,
+        'Grace Nakato',
+        'Paul Namutebi',
+        'Spouse',
+        '+256710123457',
+        '/passport-photo-of-agnes-namutebi.png',
+        '/uganda-national-id-front-cm0123456789012.png',
+        '/uganda-national-id-back.png',
+        'Verified',
+        'Active',
+        '2023-07-10'
+    ),
+    -- Kampala Women's Group
+    (
+        uuid_generate_v4(),
+        opportunity_mfi_id,
+        'OM002',
+        'Kampala Women''s Group',
+        '2020-01-01',
+        'Other',
+        'Single',
+        'Group',
+        '+256705678901',
+        'info@kampalawomensgroup.org',
+        'GR56789012345678',
+        'Kampala',
+        'Wandegeya',
+        'Group Business',
+        2500000,
+        'Grace Nakato',
+        'Margaret Namusoke',
+        'Group Leader',
+        '+256705678902',
+        '/passport-photo-of-kampala-womens-group.png',
+        '/uganda-national-id-front-gr5678901234567.png',
+        '/uganda-national-id-back.png',
+        'Verified',
+        'Active',
+        '2023-05-20'
+    ),
+    -- Patricia Nabirye
+    (
+        uuid_generate_v4(),
+        opportunity_mfi_id,
+        'OM003',
+        'Patricia Nabirye',
+        '1992-09-14',
+        'Female',
+        'Single',
+        'Individual',
+        '+256706789012',
+        'patricia.nabirye@email.com',
+        'CM67890123456789',
+        'Jinja',
+        'Bugembe',
+        'Healthcare Worker',
+        900000,
+        'Grace Nakato',
+        'Joseph Nabirye',
+        'Father',
+        '+256706789013',
+        '/passport-photo-of-patricia-nabirye.png',
+        '/uganda-national-id-front-cm6789012345678.png',
+        '/uganda-national-id-back.png',
+        'Verified',
+        'Inactive',
+        '2023-06-08'
+    )
+    ON CONFLICT (institution_id, client_number) DO NOTHING;
+
+END $$;
+
+-- Create client shares for SACCO clients (skip if client already has shares) (only Kampala Central SACCO has shares)
+DO $$
+DECLARE
+    client_rec RECORD;
+BEGIN
+    -- Insert shares for Kampala Central SACCO clients (one record per client; skip if exists)
+    FOR client_rec IN 
+        SELECT c.id as client_id, c.client_number, c.full_name
+        FROM senteloans_clients c
+        JOIN senteloans_institutions i ON c.institution_id = i.id
+        WHERE i.name = 'Kampala Central SACCO'
+    LOOP
+        IF NOT EXISTS (SELECT 1 FROM senteloans_client_shares WHERE client_id = client_rec.client_id) THEN
+        INSERT INTO senteloans_client_shares (
+            id,
+            client_id,
+            number_of_shares,
+            share_value,
+            purchase_date
+        ) VALUES (
+            uuid_generate_v4(),
+            client_rec.client_id,
+            CASE 
+                WHEN client_rec.client_number = 'SL001' THEN 15  -- Sarah Nakamya
+                WHEN client_rec.client_number = 'SL002' THEN 10  -- David Ssemakula
+                WHEN client_rec.client_number = 'SL003' THEN 20  -- Grace Namugga
+                WHEN client_rec.client_number = 'SL004' THEN 25  -- Robert Kiwanuka
+                ELSE 5
+            END,
+            50000, -- Share value from institution settings
+            CASE 
+                WHEN client_rec.client_number = 'SL001' THEN '2023-01-15'
+                WHEN client_rec.client_number = 'SL002' THEN '2023-02-20'
+                WHEN client_rec.client_number = 'SL003' THEN '2023-03-10'
+                WHEN client_rec.client_number = 'SL004' THEN '2023-04-12'
+                ELSE '2023-01-01'
+            END::date
+        );
+        END IF;
+    END LOOP;
+END $$;
+
+-- Display results for verification
+SELECT 
+    'Client Migration Completed Successfully' as status,
+    COUNT(*) as total_clients_created
+FROM senteloans_clients;
+
+-- Show clients by institution
+SELECT 
+    i.name as institution_name,
+    i.type as institution_type,
+    COUNT(c.id) as client_count,
+    COUNT(CASE WHEN c.status = 'Active' THEN 1 END) as active_clients,
+    COUNT(CASE WHEN c.kyc_status = 'Verified' THEN 1 END) as verified_clients
+FROM senteloans_institutions i
+LEFT JOIN senteloans_clients c ON i.id = c.institution_id
+GROUP BY i.id, i.name, i.type
+ORDER BY i.name;
+
+-- Show client shares summary
+SELECT 
+    'Client Shares Created' as status,
+    COUNT(*) as total_share_records,
+    SUM(number_of_shares) as total_shares,
+    SUM(total_value) as total_share_value
+FROM senteloans_client_shares;

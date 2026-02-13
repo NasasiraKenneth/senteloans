@@ -1,0 +1,447 @@
+-- SenteLoans Database Schema Creation Script
+-- Phase 1: Core Tables with Multi-Tenant Architecture
+-- All tables prefixed with 'senteloans_' for proper namespacing
+
+-- Enable UUID extension
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
+-- Create custom ENUM types
+DO $$
+DECLARE
+    enum_record RECORD;
+    enum_definitions JSONB := '[
+        {"name": "institution_type", "values": ["SACCO", "MFI", "Money Lender"]},
+        {"name": "users_role", "values": ["system_admin", "institution_admin", "manager", "loan_officer", "teller", "client"]},
+        {"name": "status_type", "values": ["Active", "Inactive", "Suspended", "Closed"]},
+        {"name": "gender_type", "values": ["Male", "Female", "Other"]},
+        {"name": "marital_status_type", "values": ["Single", "Married", "Divorced", "Widowed"]},
+        {"name": "client_type", "values": ["Individual", "Group", "Corporate"]},
+        {"name": "kyc_status_type", "values": ["Pending", "Verified", "Rejected"]},
+        {"name": "loan_status_type", "values": ["Applied", "Under Review", "Approved", "Disbursed", "Active", "Closed", "Defaulted", "Rejected"]},
+        {"name": "account_type", "values": ["Voluntary", "Fixed", "Shares", "Current"]},
+        {"name": "transaction_type", "values": ["Deposit", "Withdrawal", "Transfer", "Loan Disbursement", "Loan Repayment", "Interest Payment", "Fee Payment"]},
+        {"name": "payment_mode", "values": ["Cash", "Mobile Money", "Bank Transfer", "Cheque", "Card"]},
+        {"name": "transaction_status", "values": ["Pending", "Completed", "Failed", "Reversed"]},
+        {"name": "repayment_status", "values": ["Pending", "Paid", "Overdue", "Partial"]},
+        {"name": "interest_calculation_method", "values": ["reducing_balance", "flat_rate", "compound"]}
+    ]';
+BEGIN
+    FOR enum_record IN
+        SELECT elem->>'name' AS enum_name,
+               elem->'values' AS enum_values
+        FROM jsonb_array_elements(enum_definitions) AS arr(elem)
+    LOOP
+        IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = enum_record.enum_name) THEN
+            EXECUTE format(
+                'CREATE TYPE %I AS ENUM (%s)',
+                enum_record.enum_name,
+                array_to_string(ARRAY(SELECT quote_literal(value::text) FROM jsonb_array_elements_text(enum_record.enum_values)), ', ')
+            );
+        END IF;
+    END LOOP;
+END$$;
+
+-- 1. INSTITUTIONS TABLE (Multi-tenant root)
+CREATE TABLE IF NOT EXISTS senteloans_institutions (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    name VARCHAR(255) NOT NULL,
+    type institution_type NOT NULL,
+    registration_number VARCHAR(100) UNIQUE NOT NULL,
+    license_number VARCHAR(100),
+    address TEXT,
+    phone_number VARCHAR(20),
+    email VARCHAR(255),
+    website VARCHAR(255),
+    established_date DATE,
+    settings JSONB DEFAULT '{}'::jsonb,
+    status status_type DEFAULT 'Active',
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 2. USERS TABLE (Authentication & Authorization)
+CREATE TABLE IF NOT EXISTS senteloans_users (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    supabase_user_id UUID UNIQUE REFERENCES app_auth_users(id) ON DELETE SET NULL,
+    institution_id UUID NOT NULL REFERENCES senteloans_institutions(id) ON DELETE RESTRICT,
+    email VARCHAR(255) UNIQUE NOT NULL,
+    password_hash VARCHAR(255) NOT NULL DEFAULT 'temp_hash',
+    full_name VARCHAR(255) NOT NULL,
+    phone_number VARCHAR(20),
+    role users_role NOT NULL,
+    permissions JSONB DEFAULT '{}'::jsonb,
+    status status_type DEFAULT 'Active',
+    last_login TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 3. CLIENTS TABLE (Customer/Member records)
+CREATE TABLE IF NOT EXISTS senteloans_clients (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    institution_id UUID NOT NULL REFERENCES senteloans_institutions(id) ON DELETE RESTRICT,
+    client_number VARCHAR(50) NOT NULL,
+    full_name VARCHAR(255) NOT NULL,
+    date_of_birth DATE NOT NULL,
+    gender gender_type NOT NULL,
+    marital_status marital_status_type,
+    client_type client_type NOT NULL,
+    phone_number VARCHAR(20) NOT NULL,
+    email VARCHAR(255),
+    supabase_user_id UUID UNIQUE REFERENCES app_auth_users(id) ON DELETE SET NULL,
+    national_id VARCHAR(50) NOT NULL,
+    district VARCHAR(100),
+    village VARCHAR(100),
+    occupation VARCHAR(100),
+    monthly_income DECIMAL(15,2),
+    loan_officer VARCHAR(255),
+    notes TEXT,
+    -- Payout details (single-table approach)
+    mobile_money_provider TEXT,
+    mobile_money_number TEXT,
+    bank_name TEXT,
+    bank_account_number TEXT,
+    bank_account_name TEXT,
+    bank_branch TEXT,
+    next_of_kin_name VARCHAR(255),
+    next_of_kin_relationship VARCHAR(100),
+    next_of_kin_phone VARCHAR(20),
+    passport_photo VARCHAR(500),
+    national_id_front VARCHAR(500),
+    national_id_back VARCHAR(500),
+    kyc_status kyc_status_type DEFAULT 'Pending',
+    status status_type DEFAULT 'Active',
+    join_date DATE NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    
+    CONSTRAINT uk_clients_number UNIQUE (institution_id, client_number),
+    CONSTRAINT uk_clients_national_id UNIQUE (institution_id, national_id),
+    -- Added to support composite FK from savings (client_id, institution_id)
+    CONSTRAINT uk_clients_id_institution UNIQUE (id, institution_id)
+);
+
+-- 4. CLIENT SHARES TABLE (For SACCO institutions only)
+CREATE TABLE IF NOT EXISTS senteloans_client_shares (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    client_id UUID NOT NULL REFERENCES senteloans_clients(id) ON DELETE CASCADE,
+    number_of_shares INTEGER NOT NULL CHECK (number_of_shares > 0),
+    share_value DECIMAL(15,2) NOT NULL CHECK (share_value > 0),
+    total_value DECIMAL(15,2) GENERATED ALWAYS AS (number_of_shares * share_value) STORED,
+    purchase_date DATE NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 5. LOAN PRODUCTS TABLE (Institution-specific loan products)
+-- Enhanced to support different lending models for SACCOs, MFIs, and Money Lenders
+CREATE TABLE IF NOT EXISTS senteloans_loan_products (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    institution_id UUID NOT NULL REFERENCES senteloans_institutions(id) ON DELETE CASCADE,
+    product_name VARCHAR(255) NOT NULL,
+    product_code VARCHAR(50) NOT NULL,
+    description TEXT,
+    minimum_amount DECIMAL(15,2) NOT NULL CHECK (minimum_amount > 0),
+    maximum_amount DECIMAL(15,2) NOT NULL CHECK (maximum_amount >= minimum_amount),
+    interest_rate DECIMAL(5,2) NOT NULL CHECK (interest_rate >= 0),
+    minimum_tenure_months INTEGER NOT NULL CHECK (minimum_tenure_months > 0),
+    maximum_tenure_months INTEGER NOT NULL CHECK (maximum_tenure_months >= minimum_tenure_months),
+    interest_calculation_method interest_calculation_method NOT NULL DEFAULT 'reducing_balance',
+    collateral_required BOOLEAN DEFAULT FALSE,
+    guarantors_required INTEGER DEFAULT 0 CHECK (guarantors_required >= 0),
+    processing_fee_percentage DECIMAL(5,2) DEFAULT 0 CHECK (processing_fee_percentage >= 0),
+    insurance_required BOOLEAN DEFAULT FALSE,
+    eligibility_criteria JSONB DEFAULT '{}'::jsonb,
+    status status_type DEFAULT 'Active',
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    
+    CONSTRAINT uk_loan_products_code UNIQUE (institution_id, product_code)
+);
+
+-- 6. LOANS TABLE (Individual loan records)
+-- Updated to match loan products structure and add guarantor support
+CREATE TABLE IF NOT EXISTS senteloans_loans (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    institution_id UUID NOT NULL REFERENCES senteloans_institutions(id) ON DELETE RESTRICT,
+    client_id UUID NOT NULL REFERENCES senteloans_clients(id) ON DELETE RESTRICT,
+    loan_product_id UUID NOT NULL REFERENCES senteloans_loan_products(id) ON DELETE RESTRICT,
+    application_id VARCHAR(50) NOT NULL,
+    principal_amount DECIMAL(15,2) NOT NULL CHECK (principal_amount > 0),
+    interest_rate DECIMAL(5,2) NOT NULL CHECK (interest_rate >= 0),
+    tenure_months INTEGER NOT NULL CHECK (tenure_months > 0),
+    monthly_payment DECIMAL(15,2),
+    total_amount DECIMAL(15,2),
+    outstanding_balance DECIMAL(15,2) NOT NULL DEFAULT 0,
+    status loan_status_type NOT NULL DEFAULT 'Applied',
+    purpose TEXT,
+    collateral_description TEXT,
+    application_date DATE NOT NULL,
+    approval_date DATE,
+    disbursement_date DATE,
+    maturity_date DATE,
+    next_payment_date DATE,
+    overdue_days INTEGER DEFAULT 0 CHECK (overdue_days >= 0),
+    created_by UUID REFERENCES senteloans_users(id) ON DELETE RESTRICT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    
+    CONSTRAINT uk_loans_application UNIQUE (institution_id, application_id),
+    
+    -- Composite unique key to support institution-scoped FKs
+    CONSTRAINT uk_loans_id_institution UNIQUE (id, institution_id),
+
+    CONSTRAINT chk_loans_dates CHECK (
+        (approval_date IS NULL OR approval_date >= application_date) AND
+        (disbursement_date IS NULL OR disbursement_date >= approval_date) AND
+        (maturity_date IS NULL OR maturity_date >= disbursement_date)
+    )
+);
+
+-- Added loan guarantors table for SACCO and MFI lending models
+CREATE TABLE IF NOT EXISTS senteloans_loan_guarantors (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    loan_id UUID NOT NULL REFERENCES senteloans_loans(id) ON DELETE CASCADE,
+    guarantor_client_id UUID NOT NULL REFERENCES senteloans_clients(id) ON DELETE RESTRICT,
+    guaranteed_amount DECIMAL(15,2) NOT NULL CHECK (guaranteed_amount > 0),
+    status status_type DEFAULT 'Active',
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    
+    CONSTRAINT uk_loan_guarantors UNIQUE (loan_id, guarantor_client_id)
+);
+
+-- 7. SAVINGS ACCOUNTS TABLE (Not applicable for Money Lenders)
+CREATE TABLE IF NOT EXISTS senteloans_savings_accounts (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    institution_id UUID NOT NULL REFERENCES senteloans_institutions(id) ON DELETE RESTRICT,
+    client_id UUID NOT NULL REFERENCES senteloans_clients(id) ON DELETE RESTRICT,
+    account_number VARCHAR(50) NOT NULL,
+    account_type account_type NOT NULL,
+    available_balance DECIMAL(15,2) DEFAULT 0 CHECK (available_balance >= 0),
+    total_balance DECIMAL(15,2) DEFAULT 0 CHECK (total_balance >= 0),
+    status status_type DEFAULT 'Active',
+    open_date DATE NOT NULL,
+    last_transaction_date DATE,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    
+    CONSTRAINT uk_accounts_number UNIQUE (institution_id, account_number),
+    -- Composite unique key to support institution-scoped FKs
+    CONSTRAINT uk_savings_id_institution UNIQUE (id, institution_id),
+    
+    CONSTRAINT chk_accounts_balance CHECK (available_balance <= total_balance)
+    ,
+    -- Enforce that savings.client_id and savings.institution_id match the client's institution
+    CONSTRAINT fk_savings_client_institution
+      FOREIGN KEY (client_id, institution_id)
+      REFERENCES senteloans_clients (id, institution_id)
+      ON UPDATE CASCADE
+      ON DELETE RESTRICT
+);
+
+-- 8. TRANSACTIONS TABLE (All financial transactions)
+CREATE TABLE IF NOT EXISTS senteloans_transactions (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    institution_id UUID NOT NULL REFERENCES senteloans_institutions(id) ON DELETE RESTRICT,
+    client_id UUID NOT NULL REFERENCES senteloans_clients(id) ON DELETE RESTRICT,
+    account_id UUID REFERENCES senteloans_savings_accounts(id) ON DELETE RESTRICT,
+    loan_id UUID REFERENCES senteloans_loans(id) ON DELETE RESTRICT,
+    transaction_number VARCHAR(50) NOT NULL,
+    type transaction_type NOT NULL,
+    amount DECIMAL(15,2) NOT NULL CHECK (amount > 0),
+    mode payment_mode NOT NULL,
+    description TEXT,
+    reference_number VARCHAR(100),
+    balance_before DECIMAL(15,2),
+    balance_after DECIMAL(15,2),
+    processed_by UUID NOT NULL REFERENCES senteloans_users(id) ON DELETE RESTRICT,
+    transaction_date TIMESTAMPTZ NOT NULL,
+    status transaction_status DEFAULT 'Completed',
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    
+    CONSTRAINT uk_transactions_number UNIQUE (institution_id, transaction_number),
+    
+    -- Enforce tenant consistency via composite FKs (client/account only for now; loans to be added later)
+    CONSTRAINT fk_transactions_client_institution
+      FOREIGN KEY (client_id, institution_id)
+      REFERENCES senteloans_clients (id, institution_id)
+      ON UPDATE CASCADE
+      ON DELETE RESTRICT,
+    CONSTRAINT fk_transactions_account_institution
+      FOREIGN KEY (account_id, institution_id)
+      REFERENCES senteloans_savings_accounts (id, institution_id)
+      ON UPDATE CASCADE
+      ON DELETE RESTRICT,
+
+    CONSTRAINT chk_transactions_reference CHECK (
+        (account_id IS NOT NULL AND loan_id IS NULL) OR
+        (account_id IS NULL AND loan_id IS NOT NULL) OR
+        (account_id IS NOT NULL AND loan_id IS NOT NULL)
+    )
+);
+
+-- 9. LOAN REPAYMENTS TABLE (Repayment schedule and tracking)
+-- Updated field names to match seed data structure
+CREATE TABLE IF NOT EXISTS senteloans_loan_repayments (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    loan_id UUID NOT NULL REFERENCES senteloans_loans(id) ON DELETE CASCADE,
+    installment_number INTEGER NOT NULL,
+    due_date DATE NOT NULL,
+    principal_amount DECIMAL(15,2) NOT NULL CHECK (principal_amount >= 0),
+    interest_amount DECIMAL(15,2) NOT NULL CHECK (interest_amount >= 0),
+    total_amount DECIMAL(15,2) GENERATED ALWAYS AS (principal_amount + interest_amount) STORED,
+    amount_paid DECIMAL(15,2) DEFAULT 0 CHECK (amount_paid >= 0),
+    payment_date DATE,
+    status repayment_status DEFAULT 'Pending',
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    
+    CONSTRAINT uk_repayments_installment UNIQUE (loan_id, installment_number)
+);
+
+-- 10. AUDIT LOGS TABLE (System audit trail)
+CREATE TABLE IF NOT EXISTS senteloans_audit_logs (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    institution_id UUID NOT NULL REFERENCES senteloans_institutions(id) ON DELETE RESTRICT,
+    user_id UUID NOT NULL REFERENCES senteloans_users(id) ON DELETE RESTRICT,
+    table_name VARCHAR(100) NOT NULL,
+    operation VARCHAR(20) NOT NULL CHECK (operation IN ('INSERT', 'UPDATE', 'DELETE')),
+    record_id UUID NOT NULL,
+    old_values JSONB,
+    new_values JSONB,
+    ip_address INET,
+    user_agent TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Create indexes for performance optimization
+-- Multi-tenant access patterns
+CREATE INDEX IF NOT EXISTS idx_users_institution_id ON senteloans_users(institution_id);
+CREATE INDEX IF NOT EXISTS idx_clients_institution_id ON senteloans_clients(institution_id);
+CREATE INDEX IF NOT EXISTS idx_loans_institution_id ON senteloans_loans(institution_id);
+CREATE INDEX IF NOT EXISTS idx_savings_accounts_institution_id ON senteloans_savings_accounts(institution_id);
+CREATE INDEX IF NOT EXISTS idx_transactions_institution_id ON senteloans_transactions(institution_id);
+CREATE INDEX IF NOT EXISTS idx_loan_products_institution_id ON senteloans_loan_products(institution_id);
+-- Added index for loan guarantors
+CREATE INDEX IF NOT EXISTS idx_loan_guarantors_loan_id ON senteloans_loan_guarantors(loan_id);
+CREATE INDEX IF NOT EXISTS idx_loan_guarantors_guarantor_id ON senteloans_loan_guarantors(guarantor_client_id);
+-- Common query patterns
+CREATE INDEX IF NOT EXISTS idx_clients_status ON senteloans_clients(institution_id, status);
+CREATE INDEX IF NOT EXISTS idx_loans_status ON senteloans_loans(institution_id, status);
+CREATE INDEX IF NOT EXISTS idx_loans_client_id ON senteloans_loans(client_id);
+CREATE INDEX IF NOT EXISTS idx_transactions_client_id ON senteloans_transactions(client_id);
+CREATE INDEX IF NOT EXISTS idx_transactions_date ON senteloans_transactions(institution_id, transaction_date DESC);
+CREATE INDEX IF NOT EXISTS idx_transactions_account_id ON senteloans_transactions(account_id);
+CREATE INDEX IF NOT EXISTS idx_transactions_loan_id ON senteloans_transactions(loan_id);
+-- Additional indexes for common filters on transactions
+CREATE INDEX IF NOT EXISTS idx_transactions_institution_type ON senteloans_transactions(institution_id, type);
+CREATE INDEX IF NOT EXISTS idx_transactions_institution_mode ON senteloans_transactions(institution_id, mode);
+CREATE INDEX IF NOT EXISTS idx_repayments_loan_id ON senteloans_loan_repayments(loan_id);
+CREATE INDEX IF NOT EXISTS idx_repayments_due_date ON senteloans_loan_repayments(due_date);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_institution_id ON senteloans_audit_logs(institution_id);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON senteloans_audit_logs(created_at DESC);
+
+-- 11. CLIENT KYC DOCS TABLE (Pending/review documents uploaded by clients)
+CREATE TABLE IF NOT EXISTS senteloans_client_kyc_docs (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    institution_id UUID NOT NULL REFERENCES senteloans_institutions(id) ON DELETE RESTRICT,
+    client_id UUID NOT NULL REFERENCES senteloans_clients(id) ON DELETE RESTRICT,
+    doc_type TEXT NOT NULL CHECK (doc_type IN ('passport_photo','national_id_front','national_id_back')),
+    url TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending_review' CHECK (status IN ('pending_review','verified','rejected','superseded')),
+    rejection_reason TEXT,
+    reviewed_by UUID REFERENCES senteloans_users(id) ON DELETE SET NULL,
+    reviewed_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Indexes for KYC docs
+CREATE INDEX IF NOT EXISTS idx_client_kyc_docs_institution ON senteloans_client_kyc_docs(institution_id);
+CREATE INDEX IF NOT EXISTS idx_client_kyc_docs_client_doc ON senteloans_client_kyc_docs(client_id, doc_type, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_client_kyc_docs_status ON senteloans_client_kyc_docs(status);
+
+-- 12. NOTIFICATIONS TABLE (In-app notifications for clients and institution users)
+CREATE TABLE IF NOT EXISTS senteloans_notifications (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    institution_id UUID NOT NULL REFERENCES senteloans_institutions(id) ON DELETE CASCADE,
+    recipient_type TEXT NOT NULL CHECK (recipient_type IN ('client', 'institution_user')),
+    recipient_id UUID NOT NULL, -- client_id or user_id depending on recipient_type
+    type TEXT NOT NULL, -- e.g., 'loan_status_change', 'payment_due', 'kyc_update', 'pending_approval'
+    title TEXT NOT NULL,
+    message TEXT NOT NULL,
+    action_url TEXT, -- Deep link to relevant page
+    metadata JSONB DEFAULT '{}'::jsonb, -- Additional context (loan_id, amount, etc.)
+    read BOOLEAN DEFAULT false,
+    read_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    expires_at TIMESTAMPTZ DEFAULT (NOW() + INTERVAL '90 days') -- Auto-delete after 90 days
+);
+
+-- 13. NOTIFICATION PREFERENCES TABLE (User preferences for notification channels)
+CREATE TABLE IF NOT EXISTS senteloans_notification_preferences (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    institution_id UUID NOT NULL REFERENCES senteloans_institutions(id) ON DELETE CASCADE,
+    user_type TEXT NOT NULL CHECK (user_type IN ('client', 'institution_user')),
+    user_id UUID NOT NULL,
+    notification_type TEXT NOT NULL,
+    in_app_enabled BOOLEAN DEFAULT true,
+    sms_enabled BOOLEAN DEFAULT false, -- For Phase 2: Africa's Talking integration
+    email_enabled BOOLEAN DEFAULT false, -- For Phase 3
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    
+    CONSTRAINT uk_notification_prefs UNIQUE(user_id, notification_type)
+);
+
+-- Indexes for notifications
+CREATE INDEX IF NOT EXISTS idx_notifications_recipient ON senteloans_notifications(recipient_id, recipient_type, read);
+CREATE INDEX IF NOT EXISTS idx_notifications_institution ON senteloans_notifications(institution_id);
+CREATE INDEX IF NOT EXISTS idx_notifications_created ON senteloans_notifications(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_notifications_type ON senteloans_notifications(type);
+CREATE INDEX IF NOT EXISTS idx_notification_prefs_user ON senteloans_notification_preferences(user_id, user_type);
+
+-- Create updated_at trigger function
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = NOW();
+    RETURN NEW;
+END;
+$$ language 'plpgsql';
+
+-- Apply updated_at triggers to all tables
+CREATE OR REPLACE TRIGGER update_institutions_updated_at BEFORE UPDATE ON senteloans_institutions FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE OR REPLACE TRIGGER update_users_updated_at BEFORE UPDATE ON senteloans_users FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE OR REPLACE TRIGGER update_clients_updated_at BEFORE UPDATE ON senteloans_clients FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE OR REPLACE TRIGGER update_client_shares_updated_at BEFORE UPDATE ON senteloans_client_shares FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE OR REPLACE TRIGGER update_loan_products_updated_at BEFORE UPDATE ON senteloans_loan_products FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE OR REPLACE TRIGGER update_loans_updated_at BEFORE UPDATE ON senteloans_loans FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+-- Added trigger for loan guarantors table
+CREATE OR REPLACE TRIGGER update_loan_guarantors_updated_at BEFORE UPDATE ON senteloans_loan_guarantors FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE OR REPLACE TRIGGER update_savings_accounts_updated_at BEFORE UPDATE ON senteloans_savings_accounts FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE OR REPLACE TRIGGER update_transactions_updated_at BEFORE UPDATE ON senteloans_transactions FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE OR REPLACE TRIGGER update_loan_repayments_updated_at BEFORE UPDATE ON senteloans_loan_repayments FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+-- Added trigger for client KYC docs table
+CREATE OR REPLACE TRIGGER update_client_kyc_docs_updated_at BEFORE UPDATE ON senteloans_client_kyc_docs FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+-- Added trigger for notification preferences table
+CREATE OR REPLACE TRIGGER update_notification_prefs_updated_at BEFORE UPDATE ON senteloans_notification_preferences FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- Add comments for documentation
+COMMENT ON TABLE senteloans_institutions IS 'Multi-tenant root table for financial institutions';
+COMMENT ON TABLE senteloans_users IS 'System users with role-based access control';
+COMMENT ON TABLE senteloans_clients IS 'Customer/member records for each institution';
+COMMENT ON TABLE senteloans_client_shares IS 'Share ownership records for SACCO clients';
+COMMENT ON TABLE senteloans_loan_products IS 'Loan product definitions per institution with support for different lending models';
+COMMENT ON TABLE senteloans_loans IS 'Individual loan applications and tracking';
+-- Added comment for loan guarantors table
+COMMENT ON TABLE senteloans_loan_guarantors IS 'Guarantor records for SACCO and MFI loans';
+COMMENT ON TABLE senteloans_savings_accounts IS 'Savings account records (not for Money Lenders)';
+COMMENT ON TABLE senteloans_transactions IS 'All financial transaction records';
+COMMENT ON TABLE senteloans_loan_repayments IS 'Loan repayment schedule and tracking';
+COMMENT ON TABLE senteloans_audit_logs IS 'System audit trail for all operations';
+COMMENT ON TABLE senteloans_client_kyc_docs IS 'Client KYC document uploads and verification tracking';
+COMMENT ON TABLE senteloans_notifications IS 'In-app notifications for clients and institution users';
+COMMENT ON TABLE senteloans_notification_preferences IS 'User notification channel preferences';
