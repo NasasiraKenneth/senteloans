@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { User, Phone, MapPin, Briefcase, Users } from "lucide-react"
+import { User, Phone, MapPin, Briefcase, Users, DollarSign } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { getSession } from "@/lib/session"
 
@@ -41,10 +41,35 @@ export function MemberRegistrationForm({ onClose }: MemberRegistrationFormProps)
     nextOfKinName: "",
     nextOfKinRelationship: "",
     nextOfKinPhone: "",
+    membershipFeeType: "full" as "full" | "custom",
+    membershipFeeAmount: "",
+    membershipFeeMode: "Cash",
   })
 
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [institutionMembershipFee, setInstitutionMembershipFee] = useState(0)
+  const [currency, setCurrency] = useState("UGX")
+
+  useEffect(() => {
+    async function loadSettings() {
+      try {
+        const res = await fetch("/api/institution/settings", { cache: "no-store" })
+        if (res.ok) {
+          const data = await res.json()
+          if (typeof data?.config?.membershipFee === "number") {
+            setInstitutionMembershipFee(data.config.membershipFee)
+          }
+          if (data?.config?.currency) {
+            setCurrency(data.config.currency)
+          }
+        }
+      } catch {
+        // ignore
+      }
+    }
+    loadSettings()
+  }, [])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -106,6 +131,14 @@ export function MemberRegistrationForm({ onClose }: MemberRegistrationFormProps)
       window.scrollTo({ top: 0, behavior: "smooth" });
       return
     }
+    if (institutionMembershipFee > 0 && formData.membershipFeeType === "custom") {
+      const amt = Number(formData.membershipFeeAmount)
+      if (amt > institutionMembershipFee) {
+        setError(`Membership fee amount cannot exceed ${institutionMembershipFee.toLocaleString()}`);
+        window.scrollTo({ top: 0, behavior: "smooth" });
+        return
+      }
+    }
 
     // Normalize phone to +256 format if starting with 0
     let phone = formData.phoneNumber.trim()
@@ -128,6 +161,15 @@ export function MemberRegistrationForm({ onClose }: MemberRegistrationFormProps)
       if (formData.occupation) payload.occupation = formData.occupation
       if (formData.monthlyIncome) payload.monthlyIncome = Number(formData.monthlyIncome)
       if (formData.loanOfficer) payload.loanOfficer = formData.loanOfficer
+
+      // Membership fee
+      const feeAmount = formData.membershipFeeType === "full"
+        ? institutionMembershipFee
+        : Number(formData.membershipFeeAmount) || 0
+      if (feeAmount > 0) {
+        payload.membershipFeePaid = feeAmount
+        payload.membershipFeeMode = formData.membershipFeeMode
+      }
 
       // Debug: request payload
       // eslint-disable-next-line no-console
@@ -472,6 +514,135 @@ export function MemberRegistrationForm({ onClose }: MemberRegistrationFormProps)
         </div>
 
         {/* Documents omitted at create-time; complete via onboarding checklist */}
+
+        {/* Membership Fee */}
+        {institutionMembershipFee > 0 && (
+          <div className="space-y-6">
+            <div className="border-b border-gray-200 pb-4">
+              <h2 className="text-lg font-medium text-gray-900 flex items-center">
+                <DollarSign className="h-5 w-5 mr-2 text-primary" />
+                Membership Fee
+              </h2>
+              <p className="text-sm text-gray-600 mt-1">
+                Record membership fee payment ({currency} {institutionMembershipFee.toLocaleString()})
+              </p>
+            </div>
+
+            <div className="space-y-4">
+              {/* Payment Type */}
+              <div className="space-y-3">
+                <Label className="text-sm font-medium text-gray-700">Payment Type</Label>
+                <div className="flex gap-4">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="membershipFeeType"
+                      value="full"
+                      checked={formData.membershipFeeType === "full"}
+                      onChange={() => handleInputChange("membershipFeeType", "full")}
+                      className="w-4 h-4 text-[#f08c2b] accent-[#f08c2b]"
+                    />
+                    <span className="text-sm text-gray-700">
+                      Full Payment ({currency} {institutionMembershipFee.toLocaleString()})
+                    </span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="membershipFeeType"
+                      value="custom"
+                      checked={formData.membershipFeeType === "custom"}
+                      onChange={() => handleInputChange("membershipFeeType", "custom")}
+                      className="w-4 h-4 text-[#f08c2b] accent-[#f08c2b]"
+                    />
+                    <span className="text-sm text-gray-700">Custom Amount (Partial Payment)</span>
+                  </label>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* Amount */}
+                <div className="space-y-2">
+                  <Label htmlFor="membershipFeeAmount" className="text-sm font-medium text-gray-700">
+                    Amount ({currency})
+                  </Label>
+                  {formData.membershipFeeType === "full" ? (
+                    <Input
+                      id="membershipFeeAmount"
+                      value={institutionMembershipFee.toLocaleString()}
+                      readOnly
+                      className="border border-gray-300 rounded-md px-3 py-2 bg-gray-50 text-gray-600"
+                    />
+                  ) : (
+                    <Input
+                      id="membershipFeeAmount"
+                      type="number"
+                      value={formData.membershipFeeAmount}
+                      onChange={(e) => handleInputChange("membershipFeeAmount", e.target.value)}
+                      placeholder={`Max: ${institutionMembershipFee.toLocaleString()}`}
+                      max={institutionMembershipFee}
+                      min={0}
+                      className="border border-gray-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-primary focus:border-primary"
+                    />
+                  )}
+                  {formData.membershipFeeType === "custom" && Number(formData.membershipFeeAmount) > institutionMembershipFee && (
+                    <p className="text-xs text-red-500">Amount cannot exceed {currency} {institutionMembershipFee.toLocaleString()}</p>
+                  )}
+                </div>
+
+                {/* Payment Mode */}
+                <div className="space-y-2">
+                  <Label htmlFor="membershipFeeMode" className="text-sm font-medium text-gray-700">
+                    Payment Mode
+                  </Label>
+                  <Select
+                    value={formData.membershipFeeMode}
+                    onValueChange={(value) => handleInputChange("membershipFeeMode", value)}
+                  >
+                    <SelectTrigger className="border border-gray-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-primary focus:border-primary">
+                      <SelectValue placeholder="Select payment mode" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Cash">Cash</SelectItem>
+                      <SelectItem value="Mobile Money">Mobile Money</SelectItem>
+                      <SelectItem value="Bank Transfer">Bank Transfer</SelectItem>
+                      <SelectItem value="Cheque">Cheque</SelectItem>
+                      <SelectItem value="Card">Card</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              {/* Payment Summary */}
+              {(() => {
+                const payAmount = formData.membershipFeeType === "full"
+                  ? institutionMembershipFee
+                  : Number(formData.membershipFeeAmount) || 0
+                const percentage = institutionMembershipFee > 0 ? (payAmount / institutionMembershipFee) * 100 : 0
+                const isValid = payAmount > 0 && payAmount <= institutionMembershipFee
+
+                if (!isValid && formData.membershipFeeType === "custom" && !formData.membershipFeeAmount) return null
+
+                return (
+                  <div className={`p-3 rounded-lg border ${isValid ? "bg-green-50 border-green-200" : "bg-red-50 border-red-200"}`}>
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium text-gray-700">Payment Summary</span>
+                      <span className={`text-sm font-semibold ${isValid ? "text-green-700" : "text-red-700"}`}>
+                        {currency} {payAmount.toLocaleString()} / {institutionMembershipFee.toLocaleString()} ({Math.round(percentage)}%)
+                      </span>
+                    </div>
+                    <div className="mt-2 w-full h-2 bg-gray-200 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all duration-300 ${percentage >= 100 ? "bg-green-500" : "bg-orange-500"}`}
+                        style={{ width: `${Math.min(percentage, 100)}%` }}
+                      />
+                    </div>
+                  </div>
+                )
+              })()}
+            </div>
+          </div>
+        )}
 
         {/* Assignment - Only show for Money Lenders */}
         {isMoneyLender && (

@@ -20,6 +20,8 @@ interface ClientPostBody {
   monthlyIncome?: number
   loanOfficer?: string
   joinDate?: string
+  membershipFeePaid?: number
+  membershipFeeMode?: string
 }
 
 export async function GET(req: Request) {
@@ -132,9 +134,14 @@ export async function POST(req: Request) {
       const joinDate = body.joinDate || new Date().toISOString().slice(0, 10)
       const monthlyIncome = typeof body.monthlyIncome !== "undefined" && body.monthlyIncome !== null && !Number.isNaN(Number(body.monthlyIncome)) ? Number(body.monthlyIncome) : null
 
+      const membershipFeePaid = typeof body.membershipFeePaid !== "undefined" && !Number.isNaN(Number(body.membershipFeePaid)) && Number(body.membershipFeePaid) > 0
+        ? Number(body.membershipFeePaid)
+        : 0
+      const membershipFeeMode = typeof body.membershipFeeMode === "string" ? body.membershipFeeMode : "Cash"
+
       const insertRes = await client.query(
-        `INSERT INTO senteloans_clients (institution_id, client_number, full_name, date_of_birth, gender, client_type, phone_number, national_id, email, marital_status, district, village, occupation, monthly_income, loan_officer, join_date)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) RETURNING id, client_number`,
+        `INSERT INTO senteloans_clients (institution_id, client_number, full_name, date_of_birth, gender, client_type, phone_number, national_id, email, marital_status, district, village, occupation, monthly_income, loan_officer, join_date, membership_fee_paid)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17) RETURNING id, client_number`,
         [
           appUser.institution_id,
           candidate,
@@ -152,10 +159,38 @@ export async function POST(req: Request) {
           monthlyIncome,
           typeof body.loanOfficer === "string" ? body.loanOfficer : null,
           joinDate,
+          membershipFeePaid,
         ]
       )
       const data = insertRes.rows[0]
       if (!data) return { error: "create_failed_no_record" as const }
+
+      // Create a Fee Payment transaction if membership fee was paid
+      if (membershipFeePaid > 0) {
+        const txNumber = `FEE-${Date.now()}`
+        const txDate = new Date().toISOString()
+        const validModes = ["Cash", "Mobile Money", "Bank Transfer", "Cheque", "Card"]
+        const txMode = validModes.includes(membershipFeeMode) ? membershipFeeMode : "Cash"
+
+        // Fetch institution membership fee to compute remaining balance
+        const instSettingsRes = await client.query(
+          `SELECT settings FROM senteloans_institutions WHERE id = $1`,
+          [appUser.institution_id]
+        )
+        const instSettingsData = (instSettingsRes.rows[0]?.settings as Record<string, unknown>) || {}
+        const totalMembershipFee = typeof instSettingsData.membershipFee === "number" ? instSettingsData.membershipFee : 0
+
+        // balance_before = remaining before payment, balance_after = remaining after payment
+        const balanceBefore = totalMembershipFee
+        const balanceAfter = totalMembershipFee - membershipFeePaid
+
+        await client.query(
+          `INSERT INTO senteloans_transactions
+            (institution_id, client_id, account_id, loan_id, transaction_number, type, amount, mode, description, reference_number, balance_before, balance_after, processed_by, transaction_date, status)
+           VALUES ($1, $2, NULL, NULL, $3, 'Fee Payment', $4, $5, $6, '', $7, $8, $9, $10, 'Completed')`,
+          [appUser.institution_id, data.id, txNumber, membershipFeePaid, txMode, "Membership fee payment on registration", balanceBefore, balanceAfter, appUser.id, txDate]
+        )
+      }
 
       let savingsAccountData: { account_number: string; account_type: string } | null = null
       if (shouldCreateSavings && savingsAccountNumber) {

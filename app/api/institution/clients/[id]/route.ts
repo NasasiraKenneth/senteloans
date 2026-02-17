@@ -21,10 +21,18 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       if (!appUser) return null
 
       const clientRes = await client.query(
-        `SELECT id, institution_id, client_number, full_name, supabase_user_id, date_of_birth, gender, marital_status, client_type, phone_number, email, national_id, district, village, occupation, monthly_income, loan_officer, notes, next_of_kin_name, next_of_kin_relationship, next_of_kin_phone, passport_photo, national_id_front, national_id_back, mobile_money_provider, mobile_money_number, bank_name, bank_account_number, bank_account_name, bank_branch, kyc_status, status, join_date
+        `SELECT id, institution_id, client_number, full_name, supabase_user_id, date_of_birth, gender, marital_status, client_type, phone_number, email, national_id, district, village, occupation, monthly_income, loan_officer, notes, next_of_kin_name, next_of_kin_relationship, next_of_kin_phone, passport_photo, national_id_front, national_id_back, mobile_money_provider, mobile_money_number, bank_name, bank_account_number, bank_account_name, bank_branch, kyc_status, status, join_date, membership_fee_paid
          FROM senteloans_clients WHERE institution_id = $1 AND id = $2`,
         [appUser.institution_id, clientId]
       )
+
+      // Fetch institution membership fee setting
+      const instRes = await client.query(
+        `SELECT settings FROM senteloans_institutions WHERE id = $1`,
+        [appUser.institution_id]
+      )
+      const instSettings = (instRes.rows[0]?.settings as Record<string, unknown>) || {}
+      const membershipFee = typeof instSettings.membershipFee === "number" ? instSettings.membershipFee : 0
       const clientRow = clientRes.rows[0]
       if (!clientRow) return null
 
@@ -80,7 +88,9 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
           bank_account_number: clientRow.bank_account_number,
           bank_account_name: clientRow.bank_account_name,
           bank_branch: clientRow.bank_branch,
+          membership_fee_paid: Number(clientRow.membership_fee_paid) || 0,
         },
+        membershipFee,
       }
     })
 
@@ -158,6 +168,10 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     if (typeof body.bankAccountNumber === "string") updates["bank_account_number"] = body.bankAccountNumber.trim() || null
     if (typeof body.bankAccountName === "string") updates["bank_account_name"] = body.bankAccountName.trim() || null
     if (typeof body.bankBranch === "string") updates["bank_branch"] = body.bankBranch.trim() || null
+    if (typeof body.membershipFeePaid !== "undefined") {
+      const feePaid = Number(body.membershipFeePaid)
+      if (!Number.isNaN(feePaid) && feePaid >= 0) updates["membership_fee_paid"] = feePaid
+    }
 
     if (Object.keys(updates).length === 0) {
       return NextResponse.json({ error: "no_updatable_fields" }, { status: 400 })

@@ -1,0 +1,374 @@
+"use client"
+
+import { useEffect, useState, useCallback } from "react"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
+
+import { Plus, Eye, ArrowUpDown, PiggyBank, TrendingUp, Users, DollarSign } from "lucide-react"
+import Link from "next/link"
+import { useRouter } from "next/navigation"
+import DataTable from "@/components/datatables/DataTable"
+import { DataTableColumn } from "@/components/datatables/DataTable"
+import { FilterField } from "@/components/datatables/TableFilter"
+import { ActionButtons } from "@/components/datatables/ActionButtons"
+
+type SavingsRow = {
+  id: string
+  account_number: string
+  account_type: string
+  available_balance: number
+  total_balance: number
+  status: string
+  open_date: string
+  client_name: string
+}
+
+function getInitials(name: string): string {
+  if (!name) return "?"
+  const parts = name.trim().split(/\s+/)
+  if (parts.length === 1) return parts[0][0].toUpperCase()
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+}
+
+export default function SavingsPage() {
+  const router = useRouter()
+  const [accounts, setAccounts] = useState<SavingsRow[]>([])
+  const [transactions, setTransactions] = useState<Array<any>>([])
+  const [total, setTotal] = useState<number>(0)
+  const [loading, setLoading] = useState<boolean>(true)
+  const [error, setError] = useState<string>("")
+  const [page, setPage] = useState(0)
+  const [rowsPerPage, setRowsPerPage] = useState(10)
+
+  const onPageChange = (_: unknown, newPage: number) => setPage(newPage)
+  const onRowsPerPageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setPage(0)
+    setRowsPerPage(parseInt(e.target.value, 10))
+  }
+
+  async function loadAccounts(queryParams?: object) {
+    setLoading(true)
+    setError("")
+    try {
+      const params = new URLSearchParams()
+      if (queryParams) {
+        Object.entries(queryParams).forEach(([key, value]) => {
+          if (value !== undefined && value !== null && value !== "") {
+            params.set(key, String(value))
+          }
+        })
+      }
+      params.set("pageSize", "200")
+      const res = await fetch(`/api/institution/savings?${params.toString()}`, { cache: "no-store" })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || "Failed to load savings")
+      setAccounts(data.items || [])
+      setTransactions(data.recentTransactions || [])
+      setTotal(data.total || 0)
+    } catch (e: any) {
+      setError(e?.message || "Failed to load savings")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    loadAccounts()
+  }, [])
+
+  const handleQueryParamsChange = useCallback((params: object) => {
+    loadAccounts(params)
+  }, [])
+
+  const handleView = (row: SavingsRow) => {
+    router.push(`/savings/${row.id}`)
+  }
+
+  const handleTransaction = (row: SavingsRow) => {
+    router.push(`/transactions/new`)
+  }
+
+  const formatCurrency = (amount: number) => {
+    return new Intl.NumberFormat("en-UG", {
+      style: "currency",
+      currency: "UGX",
+      minimumFractionDigits: 0,
+    }).format(amount)
+  }
+
+  const getAccountTypeColor = (type: string) => {
+    switch (type) {
+      case "Voluntary":
+        return "bg-blue-100 text-blue-700 border border-blue-200"
+      case "Fixed":
+        return "bg-purple-100 text-purple-700 border border-purple-200"
+      case "Shares":
+        return "bg-orange-100 text-orange-700 border border-orange-200"
+      default:
+        return "bg-gray-100 text-gray-700 border border-gray-200"
+    }
+  }
+
+  // Calculate statistics
+  const totalAccounts = total
+  const activeAccounts = accounts.filter((a) => a.status === "Active").length
+  const totalSavings = accounts.reduce((sum, account) => sum + Number(account.total_balance || 0), 0)
+  const averageBalance = totalAccounts > 0 ? totalSavings / totalAccounts : 0
+  const recentTransactions = transactions
+
+  // DataTable columns
+  const columns: DataTableColumn<SavingsRow>[] = [
+    {
+      key: "account_number",
+      header: "Account",
+      render: (row) => (
+        <div>
+          <div className="font-medium">{row.account_number}</div>
+          <div className="text-sm text-muted-foreground">
+            Opened {new Date(row.open_date).toLocaleDateString()}
+          </div>
+        </div>
+      ),
+    },
+    {
+      key: "client_name",
+      header: "Member",
+      render: (row) => (
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 bg-linear-to-br from-black/80 to-black/50 rounded-full flex items-center justify-center">
+            <span className="text-[#f08c2b] text-xs font-semibold">{getInitials(row.client_name)}</span>
+          </div>
+          <div className="font-medium">{row.client_name}</div>
+        </div>
+      ),
+    },
+    {
+      key: "account_type",
+      header: "Type",
+      render: (row) => (
+        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getAccountTypeColor(row.account_type)}`}>
+          {row.account_type}
+        </span>
+      ),
+    },
+    {
+      key: "available_balance",
+      header: "Available Balance",
+      render: (row) => (
+        <div className="font-medium">{formatCurrency(Number(row.available_balance || 0))}</div>
+      ),
+    },
+    {
+      key: "total_balance",
+      header: "Total Balance",
+      render: (row) => (
+        <div className="font-medium">{formatCurrency(Number(row.total_balance || 0))}</div>
+      ),
+    },
+    {
+      key: "status",
+      header: "Status",
+      render: (row) => {
+        const statusStyles: Record<string, string> = {
+          Active: "bg-green-100 text-green-700 border border-green-200",
+          Inactive: "bg-gray-100 text-gray-700 border border-gray-200",
+          Suspended: "bg-red-100 text-red-700 border border-red-200",
+          Closed: "bg-gray-100 text-gray-700 border border-gray-200",
+        }
+        return (
+          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusStyles[row.status] || "bg-gray-100 text-gray-700 border border-gray-200"}`}>
+            {row.status}
+          </span>
+        )
+      },
+    },
+    {
+      key: "actions",
+      header: "Actions",
+      render: (row) => <ActionButtons actions={savingsActions} row={row} />,
+    },
+  ]
+
+  const savingsActions = [
+    {
+      label: "View",
+      onClick: handleView,
+      variant: "view",
+      icon: <Eye className="h-4 w-4" />,
+    },
+    {
+      label: "Transaction",
+      onClick: handleTransaction,
+      variant: "primary",
+      icon: <ArrowUpDown className="h-4 w-4" />,
+    },
+  ]
+
+  const filterFields: FilterField[] = [
+    {
+      field: "search",
+      label: "Search by member name or account number",
+      type: "text",
+    },
+    {
+      field: "account_type",
+      label: "Account Type",
+      options: [
+        { value: "Voluntary", label: "Voluntary" },
+        { value: "Fixed", label: "Fixed" },
+        { value: "Shares", label: "Shares" },
+      ],
+      multiple: false,
+      type: "select",
+    },
+    {
+      field: "status",
+      label: "Status",
+      options: [
+        { value: "Active", label: "Active" },
+        { value: "Inactive", label: "Inactive" },
+        { value: "Suspended", label: "Suspended" },
+        { value: "Closed", label: "Closed" },
+      ],
+      multiple: false,
+      type: "select",
+    },
+  ]
+
+  return (
+    <>
+      <div className="space-y-6">
+            {/* Header */}
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-3xl font-bold text-balance">Savings & Transactions</h2>
+                <p className="text-muted-foreground text-pretty">
+                  Manage member savings accounts, process transactions, and track balances.
+                </p>
+              </div>
+              <Link href="/transactions/new">
+                <Button>
+                  <Plus className="h-4 w-4 mr-2" />
+                  New Transaction
+                </Button>
+              </Link>
+            </div>
+
+            {/* Stats Cards */}
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Total Accounts</CardTitle>
+                  <Users className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{totalAccounts}</div>
+                  <p className="text-xs text-muted-foreground">{activeAccounts} active accounts</p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Total Savings</CardTitle>
+                  <PiggyBank className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{formatCurrency(totalSavings).replace("UGX", "UGX ")}</div>
+                  <p className="text-xs text-muted-foreground">Across all accounts</p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Average Balance</CardTitle>
+                  <TrendingUp className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{formatCurrency(averageBalance).replace("UGX", "UGX ")}</div>
+                  <p className="text-xs text-muted-foreground">Per account</p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">This Month</CardTitle>
+                  <DollarSign className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{transactions.length}</div>
+                  <p className="text-xs text-muted-foreground">Transactions processed</p>
+                </CardContent>
+              </Card>
+            </div>
+
+            <div className="grid gap-6 md:grid-cols-3">
+              {/* Savings Accounts - Left 2 columns */}
+              <div className="md:col-span-2 space-y-6">
+                {error && <div className="text-sm text-red-600">{error}</div>}
+                <DataTable<SavingsRow>
+                  columns={columns}
+                  rows={accounts}
+                  loading={loading}
+                  title={`Savings Accounts (${total})`}
+                  filterFields={filterFields}
+                  onQueryParamsChange={handleQueryParamsChange}
+                  emptyMessage="No accounts found"
+                  getRowId={(row) => row.id}
+                  pagination={{
+                    page,
+                    rowsPerPage,
+                    total: accounts.length,
+                    onPageChange,
+                    onRowsPerPageChange,
+                  }}
+                />
+              </div>
+
+              {/* Recent Transactions - Right sidebar */}
+              <div>
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Recent Transactions</CardTitle>
+                    <CardDescription>Latest account activities</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-4">
+                      {recentTransactions.map((transaction: any) => (
+                        <div key={transaction.id} className="flex items-center justify-between">
+                          <div>
+                            <p className="text-sm font-medium">{transaction.memberName}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {transaction.type} &bull; {transaction.mode}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              {new Date(transaction.date).toLocaleDateString()}
+                            </p>
+                          </div>
+                          <div className="text-right">
+                            <p
+                              className={`text-sm font-medium ${
+                                transaction.type === "Deposit" || transaction.type === "Loan Disbursement"
+                                  ? "text-green-600"
+                                  : "text-red-600"
+                              }`}
+                            >
+                              {transaction.type === "Deposit" || transaction.type === "Loan Disbursement" ? "+" : "-"}
+                              {formatCurrency(Number(transaction.amount || 0))}
+                            </p>
+                            <p className="text-xs text-muted-foreground">Bal: {formatCurrency(Number(transaction.balance || 0))}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="mt-4">
+                      <Link href="/transactions">
+                        <Button variant="outline" size="sm" className="w-full bg-transparent">
+                          View All Transactions
+                        </Button>
+                      </Link>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            </div>
+          </div>
+    </>
+  )
+}
