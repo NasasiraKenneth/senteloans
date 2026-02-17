@@ -13,7 +13,7 @@ import { Textarea } from "@/components/ui/textarea"
 
 import { FileUpload } from "@/components/ui/file-upload"
 // Removed mock-data; use live API
-import { ArrowLeft, Save, CreditCard, Smartphone, Share, Calculator, DollarSign, Check } from "lucide-react"
+import { ArrowLeft, Save, CreditCard, Smartphone, Share, Calculator, DollarSign, Check, BookOpen, PiggyBank, Landmark, AlertCircle } from "lucide-react"
 import { upload } from "@vercel/blob/client"
 import Link from "next/link"
 import { getSession } from "@/lib/session"
@@ -46,6 +46,21 @@ export default function UserEditPage({ params }: UserEditPageProps) {
   const [feeSuccess, setFeeSuccess] = useState<string | null>(null)
   const [feePayments, setFeePayments] = useState<any[]>([])
   const [currency, setCurrency] = useState("UGX")
+
+  // Opening balances state
+  const [obLoading, setObLoading] = useState(true)
+  const [obRecorded, setObRecorded] = useState(false)
+  const [obSavingsAccounts, setObSavingsAccounts] = useState<any[]>([])
+  const [obLoans, setObLoans] = useState<any[]>([])
+  const [obLoanProducts, setObLoanProducts] = useState<any[]>([])
+  const [obSavingsBalance, setObSavingsBalance] = useState("")
+  const [obSavingsAccountId, setObSavingsAccountId] = useState("")
+  const [obLoanBalance, setObLoanBalance] = useState("")
+  const [obLoanProductId, setObLoanProductId] = useState("")
+  const [obLoanTenure, setObLoanTenure] = useState("")
+  const [obSubmitting, setObSubmitting] = useState(false)
+  const [obSuccess, setObSuccess] = useState<string | null>(null)
+  const [obError, setObError] = useState<string | null>(null)
 
   // Form state
   const [formData, setFormData] = useState({
@@ -176,6 +191,92 @@ export default function UserEditPage({ params }: UserEditPageProps) {
     }
     loadCurrency()
   }, [])
+
+  // Load opening balance data
+  useEffect(() => {
+    let cancelled = false
+    async function loadOb() {
+      setObLoading(true)
+      try {
+        const res = await fetch(`/api/institution/clients/${id}/opening-balances`, { cache: "no-store" })
+        if (res.ok) {
+          const data = await res.json()
+          if (!cancelled) {
+            setObRecorded(data.openingBalanceRecorded || false)
+            setObSavingsAccounts(data.savingsAccounts || [])
+            setObLoans(data.loans || [])
+            setObLoanProducts(data.loanProducts || [])
+            if (data.savingsAccounts?.length > 0) {
+              setObSavingsAccountId(data.savingsAccounts[0].id)
+            }
+          }
+        }
+      } catch {
+        // ignore
+      } finally {
+        if (!cancelled) setObLoading(false)
+      }
+    }
+    loadOb()
+    return () => { cancelled = true }
+  }, [id])
+
+  const handleOpeningBalanceSubmit = async () => {
+    setObError(null)
+    setObSuccess(null)
+
+    const savBal = Number(obSavingsBalance) || 0
+    const loanBal = Number(obLoanBalance) || 0
+
+    if (savBal <= 0 && loanBal <= 0) {
+      setObError("Enter at least a savings balance or loan balance")
+      return
+    }
+
+    setObSubmitting(true)
+    try {
+      const payload: Record<string, unknown> = {}
+      if (savBal > 0) {
+        payload.savingsBalance = savBal
+        if (obSavingsAccountId) payload.savingsAccountId = obSavingsAccountId
+      }
+      if (loanBal > 0) {
+        if (!obLoanProductId) {
+          setObError("Select a loan product for the opening loan balance")
+          setObSubmitting(false)
+          return
+        }
+        payload.loanOutstandingBalance = loanBal
+        payload.loanProductId = obLoanProductId
+        if (obLoanTenure) payload.loanTenureMonths = Number(obLoanTenure)
+      }
+
+      const res = await fetch(`/api/institution/clients/${id}/opening-balances`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || "Failed to record opening balances")
+
+      setObRecorded(true)
+      setObSuccess("Opening balances recorded successfully")
+      setObSavingsBalance("")
+      setObLoanBalance("")
+
+      // Reload the data
+      const reloadRes = await fetch(`/api/institution/clients/${id}/opening-balances`, { cache: "no-store" })
+      if (reloadRes.ok) {
+        const reloadData = await reloadRes.json()
+        setObSavingsAccounts(reloadData.savingsAccounts || [])
+        setObLoans(reloadData.loans || [])
+      }
+    } catch (err: any) {
+      setObError(err?.message || "Failed to record opening balances")
+    } finally {
+      setObSubmitting(false)
+    }
+  }
 
   // Local fallback config if session is missing or stale
   const [instConfig, setInstConfig] = useState<any | null>(null)
@@ -805,6 +906,186 @@ export default function UserEditPage({ params }: UserEditPageProps) {
                       </div>
                     </div>
                   </div>
+                </CardContent>
+              </Card>
+
+              {/* Opening Balances */}
+              <Card id="opening-balances">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <BookOpen className="h-5 w-5 text-primary" />
+                    Opening Balances
+                  </CardTitle>
+                  <CardDescription>
+                    Set opening balances for members migrating from a previous system. This records their existing savings and loan balances.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {obLoading ? (
+                    <div className="text-sm text-muted-foreground">Loading...</div>
+                  ) : (
+                    <>
+                      {obRecorded && (
+                        <div className="flex items-center gap-2 p-3 bg-green-50 border border-green-200 rounded-lg">
+                          <Check className="h-4 w-4 text-green-600" />
+                          <span className="text-sm font-medium text-green-700">Opening balances have been recorded for this {terminology.singular.toLowerCase()}</span>
+                        </div>
+                      )}
+
+                      {obSuccess && (
+                        <div className="text-sm text-green-700 bg-green-50 border border-green-200 p-2 rounded">{obSuccess}</div>
+                      )}
+                      {obError && (
+                        <div className="text-sm text-red-600 bg-red-50 border border-red-200 p-2 rounded">{obError}</div>
+                      )}
+
+                      {/* Current Balances Summary */}
+                      {(obSavingsAccounts.length > 0 || obLoans.length > 0) && (
+                        <div className="space-y-3">
+                          <h4 className="text-sm font-semibold text-gray-900">Current Balances</h4>
+                          <div className="grid gap-3 md:grid-cols-2">
+                            {obSavingsAccounts.map((acc: any) => (
+                              <div key={acc.id} className="flex items-center gap-3 p-3 bg-muted/30 rounded-lg">
+                                <PiggyBank className="h-5 w-5 text-green-600" />
+                                <div className="flex-1 min-w-0">
+                                  <div className="text-sm font-medium truncate">{acc.account_number}</div>
+                                  <div className="text-xs text-muted-foreground">{acc.account_type} Savings</div>
+                                </div>
+                                <div className="text-sm font-bold text-green-700">
+                                  {currency} {Number(acc.available_balance).toLocaleString()}
+                                </div>
+                              </div>
+                            ))}
+                            {obLoans.filter((l: any) => ["Active", "Disbursed"].includes(l.status)).map((loan: any) => (
+                              <div key={loan.id} className="flex items-center gap-3 p-3 bg-muted/30 rounded-lg">
+                                <Landmark className="h-5 w-5 text-orange-600" />
+                                <div className="flex-1 min-w-0">
+                                  <div className="text-sm font-medium truncate">{loan.application_id}</div>
+                                  <div className="text-xs text-muted-foreground">{loan.product_name || "Loan"}</div>
+                                </div>
+                                <div className="text-sm font-bold text-orange-700">
+                                  {currency} {Number(loan.outstanding_balance).toLocaleString()}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Record Opening Balances Form */}
+                      <div className="border-t pt-4 space-y-4">
+                        <div className="flex items-center gap-2">
+                          <AlertCircle className="h-4 w-4 text-muted-foreground" />
+                          <span className="text-xs text-muted-foreground">
+                            {obRecorded
+                              ? "You can record additional opening balances if needed."
+                              : "Record the member's balances from their previous system."}
+                          </span>
+                        </div>
+
+                        {/* Savings Opening Balance */}
+                        <div className="space-y-3">
+                          <div className="flex items-center gap-2 pb-2 border-b">
+                            <PiggyBank className="h-4 w-4 text-green-600" />
+                            <h4 className="font-medium text-sm">Savings Opening Balance</h4>
+                          </div>
+                          {obSavingsAccounts.length === 0 ? (
+                            <div className="text-sm text-muted-foreground bg-yellow-50 border border-yellow-200 p-2 rounded">
+                              No savings account found. One will be created when the member was added.
+                            </div>
+                          ) : (
+                            <div className="grid gap-4 md:grid-cols-2">
+                              {obSavingsAccounts.length > 1 && (
+                                <div className="space-y-2">
+                                  <Label>Savings Account</Label>
+                                  <Select value={obSavingsAccountId} onValueChange={setObSavingsAccountId}>
+                                    <SelectTrigger>
+                                      <SelectValue placeholder="Select account" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {obSavingsAccounts.map((acc: any) => (
+                                        <SelectItem key={acc.id} value={acc.id}>
+                                          {acc.account_number} ({acc.account_type})
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                              )}
+                              <div className="space-y-2">
+                                <Label htmlFor="obSavingsBalance">Opening Savings Balance ({currency})</Label>
+                                <Input
+                                  id="obSavingsBalance"
+                                  type="number"
+                                  min={0}
+                                  value={obSavingsBalance}
+                                  onChange={(e) => setObSavingsBalance(e.target.value)}
+                                  placeholder="e.g., 500,000"
+                                />
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Loan Opening Balance */}
+                        <div className="space-y-3">
+                          <div className="flex items-center gap-2 pb-2 border-b">
+                            <Landmark className="h-4 w-4 text-orange-600" />
+                            <h4 className="font-medium text-sm">Loan Opening Balance</h4>
+                          </div>
+                          <div className="grid gap-4 md:grid-cols-2">
+                            <div className="space-y-2">
+                              <Label>Loan Product</Label>
+                              <Select value={obLoanProductId} onValueChange={setObLoanProductId}>
+                                <SelectTrigger>
+                                  <SelectValue placeholder="Select loan product" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {obLoanProducts.map((p: any) => (
+                                    <SelectItem key={p.id} value={p.id}>
+                                      {p.product_name} ({p.interest_rate}%)
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div className="space-y-2">
+                              <Label htmlFor="obLoanBalance">Outstanding Loan Balance ({currency})</Label>
+                              <Input
+                                id="obLoanBalance"
+                                type="number"
+                                min={0}
+                                value={obLoanBalance}
+                                onChange={(e) => setObLoanBalance(e.target.value)}
+                                placeholder="e.g., 1,000,000"
+                              />
+                            </div>
+                            <div className="space-y-2">
+                              <Label htmlFor="obLoanTenure">Remaining Tenure (months)</Label>
+                              <Input
+                                id="obLoanTenure"
+                                type="number"
+                                min={1}
+                                value={obLoanTenure}
+                                onChange={(e) => setObLoanTenure(e.target.value)}
+                                placeholder="e.g., 12"
+                              />
+                            </div>
+                          </div>
+                        </div>
+
+                        <Button
+                          type="button"
+                          onClick={handleOpeningBalanceSubmit}
+                          disabled={obSubmitting || (Number(obSavingsBalance) <= 0 && Number(obLoanBalance) <= 0)}
+                          className="w-full sm:w-auto"
+                        >
+                          <BookOpen className="h-4 w-4 mr-2" />
+                          {obSubmitting ? "Recording..." : "Record Opening Balances"}
+                        </Button>
+                      </div>
+                    </>
+                  )}
                 </CardContent>
               </Card>
 
