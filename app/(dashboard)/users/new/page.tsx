@@ -1,8 +1,6 @@
 "use client"
 
-
 import { MemberRegistrationForm } from "@/components/member-registration-form"
-import { Button } from "@/components/ui/button"
 import { ArrowLeft } from "lucide-react"
 import Link from "next/link"
 import { useState, useEffect } from "react"
@@ -19,28 +17,15 @@ export default function NewMemberPage() {
   const clientTerminology = session?.institution?.config?.clientTerminology || "Member"
 
   return (
-    <>
-      <div className="max-w-4xl mx-auto space-y-6">
-            {/* Header with Back Button */}
-            <div className="flex items-center gap-4">
-              <Link href="/users">
-                <Button variant="ghost" size="icon">
-                  <ArrowLeft className="h-4 w-4" />
-                </Button>
-              </Link>
-              <div>
-                <h2 className="text-3xl font-bold text-balance">Register New {clientTerminology}</h2>
-                <p className="text-muted-foreground text-pretty">
-                  Add a new {clientTerminology.toLowerCase()} with their complete information and documentation.
-                </p>
-              </div>
-            </div>
-
-            {/* Registration Form */}
-            <div className="bg-card rounded-lg border p-6">
-              <MemberRegistrationForm />
-            </div>
+    <div className="max-w-5xl mx-auto space-y-6">
+      <div>
+        <Link href="/users" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors">
+          <ArrowLeft className="h-4 w-4" />
+          Back to {clientTerminology}s
+        </Link>
       </div>
-    </>
+
+      <MemberRegistrationForm />
+    </div>
   )
 }

@@ -13,7 +13,8 @@ import { Textarea } from "@/components/ui/textarea"
 
 import { FileUpload } from "@/components/ui/file-upload"
 // Removed mock-data; use live API
-import { ArrowLeft, Save, CreditCard, Smartphone, Share, Calculator, DollarSign, Check, BookOpen, PiggyBank, Landmark, AlertCircle } from "lucide-react"
+import { ArrowLeft, Save, CreditCard, Smartphone, Share, Calculator, DollarSign, Check, BookOpen, PiggyBank, Landmark, AlertCircle, User, MapPin, Users, FileText, Shield, Phone, Eye } from "lucide-react"
+import Image from "next/image"
 import { upload } from "@vercel/blob/client"
 import Link from "next/link"
 import { getSession } from "@/lib/session"
@@ -58,6 +59,9 @@ export default function UserEditPage({ params }: UserEditPageProps) {
   const [obLoanBalance, setObLoanBalance] = useState("")
   const [obLoanProductId, setObLoanProductId] = useState("")
   const [obLoanTenure, setObLoanTenure] = useState("")
+  const [obLoanPrincipal, setObLoanPrincipal] = useState("")
+  const [obLoanLastPaymentDate, setObLoanLastPaymentDate] = useState("")
+  const [obLoanOriginalTenure, setObLoanOriginalTenure] = useState("")
   const [obSubmitting, setObSubmitting] = useState(false)
   const [obSuccess, setObSuccess] = useState<string | null>(null)
   const [obError, setObError] = useState<string | null>(null)
@@ -116,7 +120,7 @@ export default function UserEditPage({ params }: UserEditPageProps) {
           fullName: client.full_name || "",
           email: client.email || "",
           phoneNumber: client.phone_number || "",
-          dateOfBirth: client.date_of_birth || "",
+          dateOfBirth: client.date_of_birth ? client.date_of_birth.slice(0, 10) : "",
           gender: client.gender || "",
           maritalStatus: client.marital_status || "",
           location: [client.village, client.district].filter(Boolean).join(", "),
@@ -246,9 +250,25 @@ export default function UserEditPage({ params }: UserEditPageProps) {
           setObSubmitting(false)
           return
         }
+        const principal = Number(obLoanPrincipal) || 0
+        if (principal > 0 && principal < loanBal) {
+          setObError("Original principal amount cannot be less than the outstanding balance")
+          setObSubmitting(false)
+          return
+        }
+        const origTenure = Number(obLoanOriginalTenure) || 0
+        const remTenure = Number(obLoanTenure) || 0
+        if (origTenure > 0 && remTenure > 0 && origTenure < remTenure) {
+          setObError("Original tenure cannot be less than remaining tenure")
+          setObSubmitting(false)
+          return
+        }
         payload.loanOutstandingBalance = loanBal
         payload.loanProductId = obLoanProductId
         if (obLoanTenure) payload.loanTenureMonths = Number(obLoanTenure)
+        if (principal > 0) payload.loanPrincipalAmount = principal
+        if (obLoanLastPaymentDate) payload.loanLastPaymentDate = obLoanLastPaymentDate
+        if (origTenure > 0) payload.loanOriginalTenure = origTenure
       }
 
       const res = await fetch(`/api/institution/clients/${id}/opening-balances`, {
@@ -263,6 +283,9 @@ export default function UserEditPage({ params }: UserEditPageProps) {
       setObSuccess("Opening balances recorded successfully")
       setObSavingsBalance("")
       setObLoanBalance("")
+      setObLoanPrincipal("")
+      setObLoanLastPaymentDate("")
+      setObLoanOriginalTenure("")
 
       // Reload the data
       const reloadRes = await fetch(`/api/institution/clients/${id}/opening-balances`, { cache: "no-store" })
@@ -381,27 +404,37 @@ export default function UserEditPage({ params }: UserEditPageProps) {
     try {
       setDocUploading((p) => ({ ...p, [docType]: true }))
       const name = `client-kyc/${id}/${docType}-${Date.now()}-${file.name}`
-      const res = await upload(name, file, {
+      const blobResult = await upload(name, file, {
         handleUploadUrl: "/api/vercel_blob/upload",
         access: "public",
         contentType: file.type,
       })
-      // Persist URL to Supabase via our API (works locally without Vercel callback)
-      await fetch(`/api/institution/clients/${id}/kyc`, {
+
+      if (!blobResult?.url) {
+        throw new Error("Upload completed but no URL was returned")
+      }
+
+      const saveRes = await fetch(`/api/institution/clients/${id}/kyc`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ docType, url: res.url }),
+        body: JSON.stringify({ docType, url: blobResult.url }),
       })
+      if (!saveRes.ok) {
+        const saveData = await saveRes.json().catch(() => ({}))
+        throw new Error(saveData?.error || "Failed to save document URL to database")
+      }
+
       setDocs((prev) => {
         const next = { ...prev }
-        if (docType === "passport_photo") next.passportPhoto = res.url
-        if (docType === "national_id_front") next.nationalIdFront = res.url
-        if (docType === "national_id_back") next.nationalIdBack = res.url
+        if (docType === "passport_photo") next.passportPhoto = blobResult.url
+        if (docType === "national_id_front") next.nationalIdFront = blobResult.url
+        if (docType === "national_id_back") next.nationalIdBack = blobResult.url
         return next
       })
     } catch (e: any) {
+      console.error("[kyc-upload] error:", e)
       setError(e?.message || "Failed to upload document")
-      throw e // Re-throw for FileUpload component to handle
+      throw e
     } finally {
       setDocUploading((p) => ({ ...p, [docType]: false }))
     }
@@ -579,12 +612,28 @@ export default function UserEditPage({ params }: UserEditPageProps) {
 
   if (loading) {
     return (
-      <>
-        <div className="animate-pulse space-y-6">
-          <div className="h-8 bg-muted rounded w-1/3"></div>
-          <div className="h-96 bg-muted rounded"></div>
+      <div className="max-w-5xl mx-auto animate-pulse space-y-6">
+        <div className="h-4 bg-muted rounded w-32" />
+        <div className="rounded-xl border bg-card overflow-hidden">
+          <div className="h-16 bg-muted/50" />
+          <div className="px-6 pb-5 -mt-8 flex items-end gap-4">
+            <div className="h-16 w-16 rounded-full bg-muted border-4 border-card" />
+            <div className="flex-1 space-y-2 pb-1">
+              <div className="h-5 bg-muted rounded w-48" />
+              <div className="h-3 bg-muted rounded w-64" />
+            </div>
+          </div>
         </div>
-      </>
+        <div className="flex gap-2">
+          {[1, 2, 3, 4, 5].map((i) => (
+            <div key={i} className="h-7 w-24 bg-muted rounded-full" />
+          ))}
+        </div>
+        <div className="space-y-6">
+          <div className="h-64 bg-muted rounded-lg" />
+          <div className="h-48 bg-muted rounded-lg" />
+        </div>
+      </div>
     )
   }
 
@@ -592,35 +641,120 @@ export default function UserEditPage({ params }: UserEditPageProps) {
     return notFound()
   }
 
+  const initials = user.full_name
+    ? user.full_name.split(" ").map((n: string) => n[0]).join("").toUpperCase().slice(0, 2)
+    : "?"
+
+  const sections = [
+    { id: "personal", label: "Personal Info", icon: User },
+    { id: "kyc", label: "KYC Documents", icon: FileText },
+    { id: "location", label: "Location & Work", icon: MapPin },
+    { id: "nok", label: "Next of Kin", icon: Users },
+    { id: "payout", label: "Payout Accounts", icon: CreditCard },
+    { id: "opening-balances", label: "Opening Balances", icon: BookOpen },
+    ...(hasShares ? [{ id: "shares", label: "Shares", icon: Share }] : []),
+    ...(membershipFee > 0 ? [{ id: "membership-fee", label: "Membership Fee", icon: DollarSign }] : []),
+    { id: "status", label: "Status & Notes", icon: Shield },
+  ]
+
   return (
     <>
-      <div className="space-y-6">
-            {/* Header */}
-            <div className="flex items-center gap-4">
-              <Link href={`/users/${id}`}>
-                <Button variant="ghost" size="icon">
-                  <ArrowLeft className="h-4 w-4" />
-                </Button>
+      <div className="max-w-5xl mx-auto space-y-6">
+            {/* Back link */}
+            <div>
+              <Link href={`/users/${id}`} className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors">
+                <ArrowLeft className="h-4 w-4" />
+                Back to {terminology.singular}
               </Link>
-              <div>
-                <h2 className="text-3xl font-bold text-balance">{terminology.edit}</h2>
-                <p className="text-muted-foreground text-pretty">
-                  Update {terminology.singular.toLowerCase()} information and settings.
-                </p>
+            </div>
+
+            {/* Profile header */}
+            <div className="relative overflow-hidden rounded-xl border bg-card">
+              <div className="h-16 bg-linear-to-r from-primary/15 via-primary/8 to-transparent" />
+              <div className="px-6 pb-5">
+                <div className="flex items-end gap-4 -mt-8">
+                  {user.passport_photo ? (
+                    <div className="relative h-16 w-16 shrink-0 rounded-full border-4 border-card overflow-hidden bg-muted shadow-sm">
+                      <Image src={user.passport_photo} alt={user.full_name} fill className="object-cover" />
+                    </div>
+                  ) : (
+                    <div className="h-16 w-16 shrink-0 rounded-full border-4 border-card bg-primary/10 shadow-sm flex items-center justify-center">
+                      <span className="text-lg font-bold text-primary">{initials}</span>
+                    </div>
+                  )}
+                  <div className="flex-1 min-w-0 pb-0.5">
+                    <h1 className="text-xl font-bold tracking-tight truncate">{user.full_name}</h1>
+                    <div className="flex items-center gap-3 text-sm text-muted-foreground mt-0.5">
+                      <span className="font-mono">{user.client_number}</span>
+                      <span className="text-border">·</span>
+                      <span>{user.phone_number}</span>
+                      {user.email && (
+                        <>
+                          <span className="hidden sm:inline text-border">·</span>
+                          <span className="hidden sm:inline truncate max-w-[200px]">{user.email}</span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                  <Link href={`/users/${id}`} className="hidden sm:inline-flex">
+                    <Button variant="outline" size="sm">
+                      <Eye className="h-4 w-4 mr-2" />
+                      View Profile
+                    </Button>
+                  </Link>
+                </div>
               </div>
             </div>
 
-            {error && <div className="text-sm text-red-600 bg-red-50 border border-red-200 p-2 rounded">{error}</div>}
+            {/* Section navigation pills */}
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-hide">
+              {sections.map((s) => (
+                <a
+                  key={s.id}
+                  href={`#${s.id}`}
+                  onClick={(e) => {
+                    e.preventDefault()
+                    const el = document.getElementById(s.id)
+                    if (!el) return
+                    const scrollContainer = el.closest("main")
+                    if (scrollContainer) {
+                      const offset = el.offsetTop - scrollContainer.offsetTop - 24
+                      scrollContainer.scrollTo({ top: offset, behavior: "smooth" })
+                    } else {
+                      el.scrollIntoView({ behavior: "smooth", block: "start" })
+                    }
+                  }}
+                  className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-full border bg-card text-muted-foreground hover:text-foreground hover:border-primary/30 transition-colors"
+                >
+                  <s.icon className="h-3 w-3" />
+                  {s.label}
+                </a>
+              ))}
+            </div>
+
+            {/* Alerts */}
+            {error && (
+              <div className="flex items-center gap-2 text-sm text-red-700 bg-red-50 border border-red-200 px-4 py-3 rounded-lg">
+                <AlertCircle className="h-4 w-4 shrink-0" />
+                {error}
+              </div>
+            )}
             {success && (
-              <div className="text-sm text-green-700 bg-green-50 border border-green-200 p-2 rounded">{success}</div>
+              <div className="flex items-center gap-2 text-sm text-green-700 bg-green-50 border border-green-200 px-4 py-3 rounded-lg">
+                <Check className="h-4 w-4 shrink-0" />
+                {success}
+              </div>
             )}
 
             <form onSubmit={handleSubmit} className="space-y-6">
               {/* Basic Information */}
-              <Card>
+              <Card id="personal" className="scroll-mt-24">
                 <CardHeader>
-                  <CardTitle>Basic Information</CardTitle>
-                  <CardDescription>Personal details and contact information.</CardDescription>
+                  <CardTitle className="flex items-center gap-2">
+                    <User className="h-5 w-5 text-primary" />
+                    Personal Information
+                  </CardTitle>
+                  <CardDescription>Name, contact details, and demographic information.</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="grid gap-4 md:grid-cols-2">
@@ -695,9 +829,12 @@ export default function UserEditPage({ params }: UserEditPageProps) {
                 </CardContent>
               </Card>
 
-              <Card id="kyc">
+              <Card id="kyc" className="scroll-mt-24">
                 <CardHeader>
-                  <CardTitle>KYC Documents</CardTitle>
+                  <CardTitle className="flex items-center gap-2">
+                    <FileText className="h-5 w-5 text-primary" />
+                    KYC Documents
+                  </CardTitle>
                   <CardDescription>
                     Upload identification documents for verification. Drag and drop files or click to browse.
                   </CardDescription>
@@ -739,9 +876,12 @@ export default function UserEditPage({ params }: UserEditPageProps) {
               </Card>
 
               {/* Location & Occupation */}
-              <Card>
+              <Card id="location" className="scroll-mt-24">
                 <CardHeader>
-                  <CardTitle>Location & Occupation</CardTitle>
+                  <CardTitle className="flex items-center gap-2">
+                    <MapPin className="h-5 w-5 text-primary" />
+                    Location & Occupation
+                  </CardTitle>
                   <CardDescription>Address and employment information.</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
@@ -763,7 +903,7 @@ export default function UserEditPage({ params }: UserEditPageProps) {
                       />
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="monthlyIncome">Monthly Income (UGX)</Label>
+                      <Label htmlFor="monthlyIncome">Monthly Income ({currency})</Label>
                       <Input
                         id="monthlyIncome"
                         value={formData.monthlyIncome}
@@ -775,27 +915,56 @@ export default function UserEditPage({ params }: UserEditPageProps) {
               </Card>
 
               {/* Emergency Contact */}
-              <Card id="nok">
+              <Card id="nok" className="scroll-mt-24">
                 <CardHeader>
-                  <CardTitle>Emergency Contact</CardTitle>
-                  <CardDescription>Next of kin information.</CardDescription>
+                  <CardTitle className="flex items-center gap-2">
+                    <Users className="h-5 w-5 text-primary" />
+                    Emergency Contact
+                  </CardTitle>
+                  <CardDescription>Next of kin and beneficiary details.</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <div className="grid gap-4 md:grid-cols-2">
+                  <div className="grid gap-4 md:grid-cols-3">
                     <div className="space-y-2">
-                      <Label htmlFor="nextOfKin">Next of Kin</Label>
+                      <Label htmlFor="nextOfKin">Full Name</Label>
                       <Input
                         id="nextOfKin"
                         value={formData.nextOfKin}
                         onChange={(e) => handleInputChange("nextOfKin", e.target.value)}
+                        placeholder="e.g., Mary Nakamya"
                       />
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="nextOfKinPhone">Next of Kin Phone</Label>
+                      <Label htmlFor="nextOfKinRelationship">Relationship</Label>
+                      <Select
+                        value={formData.nextOfKinRelationship}
+                        onValueChange={(value) => handleInputChange("nextOfKinRelationship", value)}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select relationship" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="Spouse">Spouse</SelectItem>
+                          <SelectItem value="Father">Father</SelectItem>
+                          <SelectItem value="Mother">Mother</SelectItem>
+                          <SelectItem value="Son">Son</SelectItem>
+                          <SelectItem value="Daughter">Daughter</SelectItem>
+                          <SelectItem value="Brother">Brother</SelectItem>
+                          <SelectItem value="Sister">Sister</SelectItem>
+                          <SelectItem value="Uncle">Uncle</SelectItem>
+                          <SelectItem value="Aunt">Aunt</SelectItem>
+                          <SelectItem value="Friend">Friend</SelectItem>
+                          <SelectItem value="Other">Other</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="nextOfKinPhone">Phone Number</Label>
                       <Input
                         id="nextOfKinPhone"
                         value={formData.nextOfKinPhone}
                         onChange={(e) => handleInputChange("nextOfKinPhone", e.target.value)}
+                        placeholder="e.g., +256701234567"
                       />
                     </div>
                   </div>
@@ -803,15 +972,14 @@ export default function UserEditPage({ params }: UserEditPageProps) {
               </Card>
 
               {/* Linked Payout Accounts */}
-              <Card id="payout">
+              <Card id="payout" className="scroll-mt-24">
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
                     <CreditCard className="h-5 w-5 text-primary" />
                     Linked Payout Accounts
                   </CardTitle>
                   <CardDescription>
-                    Configure payout accounts for loan disbursements and repayment collections. Essential for financial
-                    transactions.
+                    Configure payout accounts for loan disbursements and repayment collections.
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-6">
@@ -910,14 +1078,14 @@ export default function UserEditPage({ params }: UserEditPageProps) {
               </Card>
 
               {/* Opening Balances */}
-              <Card id="opening-balances">
+              <Card id="opening-balances" className="scroll-mt-24">
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
                     <BookOpen className="h-5 w-5 text-primary" />
                     Opening Balances
                   </CardTitle>
                   <CardDescription>
-                    Set opening balances for members migrating from a previous system. This records their existing savings and loan balances.
+                    Record existing savings and loan balances for members migrating from a previous system.
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
@@ -1033,9 +1201,12 @@ export default function UserEditPage({ params }: UserEditPageProps) {
                             <Landmark className="h-4 w-4 text-orange-600" />
                             <h4 className="font-medium text-sm">Loan Opening Balance</h4>
                           </div>
+                          <p className="text-xs text-muted-foreground">
+                            Provide the original loan details to create a full loan lifecycle with repayment schedule.
+                          </p>
                           <div className="grid gap-4 md:grid-cols-2">
                             <div className="space-y-2">
-                              <Label>Loan Product</Label>
+                              <Label>Loan Product <span className="text-red-500">*</span></Label>
                               <Select value={obLoanProductId} onValueChange={setObLoanProductId}>
                                 <SelectTrigger>
                                   <SelectValue placeholder="Select loan product" />
@@ -1050,7 +1221,19 @@ export default function UserEditPage({ params }: UserEditPageProps) {
                               </Select>
                             </div>
                             <div className="space-y-2">
-                              <Label htmlFor="obLoanBalance">Outstanding Loan Balance ({currency})</Label>
+                              <Label htmlFor="obLoanPrincipal">Original Loan Amount ({currency}) <span className="text-red-500">*</span></Label>
+                              <Input
+                                id="obLoanPrincipal"
+                                type="number"
+                                min={0}
+                                value={obLoanPrincipal}
+                                onChange={(e) => setObLoanPrincipal(e.target.value)}
+                                placeholder="e.g., 2,000,000"
+                              />
+                              <p className="text-xs text-muted-foreground">The full principal amount that was originally disbursed</p>
+                            </div>
+                            <div className="space-y-2">
+                              <Label htmlFor="obLoanBalance">Outstanding Balance ({currency}) <span className="text-red-500">*</span></Label>
                               <Input
                                 id="obLoanBalance"
                                 type="number"
@@ -1059,9 +1242,22 @@ export default function UserEditPage({ params }: UserEditPageProps) {
                                 onChange={(e) => setObLoanBalance(e.target.value)}
                                 placeholder="e.g., 1,000,000"
                               />
+                              <p className="text-xs text-muted-foreground">The amount still owed today</p>
                             </div>
                             <div className="space-y-2">
-                              <Label htmlFor="obLoanTenure">Remaining Tenure (months)</Label>
+                              <Label htmlFor="obLoanOriginalTenure">Original Tenure (months)</Label>
+                              <Input
+                                id="obLoanOriginalTenure"
+                                type="number"
+                                min={1}
+                                value={obLoanOriginalTenure}
+                                onChange={(e) => setObLoanOriginalTenure(e.target.value)}
+                                placeholder="e.g., 24"
+                              />
+                              <p className="text-xs text-muted-foreground">Total months the loan was originally issued for</p>
+                            </div>
+                            <div className="space-y-2">
+                              <Label htmlFor="obLoanTenure">Remaining Tenure (months) <span className="text-red-500">*</span></Label>
                               <Input
                                 id="obLoanTenure"
                                 type="number"
@@ -1070,8 +1266,52 @@ export default function UserEditPage({ params }: UserEditPageProps) {
                                 onChange={(e) => setObLoanTenure(e.target.value)}
                                 placeholder="e.g., 12"
                               />
+                              <p className="text-xs text-muted-foreground">Months still remaining to be paid</p>
+                            </div>
+                            <div className="space-y-2">
+                              <Label htmlFor="obLoanLastPaymentDate">Last Payment Date</Label>
+                              <Input
+                                id="obLoanLastPaymentDate"
+                                type="date"
+                                value={obLoanLastPaymentDate}
+                                onChange={(e) => setObLoanLastPaymentDate(e.target.value)}
+                              />
+                              <p className="text-xs text-muted-foreground">Date of the most recent payment in the previous system</p>
                             </div>
                           </div>
+
+                          {/* Loan calculation preview */}
+                          {Number(obLoanBalance) > 0 && Number(obLoanTenure) > 0 && obLoanProductId && (() => {
+                            const bal = Number(obLoanBalance)
+                            const rem = Number(obLoanTenure)
+                            const selectedProduct = obLoanProducts.find((p: any) => p.id === obLoanProductId)
+                            const rate = selectedProduct ? Number(selectedProduct.interest_rate) : 0
+                            const monthlyRate = rate / 100 / 12
+                            const mp = monthlyRate > 0
+                              ? (bal * monthlyRate * Math.pow(1 + monthlyRate, rem)) / (Math.pow(1 + monthlyRate, rem) - 1)
+                              : bal / rem
+                            const totalRepayment = mp * rem
+                            const totalInterest = totalRepayment - bal
+                            return (
+                              <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg space-y-1">
+                                <h5 className="text-xs font-semibold text-blue-800">Projected Repayment Schedule</h5>
+                                <div className="grid grid-cols-3 gap-2 text-xs text-blue-700">
+                                  <div>
+                                    <span className="block text-blue-500">Monthly Payment</span>
+                                    <span className="font-semibold">{currency} {Math.round(mp).toLocaleString()}</span>
+                                  </div>
+                                  <div>
+                                    <span className="block text-blue-500">Total Interest</span>
+                                    <span className="font-semibold">{currency} {Math.round(totalInterest).toLocaleString()}</span>
+                                  </div>
+                                  <div>
+                                    <span className="block text-blue-500">Total Repayment</span>
+                                    <span className="font-semibold">{currency} {Math.round(totalRepayment).toLocaleString()}</span>
+                                  </div>
+                                </div>
+                              </div>
+                            )
+                          })()}
                         </div>
 
                         <Button
@@ -1090,10 +1330,10 @@ export default function UserEditPage({ params }: UserEditPageProps) {
               </Card>
 
               {hasShares && (
-                <Card id="shares">
+                <Card id="shares" className="scroll-mt-24">
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">
-                      <Share className="h-5 w-5" />
+                      <Share className="h-5 w-5 text-primary" />
                       Shares Management
                     </CardTitle>
                     <CardDescription>
@@ -1184,7 +1424,7 @@ export default function UserEditPage({ params }: UserEditPageProps) {
 
               {/* Membership Fee */}
               {membershipFee > 0 && (
-                <Card id="membership-fee">
+                <Card id="membership-fee" className="scroll-mt-24">
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">
                       <DollarSign className="h-5 w-5 text-primary" />
@@ -1350,45 +1590,51 @@ export default function UserEditPage({ params }: UserEditPageProps) {
               )}
 
               {/* Status & Management */}
-              <Card>
+              <Card id="status" className="scroll-mt-24">
                 <CardHeader>
-                  <CardTitle>Status & Management</CardTitle>
-                  <CardDescription>Account status and administrative information.</CardDescription>
+                  <CardTitle className="flex items-center gap-2">
+                    <Shield className="h-5 w-5 text-primary" />
+                    Status & Management
+                  </CardTitle>
+                  <CardDescription>Account status, KYC verification, and administrative notes.</CardDescription>
                 </CardHeader>
-                <CardContent className="space-y-4" id="notes">
-                  <div className="space-y-2">
-                    <Label htmlFor="status">Status</Label>
-                    <Select value={formData.status} onValueChange={(value) => handleInputChange("status", value)}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select status" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="Active">Active</SelectItem>
-                        <SelectItem value="Inactive">Inactive</SelectItem>
-                        <SelectItem value="Suspended">Suspended</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="kycStatus">KYC Status</Label>
-                    <Select value={formData.kycStatus} onValueChange={(value) => handleInputChange("kycStatus", value)}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select KYC status" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="Verified">Verified</SelectItem>
-                        <SelectItem value="Pending">Pending</SelectItem>
-                        <SelectItem value="Rejected">Rejected</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="loanOfficer">Loan Officer</Label>
-                    <Input
-                      id="loanOfficer"
-                      value={formData.loanOfficer}
-                      onChange={(e) => handleInputChange("loanOfficer", e.target.value)}
-                    />
+                <CardContent className="space-y-6">
+                  <div className="grid gap-4 md:grid-cols-3">
+                    <div className="space-y-2">
+                      <Label htmlFor="status">Account Status</Label>
+                      <Select value={formData.status} onValueChange={(value) => handleInputChange("status", value)}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select status" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="Active">Active</SelectItem>
+                          <SelectItem value="Inactive">Inactive</SelectItem>
+                          <SelectItem value="Suspended">Suspended</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="kycStatus">KYC Status</Label>
+                      <Select value={formData.kycStatus} onValueChange={(value) => handleInputChange("kycStatus", value)}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select KYC status" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="Verified">Verified</SelectItem>
+                          <SelectItem value="Pending">Pending</SelectItem>
+                          <SelectItem value="Rejected">Rejected</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="loanOfficer">Loan Officer</Label>
+                      <Input
+                        id="loanOfficer"
+                        value={formData.loanOfficer}
+                        onChange={(e) => handleInputChange("loanOfficer", e.target.value)}
+                        placeholder="e.g., John Mukasa"
+                      />
+                    </div>
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="notes">Notes</Label>
@@ -1403,17 +1649,26 @@ export default function UserEditPage({ params }: UserEditPageProps) {
                 </CardContent>
               </Card>
 
-              {/* Action Buttons */}
-              <div className="flex items-center justify-end space-x-4">
-                <Link href={`/users/${id}`}>
-                  <Button variant="outline" type="button">
-                    Cancel
-                  </Button>
-                </Link>
-                <Button type="submit" disabled={saving}>
-                  <Save className="h-4 w-4 mr-2" />
-                  {saving ? "Saving..." : terminology.update}
-                </Button>
+              {/* Sticky Save Bar */}
+              <div className="sticky bottom-0 z-10 -mx-1 px-1">
+                <div className="bg-background/95 backdrop-blur-sm border rounded-xl px-6 py-4 shadow-lg">
+                  <div className="flex items-center justify-between gap-4">
+                    <p className="text-sm text-muted-foreground hidden sm:block">
+                      Review all sections before saving changes.
+                    </p>
+                    <div className="flex items-center gap-3 ml-auto">
+                      <Link href={`/users/${id}`}>
+                        <Button variant="outline" type="button">
+                          Cancel
+                        </Button>
+                      </Link>
+                      <Button type="submit" disabled={saving}>
+                        <Save className="h-4 w-4 mr-2" />
+                        {saving ? "Saving..." : terminology.update}
+                      </Button>
+                    </div>
+                  </div>
+                </div>
               </div>
             </form>
       </div>

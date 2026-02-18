@@ -53,6 +53,9 @@ export function DashboardSidebar() {
     if (pathname.startsWith("/reports")) {
       setExpandedMenus((prev) => (prev.includes("Reports") ? prev : [...prev, "Reports"]))
     }
+    if (pathname.startsWith("/loans") || pathname.startsWith("/loan-products")) {
+      setExpandedMenus((prev) => (prev.includes("Loans") ? prev : [...prev, "Loans"]))
+    }
   }, [pathname])
 
   const getSections = (): NavSection[] => {
@@ -66,7 +69,15 @@ export function DashboardSidebar() {
 
     // Finance section
     const financeItems: NavItem[] = [
-      { name: "Loans", href: "/loans", icon: CreditCard },
+      {
+        name: "Loans",
+        href: "/loans",
+        icon: CreditCard,
+        submenu: [
+          { name: "All Loans", href: "/loans" },
+          { name: "Loan Products", href: "/loan-products" },
+        ],
+      },
     ]
     if (!session?.institution || modules.savings) {
       financeItems.push({ name: "Savings", href: "/savings", icon: PiggyBank })
@@ -126,6 +137,7 @@ export function DashboardSidebar() {
     if (href === "/dashboard") return pathname === "/dashboard"
     if (href === "/users") return pathname.startsWith("/users") || pathname.startsWith("/members")
     if (href === "/staff") return pathname.startsWith("/staff")
+    if (href === "/loans") return pathname.startsWith("/loans") || pathname.startsWith("/loan-products")
     if (href === "/investments") return pathname.startsWith("/investments")
     if (href === "/invoices") return pathname.startsWith("/invoices")
     if (href === "/statements") return pathname.startsWith("/statements")
@@ -307,29 +319,43 @@ export function DashboardSidebar() {
                     )}
 
                     {/* Submenu */}
-                    {hasSubmenu && isExpanded && !collapsed && (
-                      <div className="ml-[22px] mt-1 space-y-0.5 border-l border-white/6 pl-5">
-                        {item.submenu!.map((subItem) => {
-                          const subActive = pathname === subItem.href
-                          return (
-                            <Link
-                              key={subItem.name}
-                              href={subItem.href}
-                              className={cn(
-                                "relative block rounded-lg px-3 py-2 text-[12px] font-medium transition-all duration-150",
-                                subActive
-                                  ? "text-[#f08c2b] bg-[#f08c2b]/8"
-                                  : "text-white/35 hover:bg-white/4 hover:text-white/65",
-                              )}
-                            >
-                              {/* Active dot */}
-                              {subActive && (
-                                <span className="absolute -left-[23px] top-1/2 h-1.5 w-1.5 -translate-y-1/2 rounded-full bg-[#f08c2b]" />
-                              )}
-                              {subItem.name}
-                            </Link>
-                          )
-                        })}
+                    {hasSubmenu && !collapsed && (
+                      <div
+                        className="grid transition-[grid-template-rows,opacity] duration-300 ease-in-out"
+                        style={{
+                          gridTemplateRows: isExpanded ? "1fr" : "0fr",
+                          opacity: isExpanded ? 1 : 0,
+                        }}
+                      >
+                        <div className="overflow-hidden">
+                          <div className="ml-[22px] mt-1 space-y-0.5 border-l border-white/6 pl-5 pb-1">
+                            {item.submenu!.map((subItem, subIdx) => {
+                              const subActive = pathname === subItem.href || pathname.startsWith(subItem.href + "/")
+                              return (
+                                <Link
+                                  key={subItem.name}
+                                  href={subItem.href}
+                                  className={cn(
+                                    "relative block rounded-lg px-3 py-2 text-[12px] font-medium transition-all duration-200",
+                                    subActive
+                                      ? "text-[#f08c2b] bg-[#f08c2b]/8"
+                                      : "text-white/35 hover:bg-white/4 hover:text-white/65",
+                                  )}
+                                  style={{
+                                    transitionDelay: isExpanded ? `${subIdx * 40}ms` : "0ms",
+                                    transform: isExpanded ? "translateX(0)" : "translateX(-8px)",
+                                    opacity: isExpanded ? 1 : 0,
+                                  }}
+                                >
+                                  {subActive && (
+                                    <span className="absolute -left-[23px] top-1/2 h-1.5 w-1.5 -translate-y-1/2 rounded-full bg-[#f08c2b]" />
+                                  )}
+                                  {subItem.name}
+                                </Link>
+                              )
+                            })}
+                          </div>
+                        </div>
                       </div>
                     )}
                   </div>

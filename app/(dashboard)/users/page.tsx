@@ -411,7 +411,7 @@ export default function UsersPage() {
         {error && <div className="text-sm text-red-600">{error}</div>}
         <DataTable<UiClient>
           columns={columns}
-          rows={users}
+          rows={users.slice(page * rowsPerPage, (page + 1) * rowsPerPage)}
           loading={loading}
           title={terminology.plural}
           filterFields={filterFields}

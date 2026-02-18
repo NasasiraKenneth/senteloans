@@ -34,9 +34,9 @@ export const ReeveModal: React.FC<ModalProps> = ({
                     animate="visible"
                     exit="exit"
                     transition={{ duration: 0.3, ease: "easeOut" }}
-                    className={`absolute top-12 right-0 w-[30rem] bg-white rounded-lg shadow-xl border border-gray-200 z-50 ${className}`}
+                    className={`absolute top-12 right-0 bottom-2 w-[30rem] bg-white rounded-lg shadow-xl border border-gray-200 z-50 flex flex-col ${className}`}
                 >
-                    <div className="flex justify-between items-center mb-4 p-4 border-b border-gray-200">
+                    <div className="flex justify-between items-center shrink-0 p-4 border-b border-gray-200">
                         <h3 className="text-lg font-semibold text-gray-800">{title}</h3>
                         <button
                             onClick={onClose}
@@ -45,7 +45,7 @@ export const ReeveModal: React.FC<ModalProps> = ({
                             <Icon provider="io" iconName="IoMdClose" size={20} />
                         </button>
                     </div>
-                    <div>{children}</div>
+                    <div className="flex-1 overflow-y-auto">{children}</div>
                 </motion.div>
             )}
         </AnimatePresence>

@@ -361,9 +361,9 @@ export default function TransactionsPage() {
             {/* Transactions DataTable */}
             <DataTable<TransactionRow>
               columns={columns}
-              rows={transactions}
+              rows={transactions.slice(page * rowsPerPage, (page + 1) * rowsPerPage)}
               loading={loading}
-              title={`All Transactions (${transactions.length}${total ? ` of ${total}` : ""})`}
+              title={`All Transactions (${transactions.length}${total > transactions.length ? ` of ${total}` : ""})`}
               filterFields={filterFields}
               onQueryParamsChange={handleQueryParamsChange}
               emptyMessage="No transactions found"
@@ -374,6 +374,7 @@ export default function TransactionsPage() {
                 total: transactions.length,
                 onPageChange,
                 onRowsPerPageChange,
+                rowsPerPageOptions: [10, 25, 50],
               }}
             />
           </div>

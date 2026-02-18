@@ -4,12 +4,11 @@ import type React from "react"
 import { useEffect, useState } from "react"
 import { useParams } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import DataTable, { DataTableColumn } from "@/components/datatables/DataTable"
 
-import { ArrowLeft, CreditCard, User, Calendar, DollarSign, CheckCircle, XCircle, AlertTriangle } from "lucide-react"
+import { ArrowLeft, CreditCard, User, DollarSign, CheckCircle, XCircle, Calendar, Percent, Clock, TrendingDown, Banknote } from "lucide-react"
 import Link from "next/link"
 import { useToast } from "@/components/ui/toast"
 import { Input } from "@/components/ui/input"
@@ -56,6 +55,8 @@ export default function LoanDetailsPage() {
   const [recordPaymentAmount, setRecordPaymentAmount] = useState<string>("")
   const [recordPaymentMode, setRecordPaymentMode] = useState<string>("Cash")
   const [recordPaymentDate, setRecordPaymentDate] = useState<string>(() => new Date().toISOString().slice(0, 10))
+  const [schedPage, setSchedPage] = useState(0)
+  const [schedRowsPerPage, setSchedRowsPerPage] = useState(6)
   const { toast } = useToast()
 
   async function refetchLoanAndRepayments() {
@@ -180,24 +181,39 @@ export default function LoanDetailsPage() {
 
   if (!loan) {
     return (
-      <>
-        <div className="text-center">
-          {loading ? (
-            <>
-              <h1 className="text-2xl font-bold">Loading loan…</h1>
-              <p className="text-muted-foreground">Please wait while we fetch the loan details.</p>
-            </>
-          ) : (
-            <>
-              <h1 className="text-2xl font-bold">Loan Not Found</h1>
-              <p className="text-muted-foreground">The requested loan could not be found.</p>
-              <Link href="/loans">
-                <Button className="mt-4">Back to Loans</Button>
-              </Link>
-            </>
-          )}
-        </div>
-      </>
+      <div className="max-w-6xl mx-auto">
+        {loading ? (
+          <div className="animate-pulse space-y-6">
+            <div className="h-4 bg-muted rounded w-28" />
+            <div className="rounded-xl border bg-card overflow-hidden">
+              <div className="h-20 bg-muted/50" />
+              <div className="px-6 pb-6 -mt-6 flex items-end gap-4">
+                <div className="h-14 w-14 rounded-full bg-muted border-4 border-card" />
+                <div className="flex-1 space-y-2 pb-1">
+                  <div className="h-5 bg-muted rounded w-56" />
+                  <div className="h-3 bg-muted rounded w-80" />
+                </div>
+              </div>
+            </div>
+            <div className="grid md:grid-cols-4 gap-4">
+              {[1, 2, 3, 4].map((i) => <div key={i} className="h-24 bg-muted rounded-lg" />)}
+            </div>
+            <div className="grid md:grid-cols-2 gap-6">
+              <div className="h-64 bg-muted rounded-lg" />
+              <div className="h-64 bg-muted rounded-lg" />
+            </div>
+          </div>
+        ) : (
+          <div className="text-center py-20">
+            <CreditCard className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+            <h1 className="text-2xl font-bold">Loan Not Found</h1>
+            <p className="text-muted-foreground mt-1">The requested loan could not be found.</p>
+            <Link href="/loans">
+              <Button className="mt-6">Back to Loans</Button>
+            </Link>
+          </div>
+        )}
+      </div>
     )
   }
 
@@ -217,233 +233,338 @@ export default function LoanDetailsPage() {
     })
   }
 
-  const getStatusIcon = (status: string) => {
+  const getStatusStyle = (status: string) => {
     switch (status) {
       case "Approved":
       case "Disbursed":
-        return <CheckCircle className="h-5 w-5 text-green-600" />
+      case "Active":
+        return { bg: "bg-green-100 text-green-700 border border-green-200", dot: "bg-green-500" }
       case "Rejected":
-        return <XCircle className="h-5 w-5 text-red-600" />
       case "Defaulted":
-        return <AlertTriangle className="h-5 w-5 text-red-600" />
+        return { bg: "bg-red-100 text-red-700 border border-red-200", dot: "bg-red-500" }
+      case "Closed":
+        return { bg: "bg-gray-100 text-gray-700 border border-gray-200", dot: "bg-gray-400" }
       default:
-        return <AlertTriangle className="h-5 w-5 text-yellow-600" />
+        return { bg: "bg-yellow-100 text-yellow-700 border border-yellow-200", dot: "bg-yellow-500" }
     }
   }
 
-  const getStatusVariant = (status: string) => {
-    switch (status) {
-      case "Approved":
-      case "Disbursed":
-        return "default"
-      case "Rejected":
-      case "Defaulted":
-        return "destructive"
-      case "Closed":
-        return "secondary"
-      default:
-        return "outline"
-    }
-  }
+  const statusStyle = getStatusStyle(loan.status)
 
   // Calculate repayment progress
   const repaymentProgress = loan
     ? Math.max(0, Math.min(100, ((loan.principalAmount - loan.outstandingBalance) / Math.max(loan.principalAmount, 1)) * 100))
     : 0
 
+  type RepaymentRow = typeof repaymentSchedule[number]
+
+  const repaymentColumns: DataTableColumn<RepaymentRow>[] = [
+    {
+      key: "installment",
+      header: "#",
+      render: (row) => (
+        <span className="text-sm font-semibold text-gray-700">#{row.installment}</span>
+      ),
+    },
+    {
+      key: "dueDate",
+      header: "Due Date",
+      render: (row) => (
+        <span className="text-sm text-gray-700">{row.dueDate ? formatDate(row.dueDate) : "—"}</span>
+      ),
+    },
+    {
+      key: "principal",
+      header: "Principal",
+      render: (row) => (
+        <span className="text-sm text-gray-900">{formatCurrency(row.principal)}</span>
+      ),
+    },
+    {
+      key: "interest",
+      header: "Interest",
+      render: (row) => (
+        <span className="text-sm text-gray-900">{formatCurrency(row.interest)}</span>
+      ),
+    },
+    {
+      key: "totalPayment",
+      header: "Total Payment",
+      render: (row) => (
+        <span className="text-sm font-semibold text-gray-900">{formatCurrency(row.totalPayment)}</span>
+      ),
+    },
+    {
+      key: "status",
+      header: "Status",
+      render: (row) => {
+        const statusStyles: Record<string, string> = {
+          Paid: "bg-green-100 text-green-700 border border-green-200",
+          Pending: "bg-gray-100 text-gray-700 border border-gray-200",
+          Due: "bg-red-100 text-red-700 border border-red-200",
+          Overdue: "bg-red-100 text-red-700 border border-red-200",
+        }
+        const dotStyles: Record<string, string> = {
+          Paid: "bg-green-500",
+          Pending: "bg-gray-400",
+          Due: "bg-red-500",
+          Overdue: "bg-red-500",
+        }
+        return (
+          <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium ${statusStyles[row.status] || "bg-gray-100 text-gray-700 border border-gray-200"}`}>
+            <span className={`h-1.5 w-1.5 rounded-full ${dotStyles[row.status] || "bg-gray-400"}`} />
+            {row.status}
+          </span>
+        )
+      },
+    },
+  ]
+
+  const pagedRepayments = repaymentSchedule.slice(
+    schedPage * schedRowsPerPage,
+    (schedPage + 1) * schedRowsPerPage
+  )
+
+  const monthlyPayment = Number.isFinite((loan.principalAmount * (1 + loan.interestRate / 100)) / Math.max(loan.tenure, 1))
+    ? (loan.principalAmount * (1 + loan.interestRate / 100)) / Math.max(loan.tenure, 1)
+    : 0
+
   return (
     <>
           <div className="max-w-6xl mx-auto space-y-6">
-            {/* Header */}
-            <div className="flex items-center space-x-4">
-              <Link href="/loans">
-                <Button variant="ghost" size="icon">
-                  <ArrowLeft className="h-4 w-4" />
-                </Button>
+            {/* Back link */}
+            <div>
+              <Link href="/loans" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors">
+                <ArrowLeft className="h-4 w-4" />
+                Back to Loans
               </Link>
-              <div className="flex-1">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-2">
-                    <CreditCard className="h-5 w-5" />
-                    <h1 className="text-3xl font-bold">Loan Details - {loan.applicationId}</h1>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    {getStatusIcon(loan.status)}
-                    <Badge variant={getStatusVariant(loan.status)}>{loan.status}</Badge>
-                  </div>
-                </div>
-                <p className="text-muted-foreground text-pretty">
-                  Complete loan information and repayment schedule for {loan.memberName}
-                </p>
-              </div>
             </div>
 
-            {/* Loan Overview */}
-            <div className="grid md:grid-cols-3 gap-4">
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm font-medium">Principal Amount</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold">{formatCurrency(loan.principalAmount)}</div>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm font-medium">Outstanding Balance</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold">{formatCurrency(loan.outstandingBalance)}</div>
-                  <Progress value={repaymentProgress} className="mt-2" />
-                  <p className="text-xs text-muted-foreground mt-1">{repaymentProgress.toFixed(1)}% repaid</p>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm font-medium">Monthly Payment</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold">
-                    {formatCurrency(
-                      Number.isFinite((loan.principalAmount * (1 + loan.interestRate / 100)) / Math.max(loan.tenure, 1))
-                        ? (loan.principalAmount * (1 + loan.interestRate / 100)) / Math.max(loan.tenure, 1)
-                        : 0
+            {/* Loan Header Card */}
+            <div className="relative overflow-hidden rounded-xl border bg-card">
+              <div className="h-20 bg-linear-to-r from-primary/15 via-primary/8 to-transparent" />
+              <div className="px-6 pb-6">
+                <div className="flex flex-col sm:flex-row gap-5 -mt-8">
+                  {/* Loan icon */}
+                  <div className="h-16 w-16 shrink-0 rounded-full border-4 border-card bg-primary/10 shadow-sm flex items-center justify-center">
+                    <CreditCard className="h-7 w-7 text-primary" />
+                  </div>
+
+                  {/* Loan meta */}
+                  <div className="flex-1 min-w-0 pt-1 sm:pt-2">
+                    <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
+                      <h1 className="text-2xl font-bold tracking-tight truncate">{loan.applicationId}</h1>
+                      <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium w-fit ${statusStyle.bg}`}>
+                        <span className={`h-1.5 w-1.5 rounded-full ${statusStyle.dot}`} />
+                        {loan.status}
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-1.5 text-sm text-muted-foreground">
+                      <span>{loan.loanProduct}</span>
+                      <span className="hidden sm:inline text-border">|</span>
+                      <Link href={`/users/${loan.memberId}`} className="hover:text-foreground transition-colors underline-offset-2 hover:underline">
+                        {loan.memberName}
+                      </Link>
+                      {loan.memberNumber && (
+                        <>
+                          <span className="hidden sm:inline text-border">|</span>
+                          <span className="font-mono">{loan.memberNumber}</span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Quick actions */}
+                  <div className="flex items-start gap-2 pt-2">
+                    {loan.memberId && (
+                      <Link href={`/users/${loan.memberId}`}>
+                        <Button variant="outline" size="sm">
+                          <User className="h-4 w-4 mr-2" />
+                          View Member
+                        </Button>
+                      </Link>
                     )}
                   </div>
-                  {(loan.overdueDays ?? 0) > 0 && (
-                    <p className="text-xs text-red-600 mt-1">{loan.overdueDays} days overdue</p>
-                  )}
-                </CardContent>
-              </Card>
+                </div>
+              </div>
             </div>
 
+            {/* Key Metrics */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="rounded-xl border bg-card p-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="p-1.5 rounded-lg bg-blue-100">
+                    <Banknote className="h-4 w-4 text-blue-600" />
+                  </div>
+                  <span className="text-xs font-medium text-muted-foreground">Principal</span>
+                </div>
+                <div className="text-xl font-bold">{formatCurrency(loan.principalAmount)}</div>
+              </div>
+
+              <div className="rounded-xl border bg-card p-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="p-1.5 rounded-lg bg-orange-100">
+                    <TrendingDown className="h-4 w-4 text-orange-600" />
+                  </div>
+                  <span className="text-xs font-medium text-muted-foreground">Outstanding</span>
+                </div>
+                <div className="text-xl font-bold">{formatCurrency(loan.outstandingBalance)}</div>
+                <div className="mt-2">
+                  <Progress value={repaymentProgress} className="h-1.5" />
+                  <p className="text-xs text-muted-foreground mt-1">{repaymentProgress.toFixed(0)}% repaid</p>
+                </div>
+              </div>
+
+              <div className="rounded-xl border bg-card p-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="p-1.5 rounded-lg bg-green-100">
+                    <DollarSign className="h-4 w-4 text-green-600" />
+                  </div>
+                  <span className="text-xs font-medium text-muted-foreground">Monthly Payment</span>
+                </div>
+                <div className="text-xl font-bold">{formatCurrency(monthlyPayment)}</div>
+                {(loan.overdueDays ?? 0) > 0 && (
+                  <p className="text-xs text-red-600 font-medium mt-1">{loan.overdueDays} days overdue</p>
+                )}
+              </div>
+
+              <div className="rounded-xl border bg-card p-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="p-1.5 rounded-lg bg-purple-100">
+                    <Percent className="h-4 w-4 text-purple-600" />
+                  </div>
+                  <span className="text-xs font-medium text-muted-foreground">Interest Rate</span>
+                </div>
+                <div className="text-xl font-bold">{loan.interestRate}%</div>
+                <p className="text-xs text-muted-foreground mt-1">{loan.tenure} months tenure</p>
+              </div>
+            </div>
+
+            {/* Loan Details + Member Info */}
             <div className="grid md:grid-cols-2 gap-6">
               {/* Loan Information */}
-              <div className="space-y-6">
-                <div className="border-b pb-4">
-                  <div className="flex items-center space-x-2 mb-2">
-                    <CreditCard className="h-4 w-4 text-primary" />
-                    <h2 className="text-xl font-semibold">Loan Information</h2>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-6">
-                  <div>
-                    <SectionLabel>Application ID</SectionLabel>
-                    <p className="text-sm font-medium">{loan.applicationId}</p>
-                  </div>
-                  <div>
-                    <SectionLabel>Loan Product</SectionLabel>
-                    <p className="text-sm font-medium">{loan.loanProduct}</p>
-                  </div>
-                  <div>
-                    <SectionLabel>Interest Rate</SectionLabel>
-                    <p className="text-sm font-medium">{loan.interestRate}% per annum</p>
-                  </div>
-                  <div>
-                    <SectionLabel>Tenure</SectionLabel>
-                    <p className="text-sm font-medium">{loan.tenure} months</p>
-                  </div>
-                  <div>
-                    <SectionLabel>Application Date</SectionLabel>
-                    <p className="text-sm font-medium">{formatDate(loan.applicationDate)}</p>
-                  </div>
-                  {loan.disbursementDate && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <CreditCard className="h-5 w-5 text-primary" />
+                    Loan Information
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-2 gap-x-6 gap-y-4">
                     <div>
-                      <SectionLabel>Disbursement Date</SectionLabel>
-                      <p className="text-sm font-medium">{formatDate(loan.disbursementDate)}</p>
+                      <SectionLabel>Application ID</SectionLabel>
+                      <p className="text-sm font-medium mt-0.5">{loan.applicationId}</p>
                     </div>
-                  )}
-                </div>
-                <div>
-                  <SectionLabel>Purpose</SectionLabel>
-                  <p className="text-sm font-medium">{loan.purpose}</p>
-                </div>
-              </div>
+                    <div>
+                      <SectionLabel>Loan Product</SectionLabel>
+                      <p className="text-sm font-medium mt-0.5">{loan.loanProduct}</p>
+                    </div>
+                    <div>
+                      <SectionLabel>Interest Rate</SectionLabel>
+                      <p className="text-sm font-medium mt-0.5">{loan.interestRate}% per annum</p>
+                    </div>
+                    <div>
+                      <SectionLabel>Tenure</SectionLabel>
+                      <p className="text-sm font-medium mt-0.5">{loan.tenure} months</p>
+                    </div>
+                    <div>
+                      <SectionLabel>Application Date</SectionLabel>
+                      <p className="text-sm font-medium mt-0.5">{formatDate(loan.applicationDate)}</p>
+                    </div>
+                    {loan.disbursementDate && (
+                      <div>
+                        <SectionLabel>Disbursement Date</SectionLabel>
+                        <p className="text-sm font-medium mt-0.5">{formatDate(loan.disbursementDate)}</p>
+                      </div>
+                    )}
+                    {loan.maturityDate && (
+                      <div>
+                        <SectionLabel>Maturity Date</SectionLabel>
+                        <p className="text-sm font-medium mt-0.5">{formatDate(loan.maturityDate)}</p>
+                      </div>
+                    )}
+                    {loan.purpose && (
+                      <div className="col-span-2">
+                        <SectionLabel>Purpose</SectionLabel>
+                        <p className="text-sm font-medium mt-0.5">{loan.purpose}</p>
+                      </div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
 
               {/* Member Information */}
-              <div className="space-y-6">
-                <div className="border-b pb-4">
-                  <div className="flex items-center space-x-2 mb-2">
-                    <User className="h-4 w-4 text-primary" />
-                    <h2 className="text-xl font-semibold">Member Information</h2>
-                  </div>
-                </div>
-
-                <div className="space-y-4">
-                  <div>
-                    <SectionLabel>Member Name</SectionLabel>
-                    <p className="text-sm font-medium">{loan.memberName}</p>
-                  </div>
-                  <div>
-                    <SectionLabel>Member ID</SectionLabel>
-                    <p className="text-sm font-medium">{loan.memberId}</p>
-                  </div>
-                  {loan.nextPaymentDate && (
-                    <div>
-                      <SectionLabel>Next Payment Due</SectionLabel>
-                      <p className="text-sm font-medium">{formatDate(loan.nextPaymentDate)}</p>
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <User className="h-5 w-5 text-primary" />
+                    Member Information
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-4 p-3 rounded-lg bg-muted/30">
+                      <div className="h-10 w-10 shrink-0 rounded-full bg-primary/10 flex items-center justify-center">
+                        <span className="text-sm font-bold text-primary">
+                          {loan.memberName.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2)}
+                        </span>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold truncate">{loan.memberName}</p>
+                        <p className="text-xs text-muted-foreground font-mono">{loan.memberNumber || loan.memberId}</p>
+                      </div>
+                      {loan.memberId && (
+                        <Link href={`/users/${loan.memberId}`}>
+                          <Button variant="outline" size="sm">View</Button>
+                        </Link>
+                      )}
                     </div>
-                  )}
-                </div>
-              </div>
+                    <div className="grid grid-cols-2 gap-x-6 gap-y-4">
+                      {loan.nextPaymentDate && (
+                        <div>
+                          <SectionLabel>Next Payment Due</SectionLabel>
+                          <p className="text-sm font-medium mt-0.5 flex items-center gap-1.5">
+                            <Clock className="h-3.5 w-3.5 text-muted-foreground" />
+                            {formatDate(loan.nextPaymentDate)}
+                          </p>
+                        </div>
+                      )}
+                      {loan.maturityDate && (
+                        <div>
+                          <SectionLabel>Maturity Date</SectionLabel>
+                          <p className="text-sm font-medium mt-0.5 flex items-center gap-1.5">
+                            <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
+                            {formatDate(loan.maturityDate)}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
             </div>
 
             {/* Repayment Schedule */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center">
-                  <Calendar className="h-4 w-4 mr-2" />
-                  Repayment Schedule
-                </CardTitle>
-                <CardDescription>Monthly installment breakdown</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Installment</TableHead>
-                      <TableHead>Due Date</TableHead>
-                      <TableHead>Principal</TableHead>
-                      <TableHead>Interest</TableHead>
-                      <TableHead>Total Payment</TableHead>
-                      <TableHead>Status</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {repaymentSchedule.slice(0, 6).map((payment) => (
-                      <TableRow key={payment.installment}>
-                        <TableCell className="font-medium">#{payment.installment}</TableCell>
-                        <TableCell>{formatDate(payment.dueDate)}</TableCell>
-                        <TableCell>{formatCurrency(payment.principal)}</TableCell>
-                        <TableCell>{formatCurrency(payment.interest)}</TableCell>
-                        <TableCell className="font-medium">{formatCurrency(payment.totalPayment)}</TableCell>
-                        <TableCell>
-                          <Badge
-                            variant={
-                              payment.status === "Paid"
-                                ? "default"
-                                : payment.status === "Due"
-                                  ? "destructive"
-                                  : "outline"
-                            }
-                          >
-                            {payment.status}
-                          </Badge>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-                {repaymentSchedule.length > 6 && (
-                  <div className="text-center mt-4">
-                    <Button variant="outline" size="sm">
-                      View Full Schedule ({repaymentSchedule.length} installments)
-                    </Button>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+            <DataTable<RepaymentRow>
+              columns={repaymentColumns}
+              rows={pagedRepayments}
+              loading={loading}
+              title="Repayment Schedule"
+              emptyMessage="No repayment schedule available"
+              getRowId={(row) => row.installment}
+              pagination={{
+                page: schedPage,
+                rowsPerPage: schedRowsPerPage,
+                total: repaymentSchedule.length,
+                onPageChange: (_e, newPage) => setSchedPage(newPage),
+                onRowsPerPageChange: (e) => {
+                  setSchedRowsPerPage(parseInt(e.target.value, 10))
+                  setSchedPage(0)
+                },
+                rowsPerPageOptions: [6, 12, 18],
+              }}
+            />
 
             {/* Record Payment form */}
             {recordPaymentOpen && loan && (
@@ -607,8 +728,8 @@ export default function LoanDetailsPage() {
                       const data = await res.json()
                       if (!res.ok) throw new Error(data?.error || "Failed to disburse loan")
                       const today = new Date().toISOString().slice(0, 10)
-                      setLoan((prev) => (prev ? { ...prev, status: "Disbursed", disbursementDate: today } : prev))
-                      toast({ variant: "success", title: "Loan Disbursed" })
+                      setLoan((prev) => (prev ? { ...prev, status: "Active", disbursementDate: today } : prev))
+                      toast({ variant: "success", title: "Loan Disbursed & Active" })
                     } catch (e: any) {
                       toast({ variant: "destructive", title: "Action failed", description: e?.message || "Please try again" })
                     } finally {
@@ -620,7 +741,7 @@ export default function LoanDetailsPage() {
                   Disburse Loan
                 </Button>
               )}
-              {loan.status === "Disbursed" && (
+              {(loan.status === "Disbursed" || loan.status === "Active") && (
                 <Button
                   variant="outline"
                   disabled={actionLoading}

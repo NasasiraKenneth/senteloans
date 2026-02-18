@@ -77,16 +77,27 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   }
 }
 
+function addMonths(dateStr: string, months: number): string {
+  const d = new Date(dateStr + "T00:00:00Z")
+  d.setUTCMonth(d.getUTCMonth() + months)
+  return d.toISOString().slice(0, 10)
+}
+
 /**
  * POST /api/institution/clients/[id]/opening-balances
- * Records opening balances for savings and/or loans
+ * Records opening balances for savings and/or loans.
+ * When loan fields are provided, creates a full loan lifecycle with repayment schedule.
+ *
  * Body: {
- *   savingsBalance?: number          - Opening savings balance (sets available_balance & total_balance on existing account)
- *   savingsAccountId?: string        - Which savings account to update (uses first if not specified)
- *   loanOutstandingBalance?: number  - Opening loan outstanding balance
- *   loanProductId?: string           - Which loan product for the opening loan
- *   loanTenureMonths?: number        - Remaining tenure for the opening loan
- *   loanInterestRate?: number        - Interest rate override (uses product default if not set)
+ *   savingsBalance?: number           - Opening savings balance
+ *   savingsAccountId?: string         - Which savings account to update (uses first if not specified)
+ *   loanOutstandingBalance?: number   - Current outstanding loan balance
+ *   loanProductId?: string            - Loan product for the opening loan
+ *   loanTenureMonths?: number         - Remaining tenure (months still to pay)
+ *   loanInterestRate?: number         - Interest rate override (uses product default if not set)
+ *   loanPrincipalAmount?: number      - Original principal amount of the loan
+ *   loanLastPaymentDate?: string      - Date of the last payment in the previous system (YYYY-MM-DD)
+ *   loanOriginalTenure?: number       - Original total tenure of the loan in months
  * }
  */
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -100,12 +111,21 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
     const body = await req.json().catch(() => ({})) as Record<string, unknown>
 
-    const savingsBalance = typeof body.savingsBalance === "number" ? body.savingsBalance : (typeof body.savingsBalance === "string" ? Number(body.savingsBalance) : null)
+    const parseNum = (val: unknown): number | null => {
+      if (typeof val === "number") return val
+      if (typeof val === "string" && val.trim()) { const n = Number(val); return Number.isFinite(n) ? n : null }
+      return null
+    }
+
+    const savingsBalance = parseNum(body.savingsBalance)
     const savingsAccountId = typeof body.savingsAccountId === "string" ? body.savingsAccountId : null
-    const loanOutstandingBalance = typeof body.loanOutstandingBalance === "number" ? body.loanOutstandingBalance : (typeof body.loanOutstandingBalance === "string" ? Number(body.loanOutstandingBalance) : null)
+    const loanOutstandingBalance = parseNum(body.loanOutstandingBalance)
     const loanProductId = typeof body.loanProductId === "string" ? body.loanProductId : null
-    const loanTenureMonths = typeof body.loanTenureMonths === "number" ? body.loanTenureMonths : (typeof body.loanTenureMonths === "string" ? Number(body.loanTenureMonths) : null)
-    const loanInterestRate = typeof body.loanInterestRate === "number" ? body.loanInterestRate : (typeof body.loanInterestRate === "string" ? Number(body.loanInterestRate) : null)
+    const loanTenureMonths = parseNum(body.loanTenureMonths)
+    const loanInterestRate = parseNum(body.loanInterestRate)
+    const loanPrincipalAmount = parseNum(body.loanPrincipalAmount)
+    const loanLastPaymentDate = typeof body.loanLastPaymentDate === "string" && body.loanLastPaymentDate.trim() ? body.loanLastPaymentDate.trim() : null
+    const loanOriginalTenure = parseNum(body.loanOriginalTenure)
 
     const hasSavings = savingsBalance !== null && Number.isFinite(savingsBalance) && savingsBalance > 0
     const hasLoan = loanOutstandingBalance !== null && Number.isFinite(loanOutstandingBalance) && loanOutstandingBalance > 0
@@ -118,6 +138,14 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       return NextResponse.json({ error: "Loan product is required for opening loan balance" }, { status: 400 })
     }
 
+    if (hasLoan && loanPrincipalAmount !== null && loanPrincipalAmount < loanOutstandingBalance!) {
+      return NextResponse.json({ error: "Original principal amount cannot be less than the outstanding balance" }, { status: 400 })
+    }
+
+    if (hasLoan && loanOriginalTenure !== null && loanTenureMonths !== null && loanOriginalTenure < loanTenureMonths) {
+      return NextResponse.json({ error: "Original tenure cannot be less than remaining tenure" }, { status: 400 })
+    }
+
     const result = await runWithAuth(session.user.authUserId, async (client) => {
       const actorRes = await client.query(
         `SELECT id, institution_id FROM senteloans_users WHERE supabase_user_id = $1`,
@@ -126,7 +154,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       const actor = actorRes.rows[0]
       if (!actor) return { error: "user_not_linked" as const }
 
-      // Verify client
       const clientRes = await client.query(
         `SELECT id, institution_id, client_number FROM senteloans_clients WHERE id = $1 AND institution_id = $2`,
         [clientId, actor.institution_id]
@@ -139,7 +166,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
       // --- SAVINGS OPENING BALANCE ---
       if (hasSavings) {
-        // Find the savings account to update
         let accountId = savingsAccountId
         if (!accountId) {
           const accRes = await client.query(
@@ -153,7 +179,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
           return { error: "no_savings_account" as const }
         }
 
-        // Verify account belongs to this client
         const accVerify = await client.query(
           `SELECT id, available_balance FROM senteloans_savings_accounts WHERE id = $1 AND client_id = $2 AND institution_id = $3`,
           [accountId, clientId, actor.institution_id]
@@ -162,7 +187,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
         const balanceBefore = Number(accVerify.rows[0].available_balance) || 0
 
-        // Update savings account balances
         await client.query(
           `UPDATE senteloans_savings_accounts
            SET available_balance = $1, total_balance = $1, last_transaction_date = $2
@@ -170,7 +194,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
           [savingsBalance, txDate.slice(0, 10), accountId]
         )
 
-        // Create an Opening Balance transaction for audit
         const savTxNumber = `OB-SAV-${Date.now()}`
         await client.query(
           `INSERT INTO senteloans_transactions
@@ -184,7 +207,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
       // --- LOAN OPENING BALANCE ---
       if (hasLoan && loanProductId) {
-        // Verify loan product belongs to institution
         const prodRes = await client.query(
           `SELECT id, product_name, interest_rate, minimum_tenure_months FROM senteloans_loan_products WHERE id = $1 AND institution_id = $2`,
           [loanProductId, actor.institution_id]
@@ -193,23 +215,95 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         if (!product) return { error: "loan_product_not_found" as const }
 
         const interestRate = loanInterestRate ?? Number(product.interest_rate)
-        const tenure = loanTenureMonths ?? Number(product.minimum_tenure_months)
+        const remainingTenure = loanTenureMonths ?? Number(product.minimum_tenure_months)
+        const principalAmount = loanPrincipalAmount ?? loanOutstandingBalance!
+        const originalTenure = loanOriginalTenure ?? remainingTenure
+
+        // Calculate monthly payment for the remaining schedule
+        const monthlyRate = interestRate / 100 / 12
+        let monthlyPayment: number
+        if (monthlyRate > 0) {
+          const factor = Math.pow(1 + monthlyRate, remainingTenure)
+          monthlyPayment = (loanOutstandingBalance! * monthlyRate * factor) / (factor - 1)
+        } else {
+          monthlyPayment = loanOutstandingBalance! / remainingTenure
+        }
+        monthlyPayment = Math.round(monthlyPayment * 100) / 100
+        const totalAmount = Math.round(monthlyPayment * remainingTenure * 100) / 100
+
+        // Determine key dates
+        const todayStr = txDate.slice(0, 10)
+        const elapsedMonths = originalTenure - remainingTenure
+        const disbursementDate = loanLastPaymentDate
+          ? addMonths(loanLastPaymentDate, -elapsedMonths)
+          : todayStr
+        const nextPaymentDate = loanLastPaymentDate
+          ? addMonths(loanLastPaymentDate, 1)
+          : addMonths(todayStr, 1)
+        const maturityDate = addMonths(nextPaymentDate, remainingTenure - 1)
+
         const now = new Date()
         const yymm = `${String(now.getFullYear()).slice(2)}${String(now.getMonth() + 1).padStart(2, "0")}`
         const applicationId = `OB-${yymm}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`
 
-        // Create loan record with status "Active" and outstanding balance
         const loanRes = await client.query(
           `INSERT INTO senteloans_loans
-            (institution_id, client_id, loan_product_id, application_id, principal_amount, interest_rate, tenure_months, outstanding_balance, status, purpose, application_date, approval_date, disbursement_date, created_by)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'Active', $9, $10, $10, $10, $11)
+            (institution_id, client_id, loan_product_id, application_id, principal_amount, interest_rate, tenure_months, monthly_payment, total_amount, outstanding_balance, status, purpose, application_date, approval_date, disbursement_date, maturity_date, next_payment_date, created_by)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'Active', $11, $12, $12, $13, $14, $15, $16)
            RETURNING id`,
-          [actor.institution_id, clientId, loanProductId, applicationId, loanOutstandingBalance, interestRate, tenure, loanOutstandingBalance, "Opening balance loan from previous system", txDate.slice(0, 10), actor.id]
+          [
+            actor.institution_id, clientId, loanProductId, applicationId,
+            principalAmount, interestRate, originalTenure,
+            monthlyPayment, totalAmount, loanOutstandingBalance,
+            "Opening balance loan from previous system",
+            disbursementDate, disbursementDate, maturityDate, nextPaymentDate,
+            actor.id,
+          ]
         )
         const loanRow = loanRes.rows[0]
         if (!loanRow) return { error: "loan_creation_failed" as const }
 
-        // Create an Opening Balance transaction for audit (linked to loan)
+        // --- Generate repayment schedule for the remaining tenure ---
+        // Past installments (already paid in the previous system) are marked as Paid
+        const principalPerMonth = Math.round((loanOutstandingBalance! / remainingTenure) * 100) / 100
+        const interestPerMonth = Math.round((loanOutstandingBalance! * interestRate / 100 / 12) * 100) / 100
+
+        // Insert paid installments for the elapsed period (historical record)
+        const paidPrincipalPerMonth = elapsedMonths > 0
+          ? Math.round(((principalAmount - loanOutstandingBalance!) / elapsedMonths) * 100) / 100
+          : 0
+        const paidInterestPerMonth = elapsedMonths > 0
+          ? Math.round((principalAmount * interestRate / 100 / 12) * 100) / 100
+          : 0
+
+        for (let i = 1; i <= elapsedMonths; i++) {
+          const dueDate = addMonths(disbursementDate, i)
+          const paidPaymentDate = loanLastPaymentDate && i === elapsedMonths
+            ? loanLastPaymentDate
+            : dueDate
+          await client.query(
+            `INSERT INTO senteloans_loan_repayments
+              (loan_id, installment_number, due_date, principal_amount, interest_amount, amount_paid, payment_date, status)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, 'Paid')
+             ON CONFLICT (loan_id, installment_number) DO NOTHING`,
+            [loanRow.id, i, dueDate, paidPrincipalPerMonth, paidInterestPerMonth,
+             Math.round((paidPrincipalPerMonth + paidInterestPerMonth) * 100) / 100, paidPaymentDate]
+          )
+        }
+
+        // Insert remaining (future) installments as Pending
+        for (let i = 1; i <= remainingTenure; i++) {
+          const installmentNumber = elapsedMonths + i
+          const dueDate = addMonths(nextPaymentDate, i - 1)
+          await client.query(
+            `INSERT INTO senteloans_loan_repayments
+              (loan_id, installment_number, due_date, principal_amount, interest_amount, amount_paid, status)
+             VALUES ($1, $2, $3, $4, $5, 0, 'Pending')
+             ON CONFLICT (loan_id, installment_number) DO NOTHING`,
+            [loanRow.id, installmentNumber, dueDate, principalPerMonth, interestPerMonth]
+          )
+        }
+
         const loanTxNumber = `OB-LN-${Date.now()}`
         await client.query(
           `INSERT INTO senteloans_transactions
@@ -222,20 +316,22 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         results.loanId = loanRow.id
       }
 
-      // Mark client as having opening balances recorded
       await client.query(
         `UPDATE senteloans_clients SET opening_balance_recorded = TRUE WHERE id = $1`,
         [clientId]
       )
 
-      // Audit log
       await client.query(
         `INSERT INTO senteloans_audit_logs (institution_id, user_id, table_name, operation, record_id, new_values)
          VALUES ($1, $2, 'senteloans_clients', 'UPDATE', $3, $4)`,
         [actor.institution_id, actor.id, clientId, JSON.stringify({
           action: "opening_balances",
           savingsBalance: hasSavings ? savingsBalance : null,
+          loanPrincipalAmount: hasLoan ? (loanPrincipalAmount ?? loanOutstandingBalance) : null,
           loanOutstandingBalance: hasLoan ? loanOutstandingBalance : null,
+          loanOriginalTenure: hasLoan ? (loanOriginalTenure ?? loanTenureMonths) : null,
+          loanRemainingTenure: hasLoan ? loanTenureMonths : null,
+          loanLastPaymentDate: hasLoan ? loanLastPaymentDate : null,
         })]
       )
 

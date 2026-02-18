@@ -304,7 +304,7 @@ export default function SavingsPage() {
                 {error && <div className="text-sm text-red-600">{error}</div>}
                 <DataTable<SavingsRow>
                   columns={columns}
-                  rows={accounts}
+                  rows={accounts.slice(page * rowsPerPage, (page + 1) * rowsPerPage)}
                   loading={loading}
                   title={`Savings Accounts (${total})`}
                   filterFields={filterFields}

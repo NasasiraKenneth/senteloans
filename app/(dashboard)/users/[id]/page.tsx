@@ -5,7 +5,6 @@ import { useParams } from "next/navigation"
 import { useState, useEffect } from "react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Label as UILabel } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 
 import { getSession } from "@/lib/session"
@@ -24,6 +23,7 @@ import {
   CheckCircle2,
   Circle,
   Shield,
+  ShieldCheck,
   AlertCircle,
   Clock,
 } from "lucide-react"
@@ -424,64 +424,125 @@ export default function UserProfilePage() {
   const showShares = Boolean(hasSharesFeature || (user?.numberOfShares && user.numberOfShares > 0))
   const hasSavings = session?.institution?.config?.modules?.savings
 
+  const initials = user.fullName
+    .split(" ")
+    .map((n: string) => n[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase()
+
   return (
     <>
       <div className="max-w-6xl mx-auto space-y-6">
-            {/* Top: Header only */}
-            <div className="grid gap-6 md:grid-cols-3 items-start">
-              {/* Header (spans two columns) */}
-              <div className="md:col-span-2">
-                <div className="flex items-center space-x-4">
-                  <Link href="/users">
-                    <Button variant="ghost" size="icon">
-                      <ArrowLeft className="h-4 w-4" />
-                    </Button>
-                  </Link>
-                  <div className="flex-1">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center space-x-2">
-                        <User className="h-5 w-5" />
-                        <h1 className="text-3xl font-bold">{user.fullName}</h1>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <Link href={`/users/${user.id}/loans`}>
-                          <Button variant="outline" size="sm">
-                            <CreditCard className="h-4 w-4 mr-2" />
-                            View Loans
-                          </Button>
-                        </Link>
-                        {hasSavings && (
-                          primarySavingsId ? (
-                            <Link href={`/savings/${primarySavingsId}`}>
-                              <Button variant="outline" size="sm">
-                                <PiggyBank className="h-4 w-4 mr-2" />
-                                View Savings
-                              </Button>
-                            </Link>
-                          ) : (
-                            <Button variant="outline" size="sm" disabled title={loadingSavings ? "Loading..." : "No savings account found"}>
-                              <PiggyBank className="h-4 w-4 mr-2" />
-                              View Savings
-                            </Button>
-                          )
-                        )}
-                        <Link href={`/users/${user.id}/edit`}>
-                          <Button variant="outline" size="sm">
-                            <Edit className="h-4 w-4 mr-2" />
-                            Edit Profile
-                          </Button>
-                        </Link>
-                        <Button size="sm" onClick={handleEnableClientLogin} disabled={enableLoading || !user.email}>
-                          {user?.supabaseUserId
-                            ? (enableLoading ? "Resetting..." : "Reset Client Password")
-                            : (enableLoading ? "Enabling..." : "Enable Client Login")}
-                        </Button>
+            {/* Back navigation */}
+            <div>
+              <Link href="/users" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors">
+                <ArrowLeft className="h-4 w-4" />
+                Back to {clientTerm}s
+              </Link>
+            </div>
+
+            {/* Profile Header */}
+            <div className="relative overflow-hidden rounded-xl border bg-card">
+              <div className="h-24 bg-linear-to-r from-primary/15 via-primary/8 to-transparent" />
+              <div className="px-6 pb-6">
+                <div className="flex flex-col sm:flex-row gap-5 -mt-10">
+                  {/* Avatar */}
+                  {user.passportPhoto ? (
+                    <div className="relative h-20 w-20 shrink-0 rounded-full border-4 border-card overflow-hidden bg-muted shadow-sm">
+                      <Image src={user.passportPhoto} alt={user.fullName} fill className="object-cover" />
+                    </div>
+                  ) : (
+                    <div className="h-20 w-20 shrink-0 rounded-full border-4 border-card bg-primary/10 shadow-sm flex items-center justify-center">
+                      <span className="text-xl font-bold text-primary">{initials}</span>
+                    </div>
+                  )}
+
+                  {/* Name + Meta */}
+                  <div className="flex-1 min-w-0 pt-2 sm:pt-4">
+                    <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
+                      <h1 className="text-2xl font-bold tracking-tight truncate">{user.fullName}</h1>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium ${
+                          user.status === "Active" ? "bg-green-100 text-green-700 border border-green-200"
+                          : user.status === "Suspended" ? "bg-red-100 text-red-700 border border-red-200"
+                          : "bg-gray-100 text-gray-700 border border-gray-200"
+                        }`}>
+                          <span className={`h-1.5 w-1.5 rounded-full ${
+                            user.status === "Active" ? "bg-green-500"
+                            : user.status === "Suspended" ? "bg-red-500"
+                            : "bg-gray-400"
+                          }`} />
+                          {user.status}
+                        </span>
+                        <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium ${
+                          user.kycStatus === "Verified" ? "bg-green-100 text-green-700 border border-green-200"
+                          : user.kycStatus === "Pending" ? "bg-yellow-100 text-yellow-700 border border-yellow-200"
+                          : user.kycStatus === "Rejected" ? "bg-red-100 text-red-700 border border-red-200"
+                          : "bg-gray-100 text-gray-700 border border-gray-200"
+                        }`}>
+                          <ShieldCheck className="h-3.5 w-3.5" />
+                          KYC: {user.kycStatus}
+                        </span>
                       </div>
                     </div>
-                    <p className="text-muted-foreground text-pretty">
-                      {clientTerm} ID: {user.clientNumber} • Joined {formatDate(user.joinDate)}
-                    </p>
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-1.5 text-sm text-muted-foreground">
+                      <span className="font-mono">{user.clientNumber}</span>
+                      <span className="hidden sm:inline text-border">|</span>
+                      <span>{user.phoneNumber}</span>
+                      {user.email && (
+                        <>
+                          <span className="hidden sm:inline text-border">|</span>
+                          <span className="truncate max-w-[200px]">{user.email}</span>
+                        </>
+                      )}
+                      <span className="hidden sm:inline text-border">|</span>
+                      <span>Joined {formatDate(user.joinDate)}</span>
+                    </div>
                   </div>
+                </div>
+
+                {/* Action Buttons */}
+                <div className="flex flex-wrap items-center gap-2 mt-5 pt-5 border-t">
+                  <Link href={`/users/${user.id}/loans`}>
+                    <Button variant="outline" size="sm">
+                      <CreditCard className="h-4 w-4 mr-2" />
+                      Loans
+                    </Button>
+                  </Link>
+                  {hasSavings && (
+                    primarySavingsId ? (
+                      <Link href={`/savings/${primarySavingsId}`}>
+                        <Button variant="outline" size="sm">
+                          <PiggyBank className="h-4 w-4 mr-2" />
+                          Savings
+                        </Button>
+                      </Link>
+                    ) : (
+                      <Button variant="outline" size="sm" disabled title={loadingSavings ? "Loading..." : "No savings account found"}>
+                        <PiggyBank className="h-4 w-4 mr-2" />
+                        Savings
+                      </Button>
+                    )
+                  )}
+                  <Link href={`/users/${user.id}/edit`}>
+                    <Button variant="outline" size="sm">
+                      <Edit className="h-4 w-4 mr-2" />
+                      Edit Profile
+                    </Button>
+                  </Link>
+                  <div className="flex-1" />
+                  <Button
+                    size="sm"
+                    variant={user?.supabaseUserId ? "outline" : "default"}
+                    onClick={handleEnableClientLogin}
+                    disabled={enableLoading || !user.email}
+                  >
+                    <Shield className="h-4 w-4 mr-2" />
+                    {user?.supabaseUserId
+                      ? (enableLoading ? "Resetting..." : "Reset Password")
+                      : (enableLoading ? "Enabling..." : "Enable Login")}
+                  </Button>
                 </div>
               </div>
             </div>
@@ -583,37 +644,13 @@ export default function UserProfilePage() {
               })()}
             </div>
 
-            {/* Status Overview */}
-            <div className="space-y-6">
-              <div className="border-b pb-4">
-                <h2 className="text-xl font-semibold">Status Overview</h2>
+            {/* Loan Officer (if assigned) */}
+            {user.loanOfficer && (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground px-1">
+                <Briefcase className="h-3.5 w-3.5" />
+                <span>Assigned to <span className="font-medium text-foreground">{user.loanOfficer}</span></span>
               </div>
-
-              <div className="flex flex-wrap gap-6">
-                <div className="flex items-center space-x-2">
-                  <span className="text-sm font-medium">{clientTerm} Status:</span>
-                  <Badge variant={user.status === "Active" ? "default" : "secondary"}>{user.status}</Badge>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <span className="text-sm font-medium">KYC Status:</span>
-                  <Badge
-                    variant={
-                      user.kycStatus === "Verified"
-                        ? "default"
-                        : user.kycStatus === "Pending"
-                          ? "outline"
-                          : "destructive"
-                    }
-                  >
-                    {user.kycStatus}
-                  </Badge>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <span className="text-sm font-medium">Loan Officer:</span>
-                  <span className="text-sm">{user.loanOfficer}</span>
-                </div>
-              </div>
-            </div>
+            )}
 
             {/* Account Summary */}
             <div className="space-y-6">

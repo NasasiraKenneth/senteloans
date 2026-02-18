@@ -351,7 +351,7 @@ export default function LoansPage() {
             {error && <div className="text-sm text-red-600">{error}</div>}
             <DataTable<LoanUI>
               columns={columns}
-              rows={loans}
+              rows={loans.slice(page * rowsPerPage, (page + 1) * rowsPerPage)}
               loading={loading}
               title={`Loans (${loans.length})`}
               filterFields={filterFields}

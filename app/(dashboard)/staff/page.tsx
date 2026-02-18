@@ -339,7 +339,7 @@ export default function StaffPage() {
         {error && <div className="text-sm text-red-600">{error}</div>}
         <DataTable<StaffMember>
           columns={columns}
-          rows={staff}
+          rows={staff.slice(page * rowsPerPage, (page + 1) * rowsPerPage)}
           loading={loading}
           title="Staff Members"
           filterFields={filterFields}

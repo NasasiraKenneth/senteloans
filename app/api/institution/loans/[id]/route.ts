@@ -246,8 +246,13 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
             )
           }
           await client.query(
-            `UPDATE senteloans_loans SET next_payment_date = $1, updated_at = NOW() WHERE id = $2`,
+            `UPDATE senteloans_loans SET next_payment_date = $1, status = 'Active', updated_at = NOW() WHERE id = $2`,
             [firstDueDateStr, id]
+          )
+        } else {
+          await client.query(
+            `UPDATE senteloans_loans SET status = 'Active', updated_at = NOW() WHERE id = $1`,
+            [id]
           )
         }
       }
