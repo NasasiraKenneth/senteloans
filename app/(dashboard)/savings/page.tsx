@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 
-import { Plus, Eye, ArrowUpDown, PiggyBank, TrendingUp, Users, DollarSign } from "lucide-react"
+import { Plus, Eye, ArrowUpDown, PiggyBank, TrendingUp, Users, DollarSign, PanelRightOpen, PanelRightClose } from "lucide-react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import DataTable from "@/components/datatables/DataTable"
@@ -39,6 +39,7 @@ export default function SavingsPage() {
   const [error, setError] = useState<string>("")
   const [page, setPage] = useState(0)
   const [rowsPerPage, setRowsPerPage] = useState(10)
+  const [sidebarOpen, setSidebarOpen] = useState(true)
 
   const onPageChange = (_: unknown, newPage: number) => setPage(newPage)
   const onRowsPerPageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -298,10 +299,25 @@ export default function SavingsPage() {
               </Card>
             </div>
 
-            <div className="grid gap-6 md:grid-cols-3">
-              {/* Savings Accounts - Left 2 columns */}
-              <div className="md:col-span-2 space-y-6">
+            <div className="flex items-start gap-6">
+              {/* Savings Accounts - expands when sidebar is collapsed */}
+              <div className="min-w-0 flex-1 space-y-6">
                 {error && <div className="text-sm text-red-600">{error}</div>}
+
+                {!sidebarOpen && (
+                  <div className="flex justify-end">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setSidebarOpen(true)}
+                      className="gap-2"
+                    >
+                      <PanelRightOpen className="h-4 w-4" />
+                      Recent Transactions
+                    </Button>
+                  </div>
+                )}
+
                 <DataTable<SavingsRow>
                   columns={columns}
                   rows={accounts.slice(page * rowsPerPage, (page + 1) * rowsPerPage)}
@@ -321,12 +337,29 @@ export default function SavingsPage() {
                 />
               </div>
 
-              {/* Recent Transactions - Right sidebar */}
-              <div>
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Recent Transactions</CardTitle>
-                    <CardDescription>Latest account activities</CardDescription>
+              {/* Recent Transactions - Collapsible sidebar */}
+              <div
+                className="shrink-0 transition-all duration-300 ease-in-out overflow-hidden"
+                style={{
+                  width: sidebarOpen ? "33.333%" : "0px",
+                  maxHeight: sidebarOpen ? "none" : "0px",
+                  opacity: sidebarOpen ? 1 : 0,
+                }}
+              >
+                <Card className="h-fit">
+                  <CardHeader className="flex flex-row items-start justify-between space-y-0">
+                    <div>
+                      <CardTitle>Recent Transactions</CardTitle>
+                      <CardDescription>Latest account activities</CardDescription>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 shrink-0 text-muted-foreground hover:text-foreground"
+                      onClick={() => setSidebarOpen(false)}
+                    >
+                      <PanelRightClose className="h-4 w-4" />
+                    </Button>
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-4">

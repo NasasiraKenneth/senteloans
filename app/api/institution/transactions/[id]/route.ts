@@ -20,9 +20,11 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       if (!tx) return null
 
       let clientName = ""
+      let clientNumber = ""
       if (tx.client_id) {
-        const cRes = await client.query(`SELECT id, full_name FROM senteloans_clients WHERE id = $1`, [tx.client_id])
+        const cRes = await client.query(`SELECT id, full_name, client_number FROM senteloans_clients WHERE id = $1`, [tx.client_id])
         clientName = cRes.rows[0]?.full_name || ""
+        clientNumber = cRes.rows[0]?.client_number || ""
       }
       let accountNumber = ""
       if (tx.account_id) {
@@ -56,6 +58,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
           status: tx.status,
           created_at: tx.created_at,
           client_id: tx.client_id,
+          client_number: clientNumber,
           client_name: clientName,
           account_id: tx.account_id,
           account_number: accountNumber,

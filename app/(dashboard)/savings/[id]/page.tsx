@@ -260,7 +260,7 @@ export default function AccountDetailsPage() {
                   </div>
                   <div>
                     <Label>Member ID</Label>
-                    <p className="text-sm font-medium">{account.client_id}</p>
+                    <p className="text-sm font-medium">{account.client_number}</p>
                   </div>
                   <div>
                     <Label>Account Summary</Label>

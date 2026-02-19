@@ -57,7 +57,7 @@ export default function TransactionDetailPage() {
       "Date",
       "Status",
       "Client Name",
-      "Client ID",
+      "Member No.",
       "Account Number",
       "Processed By",
     ]
@@ -73,7 +73,7 @@ export default function TransactionDetailPage() {
       tx.transaction_date ? new Date(tx.transaction_date).toISOString() : "",
       tx.status || "",
       tx.client_name || "",
-      tx.client_id || "",
+      tx.client_number || "",
       tx.account_number || "",
       tx.processed_by_name || "",
     ]
@@ -125,7 +125,7 @@ export default function TransactionDetailPage() {
               <tr><th>Reference</th><td>${tx.reference_number || ""}</td></tr>
               <tr><th>Balance Before</th><td>${formatCurrency(Number(tx.balance_before || 0))}</td></tr>
               <tr><th>Balance After</th><td>${formatCurrency(Number(tx.balance_after || 0))}</td></tr>
-              <tr><th>Client</th><td>${tx.client_name || ""} (${tx.client_id || ""})</td></tr>
+              <tr><th>Client</th><td>${tx.client_name || ""} (${tx.client_number || ""})</td></tr>
               <tr><th>Account</th><td>${tx.account_number || ""}</td></tr>
               <tr><th>Processed By</th><td>${tx.processed_by_name || ""}</td></tr>
             </tbody>
@@ -178,7 +178,7 @@ export default function TransactionDetailPage() {
   }
 
   const isFeePayment = tx.type === "Fee Payment"
-  const isInflow = tx.type === "Deposit" || tx.type === "Loan Disbursement" || isFeePayment
+  const isInflow = tx.type === "Deposit" || tx.type === "Loan Disbursement" || tx.type === "Opening Balance" || isFeePayment
 
   return (
     <>
@@ -258,8 +258,8 @@ export default function TransactionDetailPage() {
                     <span className="font-medium">{tx.client_name || "-"}</span>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span>Client ID</span>
-                    <span className="font-mono text-xs">{tx.client_id}</span>
+                    <span>Member No.</span>
+                    <span className="font-mono text-xs">{tx.client_number || "-"}</span>
                   </div>
                   <div className="flex items-center justify-between">
                     <span>Account</span>

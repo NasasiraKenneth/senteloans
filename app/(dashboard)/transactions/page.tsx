@@ -106,6 +106,7 @@ export default function TransactionsPage() {
     switch (type) {
       case "Deposit":
       case "Loan Disbursement":
+      case "Opening Balance":
         return <TrendingUp className="h-4 w-4 text-green-600" />
       case "Withdrawal":
       case "Loan Repayment":
@@ -122,7 +123,7 @@ export default function TransactionsPage() {
   const totalLoanTransactions = transactions.filter((t) => t.type.includes("Loan")).length
 
   const totalDepositAmount = transactions
-    .filter((t) => t.type === "Deposit" || t.type === "Loan Disbursement")
+    .filter((t) => t.type === "Deposit" || t.type === "Loan Disbursement" || t.type === "Opening Balance")
     .reduce((sum, t) => sum + Number(t.amount), 0)
   const totalWithdrawalAmount = transactions
     .filter((t) => t.type === "Withdrawal" || t.type === "Loan Repayment")
@@ -162,6 +163,7 @@ export default function TransactionsPage() {
           "Fee Payment": "bg-orange-100 text-orange-700 border border-orange-200",
           Transfer: "bg-gray-100 text-gray-700 border border-gray-200",
           "Interest Payment": "bg-yellow-100 text-yellow-700 border border-yellow-200",
+          "Opening Balance": "bg-teal-100 text-teal-700 border border-teal-200",
         }
         return (
           <div className="flex items-center space-x-2">
