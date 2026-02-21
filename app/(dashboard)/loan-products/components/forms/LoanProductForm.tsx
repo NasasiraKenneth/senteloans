@@ -106,7 +106,7 @@ export default function LoanProductForm({
   }
 
   return (
-    <form onSubmit={handleSubmit} className="p-6 space-y-6">
+    <form onSubmit={handleSubmit} className="p-6 space-y-6 max-h-[calc(100vh-10rem)] overflow-y-auto">
       {/* Product Identity */}
       <div>
         <h4 className="text-sm font-semibold text-gray-800 mb-3">Product Identity</h4>

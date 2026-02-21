@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 
-import { Plus, Eye, TrendingUp, TrendingDown, ArrowUpDown, Calendar, CreditCard, Banknote } from "lucide-react"
+import { Plus, Eye, TrendingUp, TrendingDown, ArrowUpDown, Calendar, CreditCard, Banknote, PanelRightOpen, PanelRightClose } from "lucide-react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import DataTable from "@/components/datatables/DataTable"
@@ -56,6 +56,7 @@ export default function TransactionsPage() {
   const [error, setError] = useState<string>("")
   const [page, setPage] = useState(0)
   const [rowsPerPage, setRowsPerPage] = useState(10)
+  const [sidebarOpen, setSidebarOpen] = useState(true)
 
   const onPageChange = (_: unknown, newPage: number) => setPage(newPage)
   const onRowsPerPageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -321,7 +322,6 @@ export default function TransactionsPage() {
               </Card>
             </div>
 
-            {/* Errors */}
             {error && (
               <Card>
                 <CardHeader>
@@ -331,54 +331,91 @@ export default function TransactionsPage() {
               </Card>
             )}
 
-            {/* Recent Transactions Summary */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Recent Activity</CardTitle>
-                <CardDescription>Latest transactions from the past 30 days</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  {recentTransactions.map((transaction: any) => (
-                    <div key={transaction.id} className="flex items-center justify-between p-3 border rounded-lg">
-                      <div className="flex items-center space-x-3">
-                        {getTransactionIcon(transaction.type)}
-                        <div>
-                          <div className="font-medium">{transaction.memberName}</div>
-                          <div className="text-sm text-muted-foreground">{transaction.description}</div>
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <div className="font-medium">{formatCurrency(transaction.amount)}</div>
-                        <div className="text-sm text-muted-foreground">
-                          {new Date(transaction.date).toLocaleDateString()}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
+            <div className="flex items-start gap-6">
+              {/* Transactions DataTable - expands when sidebar is collapsed */}
+              <div className="min-w-0 flex-1 space-y-6">
+                {!sidebarOpen && (
+                  <div className="flex justify-end">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setSidebarOpen(true)}
+                      className="gap-2"
+                    >
+                      <PanelRightOpen className="h-4 w-4" />
+                      Recent Activity
+                    </Button>
+                  </div>
+                )}
 
-            {/* Transactions DataTable */}
-            <DataTable<TransactionRow>
-              columns={columns}
-              rows={transactions.slice(page * rowsPerPage, (page + 1) * rowsPerPage)}
-              loading={loading}
-              title={`All Transactions (${transactions.length}${total > transactions.length ? ` of ${total}` : ""})`}
-              filterFields={filterFields}
-              onQueryParamsChange={handleQueryParamsChange}
-              emptyMessage="No transactions found"
-              getRowId={(row) => row.id}
-              pagination={{
-                page,
-                rowsPerPage,
-                total: transactions.length,
-                onPageChange,
-                onRowsPerPageChange,
-                rowsPerPageOptions: [10, 25, 50],
-              }}
-            />
+                <DataTable<TransactionRow>
+                  columns={columns}
+                  rows={transactions.slice(page * rowsPerPage, (page + 1) * rowsPerPage)}
+                  loading={loading}
+                  title={`All Transactions (${transactions.length}${total > transactions.length ? ` of ${total}` : ""})`}
+                  filterFields={filterFields}
+                  onQueryParamsChange={handleQueryParamsChange}
+                  emptyMessage="No transactions found"
+                  getRowId={(row) => row.id}
+                  pagination={{
+                    page,
+                    rowsPerPage,
+                    total: transactions.length,
+                    onPageChange,
+                    onRowsPerPageChange,
+                    rowsPerPageOptions: [10, 25, 50],
+                  }}
+                />
+              </div>
+
+              {/* Recent Activity - Collapsible sidebar */}
+              <div
+                className="shrink-0 transition-all duration-300 ease-in-out overflow-hidden"
+                style={{
+                  width: sidebarOpen ? "33.333%" : "0px",
+                  maxHeight: sidebarOpen ? "none" : "0px",
+                  opacity: sidebarOpen ? 1 : 0,
+                }}
+              >
+                <Card className="flex flex-col" style={{ maxHeight: "34rem" }}>
+                  <CardHeader className="flex flex-row items-start justify-between space-y-0 shrink-0">
+                    <div>
+                      <CardTitle>Recent Activity</CardTitle>
+                      <CardDescription>Latest transactions</CardDescription>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 shrink-0 text-muted-foreground hover:text-foreground"
+                      onClick={() => setSidebarOpen(false)}
+                    >
+                      <PanelRightClose className="h-4 w-4" />
+                    </Button>
+                  </CardHeader>
+                  <CardContent className="flex-1 overflow-y-auto">
+                    <div className="space-y-3">
+                      {recentTransactions.map((transaction: any) => (
+                        <div key={transaction.id} className="flex items-center justify-between p-3 border rounded-lg">
+                          <div className="flex items-center space-x-3">
+                            {getTransactionIcon(transaction.type)}
+                            <div>
+                              <div className="text-sm font-medium">{transaction.memberName}</div>
+                              <div className="text-xs text-muted-foreground truncate max-w-[120px]">{transaction.description}</div>
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <div className="text-sm font-medium">{formatCurrency(transaction.amount)}</div>
+                            <div className="text-xs text-muted-foreground">
+                              {new Date(transaction.date).toLocaleDateString()}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            </div>
           </div>
     </>
   )
