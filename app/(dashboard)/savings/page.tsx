@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 
-import { Plus, Eye, ArrowUpDown, PiggyBank, TrendingUp, Users, DollarSign, PanelRightOpen, PanelRightClose } from "lucide-react"
+import { Plus, Eye, ArrowUpDown, PiggyBank, TrendingUp, Users, DollarSign, PanelRightOpen, PanelRightClose, Calendar } from "lucide-react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import DataTable from "@/components/datatables/DataTable"
@@ -125,9 +125,6 @@ export default function SavingsPage() {
       render: (row) => (
         <div>
           <div className="font-medium">{row.account_number}</div>
-          <div className="text-sm text-muted-foreground">
-            Opened {new Date(row.open_date).toLocaleDateString()}
-          </div>
         </div>
       ),
     },
@@ -136,8 +133,8 @@ export default function SavingsPage() {
       header: "Member",
       render: (row) => (
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 bg-linear-to-br from-black/80 to-black/50 rounded-full flex items-center justify-center">
-            <span className="text-[#f08c2b] text-xs font-semibold">{getInitials(row.client_name)}</span>
+          <div className="w-8 h-8 bg-linear-to-br from-primary/80 to-primary rounded-full flex items-center justify-center">
+            <span className="text-white text-xs font-semibold">{getInitials(row.client_name)}</span>
           </div>
           <div className="font-medium">{row.client_name}</div>
         </div>
@@ -182,6 +179,16 @@ export default function SavingsPage() {
           </span>
         )
       },
+    },
+    {
+      key: "open_date",
+      header: "Created at",
+      render: (row) => (
+        <div className="flex items-center gap-2">
+          <Calendar className="h-3.5 w-3.5 text-gray-400" />
+          <div className="text-sm text-gray-600">{new Date(row.open_date).toLocaleDateString()}</div>
+        </div>
+      ),
     },
     {
       key: "actions",

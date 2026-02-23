@@ -18,7 +18,7 @@ interface ClientPostBody {
   village?: string
   occupation?: string
   monthlyIncome?: number
-  loanOfficer?: string
+  monthlySavings?: number
   joinDate?: string
   membershipFeePaid?: number
   membershipFeeMode?: string
@@ -65,7 +65,7 @@ export async function GET(req: Request) {
       }
       params.push(pageSize)
       const res = await client.query(
-        `SELECT id, client_number, full_name, phone_number, email, district, status, kyc_status, loan_officer, membership_fee_paid
+        `SELECT id, client_number, full_name, phone_number, email, district, status, kyc_status, membership_fee_paid
          FROM senteloans_clients WHERE ${where} ORDER BY created_at DESC LIMIT $${idx}`,
         params
       )
@@ -133,6 +133,7 @@ export async function POST(req: Request) {
       const savingsAccountNumber = shouldCreateSavings ? `SA${inst}-${yymm}-${Math.random().toString(36).slice(2, 6).toUpperCase()}` : null
       const joinDate = body.joinDate || new Date().toISOString().slice(0, 10)
       const monthlyIncome = typeof body.monthlyIncome !== "undefined" && body.monthlyIncome !== null && !Number.isNaN(Number(body.monthlyIncome)) ? Number(body.monthlyIncome) : null
+      const monthlySavings = typeof body.monthlySavings !== "undefined" && body.monthlySavings !== null && !Number.isNaN(Number(body.monthlySavings)) ? Number(body.monthlySavings) : null
 
       const membershipFeePaid = typeof body.membershipFeePaid !== "undefined" && !Number.isNaN(Number(body.membershipFeePaid)) && Number(body.membershipFeePaid) > 0
         ? Number(body.membershipFeePaid)
@@ -140,8 +141,8 @@ export async function POST(req: Request) {
       const membershipFeeMode = typeof body.membershipFeeMode === "string" ? body.membershipFeeMode : "Cash"
 
       const insertRes = await client.query(
-        `INSERT INTO senteloans_clients (institution_id, client_number, full_name, date_of_birth, gender, client_type, phone_number, national_id, email, marital_status, district, village, occupation, monthly_income, loan_officer, join_date, membership_fee_paid)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17) RETURNING id, client_number`,
+        `INSERT INTO senteloans_clients (institution_id, client_number, full_name, date_of_birth, gender, client_type, phone_number, national_id, email, marital_status, district, village, occupation, monthly_income, monthly_savings, join_date, membership_fee_paid, created_by, modified_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $18) RETURNING id, client_number`,
         [
           appUser.institution_id,
           candidate,
@@ -157,9 +158,10 @@ export async function POST(req: Request) {
           typeof body.village === "string" ? body.village : null,
           typeof body.occupation === "string" ? body.occupation : null,
           monthlyIncome,
-          typeof body.loanOfficer === "string" ? body.loanOfficer : null,
+          monthlySavings,
           joinDate,
           membershipFeePaid,
+          appUser.id,
         ]
       )
       const data = insertRes.rows[0]

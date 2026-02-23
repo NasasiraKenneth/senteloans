@@ -300,12 +300,18 @@ export default function AccountDetailsPage() {
                         <TableCell>{formatDate(transaction.date)}</TableCell>
                         <TableCell>
                           <div className="flex items-center">
-                            {transaction.type === "Deposit" ? (
+                            {transaction.type === "Deposit" || transaction.type === "Opening Balance" ? (
                               <TrendingUp className="h-4 w-4 text-green-600 mr-2" />
                             ) : (
                               <ArrowUpDown className="h-4 w-4 text-red-600 mr-2" />
                             )}
-                            <Badge variant={transaction.type === "Deposit" ? "default" : "outline"}>
+                            <Badge
+                              variant={
+                                transaction.type === "Deposit" || transaction.type === "Opening Balance"
+                                  ? "default"
+                                  : "outline"
+                              }
+                            >
                               {transaction.type}
                             </Badge>
                           </div>
@@ -313,10 +319,14 @@ export default function AccountDetailsPage() {
                         <TableCell>
                           <span
                             className={`font-medium ${
-                              transaction.type === "Deposit" ? "text-green-600" : "text-red-600"
+                              transaction.type === "Deposit" || transaction.type === "Opening Balance"
+                                ? "text-green-600"
+                                : "text-red-600"
                             }`}
                           >
-                            {transaction.type === "Deposit" ? "+" : "-"}
+                            {transaction.type === "Deposit" || transaction.type === "Opening Balance"
+                              ? ""
+                              : "-"}
                             {formatCurrency(Number(transaction.amount || 0))}
                           </span>
                         </TableCell>

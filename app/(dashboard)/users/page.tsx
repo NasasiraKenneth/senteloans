@@ -22,7 +22,6 @@ type UiClient = {
   location: string
   status: string
   kycStatus: string
-  loanOfficer: string
   membershipFeePaid: number
 }
 
@@ -85,7 +84,6 @@ export default function UsersPage() {
           district: string | null
           status: string
           kyc_status: string
-          loan_officer: string | null
           membership_fee_paid: number | null
         }>
         membershipFee: number
@@ -100,7 +98,6 @@ export default function UsersPage() {
         location: c.district || "",
         status: c.status,
         kycStatus: c.kyc_status,
-        loanOfficer: c.loan_officer || "",
         membershipFeePaid: Number(c.membership_fee_paid) || 0,
       }))
       setUsers(mapped)

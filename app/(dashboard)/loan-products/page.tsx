@@ -152,12 +152,18 @@ export default function LoanProductsPage() {
 
   const columns: DataTableColumn<LoanProduct>[] = [
     {
+      key: "product_code",
+      header: `Product ID`,
+      render: (row) => (
+        <div className="text-sm font-mono font-medium text-gray-700">{row.product_code}</div>
+      ),
+    },
+    {
       key: "product_name",
       header: "Product",
       render: (row) => (
         <div>
           <div className="font-semibold">{row.product_name}</div>
-          <div className="text-xs text-muted-foreground font-mono">{row.product_code}</div>
         </div>
       ),
     },
@@ -166,7 +172,7 @@ export default function LoanProductsPage() {
       header: "Interest Rate",
       render: (row) => (
         <div className="flex items-center gap-1.5">
-          <Percent className="h-3.5 w-3.5 text-muted-foreground" />
+ 
           <span className="font-medium">{row.interest_rate}%</span>
           <span className="text-xs text-muted-foreground">/ {formatMethod(row.interest_calculation_method)}</span>
         </div>

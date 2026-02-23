@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { User, Phone, MapPin, Briefcase, Users, DollarSign, AlertCircle, Check, UserPlus, ClipboardList } from "lucide-react"
+import { User, Phone, MapPin, Briefcase, Users, DollarSign, AlertCircle, Check, UserPlus, PiggyBank } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { getSession } from "@/lib/session"
 
@@ -38,7 +38,7 @@ export function MemberRegistrationForm({ onClose }: MemberRegistrationFormProps)
     village: "",
     occupation: "",
     monthlyIncome: "",
-    loanOfficer: "",
+    monthlySavings: "",
     nextOfKinName: "",
     nextOfKinRelationship: "",
     nextOfKinPhone: "",
@@ -135,7 +135,7 @@ export function MemberRegistrationForm({ onClose }: MemberRegistrationFormProps)
       if (formData.village) payload.village = formData.village
       if (formData.occupation) payload.occupation = formData.occupation
       if (formData.monthlyIncome) payload.monthlyIncome = Number(formData.monthlyIncome)
-      if (formData.loanOfficer) payload.loanOfficer = formData.loanOfficer
+      if (formData.monthlySavings) payload.monthlySavings = Number(formData.monthlySavings)
 
       const feeAmount = formData.membershipFeeType === "full"
         ? institutionMembershipFee
@@ -199,16 +199,15 @@ export function MemberRegistrationForm({ onClose }: MemberRegistrationFormProps)
   }
 
   const clientTerminology = session?.institution?.config?.clientTerminology || "Member"
-  const isMoneyLender = session?.institution?.type === "MONEY_LENDER"
 
   const sections = [
     { id: "reg-personal", label: "Personal Info", icon: User },
     { id: "reg-contact", label: "Contact", icon: Phone },
     { id: "reg-location", label: "Location", icon: MapPin },
     { id: "reg-employment", label: "Employment", icon: Briefcase },
+    { id: "reg-savings", label: "Monthly Savings", icon: PiggyBank },
     { id: "reg-nok", label: "Next of Kin", icon: Users },
     ...(institutionMembershipFee > 0 ? [{ id: "reg-fee", label: "Membership Fee", icon: DollarSign }] : []),
-    ...(isMoneyLender ? [{ id: "reg-assignment", label: "Assignment", icon: ClipboardList }] : []),
   ]
 
   return (
@@ -461,6 +460,33 @@ export function MemberRegistrationForm({ onClose }: MemberRegistrationFormProps)
           </CardContent>
         </Card>
 
+        {/* Monthly Savings */}
+        <Card id="reg-savings" className="scroll-mt-24">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <PiggyBank className="h-5 w-5 text-primary" />
+              Monthly Savings
+            </CardTitle>
+            <CardDescription>The agreed monthly savings contribution for this {clientTerminology.toLowerCase()}.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="max-w-md space-y-2">
+              <Label htmlFor="monthlySavings">Monthly Savings Amount ({currency})</Label>
+              <Input
+                id="monthlySavings"
+                type="number"
+                min={0}
+                value={formData.monthlySavings}
+                onChange={(e) => handleInputChange("monthlySavings", e.target.value)}
+                placeholder="e.g., 50,000"
+              />
+              <p className="text-xs text-muted-foreground">
+                The amount the {clientTerminology.toLowerCase()} has agreed to save every month.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+
         {/* Next of Kin */}
         <Card id="reg-nok" className="scroll-mt-24">
           <CardHeader>
@@ -633,37 +659,6 @@ export function MemberRegistrationForm({ onClose }: MemberRegistrationFormProps)
                   </div>
                 )
               })()}
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Assignment - Only show for Money Lenders */}
-        {isMoneyLender && (
-          <Card id="reg-assignment" className="scroll-mt-24">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <ClipboardList className="h-5 w-5 text-primary" />
-                Assignment
-              </CardTitle>
-              <CardDescription>
-                Assign a loan officer to this {clientTerminology.toLowerCase()}.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="max-w-md space-y-2">
-                <Label htmlFor="loanOfficer">Loan Officer <span className="text-red-500">*</span></Label>
-                <Select value={formData.loanOfficer} onValueChange={(value) => handleInputChange("loanOfficer", value)}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select loan officer" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Annet Mukasa">Annet Mukasa</SelectItem>
-                    <SelectItem value="Samuel Kato">Samuel Kato</SelectItem>
-                    <SelectItem value="Grace Namugga">Grace Namugga</SelectItem>
-                    <SelectItem value="David Ssemakula">David Ssemakula</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
             </CardContent>
           </Card>
         )}

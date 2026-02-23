@@ -145,8 +145,8 @@ export default function TransactionsPage() {
       header: "Member",
       render: (row) => (
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 bg-linear-to-br from-black/80 to-black/50 rounded-full flex items-center justify-center">
-            <span className="text-[#f08c2b] text-xs font-semibold">{getInitials(row.memberName)}</span>
+          <div className="w-8 h-8 bg-linear-to-br from-primary/80 to-primary rounded-full flex items-center justify-center">
+            <span className="text-white text-xs font-semibold">{getInitials(row.memberName)}</span>
           </div>
           <div className="font-medium text-sm">{row.memberName || "—"}</div>
         </div>
@@ -196,7 +196,10 @@ export default function TransactionsPage() {
       key: "date",
       header: "Date",
       render: (row) => (
-        <div className="text-sm">{new Date(row.date).toLocaleDateString()}</div>
+        <div className="flex items-center gap-2">
+          <Calendar className="h-3.5 w-3.5 text-gray-400" />
+          <div className="text-sm">{new Date(row.date).toLocaleDateString()}</div>
+        </div>
       ),
     },
     {
@@ -214,7 +217,7 @@ export default function TransactionsPage() {
     {
       key: "actions",
       header: "Actions",
-      render: (row) => <ActionButtons actions={actions} row={row} />,
+      render: (row) => <div className="flex justify-center"><ActionButtons actions={actions} row={row} /></div>,
     },
   ]
 

@@ -21,8 +21,13 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       if (!appUser) return null
 
       const clientRes = await client.query(
-        `SELECT id, institution_id, client_number, full_name, supabase_user_id, date_of_birth, gender, marital_status, client_type, phone_number, email, national_id, district, village, occupation, monthly_income, loan_officer, notes, next_of_kin_name, next_of_kin_relationship, next_of_kin_phone, passport_photo, national_id_front, national_id_back, mobile_money_provider, mobile_money_number, bank_name, bank_account_number, bank_account_name, bank_branch, kyc_status, status, join_date, membership_fee_paid
-         FROM senteloans_clients WHERE institution_id = $1 AND id = $2`,
+        `SELECT c.id, c.institution_id, c.client_number, c.full_name, c.supabase_user_id, c.date_of_birth, c.gender, c.marital_status, c.client_type, c.phone_number, c.email, c.national_id, c.district, c.village, c.occupation, c.monthly_income, c.monthly_savings, c.notes, c.next_of_kin_name, c.next_of_kin_relationship, c.next_of_kin_phone, c.passport_photo, c.national_id_front, c.national_id_back, c.mobile_money_provider, c.mobile_money_number, c.bank_name, c.bank_account_number, c.bank_account_name, c.bank_branch, c.kyc_status, c.status, c.join_date, c.membership_fee_paid, c.created_by, c.modified_by, c.kyc_approved_by, c.kyc_approved_at, c.created_at, c.updated_at,
+                cb.full_name AS created_by_name, mb.full_name AS modified_by_name, kb.full_name AS kyc_approved_by_name
+         FROM senteloans_clients c
+         LEFT JOIN senteloans_users cb ON cb.id = c.created_by
+         LEFT JOIN senteloans_users mb ON mb.id = c.modified_by
+         LEFT JOIN senteloans_users kb ON kb.id = c.kyc_approved_by
+         WHERE c.institution_id = $1 AND c.id = $2`,
         [appUser.institution_id, clientId]
       )
 
@@ -68,7 +73,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
           village: clientRow.village,
           occupation: clientRow.occupation,
           monthly_income: clientRow.monthly_income,
-          loan_officer: clientRow.loan_officer,
+          monthly_savings: clientRow.monthly_savings,
           notes: clientRow.notes,
           next_of_kin_name: clientRow.next_of_kin_name,
           next_of_kin_relationship: clientRow.next_of_kin_relationship,
@@ -89,6 +94,15 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
           bank_account_name: clientRow.bank_account_name,
           bank_branch: clientRow.bank_branch,
           membership_fee_paid: Number(clientRow.membership_fee_paid) || 0,
+          created_by: clientRow.created_by,
+          created_by_name: clientRow.created_by_name || null,
+          modified_by: clientRow.modified_by,
+          modified_by_name: clientRow.modified_by_name || null,
+          kyc_approved_by: clientRow.kyc_approved_by,
+          kyc_approved_by_name: clientRow.kyc_approved_by_name || null,
+          kyc_approved_at: clientRow.kyc_approved_at,
+          created_at: clientRow.created_at,
+          updated_at: clientRow.updated_at,
         },
         membershipFee,
       }
@@ -119,13 +133,13 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       locationVillage: "village",
       occupation: "occupation",
       monthlyIncome: "monthly_income",
+      monthlySavings: "monthly_savings",
       nextOfKin: "next_of_kin_name",
       nextOfKinRelationship: "next_of_kin_relationship",
       nextOfKinPhone: "next_of_kin_phone",
       notes: "notes",
       status: "status",
       kycStatus: "kyc_status",
-      loanOfficer: "loan_officer",
       mobileMoneyProvider: "mobile_money_provider",
       mobileMoneyNumber: "mobile_money_number",
       bankName: "bank_name",
@@ -156,12 +170,15 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       const income = Number(body.monthlyIncome)
       if (!Number.isNaN(income) && income >= 0) updates["monthly_income"] = income
     }
+    if (typeof body.monthlySavings !== "undefined") {
+      const savings = Number(body.monthlySavings)
+      if (!Number.isNaN(savings) && savings >= 0) updates["monthly_savings"] = savings
+    }
     if (typeof body.nextOfKin === "string") updates["next_of_kin_name"] = body.nextOfKin
     if (typeof body.nextOfKinRelationship === "string") updates["next_of_kin_relationship"] = body.nextOfKinRelationship
     if (typeof body.nextOfKinPhone === "string") updates["next_of_kin_phone"] = body.nextOfKinPhone
     if (typeof body.status === "string") updates["status"] = body.status
     if (typeof body.kycStatus === "string") updates["kyc_status"] = body.kycStatus
-    if (typeof body.loanOfficer === "string") updates["loan_officer"] = body.loanOfficer
     if (typeof body.mobileMoneyProvider === "string") updates["mobile_money_provider"] = body.mobileMoneyProvider.trim() || null
     if (typeof body.mobileMoneyNumber === "string") updates["mobile_money_number"] = body.mobileMoneyNumber.trim() || null
     if (typeof body.bankName === "string") updates["bank_name"] = body.bankName.trim() || null
@@ -190,13 +207,20 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       if (!appUser) return { error: "auth_context" as const }
 
       const targetRes = await client.query(
-        `SELECT id, institution_id FROM senteloans_clients WHERE id = $1`,
+        `SELECT id, institution_id, kyc_status FROM senteloans_clients WHERE id = $1`,
         [clientId]
       )
       const targetClient = targetRes.rows[0]
       if (!targetClient) return { error: "client_not_found" as const }
       if (targetClient.institution_id !== appUser.institution_id) {
         return { error: "forbidden" as const }
+      }
+
+      updates["modified_by"] = appUser.id
+
+      if (updates["kyc_status"] === "Verified" && targetClient.kyc_status !== "Verified") {
+        updates["kyc_approved_by"] = appUser.id
+        updates["kyc_approved_at"] = new Date().toISOString()
       }
 
       const keys = Object.keys(updates)

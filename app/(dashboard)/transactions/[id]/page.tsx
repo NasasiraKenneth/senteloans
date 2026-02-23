@@ -178,7 +178,7 @@ export default function TransactionDetailPage() {
   }
 
   const isFeePayment = tx.type === "Fee Payment"
-  const isInflow = tx.type === "Deposit" || tx.type === "Loan Disbursement" || tx.type === "Opening Balance" || isFeePayment
+  const isInflow = tx.type === "Deposit" || tx.type === "Loan Disbursement" || tx.type === "Opening Balance" || isFeePayment || tx.type === "Loan Repayment"
 
   return (
     <>
@@ -219,7 +219,7 @@ export default function TransactionDetailPage() {
                 <CardContent>
                   <div className="text-sm mb-1">{tx.type}</div>
                   <div className={`text-2xl font-bold ${isFeePayment ? "text-green-600" : isInflow ? "text-green-600" : "text-red-600"}`}>
-                    {isFeePayment ? "" : isInflow ? "+" : "-"}
+                    {isFeePayment ? "" : isInflow ? "" : "-"}
                     {formatCurrency(Number(tx.amount || 0))}
                   </div>
                 </CardContent>
@@ -321,7 +321,7 @@ export default function TransactionDetailPage() {
                     <TableRow>
                       <TableCell className="font-medium">{formatCurrency(Number(tx.balance_before || 0))}</TableCell>
                       <TableCell className={isFeePayment ? "text-green-600" : isInflow ? "text-green-600" : "text-red-600"}>
-                        {isFeePayment ? "" : isInflow ? "+" : "-"}
+                        {isFeePayment ? "" : isInflow ? "" : "-"}
                         {formatCurrency(Number(tx.amount || 0))}
                       </TableCell>
                       <TableCell className="font-medium">{formatCurrency(Number(tx.balance_after || 0))}</TableCell>

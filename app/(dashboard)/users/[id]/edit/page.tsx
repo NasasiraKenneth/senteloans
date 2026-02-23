@@ -77,12 +77,12 @@ export default function UserEditPage({ params }: UserEditPageProps) {
     location: "",
     occupation: "",
     monthlyIncome: "",
+    monthlySavings: "",
     nextOfKin: "",
     nextOfKinRelationship: "",
     nextOfKinPhone: "",
     status: "",
     kycStatus: "",
-    loanOfficer: "",
     notes: "",
     mobileMoneyProvider: "",
     mobileMoneyNumber: "",
@@ -126,12 +126,12 @@ export default function UserEditPage({ params }: UserEditPageProps) {
           location: [client.village, client.district].filter(Boolean).join(", "),
           occupation: client.occupation || "",
           monthlyIncome: (client.monthly_income ?? "").toString(),
+          monthlySavings: (client.monthly_savings ?? "").toString(),
           nextOfKin: client.next_of_kin_name || "",
           nextOfKinRelationship: client.next_of_kin_relationship || "",
           nextOfKinPhone: client.next_of_kin_phone || "",
           status: client.status || "",
           kycStatus: client.kyc_status || "",
-          loanOfficer: client.loan_officer || "",
           notes: client.notes || "",
           mobileMoneyProvider: client.mobile_money_provider || "",
           mobileMoneyNumber: client.mobile_money_number || "",
@@ -464,6 +464,10 @@ export default function UserEditPage({ params }: UserEditPageProps) {
       setError("Monthly Income must be a number")
       return
     }
+    if (formData.monthlySavings && Number.isNaN(Number(formData.monthlySavings))) {
+      setError("Monthly Savings must be a number")
+      return
+    }
 
     setSaving(true)
     try {
@@ -478,13 +482,13 @@ export default function UserEditPage({ params }: UserEditPageProps) {
         location: formData.location,
         occupation: formData.occupation,
         monthlyIncome: formData.monthlyIncome ? Number(formData.monthlyIncome) : undefined,
+        monthlySavings: formData.monthlySavings ? Number(formData.monthlySavings) : undefined,
         nextOfKin: formData.nextOfKin,
         nextOfKinRelationship: formData.nextOfKin ? formData.nextOfKinRelationship : undefined,
         nextOfKinPhone: formData.nextOfKinPhone,
         notes: formData.notes,
         status: formData.status,
         kycStatus: formData.kycStatus,
-        loanOfficer: formData.loanOfficer,
         // Payout accounts
         mobileMoneyProvider: formData.mobileMoneyProvider || undefined,
         mobileMoneyNumber: formData.mobileMoneyNumber || undefined,
@@ -909,6 +913,20 @@ export default function UserEditPage({ params }: UserEditPageProps) {
                         value={formData.monthlyIncome}
                         onChange={(e) => handleInputChange("monthlyIncome", e.target.value)}
                       />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="monthlySavings">Monthly Savings ({currency})</Label>
+                      <Input
+                        id="monthlySavings"
+                        type="number"
+                        min={0}
+                        value={formData.monthlySavings}
+                        onChange={(e) => handleInputChange("monthlySavings", e.target.value)}
+                        placeholder="e.g., 50,000"
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        The agreed monthly savings contribution.
+                      </p>
                     </div>
                   </div>
                 </CardContent>
@@ -1625,15 +1643,6 @@ export default function UserEditPage({ params }: UserEditPageProps) {
                           <SelectItem value="Rejected">Rejected</SelectItem>
                         </SelectContent>
                       </Select>
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="loanOfficer">Loan Officer</Label>
-                      <Input
-                        id="loanOfficer"
-                        value={formData.loanOfficer}
-                        onChange={(e) => handleInputChange("loanOfficer", e.target.value)}
-                        placeholder="e.g., John Mukasa"
-                      />
                     </div>
                   </div>
                   <div className="space-y-2">

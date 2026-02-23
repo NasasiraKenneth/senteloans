@@ -83,7 +83,6 @@ export default function UserProfilePage() {
             village: string | null
             occupation: string | null
             monthly_income: number | null
-            loan_officer: string | null
             next_of_kin_name: string | null
             next_of_kin_relationship: string | null
             next_of_kin_phone: string | null
@@ -128,7 +127,6 @@ export default function UserProfilePage() {
           village: client.village || "",
           occupation: client.occupation || "",
           monthlyIncome: client.monthly_income || 0,
-          loanOfficer: client.loan_officer || "",
           notes: (client as any).notes || "",
           nextOfKinName: client.next_of_kin_name || "",
           nextOfKinRelationship: client.next_of_kin_relationship || "",
@@ -643,14 +641,6 @@ export default function UserProfilePage() {
                 )
               })()}
             </div>
-
-            {/* Loan Officer (if assigned) */}
-            {user.loanOfficer && (
-              <div className="flex items-center gap-2 text-sm text-muted-foreground px-1">
-                <Briefcase className="h-3.5 w-3.5" />
-                <span>Assigned to <span className="font-medium text-foreground">{user.loanOfficer}</span></span>
-              </div>
-            )}
 
             {/* Account Summary */}
             <div className="space-y-6">

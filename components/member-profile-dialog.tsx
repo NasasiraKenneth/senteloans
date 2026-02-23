@@ -78,10 +78,6 @@ export function MemberProfileDialog({ member, open, onOpenChange }: MemberProfil
                     {member.kycStatus}
                   </Badge>
                 </div>
-                <div className="flex items-center space-x-2">
-                  <span className="text-sm font-medium">Loan Officer:</span>
-                  <span className="text-sm">{member.loanOfficer}</span>
-                </div>
               </div>
             </CardContent>
           </Card>
