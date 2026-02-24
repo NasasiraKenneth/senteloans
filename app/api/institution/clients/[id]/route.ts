@@ -127,6 +127,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       email: "email",
       phoneNumber: "phone_number",
       dateOfBirth: "date_of_birth",
+      joinDate: "join_date",
       gender: "gender",
       maritalStatus: "marital_status",
       locationDistrict: "district",
@@ -153,6 +154,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     if (typeof body.email === "string") updates["email"] = body.email.trim() || null
     if (typeof body.phoneNumber === "string") updates["phone_number"] = body.phoneNumber.trim()
     if (typeof body.dateOfBirth === "string" && body.dateOfBirth) updates["date_of_birth"] = body.dateOfBirth
+    if (typeof body.joinDate === "string" && body.joinDate) updates["join_date"] = body.joinDate
     if (typeof body.gender === "string") updates["gender"] = body.gender
     if (typeof body.maritalStatus === "string") updates["marital_status"] = body.maritalStatus
     if (typeof body.location === "string") {

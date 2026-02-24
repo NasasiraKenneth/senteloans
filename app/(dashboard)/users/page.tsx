@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 
-import { Plus, Eye, Edit, Mail, Phone, MapPin, ShieldCheck } from "lucide-react"
+import { Plus, Eye, Edit, Mail, Phone, MapPin, ShieldCheck, Clock, Calendar } from "lucide-react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { getSession } from "@/lib/session"
@@ -23,6 +23,10 @@ type UiClient = {
   status: string
   kycStatus: string
   membershipFeePaid: number
+  createdBy: string
+  kycApprovedBy: string
+  joinDate: string
+  kycApprovedAt: string
 }
 
 function getInitials(name: string): string {
@@ -38,6 +42,26 @@ function formatCurrency(amount: number): string {
     currency: "UGX",
     minimumFractionDigits: 0,
   }).format(amount)
+}
+
+function formatDate(date: string): string {
+  if (!date) return "—"
+  return new Date(date).toLocaleDateString("en-UG", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  })
+}
+
+function formatDateTime(date: string): string {
+  if (!date) return "—"
+  return new Date(date).toLocaleString("en-UG", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  })
 }
 
 export default function UsersPage() {
@@ -85,6 +109,12 @@ export default function UsersPage() {
           status: string
           kyc_status: string
           membership_fee_paid: number | null
+          join_date: string | null
+          created_by: string | null
+          kyc_approved_by: string | null
+          kyc_approved_at: string | null
+          created_by_name: string | null
+          kyc_approved_by_name: string | null
         }>
         membershipFee: number
       }
@@ -99,6 +129,10 @@ export default function UsersPage() {
         status: c.status,
         kycStatus: c.kyc_status,
         membershipFeePaid: Number(c.membership_fee_paid) || 0,
+        createdBy: c.created_by_name || c.created_by || "—",
+        kycApprovedBy: c.kyc_approved_by_name || c.kyc_approved_by || "—",
+        joinDate: c.join_date || "",
+        kycApprovedAt: c.kyc_approved_at || "",
       }))
       setUsers(mapped)
     } catch (e: any) {
@@ -237,23 +271,6 @@ export default function UsersPage() {
       },
     },
     {
-      key: "kycStatus",
-      header: "KYC",
-      render: (row) => {
-        const kycStyles: Record<string, string> = {
-          Verified: "bg-green-100 text-green-700 border border-green-200",
-          Pending: "bg-yellow-100 text-yellow-700 border border-yellow-200",
-          Rejected: "bg-red-100 text-red-700 border border-red-200",
-        }
-        return (
-          <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium ${kycStyles[row.kycStatus] || "bg-gray-100 text-gray-700 border border-gray-200"}`}>
-            <ShieldCheck className="h-3.5 w-3.5" />
-            {row.kycStatus}
-          </div>
-        )
-      },
-    },
-    {
       key: "membershipFeePaid",
       header: "Membership Paid",
       render: (row) => {
@@ -298,6 +315,75 @@ export default function UsersPage() {
           </div>
         )
       },
+    },
+    {
+      key: "kycStatus",
+      header: "KYC",
+      render: (row) => {
+        const kycStyles: Record<string, string> = {
+          Verified: "bg-green-100 text-green-700 border border-green-200",
+          Pending: "bg-yellow-100 text-yellow-700 border border-yellow-200",
+          Rejected: "bg-red-100 text-red-700 border border-red-200",
+        }
+        return (
+          <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium ${kycStyles[row.kycStatus] || "bg-gray-100 text-gray-700 border border-gray-200"}`}>
+            <ShieldCheck className="h-3.5 w-3.5" />
+            {row.kycStatus}
+          </div>
+        )
+      },
+    },
+    {
+      key: "kycApprovedBy",
+      header: "KYC Approved By",
+      render: (row) => (
+        row.kycApprovedBy ? (
+          <div className="flex items-center gap-2">
+            <div className="w-9 h-9 bg-linear-to-br from-black/80 to-black/50 rounded-full flex items-center justify-center">
+              <span className="text-[#f08c2b] text-xs font-semibold">{getInitials(row.kycApprovedBy)}</span>
+            </div>
+            <div className="text-sm text-gray-700">{row.kycApprovedBy}</div>
+          </div>
+        ) : (
+          <span className="flex text-sm text-gray-700 justify-center ">-</span>
+        )
+      ),
+    },
+    {
+      key: "kycApprovedAt",
+      header: "KYC Approved At",
+      render: (row) => (
+        row.kycApprovedAt ? (
+          <div className="flex items-center gap-2">
+            <Clock className="h-3.5 w-3.5 text-gray-400" />
+            <div className="text-sm text-gray-700">{formatDate(row.kycApprovedAt)}</div>
+          </div>
+        ) : (
+          <span className="flex text-sm text-gray-700 justify-center ">-</span>
+        )
+      ),
+    },
+    {
+      key: "joinDate",
+      header: "Join Date",
+      render: (row) => (
+        <div className="flex items-center gap-2">
+          <Calendar className="h-3.5 w-3.5 text-gray-400" />
+          <span className="text-sm text-gray-700">{formatDate(row.joinDate)}</span>
+        </div>
+      ),
+    },
+    {
+      key: "createdBy",
+      header: "Created By",
+      render: (row) => (
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 bg-linear-to-br from-black/80 to-black/50 rounded-full flex items-center justify-center">
+            <span className="text-[#f08c2b] text-xs font-semibold">{getInitials(row.createdBy)}</span>
+          </div>
+          <span className="text-sm text-gray-700">{row.createdBy || "—"}</span>
+        </div>
+      ),
     },
     {
       key: "actions",
@@ -349,6 +435,16 @@ export default function UsersPage() {
         { value: "Verified", label: "Verified" },
         { value: "Pending", label: "Pending" },
         { value: "Rejected", label: "Rejected" },
+      ],
+      multiple: false,
+      type: "select",
+    },
+    {
+      field: "openingBalanceRecorded",
+      label: "Opening Balance Recorded",
+      options: [
+        { value: "true", label: "Yes" },
+        { value: "false", label: "No" },
       ],
       multiple: false,
       type: "select",

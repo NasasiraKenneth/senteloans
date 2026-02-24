@@ -363,20 +363,19 @@ export default function DataTable<Row>({
                     })}
                     </tbody>
                 </table>
-
-                {pagination && (
-                    <TablePagination
-                        component="div"
-                        count={pagination.total}
-                        page={pagination.page}
-                        onPageChange={pagination.onPageChange}
-                        rowsPerPage={pagination.rowsPerPage}
-                        onRowsPerPageChange={pagination.onRowsPerPageChange}
-                        rowsPerPageOptions={pagination.rowsPerPageOptions ?? [5, 10, 25]}
-                        className={pagination.className ?? 'border-t border-gray-200 min-w-[700px]'}
-                    />
-                )}
             </div>
+            {pagination && (
+                <TablePagination
+                    component="div"
+                    count={pagination.total}
+                    page={pagination.page}
+                    onPageChange={pagination.onPageChange}
+                    rowsPerPage={pagination.rowsPerPage}
+                    onRowsPerPageChange={pagination.onRowsPerPageChange}
+                    rowsPerPageOptions={pagination.rowsPerPageOptions ?? [5, 10, 25]}
+                    className={pagination.className ?? 'border-t border-gray-200 min-w-[700px]'}
+                />
+            )}
         </div>
     )
 }

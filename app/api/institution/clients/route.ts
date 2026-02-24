@@ -34,6 +34,7 @@ export async function GET(req: Request) {
     const search = (searchParams.get("search") || "").trim()
     const status = (searchParams.get("status") || "").trim()
     const kyc = (searchParams.get("kyc") || "").trim()
+    const openingBalanceRecorded = (searchParams.get("openingBalanceRecorded") || "").trim().toLowerCase()
     const pageSize = Math.min(parseInt(searchParams.get("limit") || "50", 10) || 50, 100)
 
     const result = await runWithAuth(session.user.authUserId, async (client) => {
@@ -45,28 +46,53 @@ export async function GET(req: Request) {
       const instSettings = (instRes.rows[0]?.settings as Record<string, unknown>) || {}
       const membershipFee = typeof instSettings.membershipFee === "number" ? instSettings.membershipFee : 0
 
-      let where = "institution_id = (SELECT institution_id FROM senteloans_users WHERE supabase_user_id = $1)"
+      let where = "c.institution_id = (SELECT institution_id FROM senteloans_users WHERE supabase_user_id = $1)"
       const params: unknown[] = [session!.user!.authUserId]
       let idx = 2
       if (search) {
-        where += ` AND (full_name ILIKE $${idx} OR client_number ILIKE $${idx} OR phone_number ILIKE $${idx} OR email ILIKE $${idx})`
+        where += ` AND (c.full_name ILIKE $${idx} OR c.client_number ILIKE $${idx} OR c.phone_number ILIKE $${idx} OR c.email ILIKE $${idx})`
         params.push(`%${search}%`)
         idx++
       }
       if (status) {
-        where += ` AND status = $${idx}`
+        where += ` AND c.status = $${idx}`
         params.push(status)
         idx++
       }
       if (kyc) {
-        where += ` AND kyc_status = $${idx}`
+        where += ` AND c.kyc_status = $${idx}`
         params.push(kyc)
+        idx++
+      }
+      if (openingBalanceRecorded === "true" || openingBalanceRecorded === "false") {
+        where += ` AND c.opening_balance_recorded = $${idx}`
+        params.push(openingBalanceRecorded === "true")
         idx++
       }
       params.push(pageSize)
       const res = await client.query(
-        `SELECT id, client_number, full_name, phone_number, email, district, status, kyc_status, membership_fee_paid
-         FROM senteloans_clients WHERE ${where} ORDER BY created_at DESC LIMIT $${idx}`,
+        `SELECT
+            c.id,
+            c.client_number,
+            c.full_name,
+            c.phone_number,
+            c.email,
+            c.district,
+            c.status,
+            c.kyc_status,
+            c.membership_fee_paid,
+            c.join_date,
+            c.created_by,
+            c.kyc_approved_by,
+            c.kyc_approved_at,
+            cb.full_name AS created_by_name,
+            kb.full_name AS kyc_approved_by_name
+         FROM senteloans_clients c
+         LEFT JOIN senteloans_users cb ON cb.id = c.created_by
+         LEFT JOIN senteloans_users kb ON kb.id = c.kyc_approved_by
+         WHERE ${where}
+         ORDER BY c.created_at DESC
+         LIMIT $${idx}`,
         params
       )
       return { clients: res.rows, membershipFee }

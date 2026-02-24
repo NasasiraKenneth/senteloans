@@ -83,6 +83,7 @@ export default function UserProfilePage() {
             village: string | null
             occupation: string | null
             monthly_income: number | null
+            monthly_savings: number | null
             next_of_kin_name: string | null
             next_of_kin_relationship: string | null
             next_of_kin_phone: string | null
@@ -127,6 +128,7 @@ export default function UserProfilePage() {
           village: client.village || "",
           occupation: client.occupation || "",
           monthlyIncome: client.monthly_income || 0,
+          monthlySavings: client.monthly_savings || 0,
           notes: (client as any).notes || "",
           nextOfKinName: client.next_of_kin_name || "",
           nextOfKinRelationship: client.next_of_kin_relationship || "",
@@ -651,38 +653,47 @@ export default function UserProfilePage() {
                 </p>
               </div>
 
-              <div className="grid md:grid-cols-4 gap-4">
-                {showShares && (
-                  <div className="flex items-center justify-between p-4 border border-border rounded-lg">
-                    <div className="flex items-center">
-                      <TrendingUp className="h-4 w-4 mr-2 text-muted-foreground" />
-                      <span className="text-sm">Share Value</span>
+              <div className="overflow-x-auto pb-1 scrollbar-hide">
+                <div className="grid grid-cols-4 gap-4 min-w-[64rem]">
+                  {showShares && (
+                    <div className="flex items-center justify-between p-4 border border-border rounded-lg">
+                      <div className="flex items-center">
+                        <TrendingUp className="h-4 w-4 mr-2 text-muted-foreground" />
+                        <span className="text-sm">Share Value</span>
+                      </div>
+                      <span className="text-sm font-medium">{formatCurrency(user.totalShareValue || 0)}</span>
                     </div>
-                    <span className="text-sm font-medium">{formatCurrency(user.totalShareValue || 0)}</span>
-                  </div>
-                )}
-                {hasSavings && (
+                  )}
+                  {hasSavings && (
+                    <div className="flex items-center justify-between p-4 border border-border rounded-lg">
+                      <div className="flex items-center">
+                        <PiggyBank className="h-4 w-4 mr-2 text-muted-foreground" />
+                        <span className="text-sm">Savings Balance</span>
+                      </div>
+                      <span className="text-sm font-medium">{formatCurrency(savingsBalance)}</span>
+                    </div>
+                  )}
                   <div className="flex items-center justify-between p-4 border border-border rounded-lg">
                     <div className="flex items-center">
                       <PiggyBank className="h-4 w-4 mr-2 text-muted-foreground" />
-                      <span className="text-sm">Savings Balance</span>
+                      <span className="text-sm">Monthly Savings</span>
                     </div>
-                    <span className="text-sm font-medium">{formatCurrency(savingsBalance)}</span>
+                    <span className="text-sm font-medium">{formatCurrency(user.monthlySavings || 0)}</span>
                   </div>
-                )}
-                <div className="flex items-center justify-between p-4 border border-border rounded-lg">
-                  <div className="flex items-center">
-                    <CreditCard className="h-4 w-4 mr-2 text-muted-foreground" />
-                    <span className="text-sm">Active Loans</span>
+                  <div className="flex items-center justify-between p-4 border border-border rounded-lg">
+                    <div className="flex items-center">
+                      <CreditCard className="h-4 w-4 mr-2 text-muted-foreground" />
+                      <span className="text-sm">Active Loans</span>
+                    </div>
+                    <span className="text-sm font-medium">{activeLoansCount}</span>
                   </div>
-                  <span className="text-sm font-medium">{activeLoansCount}</span>
-                </div>
-                <div className="flex items-center justify-between p-4 border border-border rounded-lg">
-                  <div className="flex items-center">
-                    <DollarSign className="h-4 w-4 mr-2 text-muted-foreground" />
-                    <span className="text-sm">Outstanding Balance</span>
+                  <div className="flex items-center justify-between p-4 border border-border rounded-lg">
+                    <div className="flex items-center">
+                      <DollarSign className="h-4 w-4 mr-2 text-muted-foreground" />
+                      <span className="text-sm">Outstanding Balance</span>
+                    </div>
+                    <span className="text-sm font-medium">{formatCurrency(outstandingBalance)}</span>
                   </div>
-                  <span className="text-sm font-medium">{formatCurrency(outstandingBalance)}</span>
                 </div>
               </div>
             </div>

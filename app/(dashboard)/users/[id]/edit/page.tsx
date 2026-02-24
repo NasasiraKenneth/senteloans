@@ -72,6 +72,7 @@ export default function UserEditPage({ params }: UserEditPageProps) {
     email: "",
     phoneNumber: "",
     dateOfBirth: "",
+    joinDate: "",
     gender: "",
     maritalStatus: "",
     location: "",
@@ -121,6 +122,7 @@ export default function UserEditPage({ params }: UserEditPageProps) {
           email: client.email || "",
           phoneNumber: client.phone_number || "",
           dateOfBirth: client.date_of_birth ? client.date_of_birth.slice(0, 10) : "",
+          joinDate: client.join_date ? client.join_date.slice(0, 10) : "",
           gender: client.gender || "",
           maritalStatus: client.marital_status || "",
           location: [client.village, client.district].filter(Boolean).join(", "),
@@ -477,6 +479,7 @@ export default function UserEditPage({ params }: UserEditPageProps) {
         email,
         phoneNumber: phone,
         dateOfBirth: formData.dateOfBirth,
+        joinDate: formData.joinDate,
         gender: formData.gender,
         maritalStatus: formData.maritalStatus,
         location: formData.location,
@@ -1643,6 +1646,15 @@ export default function UserEditPage({ params }: UserEditPageProps) {
                           <SelectItem value="Rejected">Rejected</SelectItem>
                         </SelectContent>
                       </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="joinDate">Join Date</Label>
+                      <Input
+                        id="joinDate"
+                        type="date"
+                        value={formData.joinDate}
+                        onChange={(e) => handleInputChange("joinDate", e.target.value)}
+                      />
                     </div>
                   </div>
                   <div className="space-y-2">

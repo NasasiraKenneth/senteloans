@@ -6,7 +6,7 @@ import { useEffect, useMemo, useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import DataTable, { DataTableColumn } from "@/components/datatables/DataTable"
 
 import { ArrowLeft, PiggyBank, User, Calendar, ArrowUpDown, TrendingUp, Edit, X } from "lucide-react"
 import Link from "next/link"
@@ -20,6 +20,8 @@ export default function AccountDetailsPage() {
   const [error, setError] = useState<string>("")
   const [account, setAccount] = useState<any>(null)
   const [transactions, setTransactions] = useState<any[]>([])
+  const [txPage, setTxPage] = useState(0)
+  const [txRowsPerPage, setTxRowsPerPage] = useState(6)
   const [editing, setEditing] = useState(false)
   const [statusDraft, setStatusDraft] = useState<string>("")
   const { toast } = useToast()
@@ -62,6 +64,86 @@ export default function AccountDetailsPage() {
     })
   }
   const transactionHistory = useMemo(() => transactions, [transactions])
+
+  type TransactionRow = {
+    id: string
+    date: string
+    type: string
+    amount: number
+    mode: string
+    description: string
+    balance: number
+  }
+
+  const transactionColumns: DataTableColumn<TransactionRow>[] = [
+    {
+      key: "date",
+      header: "Date",
+      render: (row) => <span className="text-sm text-gray-700">{row.date ? formatDate(row.date) : "—"}</span>,
+    },
+    {
+      key: "type",
+      header: "Type",
+      render: (row) => (
+        <div className="flex items-center">
+          {row.type === "Deposit" || row.type === "Opening Balance" ? (
+            <TrendingUp className="h-4 w-4 text-green-600 mr-2" />
+          ) : (
+            <ArrowUpDown className="h-4 w-4 text-red-600 mr-2" />
+          )}
+          <Badge variant={row.type === "Deposit" || row.type === "Opening Balance" ? "default" : "outline"}>
+            {row.type}
+          </Badge>
+        </div>
+      ),
+    },
+    {
+      key: "amount",
+      header: "Amount",
+      render: (row) => (
+        <span
+          className={`font-medium ${row.type === "Deposit" || row.type === "Opening Balance" ? "text-green-600" : "text-red-600"}`}
+        >
+          {row.type === "Deposit" || row.type === "Opening Balance" ? "" : "-"}
+          {formatCurrency(Number(row.amount || 0))}
+        </span>
+      ),
+    },
+    {
+      key: "mode",
+      header: "Mode",
+      render: (row) => <span className="text-sm text-gray-700">{row.mode || "—"}</span>,
+    },
+    {
+      key: "description",
+      header: "Description",
+      render: (row) => <span className="inline-block max-w-xs truncate">{row.description || "—"}</span>,
+    },
+    {
+      key: "balance",
+      header: "Balance",
+      render: (row) => <span className="font-medium">{formatCurrency(Number(row.balance || 0))}</span>,
+    },
+  ]
+
+  const mappedTransactionHistory: TransactionRow[] = useMemo(
+    () =>
+      transactionHistory.map((transaction: any, index: number) => ({
+        id: transaction.id || `${transaction.date || "tx"}-${index}`,
+        date: transaction.date || "",
+        type: transaction.type || "",
+        amount: Number(transaction.amount || 0),
+        mode: transaction.mode || "",
+        description: transaction.description || "",
+        balance: Number(transaction.balance || 0),
+      })),
+    [transactionHistory],
+  )
+
+  const pagedTransactionHistory = mappedTransactionHistory.slice(
+    txPage * txRowsPerPage,
+    (txPage + 1) * txRowsPerPage,
+  )
 
   const getAccountTypeColor = (type: string) => {
     switch (type) {
@@ -273,72 +355,25 @@ export default function AccountDetailsPage() {
               </div>
             </div>
 
-            {/* Transaction History */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center">
-                  <Calendar className="h-4 w-4 mr-2" />
-                  Transaction History
-                </CardTitle>
-                <CardDescription>Recent account activities and transactions</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Date</TableHead>
-                      <TableHead>Type</TableHead>
-                      <TableHead>Amount</TableHead>
-                      <TableHead>Mode</TableHead>
-                      <TableHead>Description</TableHead>
-                      <TableHead>Balance</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {transactionHistory.map((transaction: any) => (
-                      <TableRow key={transaction.id}>
-                        <TableCell>{formatDate(transaction.date)}</TableCell>
-                        <TableCell>
-                          <div className="flex items-center">
-                            {transaction.type === "Deposit" || transaction.type === "Opening Balance" ? (
-                              <TrendingUp className="h-4 w-4 text-green-600 mr-2" />
-                            ) : (
-                              <ArrowUpDown className="h-4 w-4 text-red-600 mr-2" />
-                            )}
-                            <Badge
-                              variant={
-                                transaction.type === "Deposit" || transaction.type === "Opening Balance"
-                                  ? "default"
-                                  : "outline"
-                              }
-                            >
-                              {transaction.type}
-                            </Badge>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <span
-                            className={`font-medium ${
-                              transaction.type === "Deposit" || transaction.type === "Opening Balance"
-                                ? "text-green-600"
-                                : "text-red-600"
-                            }`}
-                          >
-                            {transaction.type === "Deposit" || transaction.type === "Opening Balance"
-                              ? ""
-                              : "-"}
-                            {formatCurrency(Number(transaction.amount || 0))}
-                          </span>
-                        </TableCell>
-                        <TableCell>{transaction.mode}</TableCell>
-                        <TableCell className="max-w-xs truncate">{transaction.description}</TableCell>
-                        <TableCell className="font-medium">{formatCurrency(Number(transaction.balance || 0))}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>
+            <DataTable<TransactionRow>
+              columns={transactionColumns}
+              rows={pagedTransactionHistory}
+              loading={loading}
+              title="Transaction History"
+              emptyMessage="No transactions found for this account"
+              getRowId={(row) => row.id}
+              pagination={{
+                page: txPage,
+                rowsPerPage: txRowsPerPage,
+                total: mappedTransactionHistory.length,
+                onPageChange: (_e, newPage) => setTxPage(newPage),
+                onRowsPerPageChange: (e) => {
+                  setTxRowsPerPage(parseInt(e.target.value, 10))
+                  setTxPage(0)
+                },
+                rowsPerPageOptions: [6, 12, 18],
+              }}
+            />
 
             {/* Action Buttons */}
             <div className="flex justify-end space-x-4 pt-6 border-t">
