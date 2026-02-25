@@ -384,12 +384,20 @@ export default function SavingsPage() {
                           <div className="text-right">
                             <p
                               className={`text-sm font-medium ${
-                                transaction.type === "Deposit" || transaction.type === "Loan Disbursement"
+                                transaction.type === "Deposit" ||
+                                transaction.type === "Loan Disbursement" ||
+                                transaction.type === "Opening Balance" ||
+                                transaction.type === "Shares Purchase"
                                   ? "text-green-600"
                                   : "text-red-600"
                               }`}
                             >
-                              {transaction.type === "Deposit" || transaction.type === "Loan Disbursement" ? "+" : "-"}
+                              {transaction.type === "Deposit" ||
+                              transaction.type === "Loan Disbursement" ||
+                              transaction.type === "Opening Balance" ||
+                              transaction.type === "Shares Purchase"
+                                ? "+"
+                                : "-"}
                               {formatCurrency(Number(transaction.amount || 0))}
                             </p>
                             <p className="text-xs text-muted-foreground">Bal: {formatCurrency(Number(transaction.balance || 0))}</p>

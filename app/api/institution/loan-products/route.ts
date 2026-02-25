@@ -3,6 +3,54 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { runWithAuth } from "@/lib/db"
 
+const deriveInstitutionInitials = (institutionName: string): string => {
+  const parts = institutionName
+    .toUpperCase()
+    .replace(/[^A-Z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter(Boolean)
+
+  if (parts.length === 0) return "INST"
+  const initials = parts.map((p) => p[0]).join("").slice(0, 6)
+  return initials || "INST"
+}
+
+const normalizeShortProductCode = (value: string): string =>
+  value
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "")
+    .trim()
+
+const buildNextProductCode = async (
+  client: { query: (text: string, params?: unknown[]) => Promise<{ rows: Array<{ product_code: string }> }> },
+  institutionId: string,
+  institutionName: string,
+  shortCodeInput: string
+): Promise<string> => {
+  const institutionInitials = deriveInstitutionInitials(institutionName)
+  const shortCode = normalizeShortProductCode(shortCodeInput)
+  if (!shortCode) throw new Error("invalid_product_code")
+
+  const prefix = `${institutionInitials}-${shortCode}-`
+  const res = await client.query(
+    `SELECT product_code
+     FROM senteloans_loan_products
+     WHERE institution_id = $1
+       AND product_code LIKE $2`,
+    [institutionId, `${prefix}%`]
+  )
+
+  const maxSeq = res.rows.reduce((max, row) => {
+    const m = String(row.product_code || "").match(/-(\d+)$/)
+    if (!m) return max
+    const n = Number(m[1])
+    return Number.isFinite(n) && n > max ? n : max
+  }, 0)
+
+  const nextSeq = String(maxSeq + 1).padStart(3, "0")
+  return `${prefix}${nextSeq}`
+}
+
 /**
  * GET /api/institution/loan-products
  * Query params: status (defaults to Active), limit
@@ -74,11 +122,18 @@ export async function POST(req: Request) {
 
     const result = await runWithAuth(session.user.authUserId, async (client) => {
       const instRes = await client.query(
-        `SELECT institution_id FROM senteloans_users WHERE supabase_user_id = $1`,
+        `SELECT u.institution_id, i.name AS institution_name
+         FROM senteloans_users u
+         JOIN senteloans_institutions i ON i.id = u.institution_id
+         WHERE u.supabase_user_id = $1`,
         [session!.user!.authUserId]
       )
       const institutionId = instRes.rows[0]?.institution_id
+      const institutionName = String(instRes.rows[0]?.institution_name || "")
       if (!institutionId) throw new Error("Institution not found")
+      if (!institutionName) throw new Error("Institution name not found")
+
+      const generatedProductCode = await buildNextProductCode(client, institutionId, institutionName, product_code)
 
       const res = await client.query(
         `INSERT INTO senteloans_loan_products
@@ -88,7 +143,7 @@ export async function POST(req: Request) {
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
          RETURNING id`,
         [
-          institutionId, product_name, product_code, description || null,
+          institutionId, product_name, generatedProductCode, description || null,
           minimum_amount, maximum_amount, interest_rate,
           minimum_tenure_months, maximum_tenure_months,
           interest_calculation_method || "reducing_balance",

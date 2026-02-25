@@ -19,7 +19,7 @@ DECLARE
         {"name": "kyc_status_type", "values": ["Pending", "Verified", "Rejected"]},
         {"name": "loan_status_type", "values": ["Applied", "Under Review", "Approved", "Disbursed", "Active", "Closed", "Defaulted", "Rejected"]},
         {"name": "account_type", "values": ["Voluntary", "Fixed", "Shares", "Current"]},
-        {"name": "transaction_type", "values": ["Deposit", "Withdrawal", "Transfer", "Loan Disbursement", "Loan Repayment", "Interest Payment", "Fee Payment"]},
+        {"name": "transaction_type", "values": ["Deposit", "Withdrawal", "Transfer", "Loan Disbursement", "Loan Repayment", "Interest Payment", "Fee Payment", "Shares Purchase"]},
         {"name": "payment_mode", "values": ["Cash", "Mobile Money", "Bank Transfer", "Cheque", "Card"]},
         {"name": "transaction_status", "values": ["Pending", "Completed", "Failed", "Reversed"]},
         {"name": "repayment_status", "values": ["Pending", "Paid", "Overdue", "Partial"]},
@@ -94,7 +94,6 @@ CREATE TABLE IF NOT EXISTS senteloans_clients (
     village VARCHAR(100),
     occupation VARCHAR(100),
     monthly_income DECIMAL(15,2),
-    loan_officer VARCHAR(255),
     notes TEXT,
     -- Payout details (single-table approach)
     mobile_money_provider TEXT,

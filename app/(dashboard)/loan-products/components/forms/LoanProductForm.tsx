@@ -87,7 +87,7 @@ export default function LoanProductForm({
   const validate = (): boolean => {
     const e: Partial<Record<keyof LoanProductFormData, string>> = {}
     if (!form.product_name.trim()) e.product_name = "Product name is required"
-    if (!form.product_code.trim()) e.product_code = "Product code is required"
+    if (!form.product_code.trim()) e.product_code = "Short code is required (e.g. AG)"
     if (!form.minimum_amount || Number(form.minimum_amount) <= 0) e.minimum_amount = "Must be greater than 0"
     if (!form.maximum_amount || Number(form.maximum_amount) <= 0) e.maximum_amount = "Must be greater than 0"
     if (Number(form.maximum_amount) < Number(form.minimum_amount)) e.maximum_amount = "Must be ≥ minimum amount"
@@ -126,14 +126,14 @@ export default function LoanProductForm({
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Product Code <span className="text-red-500">*</span>
+              Product Code (Short) <span className="text-red-500">*</span>
             </label>
             <input
               type="text"
-              placeholder="e.g. PL-001"
+              placeholder="e.g. PL"
               className={inputClass(!!errors.product_code)}
               value={form.product_code}
-              onChange={(e) => set("product_code", e.target.value.toUpperCase())}
+              onChange={(e) => set("product_code", e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""))}
             />
             {errors.product_code && <p className="mt-1 text-xs text-red-500">{errors.product_code}</p>}
           </div>

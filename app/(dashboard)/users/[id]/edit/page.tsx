@@ -46,6 +46,7 @@ export default function UserEditPage({ params }: UserEditPageProps) {
   const [feeSubmitting, setFeeSubmitting] = useState(false)
   const [feeSuccess, setFeeSuccess] = useState<string | null>(null)
   const [feePayments, setFeePayments] = useState<any[]>([])
+  const [sharesPaymentMode, setSharesPaymentMode] = useState("Cash")
   const [currency, setCurrency] = useState("UGX")
 
   // Opening balances state
@@ -515,7 +516,11 @@ export default function UserEditPage({ params }: UserEditPageProps) {
         const sharesRes = await fetch(`/api/institution/clients/${id}/shares`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ numberOfShares: sharesToBuy }),
+          body: JSON.stringify({
+            numberOfShares: sharesToBuy,
+            mode: sharesPaymentMode,
+            description: "Shares purchase",
+          }),
         })
         if (!sharesRes.ok) {
           const { error } = await sharesRes.json()
@@ -594,7 +599,11 @@ export default function UserEditPage({ params }: UserEditPageProps) {
       const res = await fetch(`/api/institution/clients/${id}/shares`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ numberOfShares: sharesToBuy }),
+        body: JSON.stringify({
+          numberOfShares: sharesToBuy,
+          mode: sharesPaymentMode,
+          description: "Shares purchase",
+        }),
       })
       if (!res.ok) {
         const { error } = await res.json()
@@ -1377,7 +1386,7 @@ export default function UserEditPage({ params }: UserEditPageProps) {
                             : 0
                           const lastShareValue = Array.isArray(shares) && shares[0]?.share_value
                           const totalValue = Array.isArray(shares)
-                            ? shares.reduce((acc, r: any) => acc + (r.total_value || 0), 0)
+                            ? shares.reduce((acc, r: any) => acc + Number(r.total_value || 0), 0)
                             : 0
                           return (
                             <>
@@ -1402,7 +1411,7 @@ export default function UserEditPage({ params }: UserEditPageProps) {
 
                               <div className="border-t pt-4">
                                 <div className="space-y-4">
-                                  <div className="grid gap-4 md:grid-cols-3 items-end">
+                                  <div className="grid gap-4 md:grid-cols-4 items-end">
                                     <div className="space-y-2">
                                       <Label htmlFor="sharesToBuy">Shares to Purchase</Label>
                                       <Input
@@ -1416,6 +1425,21 @@ export default function UserEditPage({ params }: UserEditPageProps) {
                                     <div className="space-y-2">
                                       <Label>Value per Share</Label>
                                       <Input value={`UGX ${configuredShareValue ?? "-"}`} readOnly />
+                                    </div>
+                                    <div className="space-y-2">
+                                      <Label>Payment Mode</Label>
+                                      <Select value={sharesPaymentMode} onValueChange={setSharesPaymentMode}>
+                                        <SelectTrigger>
+                                          <SelectValue placeholder="Select mode" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          <SelectItem value="Cash">Cash</SelectItem>
+                                          <SelectItem value="Mobile Money">Mobile Money</SelectItem>
+                                          <SelectItem value="Bank Transfer">Bank Transfer</SelectItem>
+                                          <SelectItem value="Cheque">Cheque</SelectItem>
+                                          <SelectItem value="Card">Card</SelectItem>
+                                        </SelectContent>
+                                      </Select>
                                     </div>
                                     <div className="flex items-center gap-2">
                                       <Calculator className="h-4 w-4 text-muted-foreground" />

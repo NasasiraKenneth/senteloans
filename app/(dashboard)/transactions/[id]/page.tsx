@@ -178,7 +178,13 @@ export default function TransactionDetailPage() {
   }
 
   const isFeePayment = tx.type === "Fee Payment"
-  const isInflow = tx.type === "Deposit" || tx.type === "Loan Disbursement" || tx.type === "Opening Balance" || isFeePayment || tx.type === "Loan Repayment"
+  const isInflow =
+    tx.type === "Deposit" ||
+    tx.type === "Loan Disbursement" ||
+    tx.type === "Opening Balance" ||
+    tx.type === "Shares Purchase" ||
+    isFeePayment ||
+    tx.type === "Loan Repayment"
 
   return (
     <>

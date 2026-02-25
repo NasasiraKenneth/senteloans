@@ -108,6 +108,7 @@ export default function TransactionsPage() {
       case "Deposit":
       case "Loan Disbursement":
       case "Opening Balance":
+      case "Shares Purchase":
         return <TrendingUp className="h-4 w-4 text-green-600" />
       case "Withdrawal":
       case "Loan Repayment":
@@ -119,12 +120,12 @@ export default function TransactionsPage() {
 
   // Calculate statistics
   const totalTransactions = transactions.length
-  const totalDeposits = transactions.filter((t) => t.type === "Deposit").length
+  const totalDeposits = transactions.filter((t) => t.type === "Deposit" || t.type === "Shares Purchase").length
   const totalWithdrawals = transactions.filter((t) => t.type === "Withdrawal").length
   const totalLoanTransactions = transactions.filter((t) => t.type.includes("Loan")).length
 
   const totalDepositAmount = transactions
-    .filter((t) => t.type === "Deposit" || t.type === "Loan Disbursement" || t.type === "Opening Balance")
+    .filter((t) => t.type === "Deposit" || t.type === "Loan Disbursement" || t.type === "Opening Balance" || t.type === "Shares Purchase")
     .reduce((sum, t) => sum + Number(t.amount), 0)
   const totalWithdrawalAmount = transactions
     .filter((t) => t.type === "Withdrawal" || t.type === "Loan Repayment")
@@ -165,6 +166,7 @@ export default function TransactionsPage() {
           Transfer: "bg-gray-100 text-gray-700 border border-gray-200",
           "Interest Payment": "bg-yellow-100 text-yellow-700 border border-yellow-200",
           "Opening Balance": "bg-teal-100 text-teal-700 border border-teal-200",
+          "Shares Purchase": "bg-emerald-100 text-emerald-700 border border-emerald-200",
         }
         return (
           <div className="flex items-center space-x-2">
@@ -245,6 +247,7 @@ export default function TransactionsPage() {
         { value: "Loan Disbursement", label: "Loan Disbursement" },
         { value: "Loan Repayment", label: "Loan Repayment" },
         { value: "Fee Payment", label: "Fee Payment" },
+        { value: "Shares Purchase", label: "Shares Purchase" },
       ],
       multiple: false,
       type: "select",

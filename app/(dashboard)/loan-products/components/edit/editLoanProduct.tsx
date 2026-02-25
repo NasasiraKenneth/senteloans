@@ -12,6 +12,12 @@ interface EditLoanProductProps {
   onSuccess: () => void
 }
 
+const extractShortCode = (fullCode: string): string => {
+  const parts = String(fullCode || "").split("-")
+  if (parts.length >= 3) return parts.slice(1, -1).join("-").replace(/[^A-Za-z0-9]/g, "").toUpperCase()
+  return String(fullCode || "").replace(/[^A-Za-z0-9]/g, "").toUpperCase()
+}
+
 export default function EditLoanProduct({ isOpen, productId, onClose, onSuccess }: EditLoanProductProps) {
   const [loading, setLoading] = useState(false)
   const [fetching, setFetching] = useState(false)
@@ -37,7 +43,7 @@ export default function EditLoanProduct({ isOpen, productId, onClose, onSuccess 
         const p = body.product
         setInitialValues({
           product_name: p.product_name || "",
-          product_code: p.product_code || "",
+          product_code: extractShortCode(p.product_code || ""),
           description: p.description || "",
           minimum_amount: String(p.minimum_amount || ""),
           maximum_amount: String(p.maximum_amount || ""),

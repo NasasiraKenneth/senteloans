@@ -3,6 +3,67 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { runWithAuth } from "@/lib/db"
 
+const deriveInstitutionInitials = (institutionName: string): string => {
+  const parts = institutionName
+    .toUpperCase()
+    .replace(/[^A-Z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter(Boolean)
+
+  if (parts.length === 0) return "INST"
+  const initials = parts.map((p) => p[0]).join("").slice(0, 6)
+  return initials || "INST"
+}
+
+const normalizeShortProductCode = (value: string): string =>
+  value
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "")
+    .trim()
+
+const extractShortCodeFromFull = (fullCode: string): string => {
+  const parts = String(fullCode || "").split("-")
+  if (parts.length >= 3) {
+    const middle = parts.slice(1, -1).join("-")
+    return normalizeShortProductCode(middle)
+  }
+  return normalizeShortProductCode(fullCode)
+}
+
+const buildNextProductCode = async (
+  client: { query: (text: string, params?: unknown[]) => Promise<{ rows: Array<{ product_code: string }> }> },
+  institutionId: string,
+  institutionName: string,
+  shortCodeInput: string,
+  excludeProductId?: string
+): Promise<string> => {
+  const institutionInitials = deriveInstitutionInitials(institutionName)
+  const shortCode = normalizeShortProductCode(shortCodeInput)
+  if (!shortCode) throw new Error("invalid_product_code")
+
+  const prefix = `${institutionInitials}-${shortCode}-`
+  const params: unknown[] = [institutionId, `${prefix}%`]
+  let sql = `SELECT product_code
+             FROM senteloans_loan_products
+             WHERE institution_id = $1
+               AND product_code LIKE $2`
+  if (excludeProductId) {
+    sql += ` AND id <> $3`
+    params.push(excludeProductId)
+  }
+  const res = await client.query(sql, params)
+
+  const maxSeq = res.rows.reduce((max, row) => {
+    const m = String(row.product_code || "").match(/-(\d+)$/)
+    if (!m) return max
+    const n = Number(m[1])
+    return Number.isFinite(n) && n > max ? n : max
+  }, 0)
+
+  const nextSeq = String(maxSeq + 1).padStart(3, "0")
+  return `${prefix}${nextSeq}`
+}
+
 /**
  * GET /api/institution/loan-products/[id]
  */
@@ -61,6 +122,33 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     }
 
     await runWithAuth(session.user.authUserId, async (client) => {
+      const currentRes = await client.query(
+        `SELECT lp.product_code, u.institution_id, i.name AS institution_name
+         FROM senteloans_loan_products lp
+         JOIN senteloans_users u ON u.supabase_user_id = $2
+         JOIN senteloans_institutions i ON i.id = u.institution_id
+         WHERE lp.id = $1
+           AND lp.institution_id = u.institution_id`,
+        [id, session!.user!.authUserId]
+      )
+      const current = currentRes.rows[0]
+      if (!current) throw new Error("product_not_found")
+
+      const requestedShortCode = normalizeShortProductCode(product_code)
+      if (!requestedShortCode) throw new Error("invalid_product_code")
+
+      const currentShortCode = extractShortCodeFromFull(String(current.product_code || ""))
+      const finalProductCode =
+        currentShortCode === requestedShortCode
+          ? String(current.product_code)
+          : await buildNextProductCode(
+              client,
+              String(current.institution_id),
+              String(current.institution_name || ""),
+              requestedShortCode,
+              id
+            )
+
       await client.query(
         `UPDATE senteloans_loan_products SET
            product_name = $1, product_code = $2, description = $3,
@@ -72,7 +160,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
          WHERE id = $15
            AND institution_id = (SELECT institution_id FROM senteloans_users WHERE supabase_user_id = $16)`,
         [
-          product_name, product_code, description || null,
+          product_name, finalProductCode, description || null,
           minimum_amount, maximum_amount, interest_rate,
           minimum_tenure_months, maximum_tenure_months,
           interest_calculation_method || "reducing_balance",
@@ -86,6 +174,12 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     return NextResponse.json({ success: true })
   } catch (e: unknown) {
     const err = e as Error
+    if (err?.message === "product_not_found") {
+      return NextResponse.json({ error: "Product not found" }, { status: 404 })
+    }
+    if (err?.message === "invalid_product_code") {
+      return NextResponse.json({ error: "Invalid product code" }, { status: 400 })
+    }
     if (err?.message?.includes("uk_loan_products_code")) {
       return NextResponse.json({ error: "A product with this code already exists" }, { status: 409 })
     }

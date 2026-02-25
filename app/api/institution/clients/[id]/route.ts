@@ -209,7 +209,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       if (!appUser) return { error: "auth_context" as const }
 
       const targetRes = await client.query(
-        `SELECT id, institution_id, kyc_status FROM senteloans_clients WHERE id = $1`,
+        `SELECT id, institution_id, kyc_status, membership_fee_paid FROM senteloans_clients WHERE id = $1`,
         [clientId]
       )
       const targetClient = targetRes.rows[0]
@@ -217,6 +217,14 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       if (targetClient.institution_id !== appUser.institution_id) {
         return { error: "forbidden" as const }
       }
+
+      const currentMembershipPaid = Number(targetClient.membership_fee_paid || 0)
+      const nextMembershipPaid = typeof updates["membership_fee_paid"] !== "undefined"
+        ? Number(updates["membership_fee_paid"])
+        : currentMembershipPaid
+      const membershipDelta = nextMembershipPaid > currentMembershipPaid
+        ? nextMembershipPaid - currentMembershipPaid
+        : 0
 
       updates["modified_by"] = appUser.id
 
@@ -233,6 +241,43 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         [clientId, appUser.institution_id, ...vals]
       )
       if (updateRes.rowCount === 0) return { error: "not_updated" as const }
+
+      if (membershipDelta > 0) {
+        const instRes = await client.query(
+          `SELECT settings FROM senteloans_institutions WHERE id = $1`,
+          [appUser.institution_id]
+        )
+        const settings = (instRes.rows[0]?.settings as Record<string, unknown>) || {}
+        const configuredMembershipFee = typeof settings.membershipFee === "number" ? settings.membershipFee : 0
+        const balanceBefore = Math.max(configuredMembershipFee - currentMembershipPaid, 0)
+        const balanceAfter = Math.max(configuredMembershipFee - nextMembershipPaid, 0)
+        const transactionNumber = `FEE-${Date.now()}`
+        const modeRaw = typeof body.membershipFeeMode === "string" ? body.membershipFeeMode : "Cash"
+        const validModes = ["Cash", "Mobile Money", "Bank Transfer", "Cheque", "Card"]
+        const mode = validModes.includes(modeRaw) ? modeRaw : "Cash"
+        const description = typeof body.membershipFeeDescription === "string" && body.membershipFeeDescription.trim()
+          ? body.membershipFeeDescription.trim()
+          : "Membership fee payment update"
+
+        await client.query(
+          `INSERT INTO senteloans_transactions
+            (institution_id, client_id, account_id, loan_id, transaction_number, type, amount, mode, description, reference_number, balance_before, balance_after, processed_by, transaction_date, status)
+           VALUES ($1, $2, NULL, NULL, $3, 'Fee Payment', $4, $5, $6, '', $7, $8, $9, $10, 'Completed')`,
+          [
+            appUser.institution_id,
+            clientId,
+            transactionNumber,
+            membershipDelta,
+            mode,
+            description,
+            balanceBefore,
+            balanceAfter,
+            appUser.id,
+            new Date().toISOString(),
+          ]
+        )
+      }
+
       return { ok: true, id: updateRes.rows[0].id }
     })
 
