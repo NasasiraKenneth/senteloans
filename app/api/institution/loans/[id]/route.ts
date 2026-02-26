@@ -4,6 +4,9 @@ import { authOptions } from "@/lib/auth"
 import { runWithAuth, runWithoutAuth } from "@/lib/db"
 import { notificationService } from "@/lib/notifications/notification-service"
 import { NotificationTemplates } from "@/lib/notifications/notification-types"
+import { buildRepaymentSchedule, calculateLoanTerms } from "@/lib/loans/calculations"
+
+const PAYMENT_MODES = ["Cash", "Mobile Money", "Bank Transfer", "Cheque", "Card"] as const
 
 /** Normalize DB date (Date or string) to YYYY-MM-DD. */
 function toDateString(v: unknown): string {
@@ -16,26 +19,6 @@ function toDateString(v: unknown): string {
   const s = String(v ?? "").slice(0, 10)
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s
   return new Date().toISOString().slice(0, 10)
-}
-
-/** Add n months to a YYYY-MM-DD date string; returns YYYY-MM-DD. Avoids timezone/setMonth quirks. */
-function addMonths(dateStr: string, n: number): string {
-  const s = dateStr.slice(0, 10)
-  const [y, m, d] = s.split("-").map(Number)
-  if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) return s
-  let month = m + n
-  let year = y
-  while (month > 12) {
-    month -= 12
-    year += 1
-  }
-  while (month < 1) {
-    month += 12
-    year -= 1
-  }
-  const lastDay = new Date(year, month, 0).getDate()
-  const day = Math.min(d, lastDay)
-  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`
 }
 
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -168,6 +151,12 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     const newStatus = typeof body.status === "string" ? body.status.trim() : undefined
     const purpose = typeof body.purpose === "string" ? body.purpose.trim() : undefined
     const collateral_description = typeof body.collateral_description === "string" ? body.collateral_description.trim() : undefined
+    const disbursement_mode = PAYMENT_MODES.includes(body.disbursement_mode as typeof PAYMENT_MODES[number])
+      ? (body.disbursement_mode as string)
+      : "Cash"
+    const disbursement_date = typeof body.disbursement_date === "string" && body.disbursement_date.trim()
+      ? body.disbursement_date.trim().slice(0, 10)
+      : new Date().toISOString().slice(0, 10)
 
     const allowedTargets: Record<string, string[]> = {
       Applied: ["Under Review", "Approved", "Rejected"],
@@ -182,7 +171,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
 
     const result = await runWithAuth(session.user.authUserId, async (client) => {
       const [loanRes, actorRes] = await Promise.all([
-        client.query(`SELECT id, institution_id, status, approval_date, total_amount, principal_amount, interest_rate, tenure_months FROM senteloans_loans WHERE id = $1`, [id]),
+        client.query(`SELECT id, institution_id, client_id, status, approval_date, total_amount, principal_amount, interest_rate, tenure_months, loan_product_id FROM senteloans_loans WHERE id = $1`, [id]),
         client.query(`SELECT id, institution_id FROM senteloans_users WHERE supabase_user_id = $1`, [session!.user!.authUserId]),
       ])
       const loan = loanRes.rows[0]
@@ -203,15 +192,23 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
           updates.approval_date = new Date().toISOString().slice(0, 10)
         }
         if (newStatus === "Disbursed") {
-          updates.disbursement_date = new Date().toISOString().slice(0, 10)
+          updates.disbursement_date = disbursement_date
           const totalAmount = Number(loan.total_amount ?? 0)
           const principal = Number(loan.principal_amount ?? 0)
           const tenureMonths = Math.floor(Number(loan.tenure_months ?? 0))
           const rate = Number(loan.interest_rate ?? 0)
+          let calcMethod: string = "reducing_balance"
+          if (loan.loan_product_id) {
+            const methodRes = await client.query(
+              `SELECT interest_calculation_method FROM senteloans_loan_products WHERE id = $1`,
+              [loan.loan_product_id]
+            )
+            calcMethod = String(methodRes.rows[0]?.interest_calculation_method || "reducing_balance")
+          }
           const initialOutstanding = totalAmount > 0
             ? totalAmount
             : tenureMonths > 0 && principal > 0
-              ? Math.round(principal * (1 + (rate / 100) * (tenureMonths / 12)) * 100) / 100
+              ? calculateLoanTerms(principal, rate, tenureMonths, calcMethod).totalAmount
               : principal
           updates.outstanding_balance = initialOutstanding
         }
@@ -224,7 +221,10 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
 
       if (newStatus === "Disbursed") {
         const loanDetailRes = await client.query(
-          `SELECT principal_amount, interest_rate, tenure_months, disbursement_date FROM senteloans_loans WHERE id = $1`,
+          `SELECT l.principal_amount, l.interest_rate, l.tenure_months, l.disbursement_date, lp.interest_calculation_method
+           FROM senteloans_loans l
+           LEFT JOIN senteloans_loan_products lp ON lp.id = l.loan_product_id
+           WHERE l.id = $1`,
           [id]
         )
         const loanDetail = loanDetailRes.rows[0]
@@ -233,28 +233,59 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
           const annualRate = Number(loanDetail.interest_rate || 0)
           const tenureMonths = Math.floor(Number(loanDetail.tenure_months))
           const disbursementDateStr = toDateString(loanDetail.disbursement_date ?? new Date().toISOString().slice(0, 10))
-          const principalPerMonth = principal / tenureMonths
-          const interestPerMonth = (principal * annualRate / 100) / 12
-          const firstDueDateStr = addMonths(disbursementDateStr, 1)
-          for (let n = 1; n <= tenureMonths; n++) {
-            const dueDateStr = addMonths(disbursementDateStr, n)
+          const schedule = buildRepaymentSchedule({
+            principal,
+            annualRate,
+            tenureMonths,
+            method: loanDetail.interest_calculation_method,
+            startDate: disbursementDateStr,
+          })
+          const firstDueDateStr = schedule[0]?.dueDate ?? null
+          for (const row of schedule) {
             await client.query(
               `INSERT INTO senteloans_loan_repayments (loan_id, installment_number, due_date, principal_amount, interest_amount, status)
                VALUES ($1, $2, $3, $4, $5, 'Pending')
                ON CONFLICT (loan_id, installment_number) DO NOTHING`,
-              [id, n, dueDateStr, Math.round(principalPerMonth * 100) / 100, Math.round(interestPerMonth * 100) / 100]
+              [id, row.installmentNumber, row.dueDate, row.principalAmount, row.interestAmount]
             )
           }
-          await client.query(
-            `UPDATE senteloans_loans SET next_payment_date = $1, status = 'Active', updated_at = NOW() WHERE id = $2`,
-            [firstDueDateStr, id]
-          )
+          if (firstDueDateStr) {
+            await client.query(
+              `UPDATE senteloans_loans SET next_payment_date = $1, updated_at = NOW() WHERE id = $2`,
+              [firstDueDateStr, id]
+            )
+          } else {
+            await client.query(
+              `UPDATE senteloans_loans SET updated_at = NOW() WHERE id = $1`,
+              [id]
+            )
+          }
         } else {
           await client.query(
-            `UPDATE senteloans_loans SET status = 'Active', updated_at = NOW() WHERE id = $1`,
+            `UPDATE senteloans_loans SET updated_at = NOW() WHERE id = $1`,
             [id]
           )
         }
+
+        const disburseTxNumber = `LD-${Date.now()}`
+        const amount = Number(loan.principal_amount ?? 0)
+        await client.query(
+          `INSERT INTO senteloans_transactions (institution_id, client_id, account_id, loan_id, transaction_number, type, amount, mode, description, balance_before, balance_after, processed_by, transaction_date, status)
+           VALUES ($1, $2, NULL, $3, $4, 'Loan Disbursement', $5, $6, $7, $8, $9, $10, $11, 'Completed')`,
+          [
+            actor.institution_id,
+            loan.client_id,
+            id,
+            disburseTxNumber,
+            amount,
+            disbursement_mode,
+            `Loan disbursement - ${id.slice(0, 8)}`,
+            0,
+            amount,
+            actor.id,
+            disbursement_date,
+          ]
+        )
       }
 
       await client.query(

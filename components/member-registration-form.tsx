@@ -5,15 +5,96 @@ import type React from "react"
 import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { User, Phone, MapPin, Briefcase, Users, DollarSign, AlertCircle, Check, UserPlus, PiggyBank } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { getSession } from "@/lib/session"
+import Popover from "@mui/material/Popover"
+import ReeveDatePicker, { parseDateOnly } from "@/components/newUI/date_picker"
 
 interface MemberRegistrationFormProps {
   onClose?: () => void
+}
+
+const inputClass =
+  "w-full px-3 py-2.5 text-sm rounded-md border transition-all duration-200 focus:ring-[1.5px] focus:ring-[#f08c2b] focus:border-transparent focus:outline-none border-gray-300 hover:border-gray-400"
+
+type SelectOption = { value: string; label: string }
+
+function StyledSelect({
+  value,
+  onChange,
+  placeholder,
+  options,
+}: {
+  value: string
+  onChange: (value: string) => void
+  placeholder: string
+  options: SelectOption[]
+}) {
+  const [anchor, setAnchor] = useState<HTMLElement | null>(null)
+  const open = Boolean(anchor)
+  const selectedLabel = options.find((o) => o.value === value)?.label
+
+  return (
+    <>
+      <div
+        onClick={(e) => setAnchor(e.currentTarget)}
+        className={`flex items-center justify-between w-full px-3 py-2.5 text-sm border rounded-md cursor-pointer transition-all duration-200 ${
+          open ? "ring-[1.5px] ring-[#f08c2b] border-transparent" : "border-gray-300 hover:border-gray-400"
+        }`}
+      >
+        <span className={value ? "text-gray-900" : "text-gray-400"}>{selectedLabel || placeholder}</span>
+        <svg className={`h-4 w-4 text-gray-400 transition-transform ${open ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        </svg>
+      </div>
+      <Popover
+        open={open}
+        anchorEl={anchor}
+        onClose={() => setAnchor(null)}
+        anchorOrigin={{ vertical: "bottom", horizontal: "left" }}
+        transformOrigin={{ vertical: "top", horizontal: "left" }}
+        PaperProps={{
+          sx: {
+            width: anchor?.offsetWidth || 200,
+            borderRadius: "10px",
+            boxShadow: "0 10px 40px rgba(0,0,0,0.15)",
+            mt: 0.5,
+          },
+        }}
+      >
+        <div className="p-2">
+          {options.map((opt) => {
+            const isSelected = value === opt.value
+            return (
+              <div
+                key={opt.value}
+                onClick={() => {
+                  onChange(opt.value)
+                  setAnchor(null)
+                }}
+                className="flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-gray-50 rounded-lg transition-colors"
+              >
+                <div
+                  className={`relative w-4.5 h-4.5 border-2 flex items-center justify-center rounded-md transition-all ${
+                    isSelected ? "bg-[#f08c2b] border-[#f08c2b]" : "bg-white border-gray-400 hover:border-gray-600"
+                  }`}
+                >
+                  {isSelected && (
+                    <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                    </svg>
+                  )}
+                </div>
+                <span className="text-sm text-gray-800">{opt.label}</span>
+              </div>
+            )
+          })}
+        </div>
+      </Popover>
+    </>
+  )
 }
 
 export function MemberRegistrationForm({ onClose }: MemberRegistrationFormProps) {
@@ -88,7 +169,8 @@ export function MemberRegistrationForm({ onClose }: MemberRegistrationFormProps)
       setError("Date of Birth is required"); scrollToError(); return
     }
     try {
-      const dob = new Date(formData.dateOfBirth)
+      const dob = parseDateOnly(formData.dateOfBirth)
+      if (!dob) throw new Error("invalid_dob")
       const now = new Date()
       const age = now.getFullYear() - dob.getFullYear() - (now < new Date(now.getFullYear(), dob.getMonth(), dob.getDate()) ? 1 : 0)
       if (age < 18) {
@@ -267,21 +349,23 @@ export function MemberRegistrationForm({ onClose }: MemberRegistrationFormProps)
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
                 <Label htmlFor="fullName">Full Name <span className="text-red-500">*</span></Label>
-                <Input
+                <input
                   id="fullName"
                   value={formData.fullName}
                   onChange={(e) => handleInputChange("fullName", e.target.value)}
                   placeholder="e.g., John Doe Mukasa"
+                  className={inputClass}
                   required
                 />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="nationalId">National ID Number <span className="text-red-500">*</span></Label>
-                <Input
+                <input
                   id="nationalId"
                   value={formData.nationalId}
                   onChange={(e) => handleInputChange("nationalId", e.target.value)}
                   placeholder="e.g., CM1234567890123"
+                  className={inputClass}
                   required
                 />
               </div>
@@ -289,55 +373,53 @@ export function MemberRegistrationForm({ onClose }: MemberRegistrationFormProps)
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
                 <Label htmlFor="dateOfBirth">Date of Birth <span className="text-red-500">*</span></Label>
-                <Input
-                  id="dateOfBirth"
-                  type="date"
+                <ReeveDatePicker
                   value={formData.dateOfBirth}
-                  onChange={(e) => handleInputChange("dateOfBirth", e.target.value)}
-                  required
+                  onChange={(value) => handleInputChange("dateOfBirth", value)}
+                  placeholder="Select date"
                 />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="gender">Gender <span className="text-red-500">*</span></Label>
-                <Select value={formData.gender} onValueChange={(value) => handleInputChange("gender", value)}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select gender" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Male">Male</SelectItem>
-                    <SelectItem value="Female">Female</SelectItem>
-                    <SelectItem value="Other">Other</SelectItem>
-                  </SelectContent>
-                </Select>
+                <StyledSelect
+                  value={formData.gender}
+                  onChange={(value) => handleInputChange("gender", value)}
+                  placeholder="Select gender"
+                  options={[
+                    { value: "Male", label: "Male" },
+                    { value: "Female", label: "Female" },
+                    { value: "Other", label: "Other" },
+                  ]}
+                />
               </div>
             </div>
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
                 <Label htmlFor="maritalStatus">Marital Status</Label>
-                <Select value={formData.maritalStatus} onValueChange={(value) => handleInputChange("maritalStatus", value)}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select marital status" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Single">Single</SelectItem>
-                    <SelectItem value="Married">Married</SelectItem>
-                    <SelectItem value="Divorced">Divorced</SelectItem>
-                    <SelectItem value="Widowed">Widowed</SelectItem>
-                  </SelectContent>
-                </Select>
+                <StyledSelect
+                  value={formData.maritalStatus}
+                  onChange={(value) => handleInputChange("maritalStatus", value)}
+                  placeholder="Select marital status"
+                  options={[
+                    { value: "Single", label: "Single" },
+                    { value: "Married", label: "Married" },
+                    { value: "Divorced", label: "Divorced" },
+                    { value: "Widowed", label: "Widowed" },
+                  ]}
+                />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="memberType">{clientTerminology} Type <span className="text-red-500">*</span></Label>
-                <Select value={formData.memberType} onValueChange={(value) => handleInputChange("memberType", value)}>
-                  <SelectTrigger>
-                    <SelectValue placeholder={`Select ${clientTerminology.toLowerCase()} type`} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Individual">Individual</SelectItem>
-                    <SelectItem value="Group">Group</SelectItem>
-                    <SelectItem value="Corporate">Corporate</SelectItem>
-                  </SelectContent>
-                </Select>
+                <StyledSelect
+                  value={formData.memberType}
+                  onChange={(value) => handleInputChange("memberType", value)}
+                  placeholder={`Select ${clientTerminology.toLowerCase()} type`}
+                  options={[
+                    { value: "Individual", label: "Individual" },
+                    { value: "Group", label: "Group" },
+                    { value: "Corporate", label: "Corporate" },
+                  ]}
+                />
               </div>
             </div>
           </CardContent>
@@ -356,22 +438,24 @@ export function MemberRegistrationForm({ onClose }: MemberRegistrationFormProps)
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
                 <Label htmlFor="phoneNumber">Phone Number <span className="text-red-500">*</span></Label>
-                <Input
+                <input
                   id="phoneNumber"
                   value={formData.phoneNumber}
                   onChange={(e) => handleInputChange("phoneNumber", e.target.value)}
                   placeholder="e.g., +256701234567"
+                  className={inputClass}
                   required
                 />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="email">Email Address</Label>
-                <Input
+                <input
                   id="email"
                   type="email"
                   value={formData.email}
                   onChange={(e) => handleInputChange("email", e.target.value)}
                   placeholder="e.g., member@email.com"
+                  className={inputClass}
                 />
               </div>
             </div>
@@ -391,27 +475,28 @@ export function MemberRegistrationForm({ onClose }: MemberRegistrationFormProps)
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
                 <Label htmlFor="district">District</Label>
-                <Select value={formData.district} onValueChange={(value) => handleInputChange("district", value)}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select district" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Kampala">Kampala</SelectItem>
-                    <SelectItem value="Wakiso">Wakiso</SelectItem>
-                    <SelectItem value="Mukono">Mukono</SelectItem>
-                    <SelectItem value="Entebbe">Entebbe</SelectItem>
-                    <SelectItem value="Jinja">Jinja</SelectItem>
-                    <SelectItem value="Mbarara">Mbarara</SelectItem>
-                  </SelectContent>
-                </Select>
+                <StyledSelect
+                  value={formData.district}
+                  onChange={(value) => handleInputChange("district", value)}
+                  placeholder="Select district"
+                  options={[
+                    { value: "Kampala", label: "Kampala" },
+                    { value: "Wakiso", label: "Wakiso" },
+                    { value: "Mukono", label: "Mukono" },
+                    { value: "Entebbe", label: "Entebbe" },
+                    { value: "Jinja", label: "Jinja" },
+                    { value: "Mbarara", label: "Mbarara" },
+                  ]}
+                />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="village">Village / Area</Label>
-                <Input
+                <input
                   id="village"
                   value={formData.village}
                   onChange={(e) => handleInputChange("village", e.target.value)}
                   placeholder="e.g., Nsambya Village"
+                  className={inputClass}
                 />
               </div>
             </div>
@@ -431,29 +516,30 @@ export function MemberRegistrationForm({ onClose }: MemberRegistrationFormProps)
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
                 <Label htmlFor="occupation">Occupation</Label>
-                <Select value={formData.occupation} onValueChange={(value) => handleInputChange("occupation", value)}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select occupation" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Teacher">Teacher</SelectItem>
-                    <SelectItem value="Farmer">Farmer</SelectItem>
-                    <SelectItem value="Small Business Owner">Small Business Owner</SelectItem>
-                    <SelectItem value="Civil Servant">Civil Servant</SelectItem>
-                    <SelectItem value="Healthcare Worker">Healthcare Worker</SelectItem>
-                    <SelectItem value="Student">Student</SelectItem>
-                    <SelectItem value="Other">Other</SelectItem>
-                  </SelectContent>
-                </Select>
+                <StyledSelect
+                  value={formData.occupation}
+                  onChange={(value) => handleInputChange("occupation", value)}
+                  placeholder="Select occupation"
+                  options={[
+                    { value: "Teacher", label: "Teacher" },
+                    { value: "Farmer", label: "Farmer" },
+                    { value: "Small Business Owner", label: "Small Business Owner" },
+                    { value: "Civil Servant", label: "Civil Servant" },
+                    { value: "Healthcare Worker", label: "Healthcare Worker" },
+                    { value: "Student", label: "Student" },
+                    { value: "Other", label: "Other" },
+                  ]}
+                />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="monthlyIncome">Monthly Income ({currency})</Label>
-                <Input
+                <input
                   id="monthlyIncome"
                   type="number"
                   value={formData.monthlyIncome}
                   onChange={(e) => handleInputChange("monthlyIncome", e.target.value)}
                   placeholder="e.g., 500,000"
+                  className={inputClass}
                 />
               </div>
             </div>
@@ -472,13 +558,14 @@ export function MemberRegistrationForm({ onClose }: MemberRegistrationFormProps)
           <CardContent>
             <div className="max-w-md space-y-2">
               <Label htmlFor="monthlySavings">Monthly Savings Amount ({currency})</Label>
-              <Input
+              <input
                 id="monthlySavings"
                 type="number"
                 min={0}
                 value={formData.monthlySavings}
                 onChange={(e) => handleInputChange("monthlySavings", e.target.value)}
                 placeholder="e.g., 50,000"
+                className={inputClass}
               />
               <p className="text-xs text-muted-foreground">
                 The amount the {clientTerminology.toLowerCase()} has agreed to save every month.
@@ -500,44 +587,43 @@ export function MemberRegistrationForm({ onClose }: MemberRegistrationFormProps)
             <div className="grid gap-4 md:grid-cols-3">
               <div className="space-y-2">
                 <Label htmlFor="nextOfKinName">Full Name</Label>
-                <Input
+                <input
                   id="nextOfKinName"
                   value={formData.nextOfKinName}
                   onChange={(e) => handleInputChange("nextOfKinName", e.target.value)}
                   placeholder="e.g., Mary Nakamya"
+                  className={inputClass}
                 />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="nextOfKinRelationship">Relationship</Label>
-                <Select
+                <StyledSelect
                   value={formData.nextOfKinRelationship}
-                  onValueChange={(value) => handleInputChange("nextOfKinRelationship", value)}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select relationship" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Spouse">Spouse</SelectItem>
-                    <SelectItem value="Father">Father</SelectItem>
-                    <SelectItem value="Mother">Mother</SelectItem>
-                    <SelectItem value="Son">Son</SelectItem>
-                    <SelectItem value="Daughter">Daughter</SelectItem>
-                    <SelectItem value="Brother">Brother</SelectItem>
-                    <SelectItem value="Sister">Sister</SelectItem>
-                    <SelectItem value="Uncle">Uncle</SelectItem>
-                    <SelectItem value="Aunt">Aunt</SelectItem>
-                    <SelectItem value="Friend">Friend</SelectItem>
-                    <SelectItem value="Other">Other</SelectItem>
-                  </SelectContent>
-                </Select>
+                  onChange={(value) => handleInputChange("nextOfKinRelationship", value)}
+                  placeholder="Select relationship"
+                  options={[
+                    { value: "Spouse", label: "Spouse" },
+                    { value: "Father", label: "Father" },
+                    { value: "Mother", label: "Mother" },
+                    { value: "Son", label: "Son" },
+                    { value: "Daughter", label: "Daughter" },
+                    { value: "Brother", label: "Brother" },
+                    { value: "Sister", label: "Sister" },
+                    { value: "Uncle", label: "Uncle" },
+                    { value: "Aunt", label: "Aunt" },
+                    { value: "Friend", label: "Friend" },
+                    { value: "Other", label: "Other" },
+                  ]}
+                />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="nextOfKinPhone">Phone Number</Label>
-                <Input
+                <input
                   id="nextOfKinPhone"
                   value={formData.nextOfKinPhone}
                   onChange={(e) => handleInputChange("nextOfKinPhone", e.target.value)}
                   placeholder="e.g., +256701234567"
+                  className={inputClass}
                 />
               </div>
             </div>
@@ -591,14 +677,14 @@ export function MemberRegistrationForm({ onClose }: MemberRegistrationFormProps)
                 <div className="space-y-2">
                   <Label htmlFor="membershipFeeAmount">Amount ({currency})</Label>
                   {formData.membershipFeeType === "full" ? (
-                    <Input
+                    <input
                       id="membershipFeeAmount"
                       value={institutionMembershipFee.toLocaleString()}
                       readOnly
-                      className="bg-muted/50"
+                      className={`${inputClass} bg-muted/50`}
                     />
                   ) : (
-                    <Input
+                    <input
                       id="membershipFeeAmount"
                       type="number"
                       value={formData.membershipFeeAmount}
@@ -606,6 +692,7 @@ export function MemberRegistrationForm({ onClose }: MemberRegistrationFormProps)
                       placeholder={`Max: ${institutionMembershipFee.toLocaleString()}`}
                       max={institutionMembershipFee}
                       min={0}
+                      className={inputClass}
                     />
                   )}
                   {formData.membershipFeeType === "custom" && Number(formData.membershipFeeAmount) > institutionMembershipFee && (
@@ -614,21 +701,18 @@ export function MemberRegistrationForm({ onClose }: MemberRegistrationFormProps)
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="membershipFeeMode">Payment Mode</Label>
-                  <Select
+                  <StyledSelect
                     value={formData.membershipFeeMode}
-                    onValueChange={(value) => handleInputChange("membershipFeeMode", value)}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select payment mode" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="Cash">Cash</SelectItem>
-                      <SelectItem value="Mobile Money">Mobile Money</SelectItem>
-                      <SelectItem value="Bank Transfer">Bank Transfer</SelectItem>
-                      <SelectItem value="Cheque">Cheque</SelectItem>
-                      <SelectItem value="Card">Card</SelectItem>
-                    </SelectContent>
-                  </Select>
+                    onChange={(value) => handleInputChange("membershipFeeMode", value)}
+                    placeholder="Select payment mode"
+                    options={[
+                      { value: "Cash", label: "Cash" },
+                      { value: "Mobile Money", label: "Mobile Money" },
+                      { value: "Bank Transfer", label: "Bank Transfer" },
+                      { value: "Cheque", label: "Cheque" },
+                      { value: "Card", label: "Card" },
+                    ]}
+                  />
                 </div>
               </div>
 

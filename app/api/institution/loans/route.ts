@@ -5,6 +5,7 @@ import { runWithAuth, runWithoutAuth } from "@/lib/db"
 import { notificationService } from "@/lib/notifications/notification-service"
 import { NotificationTemplates } from "@/lib/notifications/notification-types"
 import { auditLogger } from "@/lib/audit/audit-logger"
+import { calculateLoanTerms } from "@/lib/loans/calculations"
 
 export async function GET(req: Request) {
   try {
@@ -151,7 +152,7 @@ export async function POST(req: Request) {
       if (!actor) return { error: "user_not_linked" as const }
       const [borrowerRes, productRes] = await Promise.all([
         client.query(`SELECT id, institution_id, status, kyc_status FROM senteloans_clients WHERE id = $1`, [client_id]),
-        client.query(`SELECT id, institution_id, status, interest_rate, minimum_amount, maximum_amount, maximum_tenure_months, guarantors_required FROM senteloans_loan_products WHERE id = $1`, [loan_product_id]),
+        client.query(`SELECT id, institution_id, status, interest_rate, minimum_amount, maximum_amount, maximum_tenure_months, guarantors_required, interest_calculation_method FROM senteloans_loan_products WHERE id = $1`, [loan_product_id]),
       ])
       const borrower = borrowerRes.rows[0]
       const product = productRes.rows[0]
@@ -175,16 +176,14 @@ export async function POST(req: Request) {
       }
 
       const annualRate = Number(product.interest_rate) || 0
-      const monthlyRate = annualRate / 100 / 12
-      let monthly_payment: number | null = null
-      let total_amount: number | null = null
-      if (monthlyRate > 0) {
-        const n = tenure_months
-        const P = principal_amount
-        const r = monthlyRate
-        monthly_payment = Math.round((P * r * Math.pow(1 + r, n)) / (Math.pow(1 + r, n) - 1))
-        total_amount = Math.round(monthly_payment * n)
-      }
+      const terms = calculateLoanTerms(
+        principal_amount,
+        annualRate,
+        tenure_months,
+        product.interest_calculation_method
+      )
+      const monthly_payment = terms.monthlyPayment
+      const total_amount = terms.totalAmount
       const application_id = `LN-${Date.now()}`
       const today = new Date().toISOString().slice(0, 10)
 

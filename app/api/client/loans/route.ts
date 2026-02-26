@@ -5,6 +5,7 @@ import { runWithAuth } from "@/lib/db"
 import { auditLogger } from "@/lib/audit/audit-logger"
 import { notificationService } from "@/lib/notifications/notification-service"
 import { NotificationTemplates } from "@/lib/notifications/notification-types"
+import { calculateLoanTerms } from "@/lib/loans/calculations"
 
 export async function GET() {
   try {
@@ -87,7 +88,7 @@ export async function POST(req: Request) {
       if (clientRow.kyc_status !== "Verified") return { error: "KYC verification required before applying for loans" as const }
 
       const productRes = await client.query(
-        `SELECT id, product_name, interest_rate, minimum_amount, maximum_amount, minimum_tenure_months, maximum_tenure_months
+        `SELECT id, product_name, interest_rate, interest_calculation_method, minimum_amount, maximum_amount, minimum_tenure_months, maximum_tenure_months
          FROM senteloans_loan_products WHERE id = $1 AND institution_id = $2`,
         [loan_product_id, clientRow.institution_id]
       )
@@ -124,9 +125,14 @@ export async function POST(req: Request) {
         if (coll.length < 20) return { error: "Detailed collateral description is required (minimum 20 characters)" as const }
       }
 
-      const rate = Number(product.interest_rate) / 100 / 12
-      const monthlyPayment = (principal * rate * Math.pow(1 + rate, tenure)) / (Math.pow(1 + rate, tenure) - 1)
-      const totalAmount = monthlyPayment * tenure
+      const terms = calculateLoanTerms(
+        principal,
+        Number(product.interest_rate) || 0,
+        tenure,
+        product.interest_calculation_method
+      )
+      const monthlyPayment = terms.monthlyPayment
+      const totalAmount = terms.totalAmount
       const applicationId = `LA-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-${Math.floor(Math.random() * 1000000).toString().padStart(6, "0")}`
 
       const loanInsert = {
@@ -138,8 +144,8 @@ export async function POST(req: Request) {
         interest_rate: product.interest_rate,
         tenure_months: tenure,
         purpose: String(purpose).trim(),
-        monthly_payment: Math.round(monthlyPayment),
-        total_amount: Math.round(totalAmount),
+        monthly_payment: monthlyPayment,
+        total_amount: totalAmount,
         outstanding_balance: principal,
         collateral_description: typeof collateral_description === "string" ? collateral_description.trim() || null : null,
         application_date: new Date().toISOString().slice(0, 10),

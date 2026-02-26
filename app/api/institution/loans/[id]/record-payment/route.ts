@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { runWithAuth, runWithoutAuth } from "@/lib/db"
+import { buildRepaymentSchedule } from "@/lib/loans/calculations"
 
 const PAYMENT_MODES = ["Cash", "Mobile Money", "Bank Transfer", "Cheque", "Card"] as const
 
@@ -16,26 +17,6 @@ function toDateString(v: unknown): string {
   const s = String(v ?? "").slice(0, 10)
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s
   return new Date().toISOString().slice(0, 10)
-}
-
-/** Add n months to a YYYY-MM-DD date string; returns YYYY-MM-DD. Avoids timezone/setMonth quirks. */
-function addMonths(dateStr: string, n: number): string {
-  const s = dateStr.slice(0, 10)
-  const [y, m, d] = s.split("-").map(Number)
-  if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) return s
-  let month = m + n
-  let year = y
-  while (month > 12) {
-    month -= 12
-    year += 1
-  }
-  while (month < 1) {
-    month += 12
-    year -= 1
-  }
-  const lastDay = new Date(year, month, 0).getDate()
-  const day = Math.min(d, lastDay)
-  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`
 }
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -70,7 +51,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
     const result = await runWithAuth(session.user.authUserId, async (client) => {
       const loanRes = await client.query(
-        `SELECT id, institution_id, client_id, outstanding_balance, status, principal_amount, interest_rate, tenure_months, disbursement_date FROM senteloans_loans WHERE id = $1`,
+        `SELECT l.id, l.institution_id, l.client_id, l.outstanding_balance, l.status, l.principal_amount, l.interest_rate, l.tenure_months, l.disbursement_date,
+                lp.interest_calculation_method
+         FROM senteloans_loans l
+         LEFT JOIN senteloans_loan_products lp ON lp.id = l.loan_product_id
+         WHERE l.id = $1`,
         [loanId]
       )
       const loan = loanRes.rows[0]
@@ -122,15 +107,19 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
           const tenureMonths = Math.floor(Number((loan as { tenure_months?: unknown }).tenure_months ?? 0))
           const disbursementDateStr = toDateString((loan as { disbursement_date?: unknown }).disbursement_date ?? new Date().toISOString().slice(0, 10))
           if (tenureMonths > 0 && principal > 0) {
-            const principalPerMonth = principal / tenureMonths
-            const interestPerMonth = (principal * annualRate / 100) / 12
-            for (let n = 1; n <= tenureMonths; n++) {
-              const dueDateStr = addMonths(disbursementDateStr, n)
+            const schedule = buildRepaymentSchedule({
+              principal,
+              annualRate,
+              tenureMonths,
+              method: (loan as { interest_calculation_method?: unknown }).interest_calculation_method,
+              startDate: disbursementDateStr,
+            })
+            for (const row of schedule) {
               await client.query(
                 `INSERT INTO senteloans_loan_repayments (loan_id, installment_number, due_date, principal_amount, interest_amount, status)
                  VALUES ($1, $2, $3, $4, $5, 'Pending')
                  ON CONFLICT (loan_id, installment_number) DO NOTHING`,
-                [loanId, n, dueDateStr, Math.round(principalPerMonth * 100) / 100, Math.round(interestPerMonth * 100) / 100]
+                [loanId, row.installmentNumber, row.dueDate, row.principalAmount, row.interestAmount]
               )
             }
             const currentOutstanding = Number(loan.outstanding_balance || 0)
@@ -187,9 +176,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       const balanceBefore = Number(loan.outstanding_balance || 0)
       const balanceAfter = Math.max(0, balanceBefore - totalApplied)
 
+      const nextStatus = balanceAfter <= 0
+        ? "Closed"
+        : (String(loan.status) === "Disbursed" ? "Active" : String(loan.status))
       await client.query(
-        `UPDATE senteloans_loans SET outstanding_balance = $1, updated_at = NOW() WHERE id = $2`,
-        [balanceAfter, loanId]
+        `UPDATE senteloans_loans SET outstanding_balance = $1, status = $2, updated_at = NOW() WHERE id = $3`,
+        [balanceAfter, nextStatus, loanId]
       )
 
       const nextRes = await client.query(
@@ -197,14 +189,23 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         [loanId]
       )
       const nextDue = nextRes.rows[0]?.due_date ?? null
+      const remainingRes = await client.query(
+        `SELECT COUNT(*)::int AS remaining_installments FROM senteloans_loan_repayments WHERE loan_id = $1 AND status != 'Paid'`,
+        [loanId]
+      )
+      const remainingInstallments = Number(remainingRes.rows[0]?.remaining_installments ?? 0)
       if (nextDue !== null) {
         await client.query(
-          `UPDATE senteloans_loans SET next_payment_date = $1 WHERE id = $2`,
-          [nextDue, loanId]
+          `UPDATE senteloans_loans SET next_payment_date = $1, tenure_months = $2, updated_at = NOW() WHERE id = $3`,
+          [nextDue, remainingInstallments, loanId]
         )
       } else {
         await client.query(
-          `UPDATE senteloans_loans SET next_payment_date = NULL WHERE id = $1`,
+          `UPDATE senteloans_loans SET next_payment_date = NULL, tenure_months = 0, updated_at = NOW() WHERE id = $1`,
+          [loanId]
+        )
+        await client.query(
+          `UPDATE senteloans_loans SET status = 'Closed', updated_at = NOW() WHERE id = $1`,
           [loanId]
         )
       }

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { runWithAuth } from "@/lib/db"
+import { addMonthsDateOnly, buildRepaymentSchedule, calculateLoanTerms } from "@/lib/loans/calculations"
 
 /**
  * GET /api/institution/clients/[id]/opening-balances
@@ -54,7 +55,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 
       // Get loan products for creating opening balance loans
       const productsRes = await client.query(
-        `SELECT id, product_name, product_code, interest_rate, minimum_tenure_months, maximum_tenure_months
+        `SELECT id, product_name, product_code, interest_rate, interest_calculation_method, minimum_tenure_months, maximum_tenure_months
          FROM senteloans_loan_products
          WHERE institution_id = $1 AND status = 'Active'
          ORDER BY product_name`,
@@ -75,12 +76,6 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     const err = e as Error
     return NextResponse.json({ error: err?.message || "Unexpected error" }, { status: 500 })
   }
-}
-
-function addMonths(dateStr: string, months: number): string {
-  const d = new Date(dateStr + "T00:00:00Z")
-  d.setUTCMonth(d.getUTCMonth() + months)
-  return d.toISOString().slice(0, 10)
 }
 
 /**
@@ -145,6 +140,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     if (hasLoan && loanOriginalTenure !== null && loanTenureMonths !== null && loanOriginalTenure < loanTenureMonths) {
       return NextResponse.json({ error: "Original tenure cannot be less than remaining tenure" }, { status: 400 })
     }
+    if (hasLoan && (loanTenureMonths === null || !Number.isFinite(loanTenureMonths) || loanTenureMonths <= 0)) {
+      return NextResponse.json({ error: "Remaining tenure is required and must be greater than zero" }, { status: 400 })
+    }
 
     const result = await runWithAuth(session.user.authUserId, async (client) => {
       const actorRes = await client.query(
@@ -208,39 +206,37 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       // --- LOAN OPENING BALANCE ---
       if (hasLoan && loanProductId) {
         const prodRes = await client.query(
-          `SELECT id, product_name, interest_rate, minimum_tenure_months FROM senteloans_loan_products WHERE id = $1 AND institution_id = $2`,
+          `SELECT id, product_name, interest_rate, interest_calculation_method, minimum_tenure_months FROM senteloans_loan_products WHERE id = $1 AND institution_id = $2`,
           [loanProductId, actor.institution_id]
         )
         const product = prodRes.rows[0]
         if (!product) return { error: "loan_product_not_found" as const }
 
         const interestRate = loanInterestRate ?? Number(product.interest_rate)
-        const remainingTenure = loanTenureMonths ?? Number(product.minimum_tenure_months)
+        const remainingTenure = Math.floor(loanTenureMonths ?? Number(product.minimum_tenure_months))
         const principalAmount = loanPrincipalAmount ?? loanOutstandingBalance!
-        const originalTenure = loanOriginalTenure ?? remainingTenure
+        const originalTenure = Math.floor(loanOriginalTenure ?? remainingTenure)
 
-        // Calculate monthly payment for the remaining schedule
-        const monthlyRate = interestRate / 100 / 12
-        let monthlyPayment: number
-        if (monthlyRate > 0) {
-          const factor = Math.pow(1 + monthlyRate, remainingTenure)
-          monthlyPayment = (loanOutstandingBalance! * monthlyRate * factor) / (factor - 1)
-        } else {
-          monthlyPayment = loanOutstandingBalance! / remainingTenure
-        }
-        monthlyPayment = Math.round(monthlyPayment * 100) / 100
-        const totalAmount = Math.round(monthlyPayment * remainingTenure * 100) / 100
+        // Opening-balance loans should use the same calculation method as the selected product.
+        const terms = calculateLoanTerms(
+          loanOutstandingBalance!,
+          interestRate,
+          remainingTenure,
+          product.interest_calculation_method
+        )
+        const monthlyPayment = terms.monthlyPayment
+        const totalAmount = terms.totalAmount
 
         // Determine key dates
         const todayStr = txDate.slice(0, 10)
         const elapsedMonths = originalTenure - remainingTenure
         const disbursementDate = loanLastPaymentDate
-          ? addMonths(loanLastPaymentDate, -elapsedMonths)
+          ? addMonthsDateOnly(loanLastPaymentDate, -elapsedMonths)
           : todayStr
         const nextPaymentDate = loanLastPaymentDate
-          ? addMonths(loanLastPaymentDate, 1)
-          : addMonths(todayStr, 1)
-        const maturityDate = addMonths(nextPaymentDate, remainingTenure - 1)
+          ? addMonthsDateOnly(loanLastPaymentDate, 1)
+          : addMonthsDateOnly(todayStr, 1)
+        const maturityDate = addMonthsDateOnly(nextPaymentDate, remainingTenure - 1)
 
         const now = new Date()
         const yymm = `${String(now.getFullYear()).slice(2)}${String(now.getMonth() + 1).padStart(2, "0")}`
@@ -253,7 +249,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
            RETURNING id`,
           [
             actor.institution_id, clientId, loanProductId, applicationId,
-            principalAmount, interestRate, originalTenure,
+            principalAmount, interestRate, remainingTenure,
             monthlyPayment, totalAmount, loanOutstandingBalance,
             "Opening balance loan from previous system",
             disbursementDate, disbursementDate, maturityDate, nextPaymentDate,
@@ -265,42 +261,48 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
         // --- Generate repayment schedule for the remaining tenure ---
         // Past installments (already paid in the previous system) are marked as Paid
-        const principalPerMonth = Math.round((loanOutstandingBalance! / remainingTenure) * 100) / 100
-        const interestPerMonth = Math.round((loanOutstandingBalance! * interestRate / 100 / 12) * 100) / 100
+        const pendingSchedule = buildRepaymentSchedule({
+          principal: loanOutstandingBalance!,
+          annualRate: interestRate,
+          tenureMonths: remainingTenure,
+          method: product.interest_calculation_method,
+          startDate: addMonthsDateOnly(nextPaymentDate, -1),
+          installmentOffset: elapsedMonths,
+        })
 
-        // Insert paid installments for the elapsed period (historical record)
-        const paidPrincipalPerMonth = elapsedMonths > 0
-          ? Math.round(((principalAmount - loanOutstandingBalance!) / elapsedMonths) * 100) / 100
-          : 0
-        const paidInterestPerMonth = elapsedMonths > 0
-          ? Math.round((principalAmount * interestRate / 100 / 12) * 100) / 100
-          : 0
-
-        for (let i = 1; i <= elapsedMonths; i++) {
-          const dueDate = addMonths(disbursementDate, i)
-          const paidPaymentDate = loanLastPaymentDate && i === elapsedMonths
-            ? loanLastPaymentDate
-            : dueDate
-          await client.query(
-            `INSERT INTO senteloans_loan_repayments
-              (loan_id, installment_number, due_date, principal_amount, interest_amount, amount_paid, payment_date, status)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, 'Paid')
-             ON CONFLICT (loan_id, installment_number) DO NOTHING`,
-            [loanRow.id, i, dueDate, paidPrincipalPerMonth, paidInterestPerMonth,
-             Math.round((paidPrincipalPerMonth + paidInterestPerMonth) * 100) / 100, paidPaymentDate]
-          )
+        // Insert paid installments for elapsed period (historical record), using method-based schedule.
+        if (elapsedMonths > 0) {
+          const historicalSchedule = buildRepaymentSchedule({
+            principal: principalAmount,
+            annualRate: interestRate,
+            tenureMonths: originalTenure,
+            method: product.interest_calculation_method,
+            startDate: disbursementDate,
+          })
+          const paidRows = historicalSchedule.slice(0, elapsedMonths)
+          for (let i = 0; i < paidRows.length; i++) {
+            const row = paidRows[i]
+            const paidPaymentDate = loanLastPaymentDate && i === paidRows.length - 1
+              ? loanLastPaymentDate
+              : row.dueDate
+            await client.query(
+              `INSERT INTO senteloans_loan_repayments
+                (loan_id, installment_number, due_date, principal_amount, interest_amount, amount_paid, payment_date, status)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, 'Paid')
+               ON CONFLICT (loan_id, installment_number) DO NOTHING`,
+              [loanRow.id, row.installmentNumber, row.dueDate, row.principalAmount, row.interestAmount, row.totalAmount, paidPaymentDate]
+            )
+          }
         }
 
         // Insert remaining (future) installments as Pending
-        for (let i = 1; i <= remainingTenure; i++) {
-          const installmentNumber = elapsedMonths + i
-          const dueDate = addMonths(nextPaymentDate, i - 1)
+        for (const row of pendingSchedule) {
           await client.query(
             `INSERT INTO senteloans_loan_repayments
               (loan_id, installment_number, due_date, principal_amount, interest_amount, amount_paid, status)
              VALUES ($1, $2, $3, $4, $5, 0, 'Pending')
              ON CONFLICT (loan_id, installment_number) DO NOTHING`,
-            [loanRow.id, installmentNumber, dueDate, principalPerMonth, interestPerMonth]
+            [loanRow.id, row.installmentNumber, row.dueDate, row.principalAmount, row.interestAmount]
           )
         }
 

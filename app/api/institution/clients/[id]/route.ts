@@ -21,7 +21,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       if (!appUser) return null
 
       const clientRes = await client.query(
-        `SELECT c.id, c.institution_id, c.client_number, c.full_name, c.supabase_user_id, c.date_of_birth, c.gender, c.marital_status, c.client_type, c.phone_number, c.email, c.national_id, c.district, c.village, c.occupation, c.monthly_income, c.monthly_savings, c.notes, c.next_of_kin_name, c.next_of_kin_relationship, c.next_of_kin_phone, c.passport_photo, c.national_id_front, c.national_id_back, c.mobile_money_provider, c.mobile_money_number, c.bank_name, c.bank_account_number, c.bank_account_name, c.bank_branch, c.kyc_status, c.status, c.join_date, c.membership_fee_paid, c.created_by, c.modified_by, c.kyc_approved_by, c.kyc_approved_at, c.created_at, c.updated_at,
+        `SELECT c.id, c.institution_id, c.client_number, c.full_name, c.supabase_user_id, c.date_of_birth::text AS date_of_birth, c.gender, c.marital_status, c.client_type, c.phone_number, c.email, c.national_id, c.district, c.village, c.occupation, c.monthly_income, c.monthly_savings, c.notes, c.next_of_kin_name, c.next_of_kin_relationship, c.next_of_kin_phone, c.passport_photo, c.national_id_front, c.national_id_back, c.mobile_money_provider, c.mobile_money_number, c.bank_name, c.bank_account_number, c.bank_account_name, c.bank_branch, c.kyc_status, c.status, c.join_date::text AS join_date, c.membership_fee_paid, c.created_by, c.modified_by, c.kyc_approved_by, c.kyc_approved_at, c.created_at, c.updated_at,
                 cb.full_name AS created_by_name, mb.full_name AS modified_by_name, kb.full_name AS kyc_approved_by_name
          FROM senteloans_clients c
          LEFT JOIN senteloans_users cb ON cb.id = c.created_by

@@ -1,8 +1,11 @@
 'use client';
 
 import React, { useState, useEffect } from "react";
-import { motion, LayoutGroup } from "framer-motion";
+import { LayoutGroup, motion } from "framer-motion";
 import type { Filter, TabularFiltersProps } from "@/types";
+
+const slideTransition = { type: "tween", duration: 0.28, ease: [0.22, 1, 0.36, 1] } as const;
+const tapTransition = { type: "spring", stiffness: 520, damping: 32 } as const;
 
 const TabularFilters: React.FC<TabularFiltersProps> = ({ filters, onChange, value }) => {
   const [activeIndex, setActiveIndex] = useState<number>(0);
@@ -20,48 +23,43 @@ const TabularFilters: React.FC<TabularFiltersProps> = ({ filters, onChange, valu
   };
 
   return (
-      <LayoutGroup>
-        <motion.div
-            layout
-            className="text-xs font-medium text-gray-600 border border-gray-100 bg-white rounded-lg mb-4"
-        >
-          <motion.ul
-              layout
-              transition={{ type: "spring", stiffness: 300, damping: 30 }}
-              className="flex flex-col md:flex-row w-full"
-          >
-            {filters.map((filter, idx) => {
-              const isActive = activeIndex === idx;
+      <>
+        <div className="text-xs font-medium text-gray-600 border border-gray-100 bg-white rounded-lg mb-4">
+          <LayoutGroup id="tabular-filters">
+            <ul className="flex flex-col md:flex-row w-full">
+              {filters.map((filter, idx) => {
+                const isActive = activeIndex === idx;
 
-              return (
-                  <motion.li
-                      layout="position"
-                      key={idx}
-                      className="w-full md:flex-1"
-                      transition={{ type: "spring", stiffness: 250, damping: 25 }}
-                  >
-                    <motion.button
-                        layout="position"
-                        onClick={() => handleChange(idx, filter.value)}
-                        transition={{ type: "spring", stiffness: 300, damping: 25 }}
-                        className={`w-full px-3 py-2 text-xs border-b md:border-b-0 md:border-r border-gray-100 
-                                        last:border-0 md:last:border-r-0 transition-colors duration-200
-                                        ${
-                            isActive
-                                ? "bg-[#de4925] text-white font-semibold"
-                                : "text-gray-500 hover:text-[#de4925] hover:bg-gray-50"
-                        }
-                                    `}
+                return (
+                    <li
+                        key={idx}
+                        className="w-full md:flex-1 border-b md:border-b-0 md:border-r border-gray-100 last:border-0 md:last:border-r-0"
                     >
-                      {filter.label}
-                    </motion.button>
-                  </motion.li>
-              );
-            })}
-          </motion.ul>
-        </motion.div>
-          <hr className="border-gray-400" />
-      </LayoutGroup>
+                      <motion.button
+                          onClick={() => handleChange(idx, filter.value)}
+                          whileTap={{ scale: 0.985 }}
+                          transition={tapTransition}
+                          className="relative w-full px-3 py-2 text-xs overflow-hidden isolate"
+                      >
+                        {isActive && (
+                          <motion.span
+                            layoutId="active-tabular-filter-bg"
+                            className="absolute inset-0 rounded-none md:rounded-none bg-[#de4925]"
+                            transition={slideTransition}
+                          />
+                        )}
+                        <span className={`relative z-10 inline-block transition-colors duration-200 ${isActive ? "text-white font-semibold" : "text-gray-500 hover:text-[#de4925]"}`}>
+                          {filter.label}
+                        </span>
+                      </motion.button>
+                    </li>
+                );
+              })}
+            </ul>
+          </LayoutGroup>
+        </div>
+        <hr className="border-gray-400" />
+      </>
   );
 };
 

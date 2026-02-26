@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { calculateLoanTerms, normalizeLoanMethod } from "@/lib/loans/calculations"
 
 import { ArrowLeft, Search, CreditCard, DollarSign, FileText, CheckCircle, ArrowRight } from "lucide-react"
 import Link from "next/link"
@@ -224,14 +225,19 @@ export default function NewLoanApplicationPage() {
     setFormData((prev) => ({ ...prev, [field]: value }))
   }
 
-  const calculateMonthlyPayment = () => {
-    if (!formData.principalAmount || !formData.tenure || !selectedProduct) return 0
+  const getLoanTerms = () => {
+    if (!formData.principalAmount || !formData.tenure || !selectedProduct) return null
     const principal = Number.parseFloat(formData.principalAmount)
-    const rate = Number(selectedProduct.interest_rate || 0) / 100 / 12
-    const tenure = Number.parseInt(formData.tenure)
-    const monthlyPayment = rate > 0 && tenure > 0 ? (principal * rate * Math.pow(1 + rate, tenure)) / (Math.pow(1 + rate, tenure) - 1) : 0
-    return Number.isFinite(monthlyPayment) ? monthlyPayment : 0
+    const tenure = Number.parseInt(formData.tenure, 10)
+    if (!Number.isFinite(principal) || principal <= 0 || !Number.isFinite(tenure) || tenure <= 0) return null
+    const annualRate = Number(selectedProduct.interest_rate || 0)
+    return calculateLoanTerms(principal, annualRate, tenure, selectedProduct.interest_calculation_method)
   }
+
+  const loanTerms = getLoanTerms()
+  const monthlyPayment = loanTerms?.monthlyPayment || 0
+  const totalAmount = loanTerms?.totalAmount || 0
+  const totalInterest = Math.max(0, totalAmount - Number.parseFloat(formData.principalAmount || "0"))
 
   const canProceedToConfirmation = () => {
     return formData.principalAmount && formData.tenure && formData.purpose
@@ -493,7 +499,7 @@ export default function NewLoanApplicationPage() {
                                 style: "currency",
                                 currency: "UGX",
                                 minimumFractionDigits: 0,
-                              }).format(calculateMonthlyPayment())}
+                              }).format(monthlyPayment)}
                             </div>
                             <div>
                               <span className="font-medium">Total Interest:</span>{" "}
@@ -501,10 +507,13 @@ export default function NewLoanApplicationPage() {
                                 style: "currency",
                                 currency: "UGX",
                                 minimumFractionDigits: 0,
-                              }).format(
-                                calculateMonthlyPayment() * Number.parseInt(formData.tenure) -
-                                  Number.parseFloat(formData.principalAmount),
-                              )}
+                              }).format(totalInterest)}
+                            </div>
+                            <div>
+                              <span className="font-medium">Calculation Method:</span>{" "}
+                              {normalizeLoanMethod(selectedProduct.interest_calculation_method)
+                                .replace("_", " ")
+                                .replace(/\b\w/g, (c) => c.toUpperCase())}
                             </div>
                           </div>
                         </div>
@@ -624,6 +633,11 @@ export default function NewLoanApplicationPage() {
                           <h4 className="font-medium text-sm text-muted-foreground">LOAN PRODUCT</h4>
                           <p className="font-semibold">{selectedProduct.product_name}</p>
                           <p className="text-sm text-muted-foreground">{Number(selectedProduct.interest_rate)}% interest rate</p>
+                          <p className="text-sm text-muted-foreground">
+                            {normalizeLoanMethod(selectedProduct.interest_calculation_method)
+                              .replace("_", " ")
+                              .replace(/\b\w/g, (c) => c.toUpperCase())}
+                          </p>
                         </div>
                       </div>
                       <div className="space-y-4">
@@ -644,7 +658,7 @@ export default function NewLoanApplicationPage() {
                               style: "currency",
                               currency: "UGX",
                               minimumFractionDigits: 0,
-                            }).format(calculateMonthlyPayment())}{" "}
+                            }).format(monthlyPayment)}{" "}
                             / month
                           </p>
                           <p className="text-sm text-muted-foreground">for {formData.tenure} months</p>

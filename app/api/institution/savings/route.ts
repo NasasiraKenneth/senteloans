@@ -15,6 +15,8 @@ export async function GET(req: Request) {
     const accountType = (url.searchParams.get("account_type") || "").trim()
     const search = (url.searchParams.get("search") || "").trim()
     const clientId = (url.searchParams.get("client_id") || "").trim()
+    const openDateStart = (url.searchParams.get("open_dateStart") || "").trim()
+    const openDateEnd = (url.searchParams.get("open_dateEnd") || "").trim()
     const limit = url.searchParams.get("limit") || ""
     if (limit) {
       const n = Math.min(Math.max(parseInt(limit, 10) || 10, 1), 200)
@@ -40,6 +42,16 @@ export async function GET(req: Request) {
       if (search) {
         where += ` AND account_number ILIKE $${idx++}`
         params.push(`%${search}%`)
+      }
+      if (openDateStart) {
+        where += ` AND open_date >= (($${idx}::timestamp AT TIME ZONE 'Africa/Nairobi')::date)`
+        params.push(openDateStart)
+        idx++
+      }
+      if (openDateEnd) {
+        where += ` AND open_date <= (($${idx}::timestamp AT TIME ZONE 'Africa/Nairobi')::date)`
+        params.push(openDateEnd)
+        idx++
       }
 
       const countRes = await client.query(

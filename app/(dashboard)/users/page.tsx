@@ -12,6 +12,7 @@ import DataTable from "@/components/datatables/DataTable"
 import { DataTableColumn } from "@/components/datatables/DataTable"
 import { FilterField } from "@/components/datatables/TableFilter"
 import { ActionButtons } from "@/components/datatables/ActionButtons"
+import { Filter } from "@/types"
 
 type UiClient = {
   id: string
@@ -87,6 +88,12 @@ export default function UsersPage() {
       const params = new URLSearchParams()
       if (queryParams) {
         Object.entries(queryParams).forEach(([key, value]) => {
+          if (value && typeof value === "object" && "start" in (value as Record<string, unknown>) && "end" in (value as Record<string, unknown>)) {
+            const range = value as { start?: string; end?: string }
+            if (range.start) params.set(`${key}Start`, range.start)
+            if (range.end) params.set(`${key}End`, range.end)
+            return
+          }
           if (value !== undefined && value !== null && value !== "") {
             params.set(key, String(value))
           }
@@ -208,7 +215,7 @@ export default function UsersPage() {
       key: "clientNumber",
       header: `${terminology.singular} ID`,
       render: (row) => (
-        <div className="text-sm font-mono font-medium text-gray-700 underline">{row.clientNumber}</div>
+        <div className="text-sm font-mono font-medium text-gray-700 hover:underline">{row.clientNumber}</div>
       ),
     },
     {
@@ -418,17 +425,6 @@ export default function UsersPage() {
       type: "text",
     },
     {
-      field: "status",
-      label: "Status",
-      options: [
-        { value: "Active", label: "Active" },
-        { value: "Inactive", label: "Inactive" },
-        { value: "Suspended", label: "Suspended" },
-      ],
-      multiple: false,
-      type: "select",
-    },
-    {
       field: "kyc",
       label: "KYC Status",
       options: [
@@ -449,7 +445,30 @@ export default function UsersPage() {
       multiple: false,
       type: "select",
     },
+    {
+      field: "membershipPaymentStatus",
+      label: "Membership Payment",
+      options: [
+        { value: "fully_paid", label: "Fully Paid" },
+        { value: "partial", label: "Partial" },
+      ],
+      multiple: false,
+      type: "select",
+    },
+    {
+      field: "kycApprovedAt",
+      label: "Search By KYC Date Range",
+      type:"date-range"
+    },
   ]
+
+  // Tabular filter options
+  const filters:Filter[] = [
+    { label: 'All Members', value: "" },
+    { value: "Active", label: "Active" },
+    { value: "Inactive", label: "Inactive" },
+    { value: "Suspended", label: "Suspended" },
+  ];
 
   return (
     <>
@@ -511,9 +530,13 @@ export default function UsersPage() {
           rows={users.slice(page * rowsPerPage, (page + 1) * rowsPerPage)}
           loading={loading}
           title={terminology.plural}
+          tabularFilters={filters}
+          tabularFilterField="status"
           filterFields={filterFields}
           onQueryParamsChange={handleQueryParamsChange}
           emptyMessage={`No ${terminology.plural.toLowerCase()} found`}
+          //renderDetail={(row) => <MemberExpandableContent member={row} />}
+          //onRowClick={(row) => setShowDetail(row.id)}
           getRowId={(row) => row.id}
           pagination={{
             page,

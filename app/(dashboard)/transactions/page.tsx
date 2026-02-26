@@ -71,6 +71,17 @@ export default function TransactionsPage() {
       const params = new URLSearchParams()
       if (queryParams) {
         Object.entries(queryParams).forEach(([key, value]) => {
+          if (value && typeof value === "object" && "start" in (value as Record<string, unknown>) && "end" in (value as Record<string, unknown>)) {
+            const range = value as { start?: string; end?: string }
+            if (key === "date") {
+              if (range.start) params.set("date_from", range.start)
+              if (range.end) params.set("date_to", range.end)
+            } else {
+              if (range.start) params.set(`${key}Start`, range.start)
+              if (range.end) params.set(`${key}End`, range.end)
+            }
+            return
+          }
           if (value !== undefined && value !== null && value !== "") {
             params.set(key, String(value))
           }
@@ -262,6 +273,11 @@ export default function TransactionsPage() {
       ],
       multiple: false,
       type: "select",
+    },
+    {
+      field: "date",
+      label: "Search By Date Range",
+      type:"date-range"
     },
   ]
 

@@ -35,12 +35,14 @@ export async function GET(req: Request) {
         params.push(mode)
       }
       if (dateFrom) {
-        where += ` AND transaction_date >= $${idx++}`
+        where += ` AND transaction_date >= ($${idx}::timestamp AT TIME ZONE 'Africa/Nairobi')`
         params.push(dateFrom)
+        idx++
       }
       if (dateTo) {
-        where += ` AND transaction_date <= $${idx++}`
+        where += ` AND transaction_date <= ($${idx}::timestamp AT TIME ZONE 'Africa/Nairobi')`
         params.push(dateTo)
+        idx++
       }
       if (search) {
         where += ` AND (description ILIKE $${idx} OR transaction_number ILIKE $${idx})`

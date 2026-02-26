@@ -35,6 +35,7 @@ export default function LoanDetailsPage() {
     interestRate: number
     tenure: number
     principalAmount: number
+    monthlyPayment: number
     outstandingBalance: number
     status: string
     purpose?: string
@@ -55,6 +56,9 @@ export default function LoanDetailsPage() {
   const [recordPaymentAmount, setRecordPaymentAmount] = useState<string>("")
   const [recordPaymentMode, setRecordPaymentMode] = useState<string>("Cash")
   const [recordPaymentDate, setRecordPaymentDate] = useState<string>(() => new Date().toISOString().slice(0, 10))
+  const [disburseLoanOpen, setDisburseLoanOpen] = useState<boolean>(false)
+  const [disbursementMode, setDisbursementMode] = useState<string>("Cash")
+  const [disbursementDate, setDisbursementDate] = useState<string>(() => new Date().toISOString().slice(0, 10))
   const [schedPage, setSchedPage] = useState(0)
   const [schedRowsPerPage, setSchedRowsPerPage] = useState(6)
   const { toast } = useToast()
@@ -80,6 +84,7 @@ export default function LoanDetailsPage() {
             interestRate: Number(l.interest_rate || 0),
             tenure: Number(l.tenure_months || 0),
             principalAmount: Number(l.principal_amount || 0),
+            monthlyPayment: Number(l.monthly_payment || 0),
             outstandingBalance: Number(l.outstanding_balance || 0),
             status: String(l.status || "Applied"),
             purpose: l.purpose || "",
@@ -134,6 +139,7 @@ export default function LoanDetailsPage() {
               interestRate: Number(l.interest_rate || 0),
               tenure: Number(l.tenure_months || 0),
               principalAmount: Number(l.principal_amount || 0),
+              monthlyPayment: Number(l.monthly_payment || 0),
               outstandingBalance: Number(l.outstanding_balance || 0),
               status: String(l.status || "Applied"),
               purpose: l.purpose || "",
@@ -325,9 +331,9 @@ export default function LoanDetailsPage() {
     (schedPage + 1) * schedRowsPerPage
   )
 
-  const monthlyPayment = Number.isFinite((loan.principalAmount * (1 + loan.interestRate / 100)) / Math.max(loan.tenure, 1))
-    ? (loan.principalAmount * (1 + loan.interestRate / 100)) / Math.max(loan.tenure, 1)
-    : 0
+  const monthlyPayment = Number(loan.monthlyPayment || 0)
+  const remainingInstallments = repaymentSchedule.filter((r) => r.status !== "Paid").length
+  const remainingTenureMonths = repaymentSchedule.length > 0 ? remainingInstallments : loan.tenure
 
   return (
     <>
@@ -436,7 +442,7 @@ export default function LoanDetailsPage() {
                   <span className="text-xs font-medium text-muted-foreground">Interest Rate</span>
                 </div>
                 <div className="text-xl font-bold">{loan.interestRate}%</div>
-                <p className="text-xs text-muted-foreground mt-1">{loan.tenure} months tenure</p>
+                <p className="text-xs text-muted-foreground mt-1">{remainingTenureMonths} months remaining</p>
               </div>
             </div>
 
@@ -467,6 +473,10 @@ export default function LoanDetailsPage() {
                     <div>
                       <SectionLabel>Tenure</SectionLabel>
                       <p className="text-sm font-medium mt-0.5">{loan.tenure} months</p>
+                    </div>
+                    <div>
+                      <SectionLabel>Remaining Tenure</SectionLabel>
+                      <p className="text-sm font-medium mt-0.5">{remainingTenureMonths} months</p>
                     </div>
                     <div>
                       <SectionLabel>Application Date</SectionLabel>
@@ -565,6 +575,85 @@ export default function LoanDetailsPage() {
                 rowsPerPageOptions: [6, 12, 18],
               }}
             />
+
+            {/* Disburse Loan form */}
+            {disburseLoanOpen && loan && (
+              <Card className="mt-6">
+                <CardHeader>
+                  <CardTitle>Disburse Loan</CardTitle>
+                  <CardDescription>Select disbursement mode and date</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div>
+                    <Label htmlFor="disbursement-date">Disbursement Date</Label>
+                    <Input
+                      id="disbursement-date"
+                      type="date"
+                      value={disbursementDate}
+                      onChange={(e) => setDisbursementDate(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <Label>Disbursement Mode</Label>
+                    <Select value={disbursementMode} onValueChange={setDisbursementMode}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {["Cash", "Mobile Money", "Bank Transfer", "Cheque", "Card"].map((m) => (
+                          <SelectItem key={m} value={m}>
+                            {m}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        setDisburseLoanOpen(false)
+                        setDisbursementMode("Cash")
+                        setDisbursementDate(new Date().toISOString().slice(0, 10))
+                      }}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      disabled={actionLoading}
+                      onClick={async () => {
+                        try {
+                          setActionLoading(true)
+                          const res = await fetch(`/api/institution/loans/${loan.id}`, {
+                            method: "PUT",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                              status: "Disbursed",
+                              disbursement_mode: disbursementMode,
+                              disbursement_date: disbursementDate,
+                            }),
+                          })
+                          const data = await res.json()
+                          if (!res.ok) throw new Error(data?.error || "Failed to disburse loan")
+                          await refetchLoanAndRepayments()
+                          setDisburseLoanOpen(false)
+                          setDisbursementMode("Cash")
+                          setDisbursementDate(new Date().toISOString().slice(0, 10))
+                          toast({ variant: "success", title: "Loan Disbursed" })
+                        } catch (e: unknown) {
+                          const err = e as Error
+                          toast({ variant: "destructive", title: "Action failed", description: err?.message || "Please try again" })
+                        } finally {
+                          setActionLoading(false)
+                        }
+                      }}
+                    >
+                      Disburse Loan
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
 
             {/* Record Payment form */}
             {recordPaymentOpen && loan && (
@@ -717,24 +806,9 @@ export default function LoanDetailsPage() {
               {loan.status === "Approved" && (
                 <Button
                   disabled={actionLoading}
-                  onClick={async () => {
-                    try {
-                      setActionLoading(true)
-                      const res = await fetch(`/api/institution/loans/${loan.id}`, {
-                        method: "PUT",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ status: "Disbursed" }),
-                      })
-                      const data = await res.json()
-                      if (!res.ok) throw new Error(data?.error || "Failed to disburse loan")
-                      const today = new Date().toISOString().slice(0, 10)
-                      setLoan((prev) => (prev ? { ...prev, status: "Active", disbursementDate: today } : prev))
-                      toast({ variant: "success", title: "Loan Disbursed & Active" })
-                    } catch (e: any) {
-                      toast({ variant: "destructive", title: "Action failed", description: e?.message || "Please try again" })
-                    } finally {
-                      setActionLoading(false)
-                    }
+                  onClick={() => {
+                    setRecordPaymentOpen(false)
+                    setDisburseLoanOpen(true)
                   }}
                 >
                   <DollarSign className="h-4 w-4 mr-2" />
@@ -745,7 +819,10 @@ export default function LoanDetailsPage() {
                 <Button
                   variant="outline"
                   disabled={actionLoading}
-                  onClick={() => setRecordPaymentOpen(true)}
+                  onClick={() => {
+                    setDisburseLoanOpen(false)
+                    setRecordPaymentOpen(true)
+                  }}
                 >
                   <DollarSign className="h-4 w-4 mr-2" />
                   Record Payment

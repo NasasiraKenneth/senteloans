@@ -34,6 +34,9 @@ export async function GET(req: Request) {
     const search = (searchParams.get("search") || "").trim()
     const status = (searchParams.get("status") || "").trim()
     const kyc = (searchParams.get("kyc") || "").trim()
+    const membershipPaymentStatus = (searchParams.get("membershipPaymentStatus") || "").trim()
+    const kycApprovedAtStart = (searchParams.get("kycApprovedAtStart") || "").trim()
+    const kycApprovedAtEnd = (searchParams.get("kycApprovedAtEnd") || "").trim()
     const openingBalanceRecorded = (searchParams.get("openingBalanceRecorded") || "").trim().toLowerCase()
     const pageSize = Math.min(parseInt(searchParams.get("limit") || "50", 10) || 50, 100)
 
@@ -67,6 +70,34 @@ export async function GET(req: Request) {
       if (openingBalanceRecorded === "true" || openingBalanceRecorded === "false") {
         where += ` AND c.opening_balance_recorded = $${idx}`
         params.push(openingBalanceRecorded === "true")
+        idx++
+      }
+      if (membershipPaymentStatus === "fully_paid") {
+        if (membershipFee > 0) {
+          where += ` AND COALESCE(c.membership_fee_paid, 0) >= $${idx}`
+          params.push(membershipFee)
+          idx++
+        } else {
+          where += ` AND COALESCE(c.membership_fee_paid, 0) > 0`
+        }
+      } else if (membershipPaymentStatus === "partial") {
+        if (membershipFee > 0) {
+          where += ` AND COALESCE(c.membership_fee_paid, 0) > 0 AND COALESCE(c.membership_fee_paid, 0) < $${idx}`
+          params.push(membershipFee)
+          idx++
+        } else {
+          // When membership fee is not configured, partial cannot be determined reliably.
+          where += ` AND 1 = 0`
+        }
+      }
+      if (kycApprovedAtStart) {
+        where += ` AND c.kyc_approved_at >= ($${idx}::timestamp AT TIME ZONE 'Africa/Nairobi')`
+        params.push(kycApprovedAtStart)
+        idx++
+      }
+      if (kycApprovedAtEnd) {
+        where += ` AND c.kyc_approved_at <= ($${idx}::timestamp AT TIME ZONE 'Africa/Nairobi')`
+        params.push(kycApprovedAtEnd)
         idx++
       }
       params.push(pageSize)

@@ -28,6 +28,7 @@ const TableFilter: React.FC<SelectFilterProps> = ({filter, onChange, value, layo
     const [selectedValues, setSelectedValues] = useState<any>(value ?? (filter.multiple ? [] : ''));
     const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null);
     const buttonRef = useRef<HTMLDivElement>(null);
+    const datePickerRef = useRef<any>(null);
 
     const isTextInputMode = filter.type === 'text';
     const isDateRange = filter.type === 'date-range';
@@ -87,9 +88,14 @@ const TableFilter: React.FC<SelectFilterProps> = ({filter, onChange, value, layo
     };
 
     const open = Boolean(anchorEl);
-    const hasSelection = filter.multiple
-        ? Array.isArray(selectedValues) && selectedValues.length > 0
-        : !!selectedValues;
+    const hasDateSelection = isDateRange
+        ? Array.isArray(selectedValues) && selectedValues.some((d) => !!d)
+        : false;
+    const hasSelection = isDateRange
+        ? hasDateSelection
+        : filter.multiple
+            ? Array.isArray(selectedValues) && selectedValues.length > 0
+            : !!selectedValues;
 
     const widthClass = layout === 'horizontal' ? 'w-auto min-w-[300px]' : 'w-full';
 
@@ -137,6 +143,7 @@ const TableFilter: React.FC<SelectFilterProps> = ({filter, onChange, value, layo
                         (
                             <>
                                 <DatePicker
+                                    ref={datePickerRef}
                                     range
                                     value={selectedValues}
                                     onChange={(dateObjects) => {
@@ -170,7 +177,7 @@ const TableFilter: React.FC<SelectFilterProps> = ({filter, onChange, value, layo
                                                     }`}
                                                 >
 
-                                                    {hasSelection && selectedValues && selectedValues.length >1
+                                                    {hasSelection && selectedValues && selectedValues.length > 1
                                                         ?
                                                             <span>{convertDate(selectedValues[0])} - {convertDate(selectedValues[1], true)}</span>
                                                         :
@@ -183,9 +190,12 @@ const TableFilter: React.FC<SelectFilterProps> = ({filter, onChange, value, layo
                                                 <button
                                                     type="button"
                                                     onClick={(e) => {
+                                                        e.preventDefault();
                                                         e.stopPropagation(); // Prevent opening calendar when clearing
                                                         setSelectedValues(isDateRange ? [] : null);
                                                         onChange(isDateRange ? [] : null);
+                                                        datePickerRef.current?.closeCalendar?.();
+                                                        handleClose();
                                                     }}
                                                     className="ml-2 p-1 hover:bg-gray-200 rounded-full transition-colors"
                                                 >

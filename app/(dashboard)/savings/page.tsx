@@ -54,6 +54,12 @@ export default function SavingsPage() {
       const params = new URLSearchParams()
       if (queryParams) {
         Object.entries(queryParams).forEach(([key, value]) => {
+          if (value && typeof value === "object" && "start" in (value as Record<string, unknown>) && "end" in (value as Record<string, unknown>)) {
+            const range = value as { start?: string; end?: string }
+            if (range.start) params.set(`${key}Start`, range.start)
+            if (range.end) params.set(`${key}End`, range.end)
+            return
+          }
           if (value !== undefined && value !== null && value !== "") {
             params.set(key, String(value))
           }
@@ -219,17 +225,6 @@ export default function SavingsPage() {
       type: "text",
     },
     {
-      field: "account_type",
-      label: "Account Type",
-      options: [
-        { value: "Voluntary", label: "Voluntary" },
-        { value: "Fixed", label: "Fixed" },
-        { value: "Shares", label: "Shares" },
-      ],
-      multiple: false,
-      type: "select",
-    },
-    {
       field: "status",
       label: "Status",
       options: [
@@ -240,6 +235,11 @@ export default function SavingsPage() {
       ],
       multiple: false,
       type: "select",
+    },
+    {
+      field: "open_date",
+      label: "Search By Open Date Range",
+      type:"date-range"
     },
   ]
 

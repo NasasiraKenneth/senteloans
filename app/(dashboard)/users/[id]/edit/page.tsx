@@ -6,10 +6,10 @@ import { useRouter } from "next/navigation"
 import { updateInstitutionConfig } from "@/lib/session"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
+import Popover from "@mui/material/Popover"
+import ReeveDatePicker from "@/components/newUI/date_picker"
 
 import { FileUpload } from "@/components/ui/file-upload"
 // Removed mock-data; use live API
@@ -19,9 +19,116 @@ import { upload } from "@vercel/blob/client"
 import Link from "next/link"
 import { getSession } from "@/lib/session"
 import { notFound } from "next/navigation"
+import { calculateLoanTerms, normalizeLoanMethod } from "@/lib/loans/calculations"
 
 interface UserEditPageProps {
   params: Promise<{ id: string }>
+}
+
+const inputClass =
+  "w-full px-3 py-2.5 text-sm rounded-md border transition-all duration-200 focus:ring-[1.5px] focus:ring-[#f08c2b] focus:border-transparent focus:outline-none border-gray-300 hover:border-gray-400"
+
+type SelectOption = { value: string; label: string }
+const normalizeDateFromApi = (value: unknown): string => {
+  if (!value) return ""
+  const raw = String(value)
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw
+  const prefix = raw.match(/^(\d{4}-\d{2}-\d{2})/)
+  if (prefix?.[1]) return prefix[1]
+
+  const d = new Date(raw)
+  if (Number.isNaN(d.getTime())) return ""
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Africa/Nairobi",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(d)
+  const year = parts.find((p) => p.type === "year")?.value
+  const month = parts.find((p) => p.type === "month")?.value
+  const day = parts.find((p) => p.type === "day")?.value
+  return year && month && day ? `${year}-${month}-${day}` : ""
+}
+
+function StyledInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
+  const { className, ...rest } = props
+  return <input {...rest} className={`${inputClass} ${className || ""}`.trim()} />
+}
+
+function StyledSelect({
+  value,
+  onChange,
+  placeholder,
+  options,
+}: {
+  value: string
+  onChange: (value: string) => void
+  placeholder: string
+  options: SelectOption[]
+}) {
+  const [anchor, setAnchor] = useState<HTMLElement | null>(null)
+  const open = Boolean(anchor)
+  const selectedLabel = options.find((o) => o.value === value)?.label
+
+  return (
+    <>
+      <div
+        onClick={(e) => setAnchor(e.currentTarget)}
+        className={`flex items-center justify-between w-full px-3 py-2.5 text-sm border rounded-md cursor-pointer transition-all duration-200 ${
+          open ? "ring-[1.5px] ring-[#f08c2b] border-transparent" : "border-gray-300 hover:border-gray-400"
+        }`}
+      >
+        <span className={value ? "text-gray-900" : "text-gray-400"}>{selectedLabel || placeholder}</span>
+        <svg className={`h-4 w-4 text-gray-400 transition-transform ${open ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        </svg>
+      </div>
+      <Popover
+        open={open}
+        anchorEl={anchor}
+        onClose={() => setAnchor(null)}
+        anchorOrigin={{ vertical: "bottom", horizontal: "left" }}
+        transformOrigin={{ vertical: "top", horizontal: "left" }}
+        PaperProps={{
+          sx: {
+            width: anchor?.offsetWidth || 200,
+            borderRadius: "10px",
+            boxShadow: "0 10px 40px rgba(0,0,0,0.15)",
+            mt: 0.5,
+          },
+        }}
+      >
+        <div className="p-2">
+          {options.map((opt) => {
+            const isSelected = value === opt.value
+            return (
+              <div
+                key={opt.value}
+                onClick={() => {
+                  onChange(opt.value)
+                  setAnchor(null)
+                }}
+                className="flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-gray-50 rounded-lg transition-colors"
+              >
+                <div
+                  className={`relative w-4.5 h-4.5 border-2 flex items-center justify-center rounded-md transition-all ${
+                    isSelected ? "bg-[#f08c2b] border-[#f08c2b]" : "bg-white border-gray-400 hover:border-gray-600"
+                  }`}
+                >
+                  {isSelected && (
+                    <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                    </svg>
+                  )}
+                </div>
+                <span className="text-sm text-gray-800">{opt.label}</span>
+              </div>
+            )
+          })}
+        </div>
+      </Popover>
+    </>
+  )
 }
 
 export default function UserEditPage({ params }: UserEditPageProps) {
@@ -122,8 +229,8 @@ export default function UserEditPage({ params }: UserEditPageProps) {
           fullName: client.full_name || "",
           email: client.email || "",
           phoneNumber: client.phone_number || "",
-          dateOfBirth: client.date_of_birth ? client.date_of_birth.slice(0, 10) : "",
-          joinDate: client.join_date ? client.join_date.slice(0, 10) : "",
+          dateOfBirth: normalizeDateFromApi(client.date_of_birth),
+          joinDate: normalizeDateFromApi(client.join_date),
           gender: client.gender || "",
           maritalStatus: client.marital_status || "",
           location: [client.village, client.district].filter(Boolean).join(", "),
@@ -253,6 +360,12 @@ export default function UserEditPage({ params }: UserEditPageProps) {
           setObSubmitting(false)
           return
         }
+        const remTenure = Number(obLoanTenure) || 0
+        if (remTenure <= 0) {
+          setObError("Remaining tenure is required for loan opening balance")
+          setObSubmitting(false)
+          return
+        }
         const principal = Number(obLoanPrincipal) || 0
         if (principal > 0 && principal < loanBal) {
           setObError("Original principal amount cannot be less than the outstanding balance")
@@ -260,7 +373,6 @@ export default function UserEditPage({ params }: UserEditPageProps) {
           return
         }
         const origTenure = Number(obLoanOriginalTenure) || 0
-        const remTenure = Number(obLoanTenure) || 0
         if (origTenure > 0 && remTenure > 0 && origTenure < remTenure) {
           setObError("Original tenure cannot be less than remaining tenure")
           setObSubmitting(false)
@@ -776,7 +888,7 @@ export default function UserEditPage({ params }: UserEditPageProps) {
                   <div className="grid gap-4 md:grid-cols-2">
                     <div className="space-y-2">
                       <Label htmlFor="fullName">Full Name</Label>
-                      <Input
+                      <StyledInput
                         id="fullName"
                         value={formData.fullName}
                         onChange={(e) => handleInputChange("fullName", e.target.value)}
@@ -785,17 +897,16 @@ export default function UserEditPage({ params }: UserEditPageProps) {
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="email">Email Address</Label>
-                      <Input
+                      <StyledInput
                         id="email"
                         type="email"
                         value={formData.email}
                         onChange={(e) => handleInputChange("email", e.target.value)}
-                        required
                       />
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="phoneNumber">Phone Number</Label>
-                      <Input
+                      <StyledInput
                         id="phoneNumber"
                         value={formData.phoneNumber}
                         onChange={(e) => handleInputChange("phoneNumber", e.target.value)}
@@ -804,42 +915,37 @@ export default function UserEditPage({ params }: UserEditPageProps) {
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="dateOfBirth">Date of Birth</Label>
-                      <Input
-                        id="dateOfBirth"
-                        type="date"
+                      <ReeveDatePicker
                         value={formData.dateOfBirth}
-                        onChange={(e) => handleInputChange("dateOfBirth", e.target.value)}
+                        onChange={(value) => handleInputChange("dateOfBirth", value)}
                       />
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="gender">Gender</Label>
-                      <Select value={formData.gender} onValueChange={(value) => handleInputChange("gender", value)}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select gender" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="Male">Male</SelectItem>
-                          <SelectItem value="Female">Female</SelectItem>
-                          <SelectItem value="Other">Other</SelectItem>
-                        </SelectContent>
-                      </Select>
+                      <StyledSelect
+                        value={formData.gender}
+                        onChange={(value) => handleInputChange("gender", value)}
+                        placeholder="Select gender"
+                        options={[
+                          { value: "Male", label: "Male" },
+                          { value: "Female", label: "Female" },
+                          { value: "Other", label: "Other" },
+                        ]}
+                      />
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="maritalStatus">Marital Status</Label>
-                      <Select
+                      <StyledSelect
                         value={formData.maritalStatus}
-                        onValueChange={(value) => handleInputChange("maritalStatus", value)}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select marital status" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="Single">Single</SelectItem>
-                          <SelectItem value="Married">Married</SelectItem>
-                          <SelectItem value="Divorced">Divorced</SelectItem>
-                          <SelectItem value="Widowed">Widowed</SelectItem>
-                        </SelectContent>
-                      </Select>
+                        onChange={(value) => handleInputChange("maritalStatus", value)}
+                        placeholder="Select marital status"
+                        options={[
+                          { value: "Single", label: "Single" },
+                          { value: "Married", label: "Married" },
+                          { value: "Divorced", label: "Divorced" },
+                          { value: "Widowed", label: "Widowed" },
+                        ]}
+                      />
                     </div>
                   </div>
                 </CardContent>
@@ -904,7 +1010,7 @@ export default function UserEditPage({ params }: UserEditPageProps) {
                   <div className="grid gap-4 md:grid-cols-2">
                     <div className="space-y-2">
                       <Label htmlFor="location">Location</Label>
-                      <Input
+                      <StyledInput
                         id="location"
                         value={formData.location}
                         onChange={(e) => handleInputChange("location", e.target.value)}
@@ -912,7 +1018,7 @@ export default function UserEditPage({ params }: UserEditPageProps) {
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="occupation">Occupation</Label>
-                      <Input
+                      <StyledInput
                         id="occupation"
                         value={formData.occupation}
                         onChange={(e) => handleInputChange("occupation", e.target.value)}
@@ -920,7 +1026,7 @@ export default function UserEditPage({ params }: UserEditPageProps) {
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="monthlyIncome">Monthly Income ({currency})</Label>
-                      <Input
+                      <StyledInput
                         id="monthlyIncome"
                         value={formData.monthlyIncome}
                         onChange={(e) => handleInputChange("monthlyIncome", e.target.value)}
@@ -928,7 +1034,7 @@ export default function UserEditPage({ params }: UserEditPageProps) {
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="monthlySavings">Monthly Savings ({currency})</Label>
-                      <Input
+                      <StyledInput
                         id="monthlySavings"
                         type="number"
                         min={0}
@@ -957,7 +1063,7 @@ export default function UserEditPage({ params }: UserEditPageProps) {
                   <div className="grid gap-4 md:grid-cols-3">
                     <div className="space-y-2">
                       <Label htmlFor="nextOfKin">Full Name</Label>
-                      <Input
+                      <StyledInput
                         id="nextOfKin"
                         value={formData.nextOfKin}
                         onChange={(e) => handleInputChange("nextOfKin", e.target.value)}
@@ -966,31 +1072,28 @@ export default function UserEditPage({ params }: UserEditPageProps) {
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="nextOfKinRelationship">Relationship</Label>
-                      <Select
+                      <StyledSelect
                         value={formData.nextOfKinRelationship}
-                        onValueChange={(value) => handleInputChange("nextOfKinRelationship", value)}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select relationship" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="Spouse">Spouse</SelectItem>
-                          <SelectItem value="Father">Father</SelectItem>
-                          <SelectItem value="Mother">Mother</SelectItem>
-                          <SelectItem value="Son">Son</SelectItem>
-                          <SelectItem value="Daughter">Daughter</SelectItem>
-                          <SelectItem value="Brother">Brother</SelectItem>
-                          <SelectItem value="Sister">Sister</SelectItem>
-                          <SelectItem value="Uncle">Uncle</SelectItem>
-                          <SelectItem value="Aunt">Aunt</SelectItem>
-                          <SelectItem value="Friend">Friend</SelectItem>
-                          <SelectItem value="Other">Other</SelectItem>
-                        </SelectContent>
-                      </Select>
+                        onChange={(value) => handleInputChange("nextOfKinRelationship", value)}
+                        placeholder="Select relationship"
+                        options={[
+                          { value: "Spouse", label: "Spouse" },
+                          { value: "Father", label: "Father" },
+                          { value: "Mother", label: "Mother" },
+                          { value: "Son", label: "Son" },
+                          { value: "Daughter", label: "Daughter" },
+                          { value: "Brother", label: "Brother" },
+                          { value: "Sister", label: "Sister" },
+                          { value: "Uncle", label: "Uncle" },
+                          { value: "Aunt", label: "Aunt" },
+                          { value: "Friend", label: "Friend" },
+                          { value: "Other", label: "Other" },
+                        ]}
+                      />
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="nextOfKinPhone">Phone Number</Label>
-                      <Input
+                      <StyledInput
                         id="nextOfKinPhone"
                         value={formData.nextOfKinPhone}
                         onChange={(e) => handleInputChange("nextOfKinPhone", e.target.value)}
@@ -1022,23 +1125,20 @@ export default function UserEditPage({ params }: UserEditPageProps) {
                     <div className="grid gap-4 md:grid-cols-2">
                       <div className="space-y-2">
                         <Label htmlFor="mobileMoneyProvider">Mobile Money Provider</Label>
-                        <Select
+                        <StyledSelect
                           value={formData.mobileMoneyProvider}
-                          onValueChange={(value) => handleInputChange("mobileMoneyProvider", value)}
-                        >
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select provider" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="MTN Mobile Money">MTN Mobile Money</SelectItem>
-                            <SelectItem value="Airtel Money">Airtel Money</SelectItem>
-                            <SelectItem value="M-Sente">M-Sente</SelectItem>
-                          </SelectContent>
-                        </Select>
+                          onChange={(value) => handleInputChange("mobileMoneyProvider", value)}
+                          placeholder="Select provider"
+                          options={[
+                            { value: "MTN Mobile Money", label: "MTN Mobile Money" },
+                            { value: "Airtel Money", label: "Airtel Money" },
+                            { value: "M-Sente", label: "M-Sente" },
+                          ]}
+                        />
                       </div>
                       <div className="space-y-2">
                         <Label htmlFor="mobileMoneyNumber">Mobile Money Number</Label>
-                        <Input
+                        <StyledInput
                           id="mobileMoneyNumber"
                           value={formData.mobileMoneyNumber}
                           onChange={(e) => handleInputChange("mobileMoneyNumber", e.target.value)}
@@ -1057,27 +1157,24 @@ export default function UserEditPage({ params }: UserEditPageProps) {
                     <div className="grid gap-4 md:grid-cols-2">
                       <div className="space-y-2">
                         <Label htmlFor="bankName">Bank Name</Label>
-                        <Select
+                        <StyledSelect
                           value={formData.bankName}
-                          onValueChange={(value) => handleInputChange("bankName", value)}
-                        >
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select bank" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="Stanbic Bank">Stanbic Bank</SelectItem>
-                            <SelectItem value="Centenary Bank">Centenary Bank</SelectItem>
-                            <SelectItem value="DFCU Bank">DFCU Bank</SelectItem>
-                            <SelectItem value="Equity Bank">Equity Bank</SelectItem>
-                            <SelectItem value="Bank of Africa">Bank of Africa</SelectItem>
-                            <SelectItem value="PostBank Uganda">PostBank Uganda</SelectItem>
-                            <SelectItem value="Other">Other</SelectItem>
-                          </SelectContent>
-                        </Select>
+                          onChange={(value) => handleInputChange("bankName", value)}
+                          placeholder="Select bank"
+                          options={[
+                            { value: "Stanbic Bank", label: "Stanbic Bank" },
+                            { value: "Centenary Bank", label: "Centenary Bank" },
+                            { value: "DFCU Bank", label: "DFCU Bank" },
+                            { value: "Equity Bank", label: "Equity Bank" },
+                            { value: "Bank of Africa", label: "Bank of Africa" },
+                            { value: "PostBank Uganda", label: "PostBank Uganda" },
+                            { value: "Other", label: "Other" },
+                          ]}
+                        />
                       </div>
                       <div className="space-y-2">
                         <Label htmlFor="bankAccountNumber">Account Number</Label>
-                        <Input
+                        <StyledInput
                           id="bankAccountNumber"
                           value={formData.bankAccountNumber}
                           onChange={(e) => handleInputChange("bankAccountNumber", e.target.value)}
@@ -1086,7 +1183,7 @@ export default function UserEditPage({ params }: UserEditPageProps) {
                       </div>
                       <div className="space-y-2">
                         <Label htmlFor="bankAccountName">Account Name</Label>
-                        <Input
+                        <StyledInput
                           id="bankAccountName"
                           value={formData.bankAccountName}
                           onChange={(e) => handleInputChange("bankAccountName", e.target.value)}
@@ -1095,7 +1192,7 @@ export default function UserEditPage({ params }: UserEditPageProps) {
                       </div>
                       <div className="space-y-2">
                         <Label htmlFor="bankBranch">Branch</Label>
-                        <Input
+                        <StyledInput
                           id="bankBranch"
                           value={formData.bankBranch}
                           onChange={(e) => handleInputChange("bankBranch", e.target.value)}
@@ -1196,23 +1293,20 @@ export default function UserEditPage({ params }: UserEditPageProps) {
                               {obSavingsAccounts.length > 1 && (
                                 <div className="space-y-2">
                                   <Label>Savings Account</Label>
-                                  <Select value={obSavingsAccountId} onValueChange={setObSavingsAccountId}>
-                                    <SelectTrigger>
-                                      <SelectValue placeholder="Select account" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                      {obSavingsAccounts.map((acc: any) => (
-                                        <SelectItem key={acc.id} value={acc.id}>
-                                          {acc.account_number} ({acc.account_type})
-                                        </SelectItem>
-                                      ))}
-                                    </SelectContent>
-                                  </Select>
+                                  <StyledSelect
+                                    value={obSavingsAccountId}
+                                    onChange={setObSavingsAccountId}
+                                    placeholder="Select account"
+                                    options={obSavingsAccounts.map((acc: any) => ({
+                                      value: acc.id,
+                                      label: `${acc.account_number} (${acc.account_type})`,
+                                    }))}
+                                  />
                                 </div>
                               )}
                               <div className="space-y-2">
                                 <Label htmlFor="obSavingsBalance">Opening Savings Balance ({currency})</Label>
-                                <Input
+                                <StyledInput
                                   id="obSavingsBalance"
                                   type="number"
                                   min={0}
@@ -1237,22 +1331,19 @@ export default function UserEditPage({ params }: UserEditPageProps) {
                           <div className="grid gap-4 md:grid-cols-2">
                             <div className="space-y-2">
                               <Label>Loan Product <span className="text-red-500">*</span></Label>
-                              <Select value={obLoanProductId} onValueChange={setObLoanProductId}>
-                                <SelectTrigger>
-                                  <SelectValue placeholder="Select loan product" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {obLoanProducts.map((p: any) => (
-                                    <SelectItem key={p.id} value={p.id}>
-                                      {p.product_name} ({p.interest_rate}%)
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
+                              <StyledSelect
+                                value={obLoanProductId}
+                                onChange={setObLoanProductId}
+                                placeholder="Select loan product"
+                                options={obLoanProducts.map((p: any) => ({
+                                  value: p.id,
+                                  label: `${p.product_name} (${p.interest_rate}%)`,
+                                }))}
+                              />
                             </div>
                             <div className="space-y-2">
                               <Label htmlFor="obLoanPrincipal">Original Loan Amount ({currency}) <span className="text-red-500">*</span></Label>
-                              <Input
+                              <StyledInput
                                 id="obLoanPrincipal"
                                 type="number"
                                 min={0}
@@ -1264,7 +1355,7 @@ export default function UserEditPage({ params }: UserEditPageProps) {
                             </div>
                             <div className="space-y-2">
                               <Label htmlFor="obLoanBalance">Outstanding Balance ({currency}) <span className="text-red-500">*</span></Label>
-                              <Input
+                              <StyledInput
                                 id="obLoanBalance"
                                 type="number"
                                 min={0}
@@ -1276,7 +1367,7 @@ export default function UserEditPage({ params }: UserEditPageProps) {
                             </div>
                             <div className="space-y-2">
                               <Label htmlFor="obLoanOriginalTenure">Original Tenure (months)</Label>
-                              <Input
+                              <StyledInput
                                 id="obLoanOriginalTenure"
                                 type="number"
                                 min={1}
@@ -1288,7 +1379,7 @@ export default function UserEditPage({ params }: UserEditPageProps) {
                             </div>
                             <div className="space-y-2">
                               <Label htmlFor="obLoanTenure">Remaining Tenure (months) <span className="text-red-500">*</span></Label>
-                              <Input
+                              <StyledInput
                                 id="obLoanTenure"
                                 type="number"
                                 min={1}
@@ -1300,11 +1391,10 @@ export default function UserEditPage({ params }: UserEditPageProps) {
                             </div>
                             <div className="space-y-2">
                               <Label htmlFor="obLoanLastPaymentDate">Last Payment Date</Label>
-                              <Input
-                                id="obLoanLastPaymentDate"
-                                type="date"
+                              <ReeveDatePicker
                                 value={obLoanLastPaymentDate}
-                                onChange={(e) => setObLoanLastPaymentDate(e.target.value)}
+                                onChange={setObLoanLastPaymentDate}
+                                placeholder="Select date"
                               />
                               <p className="text-xs text-muted-foreground">Date of the most recent payment in the previous system</p>
                             </div>
@@ -1316,12 +1406,18 @@ export default function UserEditPage({ params }: UserEditPageProps) {
                             const rem = Number(obLoanTenure)
                             const selectedProduct = obLoanProducts.find((p: any) => p.id === obLoanProductId)
                             const rate = selectedProduct ? Number(selectedProduct.interest_rate) : 0
-                            const monthlyRate = rate / 100 / 12
-                            const mp = monthlyRate > 0
-                              ? (bal * monthlyRate * Math.pow(1 + monthlyRate, rem)) / (Math.pow(1 + monthlyRate, rem) - 1)
-                              : bal / rem
-                            const totalRepayment = mp * rem
+                            const terms = calculateLoanTerms(
+                              bal,
+                              rate,
+                              rem,
+                              selectedProduct?.interest_calculation_method
+                            )
+                            const mp = terms.monthlyPayment
+                            const totalRepayment = terms.totalAmount
                             const totalInterest = totalRepayment - bal
+                            const calcMethod = normalizeLoanMethod(selectedProduct?.interest_calculation_method)
+                              .replace("_", " ")
+                              .replace(/\b\w/g, (c) => c.toUpperCase())
                             return (
                               <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg space-y-1">
                                 <h5 className="text-xs font-semibold text-blue-800">Projected Repayment Schedule</h5>
@@ -1338,6 +1434,9 @@ export default function UserEditPage({ params }: UserEditPageProps) {
                                     <span className="block text-blue-500">Total Repayment</span>
                                     <span className="font-semibold">{currency} {Math.round(totalRepayment).toLocaleString()}</span>
                                   </div>
+                                </div>
+                                <div className="text-xs text-blue-600 mt-1">
+                                  Method: <span className="font-semibold">{calcMethod}</span>
                                 </div>
                               </div>
                             )
@@ -1414,7 +1513,7 @@ export default function UserEditPage({ params }: UserEditPageProps) {
                                   <div className="grid gap-4 md:grid-cols-4 items-end">
                                     <div className="space-y-2">
                                       <Label htmlFor="sharesToBuy">Shares to Purchase</Label>
-                                      <Input
+                                      <StyledInput
                                         id="sharesToBuy"
                                         type="number"
                                         min={1}
@@ -1424,22 +1523,22 @@ export default function UserEditPage({ params }: UserEditPageProps) {
                                     </div>
                                     <div className="space-y-2">
                                       <Label>Value per Share</Label>
-                                      <Input value={`UGX ${configuredShareValue ?? "-"}`} readOnly />
+                                      <StyledInput value={`UGX ${configuredShareValue ?? "-"}`} readOnly />
                                     </div>
                                     <div className="space-y-2">
                                       <Label>Payment Mode</Label>
-                                      <Select value={sharesPaymentMode} onValueChange={setSharesPaymentMode}>
-                                        <SelectTrigger>
-                                          <SelectValue placeholder="Select mode" />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                          <SelectItem value="Cash">Cash</SelectItem>
-                                          <SelectItem value="Mobile Money">Mobile Money</SelectItem>
-                                          <SelectItem value="Bank Transfer">Bank Transfer</SelectItem>
-                                          <SelectItem value="Cheque">Cheque</SelectItem>
-                                          <SelectItem value="Card">Card</SelectItem>
-                                        </SelectContent>
-                                      </Select>
+                                      <StyledSelect
+                                        value={sharesPaymentMode}
+                                        onChange={setSharesPaymentMode}
+                                        placeholder="Select mode"
+                                        options={[
+                                          { value: "Cash", label: "Cash" },
+                                          { value: "Mobile Money", label: "Mobile Money" },
+                                          { value: "Bank Transfer", label: "Bank Transfer" },
+                                          { value: "Cheque", label: "Cheque" },
+                                          { value: "Card", label: "Card" },
+                                        ]}
+                                      />
                                     </div>
                                     <div className="flex items-center gap-2">
                                       <Calculator className="h-4 w-4 text-muted-foreground" />
@@ -1562,13 +1661,13 @@ export default function UserEditPage({ params }: UserEditPageProps) {
                                 <div className="space-y-2">
                                   <Label htmlFor="feePaymentAmount">Amount ({currency})</Label>
                                   {feePaymentType === "remaining" ? (
-                                    <Input
+                                    <StyledInput
                                       value={remaining.toLocaleString()}
                                       readOnly
                                       className="bg-gray-50 text-gray-600"
                                     />
                                   ) : (
-                                    <Input
+                                    <StyledInput
                                       id="feePaymentAmount"
                                       type="number"
                                       value={feePaymentAmount}
@@ -1581,18 +1680,18 @@ export default function UserEditPage({ params }: UserEditPageProps) {
                                 </div>
                                 <div className="space-y-2">
                                   <Label>Payment Mode</Label>
-                                  <Select value={feePaymentMode} onValueChange={setFeePaymentMode}>
-                                    <SelectTrigger>
-                                      <SelectValue placeholder="Select mode" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                      <SelectItem value="Cash">Cash</SelectItem>
-                                      <SelectItem value="Mobile Money">Mobile Money</SelectItem>
-                                      <SelectItem value="Bank Transfer">Bank Transfer</SelectItem>
-                                      <SelectItem value="Cheque">Cheque</SelectItem>
-                                      <SelectItem value="Card">Card</SelectItem>
-                                    </SelectContent>
-                                  </Select>
+                                  <StyledSelect
+                                    value={feePaymentMode}
+                                    onChange={setFeePaymentMode}
+                                    placeholder="Select mode"
+                                    options={[
+                                      { value: "Cash", label: "Cash" },
+                                      { value: "Mobile Money", label: "Mobile Money" },
+                                      { value: "Bank Transfer", label: "Bank Transfer" },
+                                      { value: "Cheque", label: "Cheque" },
+                                      { value: "Card", label: "Card" },
+                                    ]}
+                                  />
                                 </div>
                                 <Button
                                   type="button"
@@ -1647,37 +1746,35 @@ export default function UserEditPage({ params }: UserEditPageProps) {
                   <div className="grid gap-4 md:grid-cols-3">
                     <div className="space-y-2">
                       <Label htmlFor="status">Account Status</Label>
-                      <Select value={formData.status} onValueChange={(value) => handleInputChange("status", value)}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select status" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="Active">Active</SelectItem>
-                          <SelectItem value="Inactive">Inactive</SelectItem>
-                          <SelectItem value="Suspended">Suspended</SelectItem>
-                        </SelectContent>
-                      </Select>
+                      <StyledSelect
+                        value={formData.status}
+                        onChange={(value) => handleInputChange("status", value)}
+                        placeholder="Select status"
+                        options={[
+                          { value: "Active", label: "Active" },
+                          { value: "Inactive", label: "Inactive" },
+                          { value: "Suspended", label: "Suspended" },
+                        ]}
+                      />
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="kycStatus">KYC Status</Label>
-                      <Select value={formData.kycStatus} onValueChange={(value) => handleInputChange("kycStatus", value)}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select KYC status" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="Verified">Verified</SelectItem>
-                          <SelectItem value="Pending">Pending</SelectItem>
-                          <SelectItem value="Rejected">Rejected</SelectItem>
-                        </SelectContent>
-                      </Select>
+                      <StyledSelect
+                        value={formData.kycStatus}
+                        onChange={(value) => handleInputChange("kycStatus", value)}
+                        placeholder="Select KYC status"
+                        options={[
+                          { value: "Verified", label: "Verified" },
+                          { value: "Pending", label: "Pending" },
+                          { value: "Rejected", label: "Rejected" },
+                        ]}
+                      />
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="joinDate">Join Date</Label>
-                      <Input
-                        id="joinDate"
-                        type="date"
+                      <ReeveDatePicker
                         value={formData.joinDate}
-                        onChange={(e) => handleInputChange("joinDate", e.target.value)}
+                        onChange={(value) => handleInputChange("joinDate", value)}
                       />
                     </div>
                   </div>

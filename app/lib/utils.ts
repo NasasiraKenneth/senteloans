@@ -1,7 +1,7 @@
 import moment from "moment";
 import "moment-timezone"
 const TZ = process.env.NEXT_TIMEZONE
-moment.tz.setDefault(TZ)
+moment.tz.setDefault(TZ || "Africa/Nairobi")
 
 export const paramsSerializer = (params: any) => {
     const usp = new URLSearchParams();

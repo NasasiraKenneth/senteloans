@@ -109,33 +109,46 @@ export default function DataTable<Row>({
     }
 
     const handleOnSelectFilterChange = (field: string, type:string, value: any) => {
-        let params:object = queryParameters;
+        const params: Record<string, any> = { ...(queryParameters as Record<string, any>) };
         switch (type){
             case  'text':
-                // @ts-ignore
-                params[field] = value
+                if (value === undefined || value === null || value === '') {
+                    delete params[field]
+                } else {
+                    params[field] = value
+                }
                 break;
             case 'radio':
-                // @ts-ignore
-                params[field] = value
+                if (value === undefined || value === null || value === '') {
+                    delete params[field]
+                } else {
+                    params[field] = value
+                }
                 break;
             case 'checkbox':
                 if(Array.isArray(value)){
-                    // @ts-ignore
-                    params[field] = value.join(",")
+                    if (value.length > 0) {
+                        params[field] = value.join(",")
+                    } else {
+                        delete params[field]
+                    }
                 }
                 break;
             default:
-                if((Array.isArray(value) && value.length > 1)){
-                    const start = convertDate(value[0])
-                    const end =  convertDate(value[1], true)
-                    // @ts-ignore
+                if ((Array.isArray(value) && value.length >= 1)) {
+                    const startDate = value[0]
+                    const endDate = value[1] || value[0]
+                    const start = convertDate(startDate)
+                    const end = convertDate(endDate, true)
                     params[field] = {start,end}
+                } else {
+                    // Ensure clicking X on date filters removes any prior range
+                    delete params[field]
                 }
                 // handle daterange
                 break;
         }
-        setQueryParameters({...params});
+        setQueryParameters(params);
     }
 
     const buttonVariants = {
