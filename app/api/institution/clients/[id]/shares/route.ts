@@ -158,7 +158,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         await client.query(
           `INSERT INTO senteloans_transactions
             (institution_id, client_id, account_id, loan_id, transaction_number, type, amount, mode, description, reference_number, balance_before, balance_after, processed_by, transaction_date, status)
-           VALUES ($1, $2, $3, NULL, $4, $5, $6, $7, $8, '', $9, $10, $11, $12, 'Completed')`,
+           VALUES ($1, $2, $3, NULL, $4, $5, $6, $7, $8, $4, $9, $10, $11, $12, 'Completed')`,
           [
             appUser.institution_id,
             clientId,

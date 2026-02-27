@@ -137,7 +137,7 @@ export default function UsersPage() {
         kycStatus: c.kyc_status,
         membershipFeePaid: Number(c.membership_fee_paid) || 0,
         createdBy: c.created_by_name || c.created_by || "—",
-        kycApprovedBy: c.kyc_approved_by_name || c.kyc_approved_by || "—",
+        kycApprovedBy: c.kyc_approved_by_name || c.kyc_approved_by || "",
         joinDate: c.join_date || "",
         kycApprovedAt: c.kyc_approved_at || "",
       }))

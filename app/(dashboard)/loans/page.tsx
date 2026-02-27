@@ -5,13 +5,14 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 
-import { Plus, Eye, CheckCircle, XCircle, Clock, AlertTriangle, DollarSign, Calendar } from "lucide-react"
+import { Plus, Eye, CheckCircle, XCircle, Clock, AlertTriangle, DollarSign, Calendar, Activity, Lock } from "lucide-react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import DataTable from "@/components/datatables/DataTable"
 import { DataTableColumn } from "@/components/datatables/DataTable"
 import { FilterField } from "@/components/datatables/TableFilter"
 import { ActionButtons } from "@/components/datatables/ActionButtons"
+import { Filter } from "@/types"
 
 type LoanUI = {
   id: string
@@ -62,16 +63,24 @@ export default function LoansPage() {
 
   const getStatusIcon = (status: string) => {
     switch (status) {
+      case "Applied":
+        return <Clock className="h-4 w-4 text-amber-600" />
+      case "Under Review":
+        return <Eye className="h-4 w-4 text-violet-600" />
       case "Approved":
         return <CheckCircle className="h-4 w-4 text-green-600" />
       case "Disbursed":
         return <DollarSign className="h-4 w-4 text-blue-600" />
+      case "Active":
+        return <Activity className="h-4 w-4 text-cyan-600" />
       case "Rejected":
-        return <XCircle className="h-4 w-4 text-gray-600" />
+        return <XCircle className="h-4 w-4 text-rose-600" />
       case "Defaulted":
         return <AlertTriangle className="h-4 w-4 text-red-600" />
+      case "Closed":
+        return <Lock className="h-4 w-4 text-slate-600" />
       default:
-        return <Clock className="h-4 w-4 text-yellow-600" />
+        return <Clock className="h-4 w-4 text-gray-600" />
     }
   }
 
@@ -101,6 +110,12 @@ export default function LoansPage() {
       const params = new URLSearchParams()
       if (queryParams) {
         Object.entries(queryParams).forEach(([key, value]) => {
+          if (value && typeof value === "object" && "start" in (value as Record<string, unknown>) && "end" in (value as Record<string, unknown>)) {
+            const range = value as { start?: string; end?: string }
+            if (range.start) params.set(`${key}Start`, range.start)
+            if (range.end) params.set(`${key}End`, range.end)
+            return
+          }
           if (value !== undefined && value !== null && value !== "") {
             params.set(key, String(value))
           }
@@ -150,18 +165,24 @@ export default function LoansPage() {
 
   const getStatusVariant = (status: string) => {
     switch (status) {
+      case "Applied":
+        return "bg-amber-100 text-amber-700 border border-amber-200"
+      case "Under Review":
+        return "bg-violet-100 text-violet-700 border border-violet-200"
       case "Approved":
         return "bg-green-100 text-green-700 border border-green-200"
       case "Disbursed":
         return "bg-blue-100 text-blue-700 border border-blue-200"
+      case "Active":
+        return "bg-cyan-100 text-cyan-700 border border-cyan-200"
       case "Rejected":
-        return "bg-gray-100 text-gray-700 border border-gray-200"
+        return "bg-rose-100 text-rose-700 border border-rose-200"
       case "Defaulted":
         return "bg-red-100 text-red-700 border border-red-200"
       case "Closed":
-        return "bg-gray-100 text-gray-700 border border-gray-200"
+        return "bg-slate-100 text-slate-700 border border-slate-200"
       default:
-        return "bg-yellow-100 text-yellow-700 border border-yellow-200"
+        return "bg-gray-100 text-gray-700 border border-gray-200"
     }
   }
 
@@ -292,20 +313,48 @@ export default function LoansPage() {
       type: "text",
     },
     {
-      field: "status",
-      label: "Status",
+      field: "product_id",
+      label: "Loan Products",
+      options: products.map((p) => ({ value: p.id, label: p.name })),
+      multiple: true,
+      type: "select",
+    },
+    {
+      field: "remainingTenure",
+      label: "Remaining Tenure",
       options: [
-        { value: "Applied", label: "Applied" },
-        { value: "Approved", label: "Approved" },
-        { value: "Disbursed", label: "Disbursed" },
-        { value: "Rejected", label: "Rejected" },
-        { value: "Closed", label: "Closed" },
-        { value: "Defaulted", label: "Defaulted" },
+        { value: "eq1", label: "1 month" },
+        { value: "lte3", label: "<= 3 months" },
+        { value: "lte6", label: "<= 6 months" },
+        { value: "lte12", label: "<= 12 months" },
+        { value: "gt12", label: "> 12 months" },
       ],
       multiple: false,
       type: "select",
     },
+    {
+      field: "applicationDate",
+      label: "Search By Application Date Range",
+      type: "date-range"
+    },
+    {
+      field: "nextPaymentDate",
+      label: "Search By Next Payment Date Range",
+      type: "date-range"
+    },
   ]
+
+  // Tabular filter options
+  const filters:Filter[] = [
+      { label: 'All Loans', value: "" },
+      { value: "Applied", label: "Applied" },
+      { value: "Approved", label: "Approved" },
+      { value: "Disbursed", label: "Disbursed" },
+      { value: "Active", label: "Active" },
+      { value: "Rejected", label: "Rejected" },
+      { value: "Closed", label: "Closed" },
+      { value: "Defaulted", label: "Defaulted" },
+  ];
 
   return (
     <>
@@ -373,6 +422,8 @@ export default function LoansPage() {
               rows={loans.slice(page * rowsPerPage, (page + 1) * rowsPerPage)}
               loading={loading}
               title={`Loans (${loans.length})`}
+              tabularFilters={filters}
+              tabularFilterField="status"
               filterFields={filterFields}
               onQueryParamsChange={handleQueryParamsChange}
               emptyMessage="No loans found"

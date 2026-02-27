@@ -100,6 +100,28 @@ export const buildRepaymentSchedule = (args: {
     return rows
   }
 
+  if (method === "compound") {
+    const terms = calculateLoanTerms(P, annual, n, method)
+    const principalPer = round2(P / n)
+    const rows: RepaymentInstallment[] = []
+    for (let i = 1; i <= n; i++) {
+      const dueDate = addMonthsDateOnly(start, i)
+      const principalAmount = i === n ? round2(P - principalPer * (n - 1)) : principalPer
+      const totalAmount = i === n
+        ? round2(terms.totalAmount - rows.reduce((s, r) => s + r.totalAmount, 0))
+        : terms.monthlyPayment
+      const interestAmount = round2(Math.max(0, totalAmount - principalAmount))
+      rows.push({
+        installmentNumber: offset + i,
+        dueDate,
+        principalAmount,
+        interestAmount,
+        totalAmount,
+      })
+    }
+    return rows
+  }
+
   const { monthlyPayment } = calculateLoanTerms(P, annual, n, method)
   let balance = P
   const rows: RepaymentInstallment[] = []

@@ -2,7 +2,40 @@ import { NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { runWithAuth } from "@/lib/db"
-import { addMonthsDateOnly, buildRepaymentSchedule, calculateLoanTerms } from "@/lib/loans/calculations"
+import { addMonthsDateOnly, buildRepaymentSchedule } from "@/lib/loans/calculations"
+
+const round2 = (value: number): number => Math.round((value + Number.EPSILON) * 100) / 100
+
+type RepaymentRow = {
+  installmentNumber: number
+  dueDate: string
+  principalAmount: number
+  interestAmount: number
+  totalAmount: number
+}
+
+const reconcilePendingScheduleToOutstanding = (rows: RepaymentRow[], targetOutstanding: number): RepaymentRow[] => {
+  if (rows.length === 0) return rows
+  const target = round2(Math.max(0, Number(targetOutstanding) || 0))
+  const current = round2(rows.reduce((sum, row) => sum + Number(row.totalAmount || 0), 0))
+  const diff = round2(target - current)
+  if (Math.abs(diff) < 0.01) return rows
+
+  const adjusted = rows.map((r) => ({ ...r }))
+  const lastIdx = adjusted.length - 1
+  const last = adjusted[lastIdx]
+  const newTotal = round2(Math.max(0, Number(last.totalAmount || 0) + diff))
+  const interest = round2(Math.max(0, Number(last.interestAmount || 0)))
+  const principal = newTotal >= interest ? round2(newTotal - interest) : 0
+
+  adjusted[lastIdx] = {
+    ...last,
+    totalAmount: newTotal,
+    principalAmount: principal,
+    interestAmount: newTotal >= interest ? interest : newTotal,
+  }
+  return adjusted
+}
 
 /**
  * GET /api/institution/clients/[id]/opening-balances
@@ -217,16 +250,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         const principalAmount = loanPrincipalAmount ?? loanOutstandingBalance!
         const originalTenure = Math.floor(loanOriginalTenure ?? remainingTenure)
 
-        // Opening-balance loans should use the same calculation method as the selected product.
-        const terms = calculateLoanTerms(
-          loanOutstandingBalance!,
-          interestRate,
-          remainingTenure,
-          product.interest_calculation_method
-        )
-        const monthlyPayment = terms.monthlyPayment
-        const totalAmount = terms.totalAmount
-
         // Determine key dates
         const todayStr = txDate.slice(0, 10)
         const elapsedMonths = originalTenure - remainingTenure
@@ -237,6 +260,38 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
           ? addMonthsDateOnly(loanLastPaymentDate, 1)
           : addMonthsDateOnly(todayStr, 1)
         const maturityDate = addMonthsDateOnly(nextPaymentDate, remainingTenure - 1)
+
+        // Build schedules from original loan terms where possible, then reconcile pending to entered outstanding.
+        let paidSchedule: RepaymentRow[] = []
+        let pendingSchedule: RepaymentRow[] = []
+        if (principalAmount > 0 && originalTenure > 0 && originalTenure >= remainingTenure) {
+          const fullSchedule = buildRepaymentSchedule({
+            principal: principalAmount,
+            annualRate: interestRate,
+            tenureMonths: originalTenure,
+            method: product.interest_calculation_method,
+            startDate: disbursementDate,
+          })
+          paidSchedule = fullSchedule.slice(0, elapsedMonths)
+          pendingSchedule = fullSchedule
+            .slice(elapsedMonths, elapsedMonths + remainingTenure)
+            .map((row, idx) => ({
+              ...row,
+              installmentNumber: elapsedMonths + idx + 1,
+            }))
+        } else {
+          pendingSchedule = buildRepaymentSchedule({
+            principal: loanOutstandingBalance!,
+            annualRate: interestRate,
+            tenureMonths: remainingTenure,
+            method: product.interest_calculation_method,
+            startDate: addMonthsDateOnly(nextPaymentDate, -1),
+            installmentOffset: elapsedMonths,
+          })
+        }
+        pendingSchedule = reconcilePendingScheduleToOutstanding(pendingSchedule, loanOutstandingBalance!)
+        const monthlyPayment = pendingSchedule[0]?.totalAmount ?? round2(loanOutstandingBalance! / Math.max(remainingTenure, 1))
+        const totalAmount = round2(loanOutstandingBalance!)
 
         const now = new Date()
         const yymm = `${String(now.getFullYear()).slice(2)}${String(now.getMonth() + 1).padStart(2, "0")}`
@@ -259,30 +314,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         const loanRow = loanRes.rows[0]
         if (!loanRow) return { error: "loan_creation_failed" as const }
 
-        // --- Generate repayment schedule for the remaining tenure ---
-        // Past installments (already paid in the previous system) are marked as Paid
-        const pendingSchedule = buildRepaymentSchedule({
-          principal: loanOutstandingBalance!,
-          annualRate: interestRate,
-          tenureMonths: remainingTenure,
-          method: product.interest_calculation_method,
-          startDate: addMonthsDateOnly(nextPaymentDate, -1),
-          installmentOffset: elapsedMonths,
-        })
-
-        // Insert paid installments for elapsed period (historical record), using method-based schedule.
-        if (elapsedMonths > 0) {
-          const historicalSchedule = buildRepaymentSchedule({
-            principal: principalAmount,
-            annualRate: interestRate,
-            tenureMonths: originalTenure,
-            method: product.interest_calculation_method,
-            startDate: disbursementDate,
-          })
-          const paidRows = historicalSchedule.slice(0, elapsedMonths)
-          for (let i = 0; i < paidRows.length; i++) {
-            const row = paidRows[i]
-            const paidPaymentDate = loanLastPaymentDate && i === paidRows.length - 1
+        // --- Generate repayment schedule for migration ---
+        // Past installments (already paid in previous system) are marked Paid.
+        if (paidSchedule.length > 0) {
+          for (let i = 0; i < paidSchedule.length; i++) {
+            const row = paidSchedule[i]
+            const paidPaymentDate = loanLastPaymentDate && i === paidSchedule.length - 1
               ? loanLastPaymentDate
               : row.dueDate
             await client.query(
@@ -306,12 +343,17 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
           )
         }
 
+        const totalPayable = round2(
+          (paidSchedule.reduce((sum, row) => sum + Number(row.totalAmount || 0), 0)) +
+          (pendingSchedule.reduce((sum, row) => sum + Number(row.totalAmount || 0), 0))
+        )
+        const amountAlreadyPaid = round2(Math.max(0, totalPayable - Number(loanOutstandingBalance || 0)))
         const loanTxNumber = `OB-LN-${Date.now()}`
         await client.query(
           `INSERT INTO senteloans_transactions
             (institution_id, client_id, account_id, loan_id, transaction_number, type, amount, mode, description, reference_number, balance_before, balance_after, processed_by, transaction_date, status)
-           VALUES ($1, $2, NULL, $3, $4, 'Opening Balance', $5, 'Cash', $6, '', 0, $7, $8, $9, 'Completed')`,
-          [actor.institution_id, clientId, loanRow.id, loanTxNumber, loanOutstandingBalance, "Opening loan balance from previous system", loanOutstandingBalance, actor.id, txDate]
+           VALUES ($1, $2, NULL, $3, $4, 'Loan Repayment', $5, 'Cash', $6, $4, $7, $8, $9, $10, 'Completed')`,
+          [actor.institution_id, clientId, loanRow.id, loanTxNumber, amountAlreadyPaid, "Migrated repayments from previous system", totalPayable, loanOutstandingBalance, actor.id, txDate]
         )
 
         results.loanCreated = true

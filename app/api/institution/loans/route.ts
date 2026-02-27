@@ -17,9 +17,17 @@ export async function GET(req: Request) {
     const page = Math.max(parseInt(url.searchParams.get("page") || "1", 10), 1)
     const pageSize = Math.min(Math.max(parseInt(url.searchParams.get("pageSize") || "10", 10), 1), 100)
     const status = (url.searchParams.get("status") || "").trim()
-    const productId = (url.searchParams.get("product_id") || "").trim()
+    const productIdRaw = (url.searchParams.get("product_id") || "").trim()
+    const selectedProductIds = productIdRaw
+      ? productIdRaw.split(",").map((v) => v.trim()).filter(Boolean)
+      : []
     const clientId = (url.searchParams.get("client_id") || "").trim()
     const q = (url.searchParams.get("q") || "").trim()
+    const remainingTenure = (url.searchParams.get("remainingTenure") || "").trim()
+    const applicationDateStart = (url.searchParams.get("applicationDateStart") || "").trim()
+    const applicationDateEnd = (url.searchParams.get("applicationDateEnd") || "").trim()
+    const nextPaymentDateStart = (url.searchParams.get("nextPaymentDateStart") || "").trim()
+    const nextPaymentDateEnd = (url.searchParams.get("nextPaymentDateEnd") || "").trim()
 
     const actor = await runWithoutAuth(async (client) => {
       const res = await client.query<{ institution_id: string; role: string }>(
@@ -58,9 +66,40 @@ export async function GET(req: Request) {
         where += ` AND l.status = $${idx++}`
         params.push(status)
       }
-      if (productId) {
+      if (selectedProductIds.length === 1) {
         where += ` AND l.loan_product_id = $${idx++}`
-        params.push(productId)
+        params.push(selectedProductIds[0])
+      } else if (selectedProductIds.length > 1) {
+        where += ` AND l.loan_product_id = ANY($${idx}::uuid[])`
+        params.push(selectedProductIds)
+        idx++
+      }
+      if (remainingTenure) {
+        if (remainingTenure === "eq1") where += ` AND l.tenure_months = 1`
+        else if (remainingTenure === "lte3") where += ` AND l.tenure_months <= 3`
+        else if (remainingTenure === "lte6") where += ` AND l.tenure_months <= 6`
+        else if (remainingTenure === "lte12") where += ` AND l.tenure_months <= 12`
+        else if (remainingTenure === "gt12") where += ` AND l.tenure_months > 12`
+      }
+      if (applicationDateStart) {
+        where += ` AND l.application_date >= (($${idx}::timestamp AT TIME ZONE 'Africa/Nairobi')::date)`
+        params.push(applicationDateStart)
+        idx++
+      }
+      if (applicationDateEnd) {
+        where += ` AND l.application_date <= (($${idx}::timestamp AT TIME ZONE 'Africa/Nairobi')::date)`
+        params.push(applicationDateEnd)
+        idx++
+      }
+      if (nextPaymentDateStart) {
+        where += ` AND l.next_payment_date IS NOT NULL AND l.next_payment_date >= (($${idx}::timestamp AT TIME ZONE 'Africa/Nairobi')::date)`
+        params.push(nextPaymentDateStart)
+        idx++
+      }
+      if (nextPaymentDateEnd) {
+        where += ` AND l.next_payment_date IS NOT NULL AND l.next_payment_date <= (($${idx}::timestamp AT TIME ZONE 'Africa/Nairobi')::date)`
+        params.push(nextPaymentDateEnd)
+        idx++
       }
       if (matchedClientIds.length > 0) {
         where += ` AND l.client_id = ANY($${idx}::uuid[])`

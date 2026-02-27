@@ -124,10 +124,6 @@ export default function StaffPage() {
     loadStaff(params)
   }, [])
 
-  const handleView = (row: StaffMember) => {
-    router.push(`/staff/${row.id}`)
-  }
-
   const handleEdit = (row: StaffMember) => {
     setEditStaffId(row.id)
     setIsEditOpen(true)
@@ -223,20 +219,12 @@ export default function StaffPage() {
     {
       key: "actions",
       header: "Actions",
-      render: (row) => {
-        return <ActionButtons actions={actions} row={row} />
-      },
+      render: (row) => <div className="flex justify-center"><ActionButtons actions={actions} row={row} /></div>,
     },
   ]
 
   // Table actions configuration
   const actions = [
-    {
-      label: "View",
-      onClick: handleView,
-      variant: "view",
-      icon: <Eye className="h-4 w-4" />,
-    },
     {
       label: "Edit",
       onClick: handleEdit,

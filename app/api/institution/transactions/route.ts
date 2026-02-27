@@ -60,7 +60,7 @@ export async function GET(req: Request) {
       params.push(pageSize, from)
       const dataRes = await client.query(
         `SELECT id, client_id, account_id, loan_id, transaction_number, type, amount, mode, description, reference_number, balance_after, transaction_date
-         FROM senteloans_transactions WHERE ${where} ORDER BY transaction_date DESC LIMIT $${idx} OFFSET $${idx + 1}`,
+         FROM senteloans_transactions WHERE ${where} ORDER BY created_at DESC LIMIT $${idx} OFFSET $${idx + 1}`,
         params
       )
       const data = dataRes.rows
@@ -94,7 +94,7 @@ export async function GET(req: Request) {
 
       const baseWhere = "institution_id = (SELECT institution_id FROM senteloans_users WHERE supabase_user_id = $1)"
       const recentRes = await client.query(
-        `SELECT id, transaction_number, type, amount, mode, balance_after, transaction_date, account_id, client_id, description FROM senteloans_transactions WHERE ${baseWhere} ORDER BY transaction_date DESC LIMIT 10`,
+        `SELECT id, transaction_number, type, amount, mode, balance_after, transaction_date, account_id, client_id, description FROM senteloans_transactions WHERE ${baseWhere} ORDER BY created_at DESC LIMIT 10`,
         [session!.user!.authUserId]
       )
       const recentTx = recentRes.rows
