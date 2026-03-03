@@ -7,9 +7,10 @@ SET search_path = public;
 ALTER TABLE senteloans_transactions
   DROP CONSTRAINT IF EXISTS chk_transactions_reference;
 
--- 2. Re-create with an exception for Fee Payment type
+-- 2. Re-create with exceptions for fee/share transactions
+-- Some seed data may include "Shares Purchase" rows without account_id/loan_id.
 ALTER TABLE senteloans_transactions
   ADD CONSTRAINT chk_transactions_reference CHECK (
-    type = 'Fee Payment' OR
+    type IN ('Fee Payment', 'Shares Purchase') OR
     (account_id IS NOT NULL OR loan_id IS NOT NULL)
   );

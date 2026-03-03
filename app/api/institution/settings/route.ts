@@ -41,6 +41,15 @@ export async function GET() {
         maximumShares: typeof settings.maximum_shares === "number" ? settings.maximum_shares : undefined,
         clientTerminology: (settings.clientTerminology as string) || "Member",
         membershipFee: typeof settings.membershipFee === "number" ? settings.membershipFee : 0,
+        loanProcessingFee: typeof settings.loanProcessingFee === "number" ? settings.loanProcessingFee : 0,
+        loanLatePenalty: typeof settings.loanLatePenalty === "number" ? settings.loanLatePenalty : 0,
+        loanLatePenaltyPeriodDays: typeof settings.loanLatePenaltyPeriodDays === "number" ? settings.loanLatePenaltyPeriodDays : 30,
+        membershipLatePenalty: typeof settings.membershipLatePenalty === "number" ? settings.membershipLatePenalty : 0,
+        membershipLatePenaltyPeriodDays: typeof settings.membershipLatePenaltyPeriodDays === "number" ? settings.membershipLatePenaltyPeriodDays : 30,
+        autoInvoices: typeof settings.autoInvoices === "boolean" ? settings.autoInvoices : false,
+        invoicePeriodDays: typeof settings.invoicePeriodDays === "number" ? settings.invoicePeriodDays : 30,
+        defaultedAfterDays: typeof settings.defaultedAfterDays === "number" ? settings.defaultedAfterDays : 90,
+        monthlyOverdueGraceDays: typeof settings.monthlyOverdueGraceDays === "number" ? settings.monthlyOverdueGraceDays : 0,
       },
     }
     return NextResponse.json(normalized)
@@ -65,6 +74,15 @@ export async function PUT(req: Request) {
         maximumShares?: number
         clientTerminology?: string
         membershipFee?: number
+        loanProcessingFee?: number
+        loanLatePenalty?: number
+        loanLatePenaltyPeriodDays?: number
+        membershipLatePenalty?: number
+        membershipLatePenaltyPeriodDays?: number
+        autoInvoices?: boolean
+        invoicePeriodDays?: number
+        defaultedAfterDays?: number
+        monthlyOverdueGraceDays?: number
       }
     }
     const payload = body?.config || {}
@@ -98,6 +116,15 @@ export async function PUT(req: Request) {
       if (typeof payload.minimumShares !== "undefined") settingsUpdate.minimum_shares = Number(payload.minimumShares)
       if (typeof payload.maximumShares !== "undefined") settingsUpdate.maximum_shares = Number(payload.maximumShares)
       if (typeof payload.membershipFee !== "undefined") settingsUpdate.membershipFee = Number(payload.membershipFee)
+      if (typeof payload.loanProcessingFee !== "undefined") settingsUpdate.loanProcessingFee = Number(payload.loanProcessingFee)
+      if (typeof payload.loanLatePenalty !== "undefined") settingsUpdate.loanLatePenalty = Number(payload.loanLatePenalty)
+      if (typeof payload.loanLatePenaltyPeriodDays !== "undefined") settingsUpdate.loanLatePenaltyPeriodDays = Number(payload.loanLatePenaltyPeriodDays)
+      if (typeof payload.membershipLatePenalty !== "undefined") settingsUpdate.membershipLatePenalty = Number(payload.membershipLatePenalty)
+      if (typeof payload.membershipLatePenaltyPeriodDays !== "undefined") settingsUpdate.membershipLatePenaltyPeriodDays = Number(payload.membershipLatePenaltyPeriodDays)
+      if (typeof payload.autoInvoices !== "undefined") settingsUpdate.autoInvoices = Boolean(payload.autoInvoices)
+      if (typeof payload.invoicePeriodDays !== "undefined") settingsUpdate.invoicePeriodDays = Number(payload.invoicePeriodDays)
+      if (typeof payload.defaultedAfterDays !== "undefined") settingsUpdate.defaultedAfterDays = Number(payload.defaultedAfterDays)
+      if (typeof payload.monthlyOverdueGraceDays !== "undefined") settingsUpdate.monthlyOverdueGraceDays = Number(payload.monthlyOverdueGraceDays)
 
       if (isSaccoOrMfi && modules.shares) {
         const sv = Number(settingsUpdate.share_value)
@@ -139,6 +166,15 @@ export async function PUT(req: Request) {
         maximumShares: typeof s2.maximum_shares === "number" ? s2.maximum_shares : undefined,
         clientTerminology: (s2.clientTerminology as string) || "Member",
         membershipFee: typeof s2.membershipFee === "number" ? s2.membershipFee : 0,
+        loanProcessingFee: typeof s2.loanProcessingFee === "number" ? s2.loanProcessingFee : 0,
+        loanLatePenalty: typeof s2.loanLatePenalty === "number" ? s2.loanLatePenalty : 0,
+        loanLatePenaltyPeriodDays: typeof s2.loanLatePenaltyPeriodDays === "number" ? s2.loanLatePenaltyPeriodDays : 30,
+        membershipLatePenalty: typeof s2.membershipLatePenalty === "number" ? s2.membershipLatePenalty : 0,
+        membershipLatePenaltyPeriodDays: typeof s2.membershipLatePenaltyPeriodDays === "number" ? s2.membershipLatePenaltyPeriodDays : 30,
+        autoInvoices: typeof s2.autoInvoices === "boolean" ? s2.autoInvoices : false,
+        invoicePeriodDays: typeof s2.invoicePeriodDays === "number" ? s2.invoicePeriodDays : 30,
+        defaultedAfterDays: typeof s2.defaultedAfterDays === "number" ? s2.defaultedAfterDays : 90,
+        monthlyOverdueGraceDays: typeof s2.monthlyOverdueGraceDays === "number" ? s2.monthlyOverdueGraceDays : 0,
       },
     })
   } catch (e: unknown) {
