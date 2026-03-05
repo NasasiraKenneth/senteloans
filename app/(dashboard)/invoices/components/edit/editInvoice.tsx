@@ -35,7 +35,7 @@ export default function EditInvoice({ isOpen, invoiceId, onClose, onSuccess }: E
             const body = await res.json()
             if (!res.ok) throw new Error(body.error || "Failed to load invoice")
 
-            const i = body.staff
+            const i = body.invoice
 
             const isVatInclusive = (i.vat ?? 0) > 0
 
@@ -86,7 +86,24 @@ export default function EditInvoice({ isOpen, invoiceId, onClose, onSuccess }: E
       const res = await fetch(`/api/institution/invoices/${invoiceId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
+        body: JSON.stringify({
+          client_id: data.clientId,
+          invoice_date: data.invoiceDate,
+          invoice_due: data.dueDate,
+          invoice_type: data.invoiceType,
+          status: data.status,
+          vat: data.vat,
+          total_amount: data.totalAmount,
+          inwords: data.amountInWords,
+          items: data.items.map(item => ({
+            unit: item.unit,
+            description: item.description,
+            quantity: item.quantity,
+            unit_price: item.unitPrice,
+            total_price: item.totalPrice,
+            vatinclusive: item.onVat
+          }))
+        }),
       })
       const body = await res.json()
       if (!res.ok) {
@@ -120,7 +137,7 @@ export default function EditInvoice({ isOpen, invoiceId, onClose, onSuccess }: E
     <SlideModal
       isOpen={isOpen}
       onClose={handleClose}
-      title="Edit Invoice {i.invoice_number}"
+      title={`Edit Invoice ${initialValues?.invoiceNo ?? ""}`}
       className="z-10"
     >
       {fetching ? (

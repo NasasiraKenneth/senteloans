@@ -4,17 +4,21 @@ import { useEffect, useState, useCallback, type ChangeEvent } from "react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Receipt, Calendar, DollarSign, Clock3, CheckCircle2, AlertTriangle, Plus, User, Pencil, Eye, Edit } from "lucide-react"
+import { Receipt, Calendar, DollarSign, Clock3, CheckCircle2, AlertTriangle, Plus, User, Pencil, Eye, Edit, Clock, FileText, Download, Truck, X } from "lucide-react"
 import DataTable, { DataTableColumn } from "@/components/datatables/DataTable"
 import { FilterField } from "@/components/datatables/TableFilter"
 import { ActionButtons } from "@/components/datatables/ActionButtons"
 import AddNewInvoice from "./components/add/addNewInvoice"
 import EditInvoice from "./components/edit/editInvoice"
+import { getInitials } from "@/lib/invoices/utils"
+import { FaRobot, FaUserCheck } from "react-icons/fa"
+import { ActionSelect, SelectOption } from "@/components/datatables/actions"
 
 type InvoiceRow = {
   id: string
   invoice_number: string
   client_name: string
+  staff_name: string
   client_number: string | null
   invoice_date: string
   invoice_due: string | null
@@ -57,6 +61,23 @@ function getStatusMeta(status: string) {
     default:
       return { icon: <Clock3 className="h-4 w-4 text-amber-600" />, cls: "bg-amber-100 text-amber-700 border border-amber-200" }
   }
+}
+
+// Define your status helper in invoice page
+const getAvailableStatuses = (currentStatus: string): SelectOption[] => {
+  const allStatuses: SelectOption[] = [
+    { value: "draft", label: "Mark as Draft", color: "text-gray-600", icon: <Clock3 className="mr-2 h-4 w-4" /> },
+    { value: "sent", label: "Mark as Sent", color: "text-blue-600", icon: <Truck className="mr-2 h-4 w-4" /> },
+    { value: "paid", label: "Mark as Paid", color: "text-green-600", icon: <CheckCircle2 className="mr-2 h-4 w-4" /> },
+    { value: "overdue", label: "Mark as Overdue", color: "text-red-600", icon: <AlertTriangle className="mr-2 h-4 w-4" /> },
+    { value: "cancelled", label: "Mark as Cancelled", color: "text-red-600", icon: <X className="mr-2 h-4 w-4" /> },
+  ]
+  return allStatuses
+    .filter((s) => s.value !== currentStatus)
+    .map((s) => ({
+      ...s,
+      onClick: () => console.log(s.value),
+    }))
 }
 
 export default function InvoicesPage() {
@@ -138,17 +159,27 @@ export default function InvoicesPage() {
     {
       key: "invoice_number",
       header: "Invoice Number",
-      render: (row) => <div className="font-medium">{row.invoice_number}</div>,
+      render: (row) => (
+        <div className="flex items-center space-x-3">
+          <div className="flex-shrink-0">
+            <div className="w-8 h-8 bg-[#f7e6d3] rounded-full flex items-center justify-center">
+              <FileText className="w-4 h-4 text-[#f08c2b]" />
+            </div>
+          </div>
+          <div className="font-medium">{row.invoice_number}</div>
+        </div>
+      ),
     },
     {
       key: "client_name",
-      header: "Client",
+      header: "Client Name",
       render: (row) => (
-        <div className="flex items-center gap-2">
-          <User className="h-3.5 w-3.5 text-gray-400" />
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 bg-linear-to-br from-primary/80 to-primary rounded-full flex items-center justify-center">
+            <span className="text-white text-xs font-semibold">{getInitials(row.client_name)}</span>
+          </div>
           <div>
-            <div className="font-medium text-sm">{row.client_name || "—"}</div>
-            <div className="text-xs text-muted-foreground">{row.client_number || "No client number"}</div>
+            <div className="font-medium text-gray-900">{row.client_name}</div>
           </div>
         </div>
       ),
@@ -156,11 +187,21 @@ export default function InvoicesPage() {
     {
       key: "invoice_type",
       header: "Type",
-      render: (row) => (
-        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-700 border border-gray-200">
-          {row.invoice_type}
-        </span>
-      ),
+      render: (row) => {
+        const isAuto = row.invoice_type === "Auto";
+        const displayText = isAuto ? "system.auto" : "Manual";
+        const bgColor = isAuto ? "bg-purple-100 text-purple-800" : "bg-blue-100 text-blue-800";
+        const Icon = isAuto ? FaRobot : FaUserCheck;
+
+        return (
+          <div className="flex items-center gap-2">
+            <Icon className={`w-4 h-4 ${isAuto ? "text-purple-500" : "text-blue-500"}`} />
+            <span className={`inline-flex px-2.5 py-0.5 text-xs font-medium rounded-full ${bgColor} border border-gray-200`}>
+              {displayText}
+            </span>
+          </div>
+        );
+      },
     },
     {
       key: "invoice_date",
@@ -176,7 +217,26 @@ export default function InvoicesPage() {
       key: "invoice_due",
       header: "Due Date",
       render: (row) => (
-        <div className="text-sm">{formatDate(row.invoice_due)}</div>
+        <div className="flex items-center gap-2">
+          <Clock className="h-3.5 w-3.5 text-gray-400" />
+          <div className="text-sm">{formatDate(row.invoice_due)}</div>
+        </div>
+      ),
+    },
+    {
+      key: "staff_name",
+      header: "Created By",
+      render: (row) => (
+        row.staff_name ? (
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 bg-linear-to-br from-black/80 to-black/50 rounded-full flex items-center justify-center">
+              <span className="text-[#f08c2b] text-xs font-semibold">{getInitials(row.staff_name)}</span>
+            </div>
+            <div className="text-sm text-gray-700">{row.staff_name}</div>
+          </div>
+        ) : (
+          <span className="flex text-sm text-gray-700 justify-center ">-</span>
+        )
       ),
     },
     {
@@ -191,7 +251,6 @@ export default function InvoicesPage() {
         const meta = getStatusMeta(row.status)
         return (
           <div className="flex items-center gap-2">
-            {meta.icon}
             <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${meta.cls}`}>
               {row.status}
             </span>
@@ -202,24 +261,19 @@ export default function InvoicesPage() {
     {
       key: "actions",
       header: "Actions",
-      render: (row) => <ActionButtons actions={actions} row={row} />,
+      render: (row) => {
+        const actions: SelectOption[] = [
+          { value: "view", label: "View Details", icon: <Eye className="h-4 w-4" />, onClick: () => console.log(row) },
+          { value: "edit", label: "Edit", icon: <Edit className="h-4 w-4" />, onClick: () => console.log(row) },
+          { value: "download", label: "Download PDF", icon: <Download className="h-4 w-4" />, onClick: () => console.log(row) },
+        ]
+
+        const statusOptions = getAvailableStatuses(row.status || "draft")
+
+        return <div className="flex justify-center"> <ActionSelect row={row} actions={actions} statusOptions={statusOptions} /> </div>
+      },
     },
   ]
-
-  const actions = [
-      {
-        label: "View",
-        onClick: handleView,
-        variant: "view",
-        icon: <Eye className="h-4 w-4" />,
-      },
-      {
-        label: "Edit",
-        onClick: handleEdit,
-        variant: "primary",
-        icon: <Edit className="h-4 w-4" />,
-      },
-    ]
 
   const filterFields: FilterField[] = [
     { field: "search", label: "Search by invoice number or client", type: "text" },

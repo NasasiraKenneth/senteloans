@@ -37,6 +37,7 @@ export interface InvoiceFormData {
   clientName: string;
   invoiceNo: string | null;
   invoiceDate: string;
+  invoiceType: string;
   dueDate: string;
   status: string;
   vatInclusive: boolean;
@@ -78,6 +79,7 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({
     invoiceNo: null,
     invoiceDate: "",
     dueDate: "",
+    invoiceType: "Manual",
     status: "",
     vatInclusive: true,
     items: [],
@@ -88,7 +90,6 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({
   });
 
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Load customers, company config, and (optionally) proforma data for editing
   useEffect(() => {
@@ -282,7 +283,7 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({
     }
 
     if (!formData.invoiceDate) {
-      nextErrors.proformaDate = "Proforma date is required";
+      nextErrors.invoiceDate = "Invoice date is required";
     }
     if (!formData.dueDate) {
       nextErrors.dueDate = "Due date is required";
@@ -338,10 +339,10 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({
                 onChange={handleInvoiceDateChange}
                 placeholder="Select invoice date"
               />
-              {errors.proformaDate && (
+              {errors.invoiceDate && (
                 <p className="text-xs text-red-600 flex items-center gap-1">
                   <FaExclamationTriangle className="w-3 h-3" />
-                  {errors.proformaDate}
+                  {errors.invoiceDate}
                 </p>
               )}
             </div>
@@ -604,10 +605,10 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({
           </button>
           <button
             type="submit"
-            disabled={isSubmitting}
+            disabled={loading}
             className="flex items-center gap-2 px-5 py-2.5 bg-black hover:bg-[#f08c2b] text-white rounded-lg text-sm disabled:opacity-60 disabled:cursor-not-allowed"
           >
-            {isSubmitting ? (
+            {loading ? (
               <>
                 <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
                 Saving...

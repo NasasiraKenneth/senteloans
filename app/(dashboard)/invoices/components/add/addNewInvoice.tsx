@@ -21,9 +21,27 @@ export default function AddNewInvoice({ isOpen, onClose, onSuccess }: AddNewInvo
       const res = await fetch("/api/institution/invoices", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
+        body: JSON.stringify({
+          client_id: data.clientId,
+          invoice_date: data.invoiceDate,
+          invoice_due: data.dueDate,
+          invoice_type: data.invoiceType,
+          status: data.status,
+          vat: data.vat,
+          total_amount: data.totalAmount,
+          inwords: data.amountInWords,
+          items: data.items.map(item => ({
+            unit: item.unit,
+            description: item.description,
+            quantity: item.quantity,
+            unit_price: item.unitPrice,
+            total_price: item.totalPrice,
+            vatinclusive: item.onVat
+          }))
+        }),
       })
       const body = await res.json()
+      console.log("Manual Invoice from frontend:", body)
       if (!res.ok) {
         throw new Error(body.error || "Failed to create invoice")
       }
