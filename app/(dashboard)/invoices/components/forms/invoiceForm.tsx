@@ -62,6 +62,23 @@ const addDays = (dateString: string, days: number) => {
   return date.toISOString().split("T")[0];
 };
 
+const normalizeToYmd = (value: unknown): string => {
+  if (!value) return "";
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return value.toISOString().split("T")[0];
+  }
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return "";
+    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+    const parsed = new Date(trimmed);
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed.toISOString().split("T")[0];
+    }
+  }
+  return "";
+};
+
 const InvoiceForm: React.FC<InvoiceFormProps> = ({
   onClose,
   initialValues = {},
@@ -129,7 +146,8 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({
           setFormData((prev) => ({
             ...prev,
             ...initialValues,
-            dueDate: initialValues.dueDate ?? prev.dueDate,
+            invoiceDate: normalizeToYmd(initialValues.invoiceDate) || prev.invoiceDate,
+            dueDate: normalizeToYmd(initialValues.dueDate) || prev.dueDate,
           }));
         }
       } finally {

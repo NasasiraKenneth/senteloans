@@ -1,159 +1,291 @@
-"use client"
+"use client";
 
-import { useEffect, useState, useCallback, type ChangeEvent } from "react"
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
-import { Receipt, Calendar, DollarSign, Clock3, CheckCircle2, AlertTriangle, Plus, User, Pencil, Eye, Edit, Clock, FileText, Download, Truck, X } from "lucide-react"
-import DataTable, { DataTableColumn } from "@/components/datatables/DataTable"
-import { FilterField } from "@/components/datatables/TableFilter"
-import { ActionButtons } from "@/components/datatables/ActionButtons"
-import AddNewInvoice from "./components/add/addNewInvoice"
-import EditInvoice from "./components/edit/editInvoice"
-import { getInitials } from "@/lib/invoices/utils"
-import { FaRobot, FaUserCheck } from "react-icons/fa"
-import { ActionSelect, SelectOption } from "@/components/datatables/actions"
+import { useEffect, useState, useCallback, type ChangeEvent } from "react";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+} from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import {
+  Receipt,
+  Calendar,
+  DollarSign,
+  Clock3,
+  CheckCircle2,
+  AlertTriangle,
+  Plus,
+  Eye,
+  Edit,
+  Clock,
+  FileText,
+  Download,
+  Truck,
+  X,
+} from "lucide-react";
+import DataTable, { DataTableColumn } from "@/components/datatables/DataTable";
+import { FilterField } from "@/components/datatables/TableFilter";
+import AddNewInvoice from "./components/add/addNewInvoice";
+import EditInvoice from "./components/edit/editInvoice";
+import { getInitials } from "@/lib/invoices/utils";
+import { FaRobot, FaUserCheck } from "react-icons/fa";
+import { ActionSelect, SelectOption } from "@/components/datatables/actions";
+import { Filter } from "@/types";
+import { useToast } from "@/components/ui/toast"
 
 type InvoiceRow = {
-  id: string
-  invoice_number: string
-  client_name: string
-  staff_name: string
-  client_number: string | null
-  invoice_date: string
-  invoice_due: string | null
-  subtotal: number
-  vat: number
-  total_amount: number
-  invoice_type: string
-  status: string
+  id: string;
+  invoice_number: string;
+  client_name: string;
+  staff_name: string;
+  client_number: string | null;
+  invoice_date: string;
+  invoice_due: string | null;
+  subtotal: number;
+  vat: number;
+  total_amount: number;
+  invoice_type: string;
+  status: string;
   items?: Array<{
-    id: string
-    description: string
-    quantity: number
-    total_price: number
-  }>
-}
+    id: string;
+    description: string;
+    quantity: number;
+    total_price: number;
+  }>;
+};
 
 function formatCurrency(amount: number): string {
   return new Intl.NumberFormat("en-UG", {
     style: "currency",
     currency: "UGX",
     minimumFractionDigits: 0,
-  }).format(amount || 0)
+  }).format(amount || 0);
 }
 
 function formatDate(value: string | null): string {
-  if (!value) return "—"
-  const d = new Date(value)
-  if (Number.isNaN(d.getTime())) return "—"
-  return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })
+  if (!value) return "—";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+function normalizeStatus(status: string | null | undefined): string {
+  return String(status || "").trim().toLowerCase();
+}
+
+function formatStatusLabel(status: string | null | undefined): string {
+  const normalized = normalizeStatus(status);
+  if (!normalized) return "Draft";
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
 }
 
 function getStatusMeta(status: string) {
-  switch (status) {
-    case "Paid":
-      return { icon: <CheckCircle2 className="h-4 w-4 text-emerald-600" />, cls: "bg-emerald-100 text-emerald-700 border border-emerald-200" }
-    case "Overdue":
-      return { icon: <AlertTriangle className="h-4 w-4 text-rose-600" />, cls: "bg-rose-100 text-rose-700 border border-rose-200" }
-    case "Sent":
-      return { icon: <Receipt className="h-4 w-4 text-blue-600" />, cls: "bg-blue-100 text-blue-700 border border-blue-200" }
+  switch (normalizeStatus(status)) {
+    case "paid":
+      return {
+        icon: <CheckCircle2 className="h-4 w-4 text-emerald-600" />,
+        cls: "bg-emerald-100 text-emerald-700 border border-emerald-200",
+      };
+    case "overdue":
+      return {
+        icon: <AlertTriangle className="h-4 w-4 text-rose-600" />,
+        cls: "bg-rose-100 text-rose-700 border border-rose-200",
+      };
+    case "sent":
+      return {
+        icon: <Receipt className="h-4 w-4 text-blue-600" />,
+        cls: "bg-blue-100 text-blue-700 border border-blue-200",
+      };
     default:
-      return { icon: <Clock3 className="h-4 w-4 text-amber-600" />, cls: "bg-amber-100 text-amber-700 border border-amber-200" }
+      return {
+        icon: <Clock3 className="h-4 w-4 text-amber-600" />,
+        cls: "bg-amber-100 text-amber-700 border border-amber-200",
+      };
   }
 }
 
 // Define your status helper in invoice page
-const getAvailableStatuses = (currentStatus: string): SelectOption[] => {
+const getAvailableStatuses = (
+  currentStatus: string,
+  onStatusChange: (newStatus: string) => void,
+): SelectOption[] => {
   const allStatuses: SelectOption[] = [
-    { value: "draft", label: "Mark as Draft", color: "text-gray-600", icon: <Clock3 className="mr-2 h-4 w-4" /> },
-    { value: "sent", label: "Mark as Sent", color: "text-blue-600", icon: <Truck className="mr-2 h-4 w-4" /> },
-    { value: "paid", label: "Mark as Paid", color: "text-green-600", icon: <CheckCircle2 className="mr-2 h-4 w-4" /> },
-    { value: "overdue", label: "Mark as Overdue", color: "text-red-600", icon: <AlertTriangle className="mr-2 h-4 w-4" /> },
-    { value: "cancelled", label: "Mark as Cancelled", color: "text-red-600", icon: <X className="mr-2 h-4 w-4" /> },
-  ]
+    {
+      value: "draft",
+      label: "Mark as Draft",
+      color: "text-gray-600",
+      icon: <Clock3 className="mr-2 h-4 w-4" />,
+    },
+    {
+      value: "sent",
+      label: "Mark as Sent",
+      color: "text-blue-600",
+      icon: <Truck className="mr-2 h-4 w-4" />,
+    },
+    {
+      value: "paid",
+      label: "Mark as Paid",
+      color: "text-green-600",
+      icon: <CheckCircle2 className="mr-2 h-4 w-4" />,
+    },
+    {
+      value: "overdue",
+      label: "Mark as Overdue",
+      color: "text-red-600",
+      icon: <AlertTriangle className="mr-2 h-4 w-4" />,
+    },
+    {
+      value: "cancelled",
+      label: "Mark as Cancelled",
+      color: "text-red-600",
+      icon: <X className="mr-2 h-4 w-4" />,
+    },
+  ];
   return allStatuses
-    .filter((s) => s.value !== currentStatus)
+    .filter((s) => s.value !== normalizeStatus(currentStatus))
     .map((s) => ({
       ...s,
-      onClick: () => console.log(s.value),
-    }))
-}
+      onClick: () => onStatusChange(String(s.value)),
+    }));
+};
 
 export default function InvoicesPage() {
-  const [invoices, setInvoices] = useState<InvoiceRow[]>([])
-  const [total, setTotal] = useState<number>(0)
-  const [loading, setLoading] = useState<boolean>(true)
-  const [error, setError] = useState<string>("")
-  const [page, setPage] = useState(0)
-  const [rowsPerPage, setRowsPerPage] = useState(10)
+  const [invoices, setInvoices] = useState<InvoiceRow[]>([]);
+  const [total, setTotal] = useState<number>(0);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string>("");
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(10);
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [editInvoiceId, setEditInvoiceId] = useState<string | null>(null);
+  const { toast } = useToast()
 
-  const onPageChange = (_: unknown, newPage: number) => setPage(newPage)
+  const onPageChange = (_: unknown, newPage: number) => setPage(newPage);
   const onRowsPerPageChange = (e: ChangeEvent<HTMLInputElement>) => {
-    setPage(0)
-    setRowsPerPage(parseInt(e.target.value, 10))
-  }
+    setPage(0);
+    setRowsPerPage(parseInt(e.target.value, 10));
+  };
 
   async function loadInvoices(queryParams?: object) {
-    setLoading(true)
-    setError("")
+    setLoading(true);
+    setError("");
     try {
-      const params = new URLSearchParams()
+      const params = new URLSearchParams();
       if (queryParams) {
         Object.entries(queryParams).forEach(([key, value]) => {
-          if (value && typeof value === "object" && "start" in (value as Record<string, unknown>) && "end" in (value as Record<string, unknown>)) {
-            const range = value as { start?: string; end?: string }
+          if (
+            value &&
+            typeof value === "object" &&
+            "start" in (value as Record<string, unknown>) &&
+            "end" in (value as Record<string, unknown>)
+          ) {
+            const range = value as { start?: string; end?: string };
             if (key === "invoiceDate") {
-              if (range.start) params.set("date_from", range.start)
-              if (range.end) params.set("date_to", range.end)
+              if (range.start) params.set("date_from", range.start);
+              if (range.end) params.set("date_to", range.end);
+            } else if (key === "invoice_due") {
+              if (range.start) params.set("due_from", range.start);
+              if (range.end) params.set("due_to", range.end);
             }
-            return
+            return;
           }
           if (value !== undefined && value !== null && value !== "") {
-            params.set(key, String(value))
+            params.set(key, String(value));
           }
-        })
+        });
       }
-      params.set("page", "1")
-      params.set("pageSize", "200")
+      params.set("page", "1");
+      params.set("pageSize", "200");
 
-      const res = await fetch(`/api/institution/invoices?${params.toString()}`, { cache: "no-store" })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || "Failed to load invoices")
-      setInvoices(Array.isArray(data.items) ? data.items : [])
-      setTotal(Number(data.total || 0))
+      const res = await fetch(
+        `/api/institution/invoices?${params.toString()}`,
+        { cache: "no-store" },
+      );
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to load invoices");
+      setInvoices(Array.isArray(data.items) ? data.items : []);
+      setTotal(Number(data.total || 0));
     } catch (e: any) {
-      setError(e?.message || "Failed to load invoices")
+      setError(e?.message || "Failed to load invoices");
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
   }
 
   useEffect(() => {
-    loadInvoices()
-  }, [])
+    loadInvoices();
+  }, []);
 
   const handleQueryParamsChange = useCallback((params: object) => {
-    loadInvoices(params)
-  }, [])
+    loadInvoices(params);
+  }, []);
 
-  const totalAmount = invoices.reduce((sum, row) => sum + Number(row.total_amount || 0), 0)
-  const paidCount = invoices.filter((i) => i.status === "Paid").length
-  const overdueCount = invoices.filter((i) => i.status === "Overdue").length
-  const draftCount = invoices.filter((i) => i.status === "Draft").length
+  const totalAmount = invoices.reduce(
+    (sum, row) => sum + Number(row.total_amount || 0),
+    0,
+  );
+  const paidCount = invoices.filter((i) => normalizeStatus(i.status) === "paid").length;
+  const overdueCount = invoices.filter((i) => normalizeStatus(i.status) === "overdue").length;
+  const draftCount = invoices.filter((i) => normalizeStatus(i.status) === "draft").length;
 
   const handleView = (row: InvoiceRow) => {
-    setEditInvoiceId(row.id)
-    setIsEditOpen(true)
-  }
+    setEditInvoiceId(row.id);
+    setIsEditOpen(true);
+  };
 
   const handleEdit = (row: InvoiceRow) => {
-    setEditInvoiceId(row.id)
-    setIsEditOpen(true)
-  }
+    setEditInvoiceId(row.id);
+    setIsEditOpen(true);
+  };
+
+  // Handle invoice status change (efficient - only sends id and status)
+  const handleChangeInvoiceStatus = async (
+    invoice: InvoiceRow,
+    newStatus: string,
+  ) => {
+    try {
+      const normalized = normalizeStatus(newStatus);
+      const res = await fetch(`/api/institution/invoices/${invoice.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: normalized }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(body?.error || "Failed to update invoice status");
+      }
+
+      setInvoices((prev) =>
+        prev.map((inv) =>
+          inv.id === invoice.id ? { ...inv, status: normalized } : inv,
+        ),
+      );
+
+      toast({
+        title: "Invoice status updated",
+        description: `Invoice status updated to ${formatStatusLabel(normalized)} successfully.`,
+        variant: "success",
+      });
+    } catch (error: unknown) {
+      const errorMessage =
+        error instanceof Error
+          ? error.message
+          : "Failed to update invoice status";
+      toast({
+        title: "Failed to update invoice status",
+        description: errorMessage || "Could not update invoice status.",
+        variant: "destructive",
+      });
+    }
+  };
 
   const columns: DataTableColumn<InvoiceRow>[] = [
     {
@@ -176,7 +308,9 @@ export default function InvoicesPage() {
       render: (row) => (
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 bg-linear-to-br from-primary/80 to-primary rounded-full flex items-center justify-center">
-            <span className="text-white text-xs font-semibold">{getInitials(row.client_name)}</span>
+            <span className="text-white text-xs font-semibold">
+              {getInitials(row.client_name)}
+            </span>
           </div>
           <div>
             <div className="font-medium text-gray-900">{row.client_name}</div>
@@ -190,13 +324,19 @@ export default function InvoicesPage() {
       render: (row) => {
         const isAuto = row.invoice_type === "Auto";
         const displayText = isAuto ? "system.auto" : "Manual";
-        const bgColor = isAuto ? "bg-purple-100 text-purple-800" : "bg-blue-100 text-blue-800";
+        const bgColor = isAuto
+          ? "bg-purple-100 text-purple-800"
+          : "bg-blue-100 text-blue-800";
         const Icon = isAuto ? FaRobot : FaUserCheck;
 
         return (
           <div className="flex items-center gap-2">
-            <Icon className={`w-4 h-4 ${isAuto ? "text-purple-500" : "text-blue-500"}`} />
-            <span className={`inline-flex px-2.5 py-0.5 text-xs font-medium rounded-full ${bgColor} border border-gray-200`}>
+            <Icon
+              className={`w-4 h-4 ${isAuto ? "text-purple-500" : "text-blue-500"}`}
+            />
+            <span
+              className={`inline-flex px-2.5 py-0.5 text-xs font-medium rounded-full ${bgColor} border border-gray-200`}
+            >
               {displayText}
             </span>
           </div>
@@ -226,36 +366,43 @@ export default function InvoicesPage() {
     {
       key: "staff_name",
       header: "Created By",
-      render: (row) => (
+      render: (row) =>
         row.staff_name ? (
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 bg-linear-to-br from-black/80 to-black/50 rounded-full flex items-center justify-center">
-              <span className="text-[#f08c2b] text-xs font-semibold">{getInitials(row.staff_name)}</span>
+              <span className="text-[#f08c2b] text-xs font-semibold">
+                {getInitials(row.staff_name)}
+              </span>
             </div>
             <div className="text-sm text-gray-700">{row.staff_name}</div>
           </div>
         ) : (
           <span className="flex text-sm text-gray-700 justify-center ">-</span>
-        )
-      ),
+        ),
     },
     {
       key: "total_amount",
       header: "Total Amount",
-      render: (row) => <div className="font-medium">{formatCurrency(Number(row.total_amount || 0))}</div>,
+      render: (row) => (
+        <div className="font-medium">
+          {formatCurrency(Number(row.total_amount || 0))}
+        </div>
+      ),
     },
     {
       key: "status",
       header: "Status",
       render: (row) => {
-        const meta = getStatusMeta(row.status)
+        const meta = getStatusMeta(row.status);
         return (
           <div className="flex items-center gap-2">
-            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${meta.cls}`}>
-              {row.status}
+            <span
+              className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${meta.cls}`}
+            >
+              {formatStatusLabel(row.status)}
             </span>
           </div>
-        )
+        );
       },
     },
     {
@@ -263,32 +410,50 @@ export default function InvoicesPage() {
       header: "Actions",
       render: (row) => {
         const actions: SelectOption[] = [
-          { value: "view", label: "View Details", icon: <Eye className="h-4 w-4" />, onClick: () => console.log(row) },
-          { value: "edit", label: "Edit", icon: <Edit className="h-4 w-4" />, onClick: () => console.log(row) },
-          { value: "download", label: "Download PDF", icon: <Download className="h-4 w-4" />, onClick: () => console.log(row) },
-        ]
+          {
+            value: "view",
+            label: "View Details",
+            icon: <Eye className="h-4 w-4" />,
+            onClick: () => console.log(row),
+          },
+          {
+            value: "edit",
+            label: "Edit",
+            icon: <Edit className="h-4 w-4" />,
+            onClick: () => handleEdit(row),
+          },
+          {
+            value: "download",
+            label: "Download PDF",
+            icon: <Download className="h-4 w-4" />,
+            onClick: () => console.log(row),
+          },
+        ];
 
-        const statusOptions = getAvailableStatuses(row.status || "draft")
+        const statusOptions = getAvailableStatuses(
+          row.status || "draft",
+          (nextStatus) => void handleChangeInvoiceStatus(row, nextStatus),
+        );
 
-        return <div className="flex justify-center"> <ActionSelect row={row} actions={actions} statusOptions={statusOptions} /> </div>
+        return (
+          <div className="flex justify-center">
+            {" "}
+            <ActionSelect
+              row={row}
+              actions={actions}
+              statusOptions={statusOptions}
+            />{" "}
+          </div>
+        );
       },
     },
-  ]
+  ];
 
   const filterFields: FilterField[] = [
-    { field: "search", label: "Search by invoice number or client", type: "text" },
     {
-      field: "status",
-      label: "Status",
-      type: "select",
-      multiple: false,
-      options: [
-        { value: "Draft", label: "Draft" },
-        { value: "Sent", label: "Sent" },
-        { value: "Paid", label: "Paid" },
-        { value: "Overdue", label: "Overdue" },
-        { value: "Cancelled", label: "Cancelled" },
-      ],
+      field: "search",
+      label: "Search by invoice number or client",
+      type: "text",
     },
     {
       field: "invoice_type",
@@ -301,18 +466,34 @@ export default function InvoicesPage() {
       ],
     },
     { field: "invoiceDate", label: "Invoice Date Range", type: "date-range" },
-  ]
+    { field: "invoice_due", label: "Invoice Due Date", type: "date-range" },
+  ];
 
-  const pagedRows = invoices.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage)
+  // Tabular filter options
+  const filters: Filter[] = [
+    { label: "All Invoices", value: "" },
+    { value: "draft", label: "Draft" },
+    { value: "sent", label: "Sent" },
+    { value: "paid", label: "Paid" },
+    { value: "overdue", label: "Overdue" },
+    { value: "cancelled", label: "Cancelled" },
+  ];
+
+  const pagedRows = invoices.slice(
+    page * rowsPerPage,
+    page * rowsPerPage + rowsPerPage,
+  );
 
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Invoices</h1>
-          <p className="text-sm text-muted-foreground">Manage invoice records and monitor billing status.</p>
+          <p className="text-sm text-muted-foreground">
+            Manage invoice records and monitor billing status.
+          </p>
         </div>
-        <Button 
+        <Button
           className="bg-[#111111] text-white hover:bg-[#111111] disabled:opacity-70"
           onClick={() => setIsAddOpen(true)}
         >
@@ -334,13 +515,17 @@ export default function InvoicesPage() {
             <CardTitle className="text-2xl">{total}</CardTitle>
           </CardHeader>
           <CardContent>
-            <Badge className="bg-[#111111]/5 text-[#111111] border border-[#111111]/10 hover:bg-[#111111]/5">All statuses</Badge>
+            <Badge className="bg-[#111111]/5 text-[#111111] border border-[#111111]/10 hover:bg-[#111111]/5">
+              All statuses
+            </Badge>
           </CardContent>
         </Card>
         <Card className="border-[#1f1f1f]/10">
           <CardHeader className="pb-2">
             <CardDescription>Total Amount</CardDescription>
-            <CardTitle className="text-2xl">{formatCurrency(totalAmount)}</CardTitle>
+            <CardTitle className="text-2xl">
+              {formatCurrency(totalAmount)}
+            </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -355,18 +540,26 @@ export default function InvoicesPage() {
             <CardTitle className="text-2xl">{paidCount}</CardTitle>
           </CardHeader>
           <CardContent>
-            <Badge className="bg-emerald-100 text-emerald-700 border border-emerald-200 hover:bg-emerald-100">Paid</Badge>
+            <Badge className="bg-emerald-100 text-emerald-700 border border-emerald-200 hover:bg-emerald-100">
+              Paid
+            </Badge>
           </CardContent>
         </Card>
         <Card className="border-[#1f1f1f]/10">
           <CardHeader className="pb-2">
             <CardDescription>Action Needed</CardDescription>
-            <CardTitle className="text-2xl">{overdueCount + draftCount}</CardTitle>
+            <CardTitle className="text-2xl">
+              {overdueCount + draftCount}
+            </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="flex gap-2">
-              <Badge className="bg-rose-100 text-rose-700 border border-rose-200 hover:bg-rose-100">Overdue {overdueCount}</Badge>
-              <Badge className="bg-amber-100 text-amber-700 border border-amber-200 hover:bg-amber-100">Draft {draftCount}</Badge>
+              <Badge className="bg-rose-100 text-rose-700 border border-rose-200 hover:bg-rose-100">
+                Overdue {overdueCount}
+              </Badge>
+              <Badge className="bg-amber-100 text-amber-700 border border-amber-200 hover:bg-amber-100">
+                Draft {draftCount}
+              </Badge>
             </div>
           </CardContent>
         </Card>
@@ -378,6 +571,8 @@ export default function InvoicesPage() {
         columns={columns}
         loading={loading}
         emptyMessage="No invoices found."
+        tabularFilters={filters}
+        tabularFilterField="status"
         onQueryParamsChange={handleQueryParamsChange}
         filterFields={filterFields}
         pagination={{
@@ -395,13 +590,16 @@ export default function InvoicesPage() {
         onClose={() => setIsAddOpen(false)}
         onSuccess={() => loadInvoices()}
       />
-        
+
       <EditInvoice
         isOpen={isEditOpen}
         invoiceId={editInvoiceId}
-        onClose={() => { setIsEditOpen(false); setEditInvoiceId(null) }}
+        onClose={() => {
+          setIsEditOpen(false);
+          setEditInvoiceId(null);
+        }}
         onSuccess={() => loadInvoices()}
       />
     </div>
-  )
+  );
 }

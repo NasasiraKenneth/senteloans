@@ -99,13 +99,14 @@ export default function DataTable<Row>({
     };
 
     const handleOnTabularFilterChange = (filter: string | number) => {
-        let params = {}
-        if(tabularFilterField){
-            // @ts-ignore
-            params[tabularFilterField]=filter;
-            setQueryParameters({...params});
+        if (!tabularFilterField) return;
+        const params: Record<string, any> = { ...(queryParameters as Record<string, any>) };
+        if (filter === undefined || filter === null || filter === "") {
+            delete params[tabularFilterField];
+        } else {
+            params[tabularFilterField] = filter;
         }
-
+        setQueryParameters(params);
     }
 
     const handleOnSelectFilterChange = (field: string, type:string, value: any) => {

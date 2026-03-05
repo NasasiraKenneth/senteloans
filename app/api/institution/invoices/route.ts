@@ -86,6 +86,16 @@ export async function GET(req: Request) {
     const invoiceId = (url.searchParams.get("invoice_id") || "").trim();
     const dateFrom = (url.searchParams.get("date_from") || "").trim();
     const dateTo = (url.searchParams.get("date_to") || "").trim();
+    const dueFrom = (
+      url.searchParams.get("due_from") ||
+      url.searchParams.get("invoice_due_from") ||
+      ""
+    ).trim();
+    const dueTo = (
+      url.searchParams.get("due_to") ||
+      url.searchParams.get("invoice_due_to") ||
+      ""
+    ).trim();
     const includeItems =
       (url.searchParams.get("include_items") || "").trim().toLowerCase() ===
         "true" || !!invoiceId;
@@ -107,11 +117,11 @@ export async function GET(req: Request) {
           params.push(clientId);
         }
         if (status) {
-          where += ` AND i.status = $${idx++}`;
+          where += ` AND LOWER(i.status) = LOWER($${idx++})`;
           params.push(status);
         }
         if (invoiceType) {
-          where += ` AND i.invoice_type = $${idx++}`;
+          where += ` AND LOWER(i.invoice_type) = LOWER($${idx++})`;
           params.push(invoiceType);
         }
         if (dateFrom) {
@@ -122,6 +132,16 @@ export async function GET(req: Request) {
         if (dateTo) {
           where += ` AND i.invoice_date <= (($${idx}::timestamp AT TIME ZONE 'Africa/Nairobi')::date)`;
           params.push(dateTo);
+          idx++;
+        }
+        if (dueFrom) {
+          where += ` AND i.invoice_due >= (($${idx}::timestamp AT TIME ZONE 'Africa/Nairobi')::date)`;
+          params.push(dueFrom);
+          idx++;
+        }
+        if (dueTo) {
+          where += ` AND i.invoice_due <= (($${idx}::timestamp AT TIME ZONE 'Africa/Nairobi')::date)`;
+          params.push(dueTo);
           idx++;
         }
         if (search) {
@@ -384,7 +404,7 @@ export async function POST(req: Request) {
             `INSERT INTO senteloans_invoices (
             institution_id, client_id, invoice_number, invoice_date, invoice_due,
             subtotal, vat, total_amount, inwords, invoice_type, status,
-            created_by, modified_by
+            created_by
           ) VALUES (
             $1, $2, $3, $4, $5,
             $6, $7, $8, $9, $10, $11,
@@ -459,210 +479,6 @@ export async function POST(req: Request) {
         { status: 409 },
       );
     }
-    return NextResponse.json(
-      { error: err?.message || "Unexpected error" },
-      { status: 500 },
-    );
-  }
-}
-
-export async function PUT(req: Request) {
-  try {
-    const session = await getServerSession(authOptions);
-    if (!session?.user?.authUserId)
-      return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-    if (session.user.type !== "staff")
-      return NextResponse.json({ error: "not_staff" }, { status: 403 });
-
-    const url = new URL(req.url);
-    const body = (await req.json().catch(() => ({}))) as Record<
-      string,
-      unknown
-    >;
-    const invoiceId = String(
-      url.searchParams.get("id") || body.id || "",
-    ).trim();
-    const clientId = String(body.client_id || "").trim();
-    const invoiceDate = normalizeDate(body.invoice_date);
-    const invoiceDue = normalizeDate(body.invoice_due);
-    const status = String(body.status || "Draft").trim();
-    const inwords = typeof body.inwords === "string" ? body.inwords.trim() : "";
-    const invoiceType =
-      typeof body.invoice_type === "string" ? body.invoice_type.trim() : ""
-    const items = Array.isArray(body.items)
-      ? (body.items as Array<Record<string, unknown>>)
-      : [];
-
-    if (!invoiceId)
-      return NextResponse.json(
-        { error: "invoice_id_required" },
-        { status: 400 },
-      );
-    if (!clientId)
-      return NextResponse.json(
-        { error: "client_id_required" },
-        { status: 400 },
-      );
-    if (!invoiceDate)
-      return NextResponse.json(
-        { error: "invoice_date_required" },
-        { status: 400 },
-      );
-    if (items.length === 0)
-      return NextResponse.json({ error: "items_required" }, { status: 400 });
-
-    const result = await runWithAuth(
-      session.user.authUserId,
-      async (client) => {
-        const actorRes = await client.query<{
-          id: string;
-          institution_id: string;
-        }>(
-          `SELECT id, institution_id FROM senteloans_users WHERE supabase_user_id = $1`,
-          [session!.user!.authUserId],
-        );
-        const actor = actorRes.rows[0];
-        if (!actor) return { error: "user_not_linked" as const };
-
-        const existingInvoiceRes = await client.query<{
-          id: string;
-          invoice_number: string;
-        }>(
-          `SELECT id, invoice_number
-         FROM senteloans_invoices
-         WHERE id = $1 AND institution_id = $2`,
-          [invoiceId, actor.institution_id],
-        );
-        const existing = existingInvoiceRes.rows[0];
-        if (!existing) return { error: "invoice_not_found" as const };
-
-        const clientRes = await client.query<{ id: string }>(
-          `SELECT id FROM senteloans_clients WHERE id = $1 AND institution_id = $2`,
-          [clientId, actor.institution_id],
-        );
-        if (clientRes.rows.length === 0)
-          return { error: "client_not_found" as const };
-
-        const normalizedItems = items
-          .map((item) => {
-            const quantity = Math.max(0, Number(item.quantity || 0));
-            const unitPrice = Math.max(
-              0,
-              Number(item.unit_price ?? item.unitPrice ?? 0),
-            );
-            const inputTotal = Number(
-              item.total_price ?? item.totalPrice ?? quantity * unitPrice,
-            );
-            const totalPrice = round2(
-              Number.isFinite(inputTotal) ? inputTotal : quantity * unitPrice,
-            );
-            return {
-              unit: typeof item.unit === "string" ? item.unit.slice(0, 15) : "",
-              description: String(item.description || "")
-                .trim()
-                .slice(0, 120),
-              quantity: round2(quantity),
-              unit_price: round2(unitPrice),
-              total_price: totalPrice,
-              vatinclusive: Boolean(item.vatinclusive ?? item.onVat),
-            };
-          })
-          .filter((it) => it.description && it.quantity > 0);
-        if (normalizedItems.length === 0)
-          return { error: "invalid_items" as const };
-
-        const computedSubtotal = round2(
-          normalizedItems.reduce(
-            (sum, item) => sum + Number(item.total_price || 0),
-            0,
-          ),
-        );
-        const vat = Math.max(0, Number(body.vat || 0));
-        const totalAmount = round2(
-          Number(
-            body.total_amount || body.totalAmount || computedSubtotal + vat,
-          ),
-        );
-
-        await client.query("BEGIN");
-        try {
-          await client.query(
-            `UPDATE senteloans_invoices
-           SET client_id = $1,
-               invoice_date = $2,
-               invoice_due = $3,
-               subtotal = $4,
-               vat = $5,
-               total_amount = $6,
-               inwords = $7,
-               invoice_type = $8,
-               status = $9,
-               modified_by = $10,
-               updated_at = NOW()
-           WHERE id = $11`,
-            [
-              clientId,
-              invoiceDate,
-              invoiceDue,
-              computedSubtotal,
-              round2(vat),
-              totalAmount,
-              inwords,
-              invoiceType,
-              status,
-              actor.id,
-              invoiceId,
-            ],
-          );
-
-          await client.query(
-            `DELETE FROM senteloans_invoice_items WHERE invoice_id = $1`,
-            [invoiceId],
-          );
-          for (const item of normalizedItems) {
-            await client.query(
-              `INSERT INTO senteloans_invoice_items (
-              invoice_id, unit, description, quantity, unit_price, total_price, vatinclusive
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-              [
-                invoiceId,
-                item.unit || null,
-                item.description,
-                item.quantity,
-                item.unit_price,
-                item.total_price,
-                item.vatinclusive,
-              ],
-            );
-          }
-
-          await client.query("COMMIT");
-          return {
-            ok: true,
-            id: invoiceId,
-            invoice_number: existing.invoice_number,
-          };
-        } catch (error) {
-          await client.query("ROLLBACK");
-          throw error;
-        }
-      },
-    );
-
-    if (result && "error" in result) {
-      const statusCode =
-        result.error === "invoice_not_found" ||
-        result.error === "client_not_found"
-          ? 404
-          : result.error === "user_not_linked"
-            ? 403
-            : 400;
-      return NextResponse.json({ error: result.error }, { status: statusCode });
-    }
-
-    return NextResponse.json(result);
-  } catch (e: unknown) {
-    const err = e as Error;
     return NextResponse.json(
       { error: err?.message || "Unexpected error" },
       { status: 500 },

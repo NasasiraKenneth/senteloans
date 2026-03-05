@@ -17,11 +17,11 @@ CREATE TABLE IF NOT EXISTS senteloans_invoices (
     created_by UUID REFERENCES senteloans_users(id) ON DELETE SET NULL,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     modified_by UUID REFERENCES senteloans_users(id) ON DELETE SET NULL,
-    updated_at TIMESTAMPTZ DEFAULT NOW()
+    updated_at TIMESTAMPTZ
 );
 
 CREATE TABLE IF NOT EXISTS senteloans_invoice_items (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     invoice_id UUID NOT NULL REFERENCES senteloans_invoices(id) ON DELETE CASCADE,
     unit VARCHAR(15),
     description VARCHAR(120) NOT NULL,

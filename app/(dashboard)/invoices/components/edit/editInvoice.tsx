@@ -40,15 +40,24 @@ export default function EditInvoice({ isOpen, invoiceId, onClose, onSuccess }: E
             const isVatInclusive = (i.vat ?? 0) > 0
 
             // Map API items to InvoiceItemForm type
-            const mappedItems: InvoiceItemForm[] = (i.items ?? []).map((item: any) => ({
-            id: String(item.id),
-            unit: item.unit ?? "",
-            description: item.description ?? "",
-            quantity: Number(item.quantity ?? 0),
-            unitPrice: Number(item.unit_price ?? 0),
-            totalPrice: Number(item.total_price ?? 0),
-            onVat: (item.vatinclusive ?? "").toLowerCase().trim() === "yes",
-            }))
+            const mappedItems: InvoiceItemForm[] = (i.items ?? []).map((item: any) => {
+            const rawVat = item.vatinclusive
+            const onVat =
+              typeof rawVat === "boolean"
+                ? rawVat
+                : String(rawVat ?? "").toLowerCase().trim() === "yes" ||
+                  String(rawVat ?? "").toLowerCase().trim() === "true"
+
+            return {
+              id: String(item.id),
+              unit: item.unit ?? "",
+              description: item.description ?? "",
+              quantity: Number(item.quantity ?? 0),
+              unitPrice: Number(item.unit_price ?? 0),
+              totalPrice: Number(item.total_price ?? 0),
+              onVat,
+            }
+            })
 
             setInitialValues({
             clientId: i.client_id ?? null,
