@@ -34,7 +34,7 @@ export const SlideModal: React.FC<ModalProps> = ({
                     animate="visible"
                     exit="exit"
                     transition={{ duration: 0.3, ease: "easeOut" }}
-                    className={`absolute top-0 max-h-full right-0 w-3/5 bg-white rounded-lg shadow-xl border border-gray-200 z-50 ${className}`}
+                    className={`absolute top-0 max-h-full right-0 min-w-1/2 bg-white rounded-lg shadow-xl border border-gray-200 z-50 ${className}`}
                 >
                     <div className="flex justify-between items-center mb-4 p-4 border-b border-gray-200">
                         <h3 className="text-lg font-semibold text-gray-800">{title}</h3>

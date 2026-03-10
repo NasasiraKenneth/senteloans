@@ -136,7 +136,7 @@ export default function UsersPage() {
         status: c.status,
         kycStatus: c.kyc_status,
         membershipFeePaid: Number(c.membership_fee_paid) || 0,
-        createdBy: c.created_by_name || c.created_by || "—",
+        createdBy: c.created_by_name || c.created_by || "",
         kycApprovedBy: c.kyc_approved_by_name || c.kyc_approved_by || "",
         joinDate: c.join_date || "",
         kycApprovedAt: c.kyc_approved_at || "",
@@ -384,12 +384,16 @@ export default function UsersPage() {
       key: "createdBy",
       header: "Created By",
       render: (row) => (
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 bg-linear-to-br from-black/80 to-black/50 rounded-full flex items-center justify-center">
-            <span className="text-[#f08c2b] text-xs font-semibold">{getInitials(row.createdBy)}</span>
+        row.createdBy ? (
+          <div className="flex items-center gap-2">
+            <div className="w-9 h-9 bg-linear-to-br from-black/80 to-black/50 rounded-full flex items-center justify-center">
+              <span className="text-[#f08c2b] text-xs font-semibold">{getInitials(row.createdBy)}</span>
+            </div>
+            <div className="text-sm text-gray-700">{row.createdBy}</div>
           </div>
-          <span className="text-sm text-gray-700">{row.createdBy || "—"}</span>
-        </div>
+        ) : (
+          <span className="flex text-sm text-gray-700 justify-center ">-</span>
+        )
       ),
     },
     {

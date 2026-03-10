@@ -71,6 +71,8 @@ export default function LoansPage() {
         return <CheckCircle className="h-4 w-4 text-green-600" />
       case "Disbursed":
         return <DollarSign className="h-4 w-4 text-blue-600" />
+      case "Disbursed":
+        return <DollarSign className="h-4 w-4 text-blue-600" />
       case "Active":
         return <Activity className="h-4 w-4 text-cyan-600" />
       case "Rejected":
@@ -320,6 +322,18 @@ export default function LoansPage() {
       type: "select",
     },
     {
+      field: "loan_type",
+      label: "Loan Type",
+      options: [
+        { value: "normal", label: "Normal" },
+        { value: "top up", label: "Top Up" },
+        { value: "buy out", label: "Buy Out" },
+        { value: "transferred", label: "Transferred" },
+      ],
+      multiple: false,
+      type: "select",
+    },
+    {
       field: "remainingTenure",
       label: "Remaining Tenure",
       options: [
@@ -346,10 +360,12 @@ export default function LoansPage() {
 
   // Tabular filter options
   const filters:Filter[] = [
-      { label: 'All Loans', value: "" },
+      { label: "All", value: "" },
       { value: "Applied", label: "Applied" },
+      { value: "Under Review", label: "Under Review" },
       { value: "Approved", label: "Approved" },
-      { value: "Disbursed", label: "Disbursed" },
+      { value: "Partially Disbursed", label: "Partial Disburse" },
+      { value: "Fully Disbursed", label: "Fully Disbursed" },
       { value: "Active", label: "Active" },
       { value: "Rejected", label: "Rejected" },
       { value: "Closed", label: "Closed" },

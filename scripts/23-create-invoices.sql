@@ -4,6 +4,7 @@
 CREATE TABLE IF NOT EXISTS senteloans_invoices (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     institution_id UUID NOT NULL REFERENCES senteloans_institutions(id) ON DELETE RESTRICT,
+    branch_id UUID NOT NULL REFERENCES senteloans_branches(id) ON DELETE RESTRICT,
     client_id UUID NOT NULL REFERENCES senteloans_clients(id) ON DELETE RESTRICT,
     invoice_number VARCHAR(50) NOT NULL UNIQUE,
     invoice_date DATE NOT NULL,

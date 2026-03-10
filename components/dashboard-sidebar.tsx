@@ -19,6 +19,7 @@ import {
   ChevronRight,
   ChevronDown,
   ArrowUpDown,
+  Building2,
   LogOut,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
@@ -112,6 +113,7 @@ export function DashboardSidebar() {
         items: [
           { name: "Staff", href: "/staff", icon: UserCog },
           { name: clientLabel, href: "/users", icon: Users },
+          { name: "Clients", href: "/clients", icon: Building2 },
         ],
       },
       {
@@ -137,6 +139,7 @@ export function DashboardSidebar() {
     if (href === "/dashboard") return pathname === "/dashboard"
     if (href === "/users") return pathname.startsWith("/users") || pathname.startsWith("/members")
     if (href === "/staff") return pathname.startsWith("/staff")
+    if (href === "/clients") return pathname.startsWith("/client")
     if (href === "/loans") return pathname.startsWith("/loans") || pathname.startsWith("/loan-products")
     if (href === "/investments") return pathname.startsWith("/investments")
     if (href === "/invoices") return pathname.startsWith("/invoices")
@@ -227,7 +230,7 @@ export function DashboardSidebar() {
                 />
               </div>
               <div className="mt-4 w-full text-center">
-                <div className="truncate text-[15px] font-bold tracking-tight text-white">
+                <div className="text-wrap text-[15px] font-bold tracking-tight text-white">
                   {session?.institution?.name || "Sente Loan"}
                 </div>
                 {session?.institution?.type && (

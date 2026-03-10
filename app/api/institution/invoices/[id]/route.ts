@@ -4,9 +4,6 @@ import { authOptions } from "@/lib/auth"
 import { runWithAuth } from "@/lib/db"
 import { auditLogger } from "@/lib/audit/audit-logger"
 
-function isElevated(role?: string | null) {
-  return role === "institution_admin" || role === "manager"
-}
 
 const normalizeDate = (value: unknown): string | null => {
   if (typeof value !== "string" || !value.trim()) return null;
