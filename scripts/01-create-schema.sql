@@ -90,6 +90,39 @@ CREATE TABLE IF NOT EXISTS senteloans_branches (
     CONSTRAINT uk_branch_code UNIQUE (institution_id, branch_code)
 );
 
+-- 24-create-roles.sql
+-- Adds permissions and role permissions tables
+
+CREATE TABLE senteloans_roles (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    name VARCHAR(100) NOT NULL UNIQUE,
+    description TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ
+);
+
+CREATE TABLE senteloans_permissions (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    name VARCHAR(150) NOT NULL UNIQUE,
+    module VARCHAR(100),
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ
+);
+
+CREATE TABLE senteloans_role_permissions (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    branch_id UUID NOT NULL REFERENCES senteloans_branches(id) ON DELETE RESTRICT,
+    role_id UUID NOT NULL,
+    permission_id UUID NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ,
+
+    UNIQUE(branch_id,role_id, permission_id),
+
+    FOREIGN KEY (role_id) REFERENCES senteloans_roles(id) ON DELETE CASCADE,
+    FOREIGN KEY (permission_id) REFERENCES senteloans_permissions(id) ON DELETE CASCADE
+);
+
 -- 4. USERS TABLE (Authentication & Authorization)
 CREATE TABLE IF NOT EXISTS senteloans_users (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -203,7 +236,7 @@ CREATE TABLE IF NOT EXISTS senteloans_loan_product_eligibilities (
     
     CONSTRAINT uk_loan_product_eligibility
     UNIQUE (loan_product_id, eligibility)
-);
+); 
 
 -- 8. LOANS TABLE (Individual loan records)
 -- Updated to match loan products structure and add guarantor support
@@ -441,6 +474,8 @@ CREATE TABLE IF NOT EXISTS senteloans_audit_logs (
 
 -- Create indexes for performance optimization
 -- Multi-tenant access patterns
+CREATE INDEX IF NOT EXISTS idx_role_permissions_role_branch ON senteloans_role_permissions(role_id, branch_id);
+CREATE INDEX IF NOT EXISTS idx_role_permissions_permission ON senteloans_role_permissions(permission_id);
 CREATE INDEX IF NOT EXISTS idx_users_institution_id ON senteloans_users(institution_id);
 CREATE INDEX IF NOT EXISTS idx_clients_institution_id ON senteloans_clients(institution_id);
 CREATE INDEX IF NOT EXISTS idx_loans_institution_id ON senteloans_loans(institution_id);

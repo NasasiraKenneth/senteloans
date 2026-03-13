@@ -33,6 +33,7 @@ CREATE TABLE IF NOT EXISTS senteloans_invoice_items (
 );
 
 CREATE INDEX IF NOT EXISTS idx_invoices_institution_id ON senteloans_invoices(institution_id);
+CREATE INDEX IF NOT EXISTS idx_invoices_branch_id ON senteloans_invoices(branch_id);
 CREATE INDEX IF NOT EXISTS idx_invoices_client_id ON senteloans_invoices(client_id);
 CREATE INDEX IF NOT EXISTS idx_invoices_invoice_date ON senteloans_invoices(invoice_date);
 CREATE INDEX IF NOT EXISTS idx_invoices_status ON senteloans_invoices(status);
