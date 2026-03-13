@@ -4,6 +4,55 @@ import { authOptions } from "@/lib/auth"
 import { runWithAuth } from "@/lib/db"
 import { addMonthsDateOnly, buildRepaymentSchedule } from "@/lib/loans/calculations"
 
+type ActorContext = {
+  id: string
+  institution_id: string
+  branch_id: string | null
+  role_id: string | null
+  role: string | null
+}
+
+async function resolveActorContext(client: any, authUserId: string): Promise<ActorContext | null> {
+  const actorRes = await client.query(
+    `SELECT
+       u.id,
+       u.institution_id,
+       u.branch_id,
+       u.role_id,
+       CASE
+         WHEN r.name = 'System Admin' THEN 'system_admin'
+         WHEN r.name = 'Super Admin' THEN 'super_admin'
+         WHEN r.name = 'Admin' THEN 'institution_admin'
+         WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
+         ELSE NULL
+       END AS role
+     FROM senteloans_users u
+     LEFT JOIN senteloans_roles r ON r.id = u.role_id
+     WHERE u.supabase_user_id = $1
+     LIMIT 1`,
+    [authUserId]
+  )
+  return actorRes.rows[0] || null
+}
+
+async function hasPermission(client: any, actor: ActorContext, permission: string): Promise<boolean> {
+  const role = String(actor.role || "").trim().toLowerCase()
+  if (role === "super_admin") return true
+  if (!actor.role_id || !actor.branch_id) return false
+
+  const permRes = await client.query(
+    `SELECT 1
+     FROM senteloans_role_permissions rp
+     JOIN senteloans_permissions p ON p.id = rp.permission_id
+     WHERE rp.role_id = $1
+       AND rp.branch_id = $2
+       AND p.name = $3
+     LIMIT 1`,
+    [actor.role_id, actor.branch_id, permission]
+  )
+  return permRes.rowCount > 0
+}
+
 const round2 = (value: number): number => Math.round((value + Number.EPSILON) * 100) / 100
 
 type RepaymentRow = {
@@ -38,41 +87,39 @@ const reconcilePendingScheduleToOutstanding = (rows: RepaymentRow[], targetOutst
 }
 
 /**
- * GET /api/institution/clients/[id]/opening-balances
- * Returns the client's current savings accounts, active loans, and opening_balance_recorded flag
+ * GET /api/institution/members/[id]/opening-balances
+ * Returns the member's current savings accounts, active loans, and opening_balance_recorded flag
  */
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const { id: clientId } = await params
-    if (!clientId) return NextResponse.json({ error: "Missing client id" }, { status: 400 })
+    const { id: memberId } = await params
+    if (!memberId) return NextResponse.json({ error: "Missing member id" }, { status: 400 })
 
     const session = await getServerSession(authOptions)
     if (!session?.user?.authUserId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     if (session.user.type !== "staff") return NextResponse.json({ error: "no_app_user_profile" }, { status: 403 })
 
     const result = await runWithAuth(session.user.authUserId, async (client) => {
-      const actorRes = await client.query(
-        `SELECT id, institution_id FROM senteloans_users WHERE supabase_user_id = $1`,
-        [session!.user!.authUserId]
-      )
-      const actor = actorRes.rows[0]
-      if (!actor) return null
+      const actor = await resolveActorContext(client, session!.user!.authUserId)
+      if (!actor) return { error: "no_app_user_profile" as const }
+      const allowed = await hasPermission(client, actor, "view_members")
+      if (!allowed) return { error: "missing_permission:view_members" as const }
 
-      // Verify client belongs to same institution
-      const clientRes = await client.query(
-        `SELECT id, opening_balance_recorded FROM senteloans_clients WHERE id = $1 AND institution_id = $2`,
-        [clientId, actor.institution_id]
+      // Verify member belongs to same institution
+      const memberRes = await client.query(
+        `SELECT id, opening_balance_recorded FROM senteloans_members WHERE id = $1 AND institution_id = $2`,
+        [memberId, actor.institution_id]
       )
-      const clientRow = clientRes.rows[0]
-      if (!clientRow) return null
+      const memberRow = memberRes.rows[0]
+      if (!memberRow) return null
 
       // Get savings accounts
       const savingsRes = await client.query(
         `SELECT id, account_number, account_type, available_balance, total_balance, status
          FROM senteloans_savings_accounts
-         WHERE client_id = $1 AND institution_id = $2
+         WHERE member_id = $1 AND institution_id = $2
          ORDER BY created_at`,
-        [clientId, actor.institution_id]
+        [memberId, actor.institution_id]
       )
 
       // Get active loans
@@ -81,9 +128,9 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
                 lp.product_name
          FROM senteloans_loans l
          LEFT JOIN senteloans_loan_products lp ON lp.id = l.loan_product_id
-         WHERE l.client_id = $1 AND l.institution_id = $2
+         WHERE l.member_id = $1 AND l.institution_id = $2
          ORDER BY l.created_at`,
-        [clientId, actor.institution_id]
+        [memberId, actor.institution_id]
       )
 
       // Get loan products for creating opening balance loans
@@ -96,14 +143,22 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       )
 
       return {
-        openingBalanceRecorded: clientRow.opening_balance_recorded,
+        openingBalanceRecorded: memberRow.opening_balance_recorded,
         savingsAccounts: savingsRes.rows,
         loans: loansRes.rows,
         loanProducts: productsRes.rows,
       }
     })
 
-    if (!result) return NextResponse.json({ error: "client_not_found" }, { status: 404 })
+    if (result && "error" in result) {
+      const status =
+        result.error === "missing_permission:view_members" || result.error === "no_app_user_profile"
+          ? 403
+          : result.error === "member_not_found"
+            ? 404
+            : 400
+      return NextResponse.json({ error: result.error }, { status })
+    }
     return NextResponse.json(result)
   } catch (e: unknown) {
     const err = e as Error
@@ -112,7 +167,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 }
 
 /**
- * POST /api/institution/clients/[id]/opening-balances
+ * POST /api/institution/members/[id]/opening-balances
  * Records opening balances for savings and/or loans.
  * When loan fields are provided, creates a full loan lifecycle with repayment schedule.
  *
@@ -130,8 +185,8 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
  */
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const { id: clientId } = await params
-    if (!clientId) return NextResponse.json({ error: "Missing client id" }, { status: 400 })
+    const { id: memberId } = await params
+    if (!memberId) return NextResponse.json({ error: "Missing member id" }, { status: 400 })
 
     const session = await getServerSession(authOptions)
     if (!session?.user?.authUserId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -178,19 +233,24 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     }
 
     const result = await runWithAuth(session.user.authUserId, async (client) => {
-      const actorRes = await client.query(
-        `SELECT id, institution_id FROM senteloans_users WHERE supabase_user_id = $1`,
-        [session!.user!.authUserId]
-      )
-      const actor = actorRes.rows[0]
+      const actor = await resolveActorContext(client, session!.user!.authUserId)
       if (!actor) return { error: "user_not_linked" as const }
 
-      const clientRes = await client.query(
-        `SELECT id, institution_id, client_number FROM senteloans_clients WHERE id = $1 AND institution_id = $2`,
-        [clientId, actor.institution_id]
+      if (hasSavings) {
+        const allowedSavings = await hasPermission(client, actor, "edit_opening_savings")
+        if (!allowedSavings) return { error: "missing_permission:edit_opening_savings" as const }
+      }
+      if (hasLoan) {
+        const allowedLoans = await hasPermission(client, actor, "edit_opening_loans")
+        if (!allowedLoans) return { error: "missing_permission:edit_opening_loans" as const }
+      }
+
+      const memberRes = await client.query(
+        `SELECT id, institution_id, member_number FROM senteloans_members WHERE id = $1 AND institution_id = $2`,
+        [memberId, actor.institution_id]
       )
-      const clientRow = clientRes.rows[0]
-      if (!clientRow) return { error: "client_not_found" as const }
+      const memberRow = memberRes.rows[0]
+      if (!memberRow) return { error: "member_not_found" as const }
 
       const txDate = new Date().toISOString()
       const results: { savingsUpdated?: boolean; loanCreated?: boolean; loanId?: string } = {}
@@ -200,8 +260,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         let accountId = savingsAccountId
         if (!accountId) {
           const accRes = await client.query(
-            `SELECT id FROM senteloans_savings_accounts WHERE client_id = $1 AND institution_id = $2 ORDER BY created_at LIMIT 1`,
-            [clientId, actor.institution_id]
+            `SELECT id FROM senteloans_savings_accounts WHERE member_id = $1 AND institution_id = $2 ORDER BY created_at LIMIT 1`,
+            [memberId, actor.institution_id]
           )
           accountId = accRes.rows[0]?.id
         }
@@ -211,8 +271,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         }
 
         const accVerify = await client.query(
-          `SELECT id, available_balance FROM senteloans_savings_accounts WHERE id = $1 AND client_id = $2 AND institution_id = $3`,
-          [accountId, clientId, actor.institution_id]
+          `SELECT id, available_balance FROM senteloans_savings_accounts WHERE id = $1 AND member_id = $2 AND institution_id = $3`,
+          [accountId, memberId, actor.institution_id]
         )
         if (!accVerify.rows[0]) return { error: "savings_account_not_found" as const }
 
@@ -228,9 +288,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         const savTxNumber = `OB-SAV-${Date.now()}`
         await client.query(
           `INSERT INTO senteloans_transactions
-            (institution_id, client_id, account_id, loan_id, transaction_number, type, amount, mode, description, reference_number, balance_before, balance_after, processed_by, transaction_date, status)
+            (institution_id, member_id, account_id, loan_id, transaction_number, type, amount, mode, description, reference_number, balance_before, balance_after, processed_by, transaction_date, status)
            VALUES ($1, $2, $3, NULL, $4, 'Opening Balance', $5, 'Cash', $6, '', $7, $8, $9, $10, 'Completed')`,
-          [actor.institution_id, clientId, accountId, savTxNumber, savingsBalance, "Opening savings balance from previous system", balanceBefore, savingsBalance, actor.id, txDate]
+          [actor.institution_id, memberId, accountId, savTxNumber, savingsBalance, "Opening savings balance from previous system", balanceBefore, savingsBalance, actor.id, txDate]
         )
 
         results.savingsUpdated = true
@@ -299,11 +359,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
         const loanRes = await client.query(
           `INSERT INTO senteloans_loans
-            (institution_id, client_id, loan_product_id, application_id, principal_amount, interest_rate, tenure_months, monthly_payment, total_amount, outstanding_balance, status, purpose, application_date, approval_date, disbursement_date, maturity_date, next_payment_date, created_by)
+            (institution_id, member_id, loan_product_id, application_id, principal_amount, interest_rate, tenure_months, monthly_payment, total_amount, outstanding_balance, status, purpose, application_date, approved_at, disbursement_date, maturity_date, next_payment_date, created_by)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'Active', $11, $12, $12, $13, $14, $15, $16)
            RETURNING id`,
           [
-            actor.institution_id, clientId, loanProductId, applicationId,
+            actor.institution_id, memberId, loanProductId, applicationId,
             principalAmount, interestRate, remainingTenure,
             monthlyPayment, totalAmount, loanOutstandingBalance,
             "Opening balance loan from previous system",
@@ -351,9 +411,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         const loanTxNumber = `OB-LN-${Date.now()}`
         await client.query(
           `INSERT INTO senteloans_transactions
-            (institution_id, client_id, account_id, loan_id, transaction_number, type, amount, mode, description, reference_number, balance_before, balance_after, processed_by, transaction_date, status)
+            (institution_id, member_id, account_id, loan_id, transaction_number, type, amount, mode, description, reference_number, balance_before, balance_after, processed_by, transaction_date, status)
            VALUES ($1, $2, NULL, $3, $4, 'Loan Repayment', $5, 'Cash', $6, $4, $7, $8, $9, $10, 'Completed')`,
-          [actor.institution_id, clientId, loanRow.id, loanTxNumber, amountAlreadyPaid, "Migrated repayments from previous system", totalPayable, loanOutstandingBalance, actor.id, txDate]
+          [actor.institution_id, memberId, loanRow.id, loanTxNumber, amountAlreadyPaid, "Migrated repayments from previous system", totalPayable, loanOutstandingBalance, actor.id, txDate]
         )
 
         results.loanCreated = true
@@ -361,14 +421,14 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       }
 
       await client.query(
-        `UPDATE senteloans_clients SET opening_balance_recorded = TRUE WHERE id = $1`,
-        [clientId]
+        `UPDATE senteloans_members SET opening_balance_recorded = TRUE WHERE id = $1`,
+        [memberId]
       )
 
       await client.query(
         `INSERT INTO senteloans_audit_logs (institution_id, user_id, table_name, operation, record_id, new_values)
-         VALUES ($1, $2, 'senteloans_clients', 'UPDATE', $3, $4)`,
-        [actor.institution_id, actor.id, clientId, JSON.stringify({
+         VALUES ($1, $2, 'senteloans_members', 'UPDATE', $3, $4)`,
+        [actor.institution_id, actor.id, memberId, JSON.stringify({
           action: "opening_balances",
           savingsBalance: hasSavings ? savingsBalance : null,
           loanPrincipalAmount: hasLoan ? (loanPrincipalAmount ?? loanOutstandingBalance) : null,
@@ -384,7 +444,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
     if (result && "error" in result) {
       const status =
-        result.error === "client_not_found" || result.error === "savings_account_not_found" || result.error === "loan_product_not_found" ? 404 :
+        result.error === "member_not_found" || result.error === "savings_account_not_found" || result.error === "loan_product_not_found" ? 404 :
+        result.error === "missing_permission:edit_opening_savings" || result.error === "missing_permission:edit_opening_loans" ? 403 :
         result.error === "no_savings_account" ? 400 :
         400
       return NextResponse.json({ error: result.error }, { status })

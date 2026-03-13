@@ -42,7 +42,19 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     // Resolve staff actor without RLS so institution admins (and any staff) are always found
     const actor = await runWithoutAuth(async (client) => {
       const res = await client.query<{ id: string; institution_id: string; role: string }>(
-        `SELECT id, institution_id, role FROM senteloans_users WHERE supabase_user_id = $1 AND status = 'Active'`,
+        `SELECT
+           u.id,
+           u.institution_id,
+          CASE
+            WHEN r.name = 'System Admin' THEN 'system_admin'
+            WHEN r.name = 'Super Admin' THEN 'super_admin'
+            WHEN r.name = 'Admin' THEN 'institution_admin'
+            WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
+            ELSE NULL
+          END AS role
+         FROM senteloans_users u
+         LEFT JOIN senteloans_roles r ON r.id = u.role_id
+         WHERE u.supabase_user_id = $1 AND u.status = 'Active'`,
         [session!.user!.authUserId]
       )
       return res.rows[0] ?? null
@@ -240,7 +252,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     if (result && "error" in result) {
       const status =
         result.error === "cross_tenant_operation_forbidden" ? 403
-        : result.error === "not_found" || result.error === "user_not_linked" ? (result.error === "not_found" ? 404 : 403)
+        : result.error === "not_found" ? 404
         : 400
       const body = "message" in result && typeof result.message === "string"
         ? { error: result.error, message: result.message }

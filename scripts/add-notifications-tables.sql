@@ -5,7 +5,7 @@
 CREATE TABLE IF NOT EXISTS senteloans_notifications (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     institution_id UUID NOT NULL REFERENCES senteloans_institutions(id) ON DELETE CASCADE,
-    recipient_type TEXT NOT NULL CHECK (recipient_type IN ('client', 'institution_user')),
+    recipient_type TEXT NOT NULL CHECK (recipient_type IN ('member', 'institution_user')),
     recipient_id UUID NOT NULL,
     type TEXT NOT NULL,
     title TEXT NOT NULL,
@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS senteloans_notifications (
 CREATE TABLE IF NOT EXISTS senteloans_notification_preferences (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     institution_id UUID NOT NULL REFERENCES senteloans_institutions(id) ON DELETE CASCADE,
-    user_type TEXT NOT NULL CHECK (user_type IN ('client', 'institution_user')),
+    user_type TEXT NOT NULL CHECK (user_type IN ('member', 'institution_user')),
     user_id UUID NOT NULL,
     notification_type TEXT NOT NULL,
     in_app_enabled BOOLEAN DEFAULT true,
@@ -45,14 +45,14 @@ ALTER TABLE senteloans_notification_preferences ENABLE ROW LEVEL SECURITY;
 
 -- 5. RLS POLICIES FOR NOTIFICATIONS
 
--- Clients can read their own notifications
-DROP POLICY IF EXISTS notifications_client_select ON senteloans_notifications;
-CREATE POLICY notifications_client_select ON senteloans_notifications
+-- Members can read their own notifications
+DROP POLICY IF EXISTS notifications_member_select ON senteloans_notifications;
+CREATE POLICY notifications_member_select ON senteloans_notifications
   FOR SELECT
   USING (
-    recipient_type = 'client'
+    recipient_type = 'member'
     AND EXISTS (
-      SELECT 1 FROM senteloans_clients c
+      SELECT 1 FROM senteloans_members c
       WHERE c.id = recipient_id
         AND c.supabase_user_id = auth.uid()
         AND c.institution_id = institution_id
@@ -73,23 +73,23 @@ CREATE POLICY notifications_user_select ON senteloans_notifications
     )
   );
 
--- Clients can update (mark as read) their own notifications
-DROP POLICY IF EXISTS notifications_client_update ON senteloans_notifications;
-CREATE POLICY notifications_client_update ON senteloans_notifications
+-- Members can update (mark as read) their own notifications
+DROP POLICY IF EXISTS notifications_member_update ON senteloans_notifications;
+CREATE POLICY notifications_member_update ON senteloans_notifications
   FOR UPDATE
   USING (
-    recipient_type = 'client'
+    recipient_type = 'member'
     AND EXISTS (
-      SELECT 1 FROM senteloans_clients c
+      SELECT 1 FROM senteloans_members c
       WHERE c.id = recipient_id
         AND c.supabase_user_id = auth.uid()
         AND c.institution_id = institution_id
     )
   )
   WITH CHECK (
-    recipient_type = 'client'
+    recipient_type = 'member'
     AND EXISTS (
-      SELECT 1 FROM senteloans_clients c
+      SELECT 1 FROM senteloans_members c
       WHERE c.id = recipient_id
         AND c.supabase_user_id = auth.uid()
         AND c.institution_id = institution_id
@@ -127,49 +127,49 @@ CREATE POLICY notifications_service_insert ON senteloans_notifications
 
 -- 6. RLS POLICIES FOR NOTIFICATION PREFERENCES
 
--- Clients can read and update their own preferences
-DROP POLICY IF EXISTS notification_prefs_client_select ON senteloans_notification_preferences;
-CREATE POLICY notification_prefs_client_select ON senteloans_notification_preferences
+-- Members can read and update their own preferences
+DROP POLICY IF EXISTS notification_prefs_member_select ON senteloans_notification_preferences;
+CREATE POLICY notification_prefs_member_select ON senteloans_notification_preferences
   FOR SELECT
   USING (
-    user_type = 'client'
+    user_type = 'member'
     AND EXISTS (
-      SELECT 1 FROM senteloans_clients c
+      SELECT 1 FROM senteloans_members c
       WHERE c.id = user_id
         AND c.supabase_user_id = auth.uid()
         AND c.institution_id = institution_id
     )
   );
 
-DROP POLICY IF EXISTS notification_prefs_client_insert ON senteloans_notification_preferences;
-CREATE POLICY notification_prefs_client_insert ON senteloans_notification_preferences
+DROP POLICY IF EXISTS notification_prefs_member_insert ON senteloans_notification_preferences;
+CREATE POLICY notification_prefs_member_insert ON senteloans_notification_preferences
   FOR INSERT
   WITH CHECK (
-    user_type = 'client'
+    user_type = 'member'
     AND EXISTS (
-      SELECT 1 FROM senteloans_clients c
+      SELECT 1 FROM senteloans_members c
       WHERE c.id = user_id
         AND c.supabase_user_id = auth.uid()
         AND c.institution_id = institution_id
     )
   );
 
-DROP POLICY IF EXISTS notification_prefs_client_update ON senteloans_notification_preferences;
-CREATE POLICY notification_prefs_client_update ON senteloans_notification_preferences
+DROP POLICY IF EXISTS notification_prefs_member_update ON senteloans_notification_preferences;
+CREATE POLICY notification_prefs_member_update ON senteloans_notification_preferences
   FOR UPDATE
   USING (
-    user_type = 'client'
+    user_type = 'member'
     AND EXISTS (
-      SELECT 1 FROM senteloans_clients c
+      SELECT 1 FROM senteloans_members c
       WHERE c.id = user_id
         AND c.supabase_user_id = auth.uid()
         AND c.institution_id = institution_id
     )
   )
   WITH CHECK (
-    user_type = 'client'
+    user_type = 'member'
     AND EXISTS (
-      SELECT 1 FROM senteloans_clients c
+      SELECT 1 FROM senteloans_members c
       WHERE c.id = user_id
         AND c.supabase_user_id = auth.uid()
         AND c.institution_id = institution_id

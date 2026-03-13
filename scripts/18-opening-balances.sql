@@ -17,5 +17,5 @@ END $$;
 -- No special exemption needed since they follow the normal pattern
 
 -- Add an opening_balance_recorded flag to clients to track if opening balances have been set
-ALTER TABLE senteloans_clients
+ALTER TABLE senteloans_members
   ADD COLUMN IF NOT EXISTS opening_balance_recorded BOOLEAN NOT NULL DEFAULT FALSE;

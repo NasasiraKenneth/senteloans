@@ -61,21 +61,21 @@ export default function UserProfilePage() {
       setLoading(true)
       setError(null)
       try {
-        const res = await fetch(`/api/institution/clients/${userId}`, { cache: "no-store" })
+        const res = await fetch(`/api/institution/members/${userId}`, { cache: "no-store" })
         if (!res.ok) {
           const { error } = await res.json()
           throw new Error(error || "Failed to load client")
         }
         const responseData = (await res.json()) as {
-          client: {
+          member: {
             id: string
-            client_number: string
+            member_number: string
             full_name: string
             supabase_user_id?: string | null
             date_of_birth: string
             gender: string
             marital_status: string
-            client_type: string
+            member_type: string
             phone_number: string
             email: string | null
             national_id: string | null
@@ -107,48 +107,48 @@ export default function UserProfilePage() {
           }
           membershipFee: number
         }
-        const client = responseData.client
+        const member = responseData.member
         if (typeof responseData.membershipFee === "number") setMembershipFee(responseData.membershipFee)
-        if (typeof client.membership_fee_paid === "number") setMembershipFeePaid(client.membership_fee_paid)
+        if (typeof member.membership_fee_paid === "number") setMembershipFeePaid(member.membership_fee_paid)
         if (cancelled) return
         // Map API client to UI schema without changing UI
         const mapped = {
-          id: client.id,
-          clientNumber: client.client_number,
-          fullName: client.full_name,
-          supabaseUserId: client.supabase_user_id || null,
-          dateOfBirth: client.date_of_birth,
-          gender: client.gender,
-          maritalStatus: client.marital_status,
-          clientType: client.client_type,
-          phoneNumber: client.phone_number,
-          email: client.email || "",
-          nationalId: client.national_id || "",
-          district: client.district || "",
-          village: client.village || "",
-          occupation: client.occupation || "",
-          monthlyIncome: client.monthly_income || 0,
-          monthlySavings: client.monthly_savings || 0,
-          notes: (client as any).notes || "",
-          nextOfKinName: client.next_of_kin_name || "",
-          nextOfKinRelationship: client.next_of_kin_relationship || "",
-          nextOfKinPhone: client.next_of_kin_phone || "",
-          passportPhoto: client.passport_photo || "",
-          nationalIdFront: client.national_id_front || "",
-          nationalIdBack: client.national_id_back || "",
-          kycStatus: client.kyc_status,
-          status: client.status,
-          joinDate: client.join_date,
-          numberOfShares: client.number_of_shares || 0,
-          shareValue: client.share_value || 0,
-          totalShareValue: client.total_share_value || 0,
+          id: member.id,
+          clientNumber: member.member_number,
+          fullName: member.full_name,
+          supabaseUserId: member.supabase_user_id || null,
+          dateOfBirth: member.date_of_birth,
+          gender: member.gender,
+          maritalStatus: member.marital_status,
+          clientType: member.member_type,
+          phoneNumber: member.phone_number,
+          email: member.email || "",
+          nationalId: member.national_id || "",
+          district: member.district || "",
+          village: member.village || "",
+          occupation: member.occupation || "",
+          monthlyIncome: member.monthly_income || 0,
+          monthlySavings: member.monthly_savings || 0,
+          notes: (member as any).notes || "",
+          nextOfKinName: member.next_of_kin_name || "",
+          nextOfKinRelationship: member.next_of_kin_relationship || "",
+          nextOfKinPhone: member.next_of_kin_phone || "",
+          passportPhoto: member.passport_photo || "",
+          nationalIdFront: member.national_id_front || "",
+          nationalIdBack: member.national_id_back || "",
+          kycStatus: member.kyc_status,
+          status: member.status,
+          joinDate: member.join_date,
+          numberOfShares: member.number_of_shares || 0,
+          shareValue: member.share_value || 0,
+          totalShareValue: member.total_share_value || 0,
           // payout fields
-          mobileMoneyProvider: client.mobile_money_provider || "",
-          mobileMoneyNumber: client.mobile_money_number || "",
-          bankName: client.bank_name || "",
-          bankAccountNumber: client.bank_account_number || "",
-          bankAccountName: client.bank_account_name || "",
-          bankBranch: client.bank_branch || "",
+          mobileMoneyProvider: member.mobile_money_provider || "",
+          mobileMoneyNumber: member.mobile_money_number || "",
+          bankName: member.bank_name || "",
+          bankAccountNumber: member.bank_account_number || "",
+          bankAccountName: member.bank_account_name || "",
+          bankBranch: member.bank_branch || "",
           // Mock-only fields retained as fallbacks for UI:
           carLogbook: null,
           landTitle: null,
@@ -246,10 +246,10 @@ export default function UserProfilePage() {
       if (!userId) return
       setKycLoading(true)
       try {
-        const res = await fetch(`/api/institution/admin/kyc/pending?clientId=${encodeURIComponent(userId)}`, { cache: "no-store" })
+        const res = await fetch(`/api/institution/members/${encodeURIComponent(userId)}/kyc/pending`, { cache: "no-store" })
         const data = await res.json()
         if (!res.ok) throw new Error(data?.error || "Failed to load KYC docs")
-        if (!cancelled) setKycPending(data?.items || [])
+        if (!cancelled) setKycPending(data?.pending || [])
       } catch (_e) {
         if (!cancelled) setKycPending([])
       } finally {
@@ -283,7 +283,7 @@ export default function UserProfilePage() {
     try {
       setEnableLoading(true)
       const password = generatePassword(16)
-      const res = await fetch(`/api/institution/clients/${encodeURIComponent(user.id)}/auth`, {
+      const res = await fetch(`/api/institution/members/${encodeURIComponent(user.id)}/auth`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: String(user.email).trim().toLowerCase(), password }),
@@ -293,10 +293,10 @@ export default function UserProfilePage() {
       setGeneratedPassword(password)
       // Refresh client to reflect supabase_user_id linkage
       try {
-        const res2 = await fetch(`/api/institution/clients/${encodeURIComponent(user.id)}`, { cache: "no-store" })
+        const res2 = await fetch(`/api/institution/members/${encodeURIComponent(user.id)}`, { cache: "no-store" })
         if (res2.ok) {
           const payload = await res2.json()
-          const c = payload?.client
+          const c = payload?.member
           if (c) setUser((prev: any) => ({ ...prev, supabaseUserId: c.supabase_user_id || prev?.supabaseUserId || null }))
         }
       } catch { /* ignore */ }
@@ -322,7 +322,7 @@ export default function UserProfilePage() {
     if (!userId) return
     try {
       setActionBusy(true)
-      const res = await fetch(`/api/institution/clients/${userId}/kyc/approve`, {
+      const res = await fetch(`/api/institution/members/${userId}/kyc/approve`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ pendingId }),
@@ -331,10 +331,10 @@ export default function UserProfilePage() {
       if (!res.ok) throw new Error(data?.error || "Approve failed")
       // Reload pending list and client data
       setKycPending((prev) => prev.filter((item) => item.pendingId !== pendingId))
-      const clientRes = await fetch(`/api/institution/clients/${userId}`, { cache: "no-store" })
+      const clientRes = await fetch(`/api/institution/members/${userId}`, { cache: "no-store" })
       if (clientRes.ok) {
         const payload = await clientRes.json()
-        const c = payload?.client
+        const c = payload?.member
         if (c) {
           setUser((prev: any) => ({
             ...prev,
@@ -361,7 +361,7 @@ export default function UserProfilePage() {
     }
     try {
       setActionBusy(true)
-      const res = await fetch(`/api/institution/clients/${userId}/kyc/reject`, {
+      const res = await fetch(`/api/institution/members/${userId}/kyc/reject`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ pendingId, reason }),
@@ -563,11 +563,11 @@ export default function UserProfilePage() {
                       </div>
                       <div className="mt-2 grid gap-2 sm:grid-cols-2">
                         <div>
-                          <Label className="text-xs text-muted-foreground">Email</Label>
+                          <label className="text-xs text-muted-foreground">Email</label>
                           <div className="text-sm font-medium break-all">{user.email}</div>
                         </div>
                         <div>
-                          <Label className="text-xs text-muted-foreground">Temporary Password</Label>
+                          <label className="text-xs text-muted-foreground">Temporary Password</label>
                           <div className="flex items-center gap-2">
                             <code className="text-sm px-2 py-1 bg-white/70 border rounded">{generatedPassword}</code>
                             <Button variant="outline" size="sm" onClick={copyPassword}>{copied ? "Copied" : "Copy"}</Button>

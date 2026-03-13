@@ -3,12 +3,12 @@
 -- Drop all audit triggers
 DROP TRIGGER IF EXISTS audit_trigger ON senteloans_institutions;
 DROP TRIGGER IF EXISTS audit_trigger ON senteloans_users;
-DROP TRIGGER IF EXISTS audit_trigger ON senteloans_clients;
+DROP TRIGGER IF EXISTS audit_trigger ON senteloans_members;
 DROP TRIGGER IF EXISTS audit_trigger ON senteloans_loans;
 DROP TRIGGER IF EXISTS audit_trigger ON senteloans_savings_accounts;
 DROP TRIGGER IF EXISTS audit_trigger ON senteloans_transactions;
 DROP TRIGGER IF EXISTS audit_trigger ON senteloans_loan_products;
-DROP TRIGGER IF EXISTS audit_trigger ON senteloans_client_shares;
+DROP TRIGGER IF EXISTS audit_trigger ON senteloans_member_shares;
 DROP TRIGGER IF EXISTS audit_trigger ON senteloans_loan_repayments;
 
 -- Drop the audit trigger function

@@ -4,13 +4,13 @@
 -- Drop existing audit triggers first
 DROP TRIGGER IF EXISTS audit_institutions_trigger ON senteloans_institutions;
 DROP TRIGGER IF EXISTS audit_users_trigger ON senteloans_users;
-DROP TRIGGER IF EXISTS audit_clients_trigger ON senteloans_clients;
+DROP TRIGGER IF EXISTS audit_clients_trigger ON senteloans_members;
 DROP TRIGGER IF EXISTS audit_loans_trigger ON senteloans_loans;
 DROP TRIGGER IF EXISTS audit_loan_products_trigger ON senteloans_loan_products;
 DROP TRIGGER IF EXISTS audit_savings_accounts_trigger ON senteloans_savings_accounts;
 DROP TRIGGER IF EXISTS audit_transactions_trigger ON senteloans_transactions;
 DROP TRIGGER IF EXISTS audit_loan_repayments_trigger ON senteloans_loan_repayments;
-DROP TRIGGER IF EXISTS audit_client_shares_trigger ON senteloans_client_shares;
+DROP TRIGGER IF EXISTS audit_client_shares_trigger ON senteloans_member_shares;
 
 -- Drop and recreate the audit trigger function with better error handling
 DROP FUNCTION IF EXISTS audit_trigger_function();
@@ -37,14 +37,14 @@ BEGIN
     
     -- Get institution_id based on table structure
     CASE TG_TABLE_NAME
-        WHEN 'senteloans_client_shares' THEN
+        WHEN 'senteloans_member_shares' THEN
             -- Get institution_id through client relationship
             IF TG_OP = 'DELETE' THEN
                 SELECT c.institution_id INTO audit_institution_id 
-                FROM senteloans_clients c WHERE c.id = OLD.client_id;
+                FROM senteloans_members c WHERE c.id = OLD.member_id;
             ELSE
                 SELECT c.institution_id INTO audit_institution_id 
-                FROM senteloans_clients c WHERE c.id = NEW.client_id;
+                FROM senteloans_members c WHERE c.id = NEW.member_id;
             END IF;
             
         WHEN 'senteloans_loan_repayments' THEN
@@ -131,7 +131,7 @@ CREATE TRIGGER audit_users_trigger
     FOR EACH ROW EXECUTE FUNCTION audit_trigger_function();
 
 CREATE TRIGGER audit_clients_trigger
-    AFTER INSERT OR UPDATE OR DELETE ON senteloans_clients
+    AFTER INSERT OR UPDATE OR DELETE ON senteloans_members
     FOR EACH ROW EXECUTE FUNCTION audit_trigger_function();
 
 CREATE TRIGGER audit_loans_trigger
@@ -155,7 +155,7 @@ CREATE TRIGGER audit_loan_repayments_trigger
     FOR EACH ROW EXECUTE FUNCTION audit_trigger_function();
 
 CREATE TRIGGER audit_client_shares_trigger
-    AFTER INSERT OR UPDATE OR DELETE ON senteloans_client_shares
+    AFTER INSERT OR UPDATE OR DELETE ON senteloans_member_shares
     FOR EACH ROW EXECUTE FUNCTION audit_trigger_function();
 
 SELECT 'Audit triggers fixed and recreated successfully' as status;

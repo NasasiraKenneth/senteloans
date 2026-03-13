@@ -20,8 +20,8 @@ BEGIN
     test_loan_id := uuid_generate_v4();
 
     -- Create test institution with correct columns (see 01-create-schema.sql)
-    INSERT INTO senteloans_institutions (id, name, type, registration_number, email, settings) VALUES 
-    (test_institution_id, 'Audit Test SACCO', 'SACCO', 'REG-AUDIT-001', 'audit@test.com', '{"audit": true}');
+    INSERT INTO senteloans_institutions (id, name, type, registration_number, settings) VALUES 
+    (test_institution_id, 'Audit Test SACCO', 'SACCO', 'REG-AUDIT-001', '{"audit": true}');
 
     -- Create test user with correct columns
     -- Updated phone column to match schema (no phone column exists in users table)
@@ -31,7 +31,7 @@ BEGIN
     -- Store IDs for use in tests
     PERFORM set_config('test.institution_id', test_institution_id::text, true);
     PERFORM set_config('test.user_id', test_user_id::text, true);
-    PERFORM set_config('test.client_id', test_client_id::text, true);
+    PERFORM set_config('test.member_id', test_client_id::text, true);
     PERFORM set_config('test.client_id_2', test_client_id_2::text, true);
     PERFORM set_config('test.loan_id', test_loan_id::text, true);
 END $$;
@@ -40,11 +40,11 @@ END $$;
 SELECT 'Test 1: INSERT audit logging' as test_name;
 
 -- Get initial audit log count
-SELECT COUNT(*) as initial_count FROM senteloans_audit_logs WHERE table_name = 'senteloans_clients';
+SELECT COUNT(*) as initial_count FROM senteloans_audit_logs WHERE table_name = 'senteloans_members';
 
 -- Removed created_by column that doesn't exist in schema
 -- Insert a new client with correct required columns only
-INSERT INTO senteloans_clients (
+INSERT INTO senteloans_members (
     id, 
     institution_id, 
     full_name, 
@@ -57,7 +57,7 @@ INSERT INTO senteloans_clients (
     national_id,
     join_date
 ) VALUES (
-    current_setting('test.client_id')::uuid,
+    current_setting('test.member_id')::uuid,
     current_setting('test.institution_id')::uuid,
     'Audit Test Client',
     'CLI-AUDIT-001',
@@ -77,18 +77,18 @@ SELECT
         ELSE 'FAILED: INSERT audit log not created'
     END as insert_audit_test
 FROM senteloans_audit_logs 
-WHERE table_name = 'senteloans_clients' 
+WHERE table_name = 'senteloans_members' 
 AND operation = 'INSERT' 
-AND record_id = current_setting('test.client_id')::uuid;
+AND record_id = current_setting('test.member_id')::uuid;
 
 -- Test 2: Verify audit logs are created on UPDATE
 SELECT 'Test 2: UPDATE audit logging' as test_name;
 
 -- Update the client
 -- Updated to use a valid column for testing
-UPDATE senteloans_clients 
+UPDATE senteloans_members 
 SET occupation = 'Updated Manager'
-WHERE id = current_setting('test.client_id')::uuid;
+WHERE id = current_setting('test.member_id')::uuid;
 
 -- Check if audit log was created for update
 SELECT 
@@ -97,9 +97,9 @@ SELECT
         ELSE 'FAILED: UPDATE audit log not created'
     END as update_audit_test
 FROM senteloans_audit_logs 
-WHERE table_name = 'senteloans_clients' 
+WHERE table_name = 'senteloans_members' 
 AND operation = 'UPDATE' 
-AND record_id = current_setting('test.client_id')::uuid;
+AND record_id = current_setting('test.member_id')::uuid;
 
 -- Test 3: Verify audit logs capture old and new values
 SELECT 'Test 3: Audit log data integrity' as test_name;
@@ -113,9 +113,9 @@ SELECT
         ELSE 'FAILED: Old and new values not properly captured'
     END as data_integrity_test
 FROM senteloans_audit_logs 
-WHERE table_name = 'senteloans_clients' 
+WHERE table_name = 'senteloans_members' 
 AND operation = 'UPDATE' 
-AND record_id = current_setting('test.client_id')::uuid
+AND record_id = current_setting('test.member_id')::uuid
 ORDER BY created_at DESC 
 LIMIT 1;
 
@@ -123,7 +123,7 @@ LIMIT 1;
 SELECT 'Test 4: DELETE audit logging' as test_name;
 
 -- Delete the client
-DELETE FROM senteloans_clients WHERE id = current_setting('test.client_id')::uuid;
+DELETE FROM senteloans_members WHERE id = current_setting('test.member_id')::uuid;
 
 -- Check if audit log was created for delete
 SELECT 
@@ -132,16 +132,16 @@ SELECT
         ELSE 'FAILED: DELETE audit log not created'
     END as delete_audit_test
 FROM senteloans_audit_logs 
-WHERE table_name = 'senteloans_clients' 
+WHERE table_name = 'senteloans_members' 
 AND operation = 'DELETE' 
-AND record_id = current_setting('test.client_id')::uuid;
+AND record_id = current_setting('test.member_id')::uuid;
 
 -- Test 5: Verify audit logs for loan operations
 SELECT 'Test 5: Loan audit logging' as test_name;
 
 -- Removed created_by column from second client insert as well
 -- Create client for loan testing
-INSERT INTO senteloans_clients (
+INSERT INTO senteloans_members (
     id, 
     institution_id, 
     full_name, 
@@ -194,7 +194,7 @@ INSERT INTO senteloans_loan_products (
 INSERT INTO senteloans_loans (
     id, 
     institution_id, 
-    client_id, 
+    member_id, 
     loan_product_id,
     application_id,
     principal_amount, 
@@ -254,7 +254,7 @@ ORDER BY table_name, operation;
 -- Clean up test data in proper order
 DELETE FROM senteloans_loans WHERE institution_id = current_setting('test.institution_id')::uuid;
 DELETE FROM senteloans_loan_products WHERE institution_id = current_setting('test.institution_id')::uuid;
-DELETE FROM senteloans_clients WHERE institution_id = current_setting('test.institution_id')::uuid;
+DELETE FROM senteloans_members WHERE institution_id = current_setting('test.institution_id')::uuid;
 DELETE FROM senteloans_users WHERE institution_id = current_setting('test.institution_id')::uuid;
 DELETE FROM senteloans_institutions WHERE id = current_setting('test.institution_id')::uuid;
 DELETE FROM senteloans_audit_logs WHERE institution_id = current_setting('test.institution_id')::uuid;

@@ -1,4 +1,4 @@
--- Optional: Allow clients to INSERT their own loan applications (client_id must match their client record).
+-- Optional: Allow clients to INSERT their own loan applications (member_id must match their client record).
 -- This uses auth.uid() which exists only in Supabase. On plain Postgres, client self-service is enforced
 -- by the API (app/api/client/loans/route.ts); run this script only when using Supabase.
 -- Safe to run on plain Postgres: does nothing if senteloans_loans is missing or auth.uid() is not available.
@@ -23,8 +23,8 @@ BEGIN
     FOR INSERT
     WITH CHECK (
       EXISTS (
-        SELECT 1 FROM senteloans_clients c
-        WHERE c.id = client_id
+        SELECT 1 FROM senteloans_members c
+        WHERE c.id = member_id
           AND c.supabase_user_id = auth.uid()
           AND c.institution_id = institution_id
       )

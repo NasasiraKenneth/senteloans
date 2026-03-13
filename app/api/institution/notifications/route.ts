@@ -18,7 +18,7 @@ export async function GET(req: Request) {
         [session!.user!.authUserId]
       )
       const instUser = userRes.rows[0]
-      if (!instUser) return null
+      if (!instUser) return { ok: true, notifications: [], unreadCount: 0 }
 
       let where = `recipient_type = 'institution_user' AND recipient_id = $1`
       const params: unknown[] = [instUser.id]
@@ -38,7 +38,6 @@ export async function GET(req: Request) {
       return { ok: true, notifications: listRes.rows, unreadCount }
     })
 
-    if (!result) return NextResponse.json({ error: "user_not_found" }, { status: 404 })
     return NextResponse.json(result)
   } catch (e: unknown) {
     const err = e as Error

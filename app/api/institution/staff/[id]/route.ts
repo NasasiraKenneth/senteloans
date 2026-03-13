@@ -6,11 +6,29 @@ import { hash } from "bcryptjs"
 import { auditLogger } from "@/lib/audit/audit-logger"
 
 function isElevated(role?: string | null) {
-  return role === "institution_admin" || role === "manager"
+  return role === "super_admin" || role === "institution_admin" || role === "manager"
 }
 
-const VALID_ROLES = ["institution_admin", "manager", "loan_officer", "teller"]
 const VALID_STATUSES = ["Active", "Inactive", "Suspended"]
+
+async function resolveRoleById(client: any, roleId: string): Promise<{ id: string; app_role: string } | null> {
+  const roleRes = await client.query(
+    `SELECT
+       r.id,
+       CASE
+               WHEN r.name = 'System Admin' THEN 'system_admin'
+               WHEN r.name = 'Super Admin' THEN 'super_admin'
+         WHEN r.name = 'Admin' THEN 'institution_admin'
+         WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
+         ELSE NULL
+       END AS app_role
+     FROM senteloans_roles r
+     WHERE r.id = $1
+     LIMIT 1`,
+    [roleId]
+  )
+  return roleRes.rows[0] || null
+}
 
 /** GET /api/institution/staff/[id] — fetch a single staff member */
 export async function GET(
@@ -36,10 +54,27 @@ export async function GET(
       if (!actor) return { error: "user_not_linked" as const }
 
       const res = await client.query(
-        `SELECT u.id, u.full_name, u.email, u.phone_number, u.role, u.status,
-                u.is_admin, u.joined_at, u.permissions, u.last_login, u.created_at,
+        `SELECT
+                u.id,
+                u.full_name,
+                u.email,
+                u.phone_number,
+                u.role_id,
+                CASE
+                  WHEN r.name = 'System Admin' THEN 'system_admin'
+                  WHEN r.name = 'Super Admin' THEN 'super_admin'
+                  WHEN r.name = 'Admin' THEN 'institution_admin'
+                  WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
+                  ELSE NULL
+                END AS role,
+                u.status,
+                u.is_admin,
+                u.joined_at,
+                u.last_login,
+                u.created_at,
                 a.username
          FROM senteloans_users u
+         LEFT JOIN senteloans_roles r ON r.id = u.role_id
          LEFT JOIN app_auth_users a ON a.id = u.supabase_user_id
          WHERE u.id = $1 AND u.institution_id = $2`,
         [id, actor.institution_id]
@@ -86,7 +121,6 @@ export async function PUT(
     const password = String(body.password || "").trim()
     const status = String(body.status || "Active").trim()
     const joinDate = String(body.joinDate || "").trim()
-    const isAdministrator = Boolean(body.isAdministrator)
     const roles: string[] = Array.isArray(body.roles) ? body.roles : []
 
     // Validation
@@ -96,9 +130,7 @@ export async function PUT(
     if (!username) return NextResponse.json({ error: "Username is required" }, { status: 400 })
     if (roles.length === 0) return NextResponse.json({ error: "At least one role is required" }, { status: 400 })
 
-    const primaryRole = roles[0]
-    if (!VALID_ROLES.includes(primaryRole))
-      return NextResponse.json({ error: `Invalid role: ${primaryRole}` }, { status: 400 })
+    const selectedRoleId = roles[0]
     if (!VALID_STATUSES.includes(status))
       return NextResponse.json({ error: `Invalid status: ${status}` }, { status: 400 })
 
@@ -107,7 +139,19 @@ export async function PUT(
     const result = await runWithAuth(session.user.authUserId, async (client) => {
       // Get actor
       const actorRes = await client.query(
-        `SELECT id, institution_id FROM senteloans_users WHERE supabase_user_id = $1`,
+        `SELECT
+           u.id,
+           u.institution_id,
+           CASE
+             WHEN r.name = 'System Admin' THEN 'system_admin'
+             WHEN r.name = 'Super Admin' THEN 'super_admin'
+             WHEN r.name = 'Admin' THEN 'institution_admin'
+             WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
+             ELSE NULL
+           END AS role
+         FROM senteloans_users u
+         LEFT JOIN senteloans_roles r ON r.id = u.role_id
+         WHERE u.supabase_user_id = $1`,
         [session!.user!.authUserId]
       )
       const actor = actorRes.rows[0]
@@ -115,8 +159,23 @@ export async function PUT(
 
       // Get existing staff member
       const staffRes = await client.query(
-        `SELECT u.id, u.email, u.supabase_user_id, u.full_name, u.role, u.status, u.is_admin
+        `SELECT
+           u.id,
+           u.email,
+           u.supabase_user_id,
+           u.full_name,
+           CASE
+             WHEN r.name = 'System Admin' THEN 'system_admin'
+             WHEN r.name = 'Super Admin' THEN 'super_admin'
+             WHEN r.name = 'Admin' THEN 'institution_admin'
+             WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
+             ELSE NULL
+           END AS role,
+           u.status,
+           u.is_admin,
+           u.role_id
          FROM senteloans_users u
+         LEFT JOIN senteloans_roles r ON r.id = u.role_id
          WHERE u.id = $1 AND u.institution_id = $2`,
         [id, actor.institution_id]
       )
@@ -141,8 +200,15 @@ export async function PUT(
         if (usernameCheck.rows.length > 0) return { error: "username_or_auth_email_already_exists" as const }
       }
 
-      // Build permissions
-      const permissions = buildPermissions(roles, isAdministrator)
+      const roleRow = await resolveRoleById(client, selectedRoleId)
+      if (!roleRow?.id) return { error: "role_not_found" as const }
+      if (roleRow.app_role === "system_admin") return { error: "invalid_role_for_institution_staff" as const }
+      if (actor.role !== "super_admin" && roleRow.app_role === "super_admin") {
+        return { error: "insufficient_role_scope_for_assignment" as const }
+      }
+      if (actor.role !== "super_admin" && actor.role !== "institution_admin" && roleRow.app_role === "institution_admin") {
+        return { error: "insufficient_role_scope_for_assignment" as const }
+      }
 
       // Store old values for audit
       const oldValues = {
@@ -156,10 +222,10 @@ export async function PUT(
       // 1. Update senteloans_users
       await client.query(
         `UPDATE senteloans_users
-         SET full_name = $1, email = $2, phone_number = $3, role = $4,
-             permissions = $5, status = $6, is_admin = $7, joined_at = $8, updated_at = NOW()
-         WHERE id = $9`,
-        [fullName, email, phoneNumber || null, primaryRole, JSON.stringify(permissions), status, isAdministrator, joinDate || null, id]
+         SET full_name = $1, email = $2, phone_number = $3, role_id = $4,
+             status = $5, is_admin = $6, joined_at = $7, updated_at = NOW()
+         WHERE id = $8`,
+        [fullName, email, phoneNumber || null, roleRow.id, status, roleRow.app_role === "institution_admin", joinDate || null, id]
       )
 
       // 2. Update app_auth_users (email, username, and optionally password)
@@ -183,7 +249,7 @@ export async function PUT(
         "senteloans_users",
         id,
         oldValues,
-        { full_name: fullName, email, role: primaryRole, status, is_admin: isAdministrator },
+        { full_name: fullName, email, role: roleRow.app_role, role_id: roleRow.id, status, is_admin: roleRow.app_role === "institution_admin" },
         actor.institution_id,
         actor.id,
         undefined,
@@ -197,9 +263,9 @@ export async function PUT(
           full_name: fullName,
           email,
           phone_number: phoneNumber || null,
-          role: primaryRole,
+          role: roleRow.app_role,
           status,
-          is_admin: isAdministrator,
+          is_admin: roleRow.app_role === "institution_admin",
           joined_at: joinDate || null,
         },
       }
@@ -210,10 +276,16 @@ export async function PUT(
         result.error === "staff_not_found" ? 404 :
         result.error === "email_already_exists" ? 409 :
         result.error === "username_or_auth_email_already_exists" ? 409 :
+        result.error === "role_not_found" ? 400 :
+        result.error === "invalid_role_for_institution_staff" ? 400 :
+        result.error === "insufficient_role_scope_for_assignment" ? 403 :
         result.error === "user_not_linked" ? 400 : 500
       const message =
         result.error === "email_already_exists" ? "A staff member with this email already exists" :
         result.error === "username_or_auth_email_already_exists" ? "Username or email is already taken" :
+        result.error === "role_not_found" ? "Selected role is not available in role catalog" :
+        result.error === "invalid_role_for_institution_staff" ? "System Admin cannot be assigned as institution staff role" :
+        result.error === "insufficient_role_scope_for_assignment" ? "You are not allowed to assign the selected role" :
         result.error === "staff_not_found" ? "Staff member not found" :
         result.error
       return NextResponse.json({ error: message }, { status: statusCode })
@@ -224,51 +296,4 @@ export async function PUT(
     const err = e as Error
     return NextResponse.json({ error: err?.message || "Unexpected error" }, { status: 500 })
   }
-}
-
-function buildPermissions(roles: string[], isAdmin: boolean): Record<string, Record<string, boolean>> {
-  if (isAdmin || roles.includes("institution_admin")) {
-    return {
-      clients: { create: true, read: true, update: true, delete: true },
-      loans: { create: true, read: true, update: true, delete: true, approve: true, disburse: true },
-      savings: { create: true, read: true, update: true, delete: true },
-      transactions: { create: true, read: true, update: true, delete: true },
-      reports: { create: true, read: true, update: true, delete: true },
-      users: { create: true, read: true, update: true, delete: true },
-      settings: { create: true, read: true, update: true, delete: true },
-    }
-  }
-
-  const perms: Record<string, Record<string, boolean>> = {
-    clients: { create: false, read: true, update: false, delete: false },
-    loans: { create: false, read: true, update: false, delete: false, approve: false, disburse: false },
-    savings: { create: false, read: true, update: false, delete: false },
-    transactions: { create: false, read: true, update: false, delete: false },
-    reports: { create: false, read: false, update: false, delete: false },
-  }
-
-  for (const role of roles) {
-    if (role === "manager") {
-      perms.clients = { create: true, read: true, update: true, delete: false }
-      perms.loans = { create: true, read: true, update: true, delete: false, approve: true, disburse: true }
-      perms.transactions = { create: true, read: true, update: true, delete: false }
-      perms.reports = { create: true, read: true, update: false, delete: false }
-      perms.users = { create: false, read: true, update: false, delete: false }
-    }
-    if (role === "loan_officer") {
-      perms.clients.create = true
-      perms.clients.update = true
-      perms.loans.create = true
-      perms.loans.update = true
-      perms.savings = { create: true, read: true, update: true, delete: false }
-      perms.transactions.create = true
-      perms.reports.read = true
-    }
-    if (role === "teller") {
-      perms.transactions.create = true
-      perms.reports.read = false
-    }
-  }
-
-  return perms
 }

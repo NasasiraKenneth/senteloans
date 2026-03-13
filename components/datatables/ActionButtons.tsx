@@ -1,10 +1,12 @@
 import React from 'react';
+import TooltipButton from "@/components/newUI/tooltip_button";
 
 interface TableAction<T> {
   label: string;
   onClick: (row: T) => void;
   variant?: 'danger' | 'primary' | 'view' | 'pdf' | string;
   icon?: React.ReactNode;
+  disabled?: boolean | ((row: T) => boolean);
 }
 
 interface ActionButtonsProps<T> {
@@ -31,30 +33,36 @@ export function ActionButtons<T>({ actions, row }: ActionButtonsProps<T>) {
   return (
     <div className="flex items-center gap-2">
       {actions.map((action, index) => (
-        <button
+        (() => {
+          const isDisabled = typeof action.disabled === "function" ? action.disabled(row) : !!action.disabled;
+          return (
+        <TooltipButton
           key={index}
+          tooltip={isDisabled ? `${action.label} (No permission)` : action.label}
+          disabled={isDisabled}
           onClick={(e) => {
             e.stopPropagation();
+            if (isDisabled) return;
             action.onClick(row);
           }}
-          className="group relative inline-flex items-center justify-center w-8 h-8 bg-gray-100 rounded-lg transition-all duration-200 hover:shadow-lg hover:scale-105 focus:outline-none focus:ring-2 focus:ring-offset-1"
-          title={action.label}
+          className={`group relative inline-flex items-center justify-center w-8 h-8 rounded-lg transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-1 ${
+            isDisabled
+              ? "bg-gray-100 opacity-50 cursor-not-allowed"
+              : "bg-gray-100 hover:shadow-lg hover:scale-105"
+          }`}
         >
           {action.icon && (
             <span
-              className={`transition-transform group-hover:scale-110 ${getIconStyles(
+              className={`transition-transform ${isDisabled ? "" : "group-hover:scale-110"} ${getIconStyles(
                 action.variant
               )}`}
             >
               {action.icon}
             </span>
           )}
-
-          {/* Tooltip */}
-          <div className="absolute -top-8 left-1/2 transform -translate-x-1/2 bg-gray-800 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-10">
-            {action.label}
-          </div>
-        </button>
+        </TooltipButton>
+          );
+        })()
       ))}
     </div>
   );

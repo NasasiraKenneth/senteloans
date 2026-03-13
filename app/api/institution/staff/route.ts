@@ -7,11 +7,29 @@ import * as crypto from "crypto"
 import { auditLogger } from "@/lib/audit/audit-logger"
 
 function isElevated(role?: string | null) {
-  return role === "institution_admin" || role === "manager"
+  return role === "super_admin" || role === "institution_admin" || role === "manager"
 }
 
-const VALID_ROLES = ["institution_admin", "manager", "loan_officer", "teller"]
 const VALID_STATUSES = ["Active", "Inactive", "Suspended"]
+
+async function resolveRoleById(client: any, roleId: string): Promise<{ id: string; app_role: string } | null> {
+  const roleRes = await client.query(
+    `SELECT
+       r.id,
+       CASE
+         WHEN r.name = 'System Admin' THEN 'system_admin'
+         WHEN r.name = 'Super Admin' THEN 'super_admin'
+         WHEN r.name = 'Admin' THEN 'institution_admin'
+         WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
+         ELSE NULL
+       END AS app_role
+     FROM senteloans_roles r
+     WHERE r.id = $1
+     LIMIT 1`,
+    [roleId]
+  )
+  return roleRes.rows[0] || null
+}
 
 export async function GET(req: Request) {
   try {
@@ -33,11 +51,19 @@ export async function GET(req: Request) {
     const result = await runWithAuth(
       session.user.authUserId,
       async (client) => {
-        let where =
-          "u.institution_id = (SELECT institution_id FROM senteloans_users WHERE supabase_user_id = $1)"
-        // Exclude system_admin and client roles — only institution staff
-        where += " AND u.role NOT IN ('system_admin', 'client')"
-        const params: unknown[] = [session!.user!.authUserId]
+        const actorRes = await client.query(
+          `SELECT id, institution_id
+           FROM senteloans_users
+           WHERE supabase_user_id = $1`,
+          [session!.user!.authUserId]
+        )
+        const actor = actorRes.rows[0]
+        if (!actor?.institution_id) return []
+
+        let where = "u.institution_id = $1"
+        // Exclude system admins; list institution staff only
+        where += " AND app_role.app_role != 'system_admin'"
+        const params: unknown[] = [actor.institution_id]
         let idx = 2
 
         if (search) {
@@ -46,7 +72,7 @@ export async function GET(req: Request) {
           idx++
         }
         if (role) {
-          where += ` AND u.role = $${idx}`
+          where += ` AND app_role.app_role = $${idx}`
           params.push(role)
           idx++
         }
@@ -58,9 +84,29 @@ export async function GET(req: Request) {
 
         params.push(pageSize)
         const res = await client.query(
-          `SELECT u.id, u.full_name, u.email, u.phone_number, u.role, u.status,
-                  u.is_admin, u.joined_at, u.last_login, u.created_at
+          `SELECT
+              u.id,
+              u.full_name,
+              u.email,
+              u.phone_number,
+              app_role.app_role AS role,
+              u.status,
+              u.is_admin,
+              u.joined_at,
+              u.last_login,
+              u.created_at
            FROM senteloans_users u
+           LEFT JOIN LATERAL (
+             SELECT CASE
+               WHEN r.name = 'System Admin' THEN 'system_admin'
+               WHEN r.name = 'Super Admin' THEN 'super_admin'
+               WHEN r.name = 'Admin' THEN 'institution_admin'
+               WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
+               ELSE NULL
+             END AS app_role
+             FROM senteloans_roles r
+             WHERE r.id = u.role_id
+           ) app_role ON TRUE
            WHERE ${where}
            ORDER BY u.created_at DESC
            LIMIT $${idx}`,
@@ -98,8 +144,6 @@ export async function POST(req: Request) {
     const username = String(body.username || "").trim().toLowerCase()
     const password = String(body.password || "").trim()
     const status = String(body.status || "Active").trim()
-    const joinDate = String(body.joinDate || "").trim()
-    const isAdministrator = Boolean(body.isAdministrator)
     const roles: string[] = Array.isArray(body.roles) ? body.roles : []
 
     // Validation
@@ -111,9 +155,7 @@ export async function POST(req: Request) {
     if (roles.length === 0) return NextResponse.json({ error: "At least one role is required" }, { status: 400 })
 
     // Use the first role as the primary role (DB column is single enum)
-    const primaryRole = roles[0]
-    if (!VALID_ROLES.includes(primaryRole))
-      return NextResponse.json({ error: `Invalid role: ${primaryRole}` }, { status: 400 })
+    const selectedRoleId = roles[0]
     if (!VALID_STATUSES.includes(status))
       return NextResponse.json({ error: `Invalid status: ${status}` }, { status: 400 })
 
@@ -122,11 +164,25 @@ export async function POST(req: Request) {
     const result = await runWithAuth(session.user.authUserId, async (client) => {
       // Get actor's institution
       const actorRes = await client.query(
-        `SELECT id, institution_id, role FROM senteloans_users WHERE supabase_user_id = $1`,
+        `SELECT
+           u.id,
+           u.institution_id,
+           u.branch_id,
+           CASE
+             WHEN r.name = 'System Admin' THEN 'system_admin'
+             WHEN r.name = 'Super Admin' THEN 'super_admin'
+             WHEN r.name = 'Admin' THEN 'institution_admin'
+             WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
+             ELSE NULL
+           END AS role
+         FROM senteloans_users u
+         LEFT JOIN senteloans_roles r ON r.id = u.role_id
+         WHERE u.supabase_user_id = $1`,
         [session!.user!.authUserId]
       )
       const actor = actorRes.rows[0]
       if (!actor) return { error: "user_not_linked" as const }
+      if (!actor.branch_id) return { error: "actor_branch_missing" as const }
 
       // Check email uniqueness
       const emailCheck = await client.query(
@@ -153,28 +209,36 @@ export async function POST(req: Request) {
         [authId, email, passwordHash, username]
       )
 
-      // 2. Build permissions based on roles
-      const permissions = buildPermissions(roles, isAdministrator)
+      // 2. Resolve role_id from normalized role name
+      const roleRow = await resolveRoleById(client, selectedRoleId)
+      if (!roleRow?.id) return { error: "role_not_found" as const }
+      if (roleRow.app_role === "system_admin") return { error: "invalid_role_for_institution_staff" as const }
+      if (actor.role !== "super_admin" && roleRow.app_role === "super_admin") {
+        return { error: "insufficient_role_scope_for_assignment" as const }
+      }
+      if (actor.role !== "super_admin" && actor.role !== "institution_admin" && roleRow.app_role === "institution_admin") {
+        return { error: "insufficient_role_scope_for_assignment" as const }
+      }
 
       // 3. Create senteloans_users record
       const userId = crypto.randomUUID()
       await client.query(
         `INSERT INTO senteloans_users (
-          id, supabase_user_id, institution_id, email, full_name, phone_number,
-          role, permissions, status, is_admin, joined_at
+          id, supabase_user_id, institution_id, branch_id, role_id, email, full_name, phone_number,
+          status, is_admin, joined_at
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
         [
           userId,
           authId,
           actor.institution_id,
+          actor.branch_id,
+          roleRow.id,
           email,
           fullName,
           phoneNumber || null,
-          primaryRole,
-          JSON.stringify(permissions),
           status,
-          isAdministrator,
-          joinDate || null,
+          roleRow.app_role === "institution_admin",
+          null,
         ]
       )
 
@@ -182,7 +246,7 @@ export async function POST(req: Request) {
       await auditLogger.logInsert(
         "senteloans_users",
         userId,
-        { email, full_name: fullName, role: primaryRole, status, is_admin: isAdministrator },
+        { email, full_name: fullName, role: roleRow.app_role, status, role_id: roleRow.id },
         actor.institution_id,
         actor.id,
         undefined,
@@ -196,10 +260,10 @@ export async function POST(req: Request) {
           full_name: fullName,
           email,
           phone_number: phoneNumber || null,
-          role: primaryRole,
+          role: roleRow.app_role,
           status,
-          is_admin: isAdministrator,
-          joined_at: joinDate || null,
+          is_admin: roleRow.app_role === "institution_admin",
+          joined_at: null,
           created_at: new Date().toISOString(),
         },
       }
@@ -209,10 +273,18 @@ export async function POST(req: Request) {
       const statusCode =
         result.error === "email_already_exists" ? 409 :
         result.error === "username_or_auth_email_already_exists" ? 409 :
+        result.error === "role_not_found" ? 400 :
+        result.error === "invalid_role_for_institution_staff" ? 400 :
+        result.error === "insufficient_role_scope_for_assignment" ? 403 :
+        result.error === "actor_branch_missing" ? 400 :
         result.error === "user_not_linked" ? 400 : 500
       const message =
         result.error === "email_already_exists" ? "A staff member with this email already exists" :
         result.error === "username_or_auth_email_already_exists" ? "Username or email is already taken" :
+        result.error === "role_not_found" ? "Selected role is not available in role catalog" :
+        result.error === "invalid_role_for_institution_staff" ? "System Admin cannot be assigned as institution staff role" :
+        result.error === "insufficient_role_scope_for_assignment" ? "You are not allowed to assign the selected role" :
+        result.error === "actor_branch_missing" ? "Current staff user has no branch configured" :
         result.error
       return NextResponse.json({ error: message }, { status: statusCode })
     }
@@ -225,52 +297,4 @@ export async function POST(req: Request) {
       { status: 500 }
     )
   }
-}
-
-function buildPermissions(roles: string[], isAdmin: boolean): Record<string, Record<string, boolean>> {
-  const perms: Record<string, Record<string, boolean>> = {}
-
-  if (isAdmin || roles.includes("institution_admin")) {
-    return {
-      clients: { create: true, read: true, update: true, delete: true },
-      loans: { create: true, read: true, update: true, delete: true, approve: true, disburse: true },
-      savings: { create: true, read: true, update: true, delete: true },
-      transactions: { create: true, read: true, update: true, delete: true },
-      reports: { create: true, read: true, update: true, delete: true },
-      users: { create: true, read: true, update: true, delete: true },
-      settings: { create: true, read: true, update: true, delete: true },
-    }
-  }
-
-  // Start with minimal permissions
-  perms.clients = { create: false, read: true, update: false, delete: false }
-  perms.loans = { create: false, read: true, update: false, delete: false, approve: false, disburse: false }
-  perms.savings = { create: false, read: true, update: false, delete: false }
-  perms.transactions = { create: false, read: true, update: false, delete: false }
-  perms.reports = { create: false, read: false, update: false, delete: false }
-
-  for (const role of roles) {
-    if (role === "manager") {
-      perms.clients = { create: true, read: true, update: true, delete: false }
-      perms.loans = { create: true, read: true, update: true, delete: false, approve: true, disburse: true }
-      perms.transactions = { create: true, read: true, update: true, delete: false }
-      perms.reports = { create: true, read: true, update: false, delete: false }
-      perms.users = { create: false, read: true, update: false, delete: false }
-    }
-    if (role === "loan_officer") {
-      perms.clients.create = true
-      perms.clients.update = true
-      perms.loans.create = true
-      perms.loans.update = true
-      perms.savings = { create: true, read: true, update: true, delete: false }
-      perms.transactions.create = true
-      perms.reports.read = true
-    }
-    if (role === "teller") {
-      perms.transactions.create = true
-      perms.reports.read = false
-    }
-  }
-
-  return perms
 }

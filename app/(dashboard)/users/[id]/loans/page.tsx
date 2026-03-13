@@ -30,13 +30,13 @@ export default function UserLoansPage() {
   useEffect(() => {
     setSession(getSession())
     Promise.all([
-      fetch(`/api/institution/clients/${userId}`).then((r) => r.json()),
+      fetch(`/api/institution/members/${userId}`).then((r) => r.json()),
       fetch(`/api/institution/loans?client_id=${userId}&pageSize=100`).then((r) => r.json()),
     ])
-      .then(([clientRes, loansRes]) => {
-        const c = clientRes.client
+      .then(([memberRes, loansRes]) => {
+        const c = memberRes.member
         if (c) {
-          setUser({ id: c.id, fullName: c.full_name, clientNumber: c.client_number })
+          setUser({ id: c.id, fullName: c.full_name, clientNumber: c.member_number })
         }
         const items = loansRes.items ?? []
         setLoans(

@@ -17,8 +17,13 @@ UPDATE senteloans_users
 
 -- 4. Backfill is_admin for existing institution_admin users
 UPDATE senteloans_users
-  SET is_admin = TRUE
-  WHERE role = 'institution_admin';
+SET is_admin = TRUE
+FROM senteloans_roles r
+WHERE r.id = senteloans_users.role_id
+  AND (
+    r.name = 'Admin'
+    OR regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g') = 'institution_admin'
+  );
 
 -- 5. Backfill username from email (use full email to avoid duplicates like multiple "admin" prefixes)
 DO $$

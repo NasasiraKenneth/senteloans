@@ -1,347 +1,222 @@
--- Phase 3: User Accounts Migration Script
--- Creates user accounts based on loan officers and admin users referenced in mock data.
--- Idempotent: ON CONFLICT (email) DO NOTHING so safe to re-run.
+-- Phase 3: RBAC and users seed
+-- Seeds roles, permissions, staff/manager role_permissions, and users with role_id.
+-- Admin gets full branch-scoped permission catalog; Super Admin access is role-driven by app/RLS.
 
+-- 1) Seed role catalog
+INSERT INTO senteloans_roles (name, description)
+VALUES
+  ('Manager', 'Department manager'),
+  ('Loan Officer', 'Loan processing and member loan support'),
+  ('Teller', 'Cash and front desk transactions'),
+  ('Consultant', 'Advisory and support access'),
+  ('Treasurer', 'Treasury and cash management'),
+  ('Credit Officer', 'Credit appraisal and monitoring'),
+  ('Accountant', 'Accounting and reconciliation'),
+  ('Admin', 'Institution branch system management'),
+  ('Super Admin', 'Full institution system access that is (All branches of an institution)')
+ON CONFLICT (name) DO NOTHING;
+
+-- 2) Seed permission catalog
+INSERT INTO senteloans_permissions (name, module)
+VALUES
+  ('view_users', 'users'),
+  ('create_user', 'users'),
+  ('edit_user', 'users'),
+  ('view_members', 'members'),
+  ('edit_member', 'members'),
+  ('edit_membership_fee', 'members'),
+  ('edit_opening_savings', 'members'),
+  ('edit_opening_loans', 'members'),
+  ('edit_shares', 'members'),
+  ('create_member', 'members'),
+  ('create_client', 'clients'),
+  ('edit_client', 'clients'),
+  ('view_clients', 'clients'),
+  ('view_loans', 'loans'),
+  ('approve_loan', 'loans'),
+  ('review_loan', 'loans'),
+  ('create_loan', 'loans'),
+  ('disburse_loan', 'loans'),
+  ('record_payment', 'loans'),
+  ('reject_loan', 'loans'),
+  ('close_loan', 'loans'),
+  ('view_loan_products', 'loan_products'),
+  ('create_loan_product', 'loan_products'),
+  ('edit_loan_product', 'loan_products')
+ON CONFLICT (name) DO NOTHING;
+
+-- 3) Seed role permissions
+WITH role_permission_map(role_name, permission_name) AS (
+  VALUES
+    -- Loan Officer
+    ('Loan Officer', 'view_users'),
+    ('Loan Officer', 'view_members'),
+    ('Loan Officer', 'view_clients'),
+    ('Loan Officer', 'view_loans'),
+    ('Loan Officer', 'view_loan_products'),
+    ('Loan Officer', 'record_payment'),
+
+    -- Manager
+    ('Manager', 'view_users'),
+    ('Manager', 'create_user'),
+    ('Manager', 'edit_user'),
+    ('Manager', 'view_members'),
+    ('Manager', 'create_member'),
+    ('Manager', 'edit_member'),
+    ('Manager', 'edit_membership_fee'),
+    ('Manager', 'edit_opening_savings'),
+    ('Manager', 'edit_opening_loans'),
+    ('Manager', 'edit_shares'),
+    ('Manager', 'view_clients'),
+    ('Manager', 'create_client'),
+    ('Manager', 'edit_client'),
+    ('Manager', 'view_loans'),
+    ('Manager', 'review_loan'),
+    ('Manager', 'create_loan'),
+    ('Manager', 'approve_loan'),
+    ('Manager', 'disburse_loan'),
+    ('Manager', 'record_payment'),
+    ('Manager', 'reject_loan'),
+    ('Manager', 'close_loan'),
+    ('Manager', 'view_loan_products'),
+    ('Manager', 'create_loan_product'),
+    ('Manager', 'edit_loan_product')
+)
+INSERT INTO senteloans_role_permissions (branch_id, role_id, permission_id)
+SELECT
+  b.id,
+  r.id,
+  p.id
+FROM senteloans_branches b
+JOIN role_permission_map rpm ON TRUE
+JOIN senteloans_roles r ON r.name = rpm.role_name
+JOIN senteloans_permissions p ON p.name = rpm.permission_name
+UNION ALL
+-- Admin: full permission catalog for branch-level operations.
+SELECT
+  b.id,
+  r.id,
+  p.id
+FROM senteloans_branches b
+JOIN senteloans_roles r ON r.name = 'Admin'
+JOIN senteloans_permissions p ON TRUE
+ON CONFLICT (branch_id, role_id, permission_id) DO NOTHING;
+
+-- 4) Seed users with role_id
 DO $$
 DECLARE
     platform_id UUID;
     kampala_sacco_id UUID;
     quick_cash_id UUID;
     opportunity_mfi_id UUID;
+    platform_branch_id UUID;
+    kampala_sacco_branch_id UUID;
+    quick_cash_branch_id UUID;
+    opportunity_mfi_branch_id UUID;
+    role_loan_officer_id UUID;
+    role_teller_id UUID;
+    role_manager_id UUID;
+    role_admin_id UUID;
+    role_super_admin_id UUID;
 BEGIN
-    -- Get institution IDs
     SELECT id INTO platform_id FROM senteloans_institutions WHERE name = 'SenteLoans Platform';
     SELECT id INTO kampala_sacco_id FROM senteloans_institutions WHERE name = 'Kampala Central SACCO';
     SELECT id INTO quick_cash_id FROM senteloans_institutions WHERE name = 'Quick Cash Uganda';
     SELECT id INTO opportunity_mfi_id FROM senteloans_institutions WHERE name = 'Opportunity Microfinance Uganda';
 
-    -- Create System Admin (Tier 1) for platform
+    SELECT id INTO platform_branch_id FROM senteloans_branches WHERE institution_id = platform_id ORDER BY created_at LIMIT 1;
+    SELECT id INTO kampala_sacco_branch_id FROM senteloans_branches WHERE institution_id = kampala_sacco_id ORDER BY created_at LIMIT 1;
+    SELECT id INTO quick_cash_branch_id FROM senteloans_branches WHERE institution_id = quick_cash_id ORDER BY created_at LIMIT 1;
+    SELECT id INTO opportunity_mfi_branch_id FROM senteloans_branches WHERE institution_id = opportunity_mfi_id ORDER BY created_at LIMIT 1;
+
+    SELECT id INTO role_loan_officer_id FROM senteloans_roles WHERE name = 'Loan Officer' LIMIT 1;
+    SELECT id INTO role_teller_id FROM senteloans_roles WHERE name = 'Teller' LIMIT 1;
+    SELECT id INTO role_manager_id FROM senteloans_roles WHERE name = 'Manager' LIMIT 1;
+    SELECT id INTO role_admin_id FROM senteloans_roles WHERE name = 'Admin' LIMIT 1;
+    SELECT id INTO role_super_admin_id FROM senteloans_roles WHERE name = 'Super Admin' LIMIT 1;
+
+    -- Platform super admin
     INSERT INTO senteloans_users (
-        id,
-        supabase_user_id,
-        institution_id,
-        email,
-        full_name,
-        phone_number,
-        role,
-        status,
-        permissions
+        id, supabase_user_id, institution_id, branch_id, role_id, email, full_name, phone_number, status
     ) VALUES (
-        uuid_generate_v4(),
-        NULL::uuid, -- set later to real Supabase auth user id
-        platform_id,
-        'admin@senteloans.com',
-        'SenteLoans System Admin',
-        '+256000000000',
-        'system_admin',
-        'Active',
-        '{"system": {"all": true}}'
+        uuid_generate_v4(), NULL::uuid, platform_id, platform_branch_id, role_super_admin_id,
+        'admin@senteloans.com', 'SenteLoans System Admin', '+256000000000', 'Active'
     )
     ON CONFLICT (email) DO NOTHING;
 
-    -- Create admin users for each institution
+    -- Institution admins
     INSERT INTO senteloans_users (
-        id,
-        supabase_user_id,
-        institution_id,
-        email,
-        full_name,
-        phone_number,
-        role,
-        status,
-        permissions
-    ) VALUES 
-    -- Kampala Central SACCO Admin
+        id, supabase_user_id, institution_id, branch_id, role_id, email, full_name, phone_number, status
+    ) VALUES
     (
-        uuid_generate_v4(),
-        NULL::uuid,
-        kampala_sacco_id,
-        'admin@kampalacentralsacco.ug',
-        'John Ssebunya',
-        '+256414123456',
-        'institution_admin', -- Updated role to match schema ENUM
-        'Active',
-        '{
-            "clients": {"create": true, "read": true, "update": true, "delete": true},
-            "loans": {"create": true, "read": true, "update": true, "delete": true, "approve": true, "disburse": true},
-            "savings": {"create": true, "read": true, "update": true, "delete": true},
-            "transactions": {"create": true, "read": true, "update": true, "delete": true},
-            "reports": {"create": true, "read": true, "update": true, "delete": true},
-            "users": {"create": true, "read": true, "update": true, "delete": true},
-            "settings": {"create": true, "read": true, "update": true, "delete": true}
-        }'
+        uuid_generate_v4(), NULL::uuid, kampala_sacco_id, kampala_sacco_branch_id, role_admin_id,
+        'admin@kampalacentralsacco.ug', 'John Ssebunya', '+256414123456', 'Active'
     ),
-    -- Quick Cash Uganda Admin
     (
-        uuid_generate_v4(),
-        NULL::uuid,
-        quick_cash_id,
-        'admin@quickcashug.com',
-        'Moses Lubega',
-        '+256701987654',
-        'institution_admin', -- Updated role to match schema ENUM
-        'Active',
-        '{
-            "clients": {"create": true, "read": true, "update": true, "delete": true},
-            "loans": {"create": true, "read": true, "update": true, "delete": true, "approve": true, "disburse": true},
-            "transactions": {"create": true, "read": true, "update": true, "delete": true},
-            "reports": {"create": true, "read": true, "update": true, "delete": true},
-            "users": {"create": true, "read": true, "update": true, "delete": true},
-            "settings": {"create": true, "read": true, "update": true, "delete": true}
-        }'
+        uuid_generate_v4(), NULL::uuid, quick_cash_id, quick_cash_branch_id, role_admin_id,
+        'admin@quickcashug.com', 'Moses Lubega', '+256701987654', 'Active'
     ),
-    -- Opportunity MFI Admin
     (
-        uuid_generate_v4(),
-        NULL::uuid,
-        opportunity_mfi_id,
-        'admin@opportunityug.org',
-        'Sarah Namukasa',
-        '+256312456789',
-        'institution_admin', -- Updated role to match schema ENUM
-        'Active',
-        '{
-            "clients": {"create": true, "read": true, "update": true, "delete": true},
-            "loans": {"create": true, "read": true, "update": true, "delete": true, "approve": true, "disburse": true},
-            "savings": {"create": true, "read": true, "update": true, "delete": true},
-            "transactions": {"create": true, "read": true, "update": true, "delete": true},
-            "reports": {"create": true, "read": true, "update": true, "delete": true},
-            "users": {"create": true, "read": true, "update": true, "delete": true},
-            "settings": {"create": true, "read": true, "update": true, "delete": true}
-        }'
+        uuid_generate_v4(), NULL::uuid, opportunity_mfi_id, opportunity_mfi_branch_id, role_admin_id,
+        'admin@opportunityug.org', 'Sarah Namukasa', '+256312456789', 'Active'
     )
     ON CONFLICT (email) DO NOTHING;
 
-    -- Create loan officers for Kampala Central SACCO
+    -- Institution users
     INSERT INTO senteloans_users (
-        id,
-        supabase_user_id,
-        institution_id,
-        email,
-        full_name,
-        phone_number,
-        role,
-        status,
-        permissions
-    ) VALUES 
+        id, supabase_user_id, institution_id, branch_id, role_id, email, full_name, phone_number, status
+    ) VALUES
     (
-        uuid_generate_v4(),
-        NULL::uuid,
-        kampala_sacco_id,
-        'annet.mukasa@kampalacentralsacco.ug',
-        'Annet Mukasa',
-        '+256701111111',
-        'loan_officer', -- Updated role to match schema ENUM
-        'Active',
-        '{
-            "clients": {"create": true, "read": true, "update": true, "delete": false},
-            "loans": {"create": true, "read": true, "update": true, "delete": false, "approve": false, "disburse": false},
-            "savings": {"create": true, "read": true, "update": true, "delete": false},
-            "transactions": {"create": true, "read": true, "update": false, "delete": false},
-            "reports": {"create": false, "read": true, "update": false, "delete": false}
-        }'
-    )
-    ON CONFLICT (email) DO NOTHING;
-    INSERT INTO senteloans_users (
-        id,
-        supabase_user_id,
-        institution_id,
-        email,
-        full_name,
-        phone_number,
-        role,
-        status,
-        permissions
-    ) VALUES 
+        uuid_generate_v4(), NULL::uuid, kampala_sacco_id, kampala_sacco_branch_id, role_loan_officer_id,
+        'annet.mukasa@kampalacentralsacco.ug', 'Annet Mukasa', '+256701111111', 'Active'
+    ),
     (
-        uuid_generate_v4(),
-        NULL::uuid,
-        kampala_sacco_id,
-        'samuel.kato@kampalacentralsacco.ug',
-        'Samuel Kato',
-        '+256702222222',
-        'loan_officer', -- Updated role to match schema ENUM
-        'Active',
-        '{
-            "clients": {"create": true, "read": true, "update": true, "delete": false},
-            "loans": {"create": true, "read": true, "update": true, "delete": false, "approve": false, "disburse": false},
-            "savings": {"create": true, "read": true, "update": true, "delete": false},
-            "transactions": {"create": true, "read": true, "update": false, "delete": false},
-            "reports": {"create": false, "read": true, "update": false, "delete": false}
-        }'
+        uuid_generate_v4(), NULL::uuid, kampala_sacco_id, kampala_sacco_branch_id, role_loan_officer_id,
+        'samuel.kato@kampalacentralsacco.ug', 'Samuel Kato', '+256702222222', 'Active'
+    ),
+    (
+        uuid_generate_v4(), NULL::uuid, quick_cash_id, quick_cash_branch_id, role_loan_officer_id,
+        'peter.ssali@quickcashug.com', 'Peter Ssali', '+256703333333', 'Active'
+    ),
+    (
+        uuid_generate_v4(), NULL::uuid, opportunity_mfi_id, opportunity_mfi_branch_id, role_loan_officer_id,
+        'grace.nakato@opportunityug.org', 'Grace Nakato', '+256704444444', 'Active'
+    ),
+    (
+        uuid_generate_v4(), NULL::uuid, kampala_sacco_id, kampala_sacco_branch_id, role_teller_id,
+        'mary.nakato@kampalacentralsacco.ug', 'Mary Nakato', '+256705555555', 'Active'
+    ),
+    (
+        uuid_generate_v4(), NULL::uuid, opportunity_mfi_id, opportunity_mfi_branch_id, role_loan_officer_id,
+        'patricia.nambi@opportunityug.org', 'Patricia Nambi', '+256707777777', 'Active'
     )
     ON CONFLICT (email) DO NOTHING;
 
-    -- Create loan officer for Quick Cash Uganda
+    -- Manager user
     INSERT INTO senteloans_users (
-        id,
-        supabase_user_id,
-        institution_id,
-        email,
-        full_name,
-        phone_number,
-        role,
-        status,
-        permissions
-    ) VALUES 
+        id, supabase_user_id, institution_id, branch_id, role_id, email, full_name, phone_number, status
+    ) VALUES
     (
-        uuid_generate_v4(),
-        NULL::uuid,
-        quick_cash_id,
-        'peter.ssali@quickcashug.com',
-        'Peter Ssali',
-        '+256703333333',
-        'loan_officer', -- Updated role to match schema ENUM
-        'Active',
-        '{
-            "clients": {"create": true, "read": true, "update": true, "delete": false},
-            "loans": {"create": true, "read": true, "update": true, "delete": false, "approve": false, "disburse": false},
-            "transactions": {"create": true, "read": true, "update": false, "delete": false},
-            "reports": {"create": false, "read": true, "update": false, "delete": false}
-        }'
+        uuid_generate_v4(), NULL::uuid, quick_cash_id, quick_cash_branch_id, role_manager_id,
+        'james.mukasa@quickcashug.com', 'James Mukasa', '+256706666666', 'Active'
     )
     ON CONFLICT (email) DO NOTHING;
-
-    -- Create loan officer for Opportunity MFI
-    INSERT INTO senteloans_users (
-        id,
-        supabase_user_id,
-        institution_id,
-        email,
-        full_name,
-        phone_number,
-        role,
-        status,
-        permissions
-    ) VALUES 
-    (
-        uuid_generate_v4(),
-        NULL::uuid,
-        opportunity_mfi_id,
-        'grace.nakato@opportunityug.org',
-        'Grace Nakato',
-        '+256704444444',
-        'loan_officer', -- Updated role to match schema ENUM
-        'Active',
-        '{
-            "clients": {"create": true, "read": true, "update": true, "delete": false},
-            "loans": {"create": true, "read": true, "update": true, "delete": false, "approve": false, "disburse": false},
-            "savings": {"create": true, "read": true, "update": true, "delete": false},
-            "transactions": {"create": true, "read": true, "update": false, "delete": false},
-            "reports": {"create": false, "read": true, "update": false, "delete": false}
-        }'
-    )
-    ON CONFLICT (email) DO NOTHING;
-
-    -- Create additional staff members for each institution
-    -- Kampala Central SACCO - Teller
-    INSERT INTO senteloans_users (
-        id,
-        supabase_user_id,
-        institution_id,
-        email,
-        full_name,
-        phone_number,
-        role,
-        status,
-        permissions
-    ) VALUES 
-    (
-        uuid_generate_v4(),
-        NULL::uuid,
-        kampala_sacco_id,
-        'mary.nakato@kampalacentralsacco.ug',
-        'Mary Nakato',
-        '+256705555555',
-        'teller', -- Updated role to match schema ENUM
-        'Active',
-        '{
-            "clients": {"create": false, "read": true, "update": false, "delete": false},
-            "loans": {"create": false, "read": true, "update": false, "delete": false, "approve": false, "disburse": false},
-            "savings": {"create": false, "read": true, "update": false, "delete": false},
-            "transactions": {"create": true, "read": true, "update": false, "delete": false},
-            "reports": {"create": false, "read": false, "update": false, "delete": false}
-        }'
-    )
-    ON CONFLICT (email) DO NOTHING;
-
-    -- Quick Cash Uganda - Manager
-    INSERT INTO senteloans_users (
-        id,
-        supabase_user_id,
-        institution_id,
-        email,
-        full_name,
-        phone_number,
-        role,
-        status,
-        permissions
-    ) VALUES 
-    (
-        uuid_generate_v4(),
-        NULL::uuid,
-        quick_cash_id,
-        'james.mukasa@quickcashug.com',
-        'James Mukasa',
-        '+256706666666',
-        'manager', -- Updated role to match schema ENUM
-        'Active',
-        '{
-            "clients": {"create": true, "read": true, "update": true, "delete": false},
-            "loans": {"create": true, "read": true, "update": true, "delete": false, "approve": true, "disburse": true},
-            "transactions": {"create": true, "read": true, "update": true, "delete": false},
-            "reports": {"create": true, "read": true, "update": false, "delete": false},
-            "users": {"create": false, "read": true, "update": false, "delete": false}
-        }'
-    )
-    ON CONFLICT (email) DO NOTHING;
-
-    -- Opportunity MFI - Field Officer (using loan_officer role as closest match)
-    INSERT INTO senteloans_users (
-        id,
-        supabase_user_id,
-        institution_id,
-        email,
-        full_name,
-        phone_number,
-        role,
-        status,
-        permissions
-    ) VALUES 
-    (
-        uuid_generate_v4(),
-        NULL::uuid,
-        opportunity_mfi_id,
-        'patricia.nambi@opportunityug.org',
-        'Patricia Nambi',
-        '+256707777777',
-        'loan_officer', -- Using loan_officer as closest match to Field Officer
-        'Active',
-        '{
-            "clients": {"create": true, "read": true, "update": true, "delete": false},
-            "loans": {"create": true, "read": true, "update": true, "delete": false, "approve": false, "disburse": false},
-            "savings": {"create": true, "read": true, "update": true, "delete": false},
-            "transactions": {"create": false, "read": true, "update": false, "delete": false},
-            "reports": {"create": false, "read": true, "update": false, "delete": false}
-        }'
-    )
-    ON CONFLICT (email) DO NOTHING;
-
 END $$;
 
--- Display results for verification
-SELECT 
+SELECT
     'User Accounts Created Successfully' as status,
     COUNT(*) as total_users_created
 FROM senteloans_users;
 
--- Show created users by institution
-SELECT 
+SELECT
     i.name as institution_name,
+    b.name as branch_name,
     u.full_name,
     u.email,
-    u.role,
+    r.name as role_name,
     u.status
 FROM senteloans_users u
 JOIN senteloans_institutions i ON u.institution_id = i.id
-ORDER BY i.name, u.role, u.full_name;
+JOIN senteloans_branches b ON u.branch_id = b.id
+JOIN senteloans_roles r ON u.role_id = r.id
+ORDER BY i.name, b.name, r.name, u.full_name;

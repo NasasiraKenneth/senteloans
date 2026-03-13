@@ -47,8 +47,7 @@ export default function EditStaff({ isOpen, staffId, onClose, onSuccess }: EditS
           status: s.status || "Active",
           joinDate: s.joined_at ? s.joined_at.slice(0, 10) : "",
           username: s.username || "",
-          isAdministrator: s.is_admin || false,
-          roles: s.role ? [s.role] : [],
+          roles: s.role_id ? [s.role_id] : [],
           password: "",
           confirmPassword: "",
         })

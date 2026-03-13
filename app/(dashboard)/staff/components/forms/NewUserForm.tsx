@@ -8,7 +8,6 @@ import { FiCalendar } from 'react-icons/fi';
 export interface UserFormData {
   firstName: string;
   lastName: string;
-  isAdministrator: boolean;
   email: string;
   phoneNumber: string;
   status: string;
@@ -28,12 +27,7 @@ interface UserFormProps {
   successMessage?: string | null;
 }
 
-const institutionRoles = [
-  { value: 'institution_admin', label: 'Admin' },
-  { value: 'manager', label: 'Manager' },
-  { value: 'loan_officer', label: 'Loan Officer' },
-  { value: 'teller', label: 'Teller' },
-];
+type RoleOption = { value: string; label: string }
 
 const statusOptions = [
   { value: 'Active', label: 'Active' },
@@ -264,54 +258,48 @@ const BioStep = ({ register, errors, control }: any) => (
     </div>
 );
 
-const RolesStep = ({register, errors, watch}: any) => (
+const RolesStep = ({control, errors, roleOptions, roleOptionsLoading}: any) => (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <label htmlFor="isAdministrator" className="text-sm font-medium text-gray-700">
-          Is Administrator
-        </label>
-        <div className="flex items-center space-x-3">
-          <span
-              className={`text-sm font-medium ${
-                  watch('isAdministrator') ? 'text-green-600' : 'text-red-600'
-              }`}
-          >
-            {watch('isAdministrator') ? 'Yes' : 'No'}
-          </span>
-          <label className="relative inline-flex items-center cursor-pointer">
-            <input
-                type="checkbox"
-                id="isAdministrator"
-                {...register('isAdministrator')}
-                className="sr-only peer"
-            />
-            <div
-                className="w-11 h-6 bg-gray-300 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-[#f08c2b] rounded-full peer dark:bg-gray-400 peer-checked:bg-green-500 transition-all"></div>
-            <div
-                className="absolute left-1 top-1 bg-white w-4 h-4 rounded-full transition-transform duration-300 peer-checked:translate-x-full shadow"/>
-          </label>
-        </div>
-      </div>
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-1">
-          Roles <span className="text-red-500">*</span>
+          Role <span className="text-red-500">*</span>
         </label>
-        <div className="grid grid-cols-2 gap-2">
-          {institutionRoles.map((role) => (
-              <label
-                  key={role.value}
-                  className="flex items-center space-x-2 px-3 py-2.5 border rounded-md cursor-pointer border-gray-300 hover:border-gray-400 transition-all duration-200"
-              >
-                <input
-                    type="checkbox"
-                    value={role.value}
-                    {...register('roles', {required: 'At least one role is required'})}
-                    className="text-[#f08c2b] accent-[#f08c2b] focus:ring-[#f08c2b] rounded"
-                />
-                <span className="text-sm text-gray-700">{role.label}</span>
-              </label>
-          ))}
-        </div>
+        {roleOptionsLoading ? (
+          <div className="text-sm text-gray-500 py-2">Loading roles...</div>
+        ) : roleOptions.length === 0 ? (
+          <div className="text-sm text-red-600 py-2">No roles available in role catalog</div>
+        ) : (
+          <Controller
+            name="roles"
+            control={control}
+            rules={{
+              validate: (value: string[] | undefined) =>
+                Array.isArray(value) && value.length > 0 ? true : "A role is required",
+            }}
+            render={({ field: { value = [], onChange } }) => {
+              const selectedRole = value[0] || ""
+              return (
+                <div className="grid grid-cols-2 gap-2 max-h-56 overflow-y-auto pr-1">
+                  {roleOptions.map((role: RoleOption) => (
+                    <label
+                      key={role.value}
+                      className="flex items-center space-x-2 px-3 py-2.5 border rounded-md cursor-pointer border-gray-300 hover:border-gray-400 transition-all duration-200"
+                    >
+                      <input
+                        type="radio"
+                        name="staff-role"
+                        checked={selectedRole === role.value}
+                        onChange={() => onChange([role.value])}
+                        className="text-[#f08c2b] accent-[#f08c2b] focus:ring-[#f08c2b]"
+                      />
+                      <span className="text-sm text-gray-700">{role.label}</span>
+                    </label>
+                  ))}
+                </div>
+              )
+            }}
+          />
+        )}
         {errors.roles && <p className="mt-1 text-xs text-red-500">{errors.roles.message}</p>}
       </div>
     </div>
@@ -402,6 +390,8 @@ const UserForm: React.FC<UserFormProps> = ({
   const [activeStep, setActiveStep] = useState(0);
   const [showValidation, setShowValidation] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
+  const [roleOptions, setRoleOptions] = useState<RoleOption[]>([])
+  const [roleOptionsLoading, setRoleOptionsLoading] = useState(false)
 
   const methods = useForm<UserFormData>({
     defaultValues: {
@@ -414,7 +404,6 @@ const UserForm: React.FC<UserFormProps> = ({
       username: '',
       password: '',
       confirmPassword: '',
-      isAdministrator: false,
       roles: [],
       ...initialValues,
     },
@@ -422,6 +411,30 @@ const UserForm: React.FC<UserFormProps> = ({
   });
 
   const { register, handleSubmit, formState: { errors }, trigger, watch, reset, control, clearErrors } = methods;
+
+  React.useEffect(() => {
+    let cancelled = false
+    async function loadRoleOptions() {
+      setRoleOptionsLoading(true)
+      try {
+        const res = await fetch("/api/institution/staff/roles", { cache: "no-store" })
+        const body = await res.json().catch(() => ({}))
+        if (!res.ok) throw new Error(body.error || "Failed to load roles")
+        if (!cancelled) {
+          const options = Array.isArray(body.roles) ? body.roles : []
+          setRoleOptions(options)
+        }
+      } catch {
+        if (!cancelled) setRoleOptions([])
+      } finally {
+        if (!cancelled) setRoleOptionsLoading(false)
+      }
+    }
+    loadRoleOptions()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const getStepFields = (step: number): (keyof UserFormData)[] => {
     switch (step) {
@@ -495,7 +508,7 @@ const UserForm: React.FC<UserFormProps> = ({
           </Stepper>
           <Box sx={{ mt: 2, mb: 1 }}>
             {activeStep === 0 && <BioStep register={register} errors={errors} control={control} />}
-            {activeStep === 1 && <RolesStep register={register} errors={errors} watch={watch} />}
+            {activeStep === 1 && <RolesStep control={control} errors={errors} roleOptions={roleOptions} roleOptionsLoading={roleOptionsLoading} />}
             {activeStep === 2 && <LoginStep register={register} errors={errors} watch={watch} editMode={editMode} />}
             {activeStep === steps.length && (
               <div className="text-center">

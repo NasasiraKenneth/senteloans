@@ -23,17 +23,21 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     }
 
     await runWithoutAuth(async (client) => {
+      const adminRoleRes = await client.query(`SELECT id FROM senteloans_roles WHERE name = 'Admin' LIMIT 1`)
+      const adminRoleId = adminRoleRes.rows[0]?.id
+      if (!adminRoleId) throw new Error("Admin role is not seeded")
+
       if (Object.keys(update).length > 0) {
-        const setClause = Object.keys(update).map((k, i) => `${k} = $${i + 3}`).join(", ")
+        const setClause = Object.keys(update).map((k, i) => `${k} = $${i + 4}`).join(", ")
         await client.query(
-          `UPDATE senteloans_users SET ${setClause} WHERE id = $1 AND institution_id = $2 AND role = 'institution_admin'`,
-          [userId, institutionId, ...Object.values(update)]
+          `UPDATE senteloans_users SET ${setClause} WHERE id = $1 AND institution_id = $2 AND role_id = $3`,
+          [userId, institutionId, adminRoleId, ...Object.values(update)]
         )
       }
       if (newPassword && newPassword.length >= 8) {
         const appUserRes = await client.query(
-          `SELECT supabase_user_id FROM senteloans_users WHERE id = $1 AND institution_id = $2 AND role = 'institution_admin'`,
-          [userId, institutionId]
+          `SELECT supabase_user_id FROM senteloans_users WHERE id = $1 AND institution_id = $2 AND role_id = $3`,
+          [userId, institutionId, adminRoleId]
         )
         const authUserId = appUserRes.rows[0]?.supabase_user_id
         if (authUserId) {
@@ -58,9 +62,13 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
     if (session.user.role !== "system_admin") return NextResponse.json({ error: "Forbidden" }, { status: 403 })
 
     await runWithoutAuth(async (client) => {
+      const adminRoleRes = await client.query(`SELECT id FROM senteloans_roles WHERE name = 'Admin' LIMIT 1`)
+      const adminRoleId = adminRoleRes.rows[0]?.id
+      if (!adminRoleId) throw new Error("Admin role is not seeded")
+
       const appUserRes = await client.query(
-        `SELECT id, supabase_user_id FROM senteloans_users WHERE id = $1 AND institution_id = $2 AND role = 'institution_admin'`,
-        [userId, institutionId]
+        `SELECT id, supabase_user_id FROM senteloans_users WHERE id = $1 AND institution_id = $2 AND role_id = $3`,
+        [userId, institutionId, adminRoleId]
       )
       const appUser = appUserRes.rows[0]
       if (!appUser) {

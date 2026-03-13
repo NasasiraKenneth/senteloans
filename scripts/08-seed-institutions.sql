@@ -8,11 +8,7 @@ INSERT INTO senteloans_institutions (
     type,
     registration_number,
     license_number,
-    address,
-    phone_number,
-    email,
     website,
-    established_date,
     status,
     settings
 ) VALUES 
@@ -22,11 +18,7 @@ INSERT INTO senteloans_institutions (
     'MFI',
     'PLAT-REG-000',
     NULL,
-    'SenteLoans HQ, Kampala, Uganda',
-    '+256000000000',
-    'admin@senteloans.com',
     'https://senteloans.com',
-    '2024-01-01',
     'Active',
     '{
         "purpose": "platform",
@@ -39,11 +31,7 @@ INSERT INTO senteloans_institutions (
     'SACCO',
     'SACCO-REG-001-2020',
     'SACCO-LIC-KMP-001',
-    'Plot 15, Kampala Road, Kampala, Uganda',
-    '+256414123456',
-    'info@kampalacentralsacco.ug',
     'https://kampalacentralsacco.ug',
-    '2020-01-15',
     'Active',
     '{
         "currency": "UGX",
@@ -76,11 +64,7 @@ INSERT INTO senteloans_institutions (
     'Money Lender',
     'ML-REG-002-2021',
     'ML-LIC-UGA-002',
-    'Shop 45, Owino Market, Kampala, Uganda',
-    '+256701987654',
-    'loans@quickcashug.com',
     'https://quickcashug.com',
-    '2021-03-10',
     'Active',
     '{
         "currency": "UGX",
@@ -112,11 +96,7 @@ INSERT INTO senteloans_institutions (
     'MFI',
     'MFI-REG-003-2019',
     'MFI-LIC-UGA-003',
-    'Microfinance House, Jinja Road, Kampala, Uganda',
-    '+256312456789',
-    'info@opportunityug.org',
     'https://opportunityug.org',
-    '2019-06-20',
     'Active',
     '{
         "currency": "UGX",
@@ -146,6 +126,92 @@ INSERT INTO senteloans_institutions (
 )
 ON CONFLICT (registration_number) DO NOTHING;
 
+-- Seed branch types
+INSERT INTO senteloans_branch_types (name, description)
+VALUES
+  ('Head Office', 'Main institution headquarters'),
+  ('Regional Office', 'Regional management office'),
+  ('Branch', 'Standard service branch'),
+  ('Agent', 'Agent outlet or partner')
+ON CONFLICT (name) DO NOTHING;
+
+-- Seed one primary branch per institution so downstream seeds can reference branch_id.
+DO $$
+DECLARE
+    head_office_type_id UUID;
+    platform_id UUID;
+    kampala_sacco_id UUID;
+    quick_cash_id UUID;
+    opportunity_mfi_id UUID;
+BEGIN
+    SELECT id INTO head_office_type_id
+    FROM senteloans_branch_types
+    WHERE name = 'Head Office'
+    LIMIT 1;
+
+    SELECT id INTO platform_id FROM senteloans_institutions WHERE name = 'SenteLoans Platform';
+    SELECT id INTO kampala_sacco_id FROM senteloans_institutions WHERE name = 'Kampala Central SACCO';
+    SELECT id INTO quick_cash_id FROM senteloans_institutions WHERE name = 'Quick Cash Uganda';
+    SELECT id INTO opportunity_mfi_id FROM senteloans_institutions WHERE name = 'Opportunity Microfinance Uganda';
+
+    INSERT INTO senteloans_branches (
+        institution_id,
+        branch_type_id,
+        branch_code,
+        name,
+        address,
+        phone_number,
+        email,
+        status,
+        established_date
+    ) VALUES
+    (
+        platform_id,
+        head_office_type_id,
+        'PLAT-001',
+        'Platform Main Branch',
+        'SenteLoans HQ, Kampala, Uganda',
+        '+256000000000',
+        'admin@senteloans.com',
+        'Active',
+        '2024-01-01'
+    ),
+    (
+        kampala_sacco_id,
+        head_office_type_id,
+        'KCS-001',
+        'Kampala Main Branch',
+        'Plot 15, Kampala Road, Kampala, Uganda',
+        '+256414123456',
+        'info@kampalacentralsacco.ug',
+        'Active',
+        '2020-01-15'
+    ),
+    (
+        quick_cash_id,
+        head_office_type_id,
+        'QCU-001',
+        'Central Main Branch',
+        'Shop 45, Owino Market, Kampala, Uganda',
+        '+256701987654',
+        'loans@quickcashug.com',
+        'Active',
+        '2021-03-10'
+    ),
+    (
+        opportunity_mfi_id,
+        head_office_type_id,
+        'OMU-001',
+        'Kampala Main Branch',
+        'Microfinance House, Jinja Road, Kampala, Uganda',
+        '+256312456789',
+        'info@opportunityug.org',
+        'Active',
+        '2019-06-20'
+    )
+    ON CONFLICT (institution_id, branch_code) DO NOTHING;
+END $$;
+
 -- Display results for verification
 SELECT 
     'Institution Seed Data Created' as status,
@@ -159,7 +225,6 @@ SELECT
     type,
     registration_number,
     license_number,
-    status,
-    established_date
+    status
 FROM senteloans_institutions
-ORDER BY established_date;
+ORDER BY name;

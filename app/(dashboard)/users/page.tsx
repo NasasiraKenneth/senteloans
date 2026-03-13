@@ -1,18 +1,20 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useMemo, useRef } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 
 import { Plus, Eye, Edit, Mail, Phone, MapPin, ShieldCheck, Clock, Calendar } from "lucide-react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
+import Tooltip from "@mui/material/Tooltip"
 import { getSession } from "@/lib/session"
 import DataTable from "@/components/datatables/DataTable"
 import { DataTableColumn } from "@/components/datatables/DataTable"
 import { FilterField } from "@/components/datatables/TableFilter"
 import { ActionButtons } from "@/components/datatables/ActionButtons"
 import { Filter } from "@/types"
+import { useToast } from "@/components/ui/toast"
 
 type UiClient = {
   id: string
@@ -67,13 +69,21 @@ function formatDateTime(date: string): string {
 
 export default function UsersPage() {
   const router = useRouter()
+  const { toast } = useToast()
   const [users, setUsers] = useState<UiClient[]>([])
   const [session, setSession] = useState<any>(null)
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
   const [membershipFee, setMembershipFee] = useState(0)
   const [page, setPage] = useState(0)
   const [rowsPerPage, setRowsPerPage] = useState(10)
+  const permissionToastShown = useRef(false)
+  const [memberPermissions, setMemberPermissions] = useState({
+    viewMembers: false,
+    createMember: false,
+    editMember: false,
+    isSuperAdmin: false,
+    branches: [] as Array<{ value: string; label: string }>,
+  })
 
   const onPageChange = (_: unknown, newPage: number) => setPage(newPage)
   const onRowsPerPageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -83,7 +93,6 @@ export default function UsersPage() {
 
   async function loadClients(queryParams?: object) {
     setLoading(true)
-    setError(null)
     try {
       const params = new URLSearchParams()
       if (queryParams) {
@@ -100,15 +109,18 @@ export default function UsersPage() {
         })
       }
       params.set("limit", "100")
-      const res = await fetch(`/api/institution/clients?${params.toString()}`, { cache: "no-store" })
+      const res = await fetch(`/api/institution/members?${params.toString()}`, { cache: "no-store" })
       if (!res.ok) {
         const body = await res.json().catch(() => ({}))
+        if (res.status === 403 && body?.error === "missing_permission:view_members") {
+          throw new Error("missing_permission:view_members")
+        }
         throw new Error(body.error || "Failed to load clients")
       }
       const data = (await res.json()) as {
-        clients: Array<{
+        members: Array<{
           id: string
-          client_number: string
+          member_number: string
           full_name: string
           phone_number: string
           email: string | null
@@ -126,10 +138,10 @@ export default function UsersPage() {
         membershipFee: number
       }
       setMembershipFee(Number(data.membershipFee) || 0)
-      const mapped: UiClient[] = data.clients.map((c) => ({
+      const mapped: UiClient[] = data.members.map((c) => ({
         id: c.id,
         fullName: c.full_name,
-        clientNumber: c.client_number,
+        clientNumber: c.member_number,
         phoneNumber: c.phone_number,
         email: c.email || "",
         location: c.district || "",
@@ -142,16 +154,61 @@ export default function UsersPage() {
         kycApprovedAt: c.kyc_approved_at || "",
       }))
       setUsers(mapped)
+      permissionToastShown.current = false
     } catch (e: any) {
-      setError(e?.message || "Failed to load clients")
+      const message = e?.message || "Failed to load clients"
+      setUsers([])
+
+      if (message === "missing_permission:view_members") {
+        if (!permissionToastShown.current) {
+          toast({
+            variant: "warning",
+            title: "Access denied",
+            description: "You do not have permission to view members.",
+          })
+          permissionToastShown.current = true
+        }
+      } else {
+        toast({
+          variant: "destructive",
+          title: "Failed to load members",
+          description: message,
+        })
+      }
     } finally {
       setLoading(false)
+    }
+  }
+
+  async function loadMemberPermissions() {
+    try {
+      const res = await fetch("/api/institution/members/permissions", { cache: "no-store" })
+      if (!res.ok) return
+      const data = (await res.json()) as {
+        permissions?: {
+          viewMembers?: boolean
+          createMember?: boolean
+          editMember?: boolean
+          isSuperAdmin?: boolean
+          branches?: Array<{ id: string; name: string }>
+        }
+      }
+      setMemberPermissions({
+        viewMembers: !!data.permissions?.viewMembers,
+        createMember: !!data.permissions?.createMember,
+        editMember: !!data.permissions?.editMember,
+        isSuperAdmin: !!data.permissions?.isSuperAdmin,
+        branches: (data.permissions?.branches || []).map((b) => ({ value: b.id, label: b.name })),
+      })
+    } catch {
+      // Keep defaults (all false) when permission lookup fails.
     }
   }
 
   useEffect(() => {
     const sessionData = getSession()
     setSession(sessionData)
+    loadMemberPermissions()
     loadClients()
   }, [])
 
@@ -418,11 +475,13 @@ export default function UsersPage() {
       onClick: handleEdit,
       variant: "primary",
       icon: <Edit className="h-4 w-4" />,
+      disabled: !memberPermissions.editMember,
     },
   ]
 
   // Filter configuration — field names match the API query params: search, status, kyc
-  const filterFields: FilterField[] = [
+  const filterFields: FilterField[] = useMemo(() => {
+    const fields: FilterField[] = [
     {
       field: "search",
       label: "Search by name, number, or phone",
@@ -464,7 +523,20 @@ export default function UsersPage() {
       label: "Search By KYC Date Range",
       type:"date-range"
     },
-  ]
+    ]
+
+    if (memberPermissions.isSuperAdmin) {
+      fields.splice(4, 0, {
+        field: "branches",
+        label: "Branches",
+        options: memberPermissions.branches,
+        multiple: true,
+        type: "select",
+      })
+    }
+
+    return fields
+  }, [memberPermissions.isSuperAdmin, memberPermissions.branches])
 
   // Tabular filter options
   const filters:Filter[] = [
@@ -483,12 +555,41 @@ export default function UsersPage() {
             <h2 className="text-3xl font-bold text-balance">{terminology.management}</h2>
             <p className="text-muted-foreground text-pretty">{terminology.description}</p>
           </div>
-          <Link href="/users/new">
-            <Button>
-              <Plus className="h-4 w-4 mr-2" />
-              {terminology.addButton}
-            </Button>
-          </Link>
+          {memberPermissions.createMember ? (
+            <Link href="/users/new">
+              <Button>
+                <Plus className="h-4 w-4 mr-2" />
+                {terminology.addButton}
+              </Button>
+            </Link>
+          ) : (
+            <Tooltip
+              title="Missing create_member permission"
+              placement="top"
+              arrow
+              enterDelay={300}
+              slotProps={{
+                tooltip: {
+                  sx: {
+                    bgcolor: "white",
+                    color: "#282f40",
+                    fontSize: "0.75rem",
+                    padding: "6px 10px",
+                    boxShadow: "0 4px 20px rgba(0,0,0,0.15)",
+                    borderRadius: "8px",
+                  },
+                },
+                arrow: { sx: { color: "white" } },
+              }}
+            >
+              <span className="inline-block cursor-not-allowed">
+                <Button disabled>
+                  <Plus className="h-4 w-4 mr-2" />
+                  {terminology.addButton}
+                </Button>
+              </span>
+            </Tooltip>
+          )}
         </div>
 
         {/* Stats Cards */}
@@ -528,7 +629,6 @@ export default function UsersPage() {
         </div>
 
         {/* Members DataTable */}
-        {error && <div className="text-sm text-red-600">{error}</div>}
         <DataTable<UiClient>
           columns={columns}
           rows={users.slice(page * rowsPerPage, (page + 1) * rowsPerPage)}

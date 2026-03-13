@@ -19,13 +19,13 @@ export default function UserSavingsPage() {
   useEffect(() => {
     setSession(getSession())
     Promise.all([
-      fetch(`/api/institution/clients/${userId}`).then((r) => r.json()),
+      fetch(`/api/institution/members/${userId}`).then((r) => r.json()),
       fetch(`/api/institution/transactions?client_id=${userId}&pageSize=100`).then((r) => r.json()),
     ])
-      .then(([clientRes, txRes]) => {
-        const c = clientRes.client
+      .then(([memberRes, txRes]) => {
+        const c = memberRes.member
         if (c) {
-          setUser({ id: c.id, fullName: c.full_name, clientNumber: c.client_number })
+          setUser({ id: c.id, fullName: c.full_name, clientNumber: c.member_number })
         }
         const items = (txRes.items ?? []).filter((t: { type: string }) => t.type === "Deposit" || t.type === "Withdrawal")
         setTransactions(

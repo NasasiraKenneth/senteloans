@@ -23,7 +23,7 @@ import {
   LogOut,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { getSession } from "@/lib/session"
+import { getSession, setSession as persistSession } from "@/lib/session"
 import { signOut } from "next-auth/react"
 import { useRouter } from "next/navigation"
 import { clearSession } from "@/lib/session"
@@ -48,8 +48,79 @@ export function DashboardSidebar() {
   const router = useRouter()
 
   useEffect(() => {
-    const sessionData = getSession()
-    setSession(sessionData)
+    let cancelled = false
+    const hydrateSession = async () => {
+      const localSession = getSession()
+      if (!cancelled && localSession) setSession(localSession)
+
+      try {
+        const authRes = await fetch("/api/auth/session", { cache: "no-store" })
+        if (!authRes.ok) return
+        const auth = await authRes.json()
+        const user = auth?.user
+        if (!user?.authUserId || user?.type !== "staff") return
+
+        const merged: any = {
+          ...(localSession || {}),
+          userId: user.userId || localSession?.userId || "",
+          email: user.email || localSession?.email || "",
+          name: user.name || localSession?.name || "",
+          role: user.role || localSession?.role || "",
+          institutionId: user.institutionId || localSession?.institutionId || "",
+          institution: localSession?.institution,
+        }
+
+        const needsInstitution =
+          !merged?.institution?.name ||
+          !merged?.institution?.type ||
+          !merged?.institution?.config
+
+        if (needsInstitution) {
+          const instRes = await fetch("/api/institution/settings", { cache: "no-store" })
+          if (instRes.ok) {
+            const inst = await instRes.json()
+            merged.institutionId = merged.institutionId || inst?.id || ""
+            merged.institution = {
+              id: inst?.id || merged?.institution?.id || "",
+              name: inst?.name || merged?.institution?.name || "",
+              type: inst?.type || merged?.institution?.type || "",
+              config: inst?.config || merged?.institution?.config || {},
+            }
+          }
+        }
+
+        // Ensure institution name/type are present even when settings endpoint can't provide them.
+        if (!merged?.institution?.name || !merged?.institution?.type) {
+          const orgRes = await fetch("/api/institution/organization", { cache: "no-store" })
+          if (orgRes.ok) {
+            const org = await orgRes.json()
+            merged.institutionId = merged.institutionId || org?.id || ""
+            merged.institution = {
+              id: merged?.institution?.id || org?.id || "",
+              name: merged?.institution?.name || org?.name || "",
+              type: merged?.institution?.type || org?.type || "",
+              config: merged?.institution?.config || {},
+            }
+          }
+        }
+
+        if (!cancelled) {
+          setSession(merged)
+          persistSession(merged)
+        }
+      } catch {
+        // ignore hydration failures and keep local fallback
+      }
+    }
+
+    hydrateSession()
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
 
     if (pathname.startsWith("/reports")) {
       setExpandedMenus((prev) => (prev.includes("Reports") ? prev : [...prev, "Reports"]))
@@ -65,7 +136,7 @@ export function DashboardSidebar() {
     const clientTerm = config.clientTerminology || "Member"
 
     const clientLabel = session?.institution
-      ? clientTerm === "Member" ? "Members" : clientTerm === "Client" ? "Clients" : "Borrowers"
+      ? clientTerm === "Member" ? "Members" : "Borrowers"
       : "Users"
 
     // Finance section
@@ -139,11 +210,11 @@ export function DashboardSidebar() {
     if (href === "/dashboard") return pathname === "/dashboard"
     if (href === "/users") return pathname.startsWith("/users") || pathname.startsWith("/members")
     if (href === "/staff") return pathname.startsWith("/staff")
-    if (href === "/clients") return pathname.startsWith("/client")
     if (href === "/loans") return pathname.startsWith("/loans") || pathname.startsWith("/loan-products")
     if (href === "/investments") return pathname.startsWith("/investments")
     if (href === "/invoices") return pathname.startsWith("/invoices")
     if (href === "/statements") return pathname.startsWith("/statements")
+    
     return pathname.startsWith(href)
   }
 

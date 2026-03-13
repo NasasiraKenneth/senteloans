@@ -31,7 +31,18 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 
     const actor = await runWithoutAuth(async (client) => {
       const res = await client.query<{ institution_id: string; role: string }>(
-        `SELECT institution_id, role FROM senteloans_users WHERE supabase_user_id = $1 AND status = 'Active'`,
+        `SELECT
+           u.institution_id,
+          CASE
+            WHEN r.name = 'System Admin' THEN 'system_admin'
+            WHEN r.name = 'Super Admin' THEN 'super_admin'
+            WHEN r.name = 'Admin' THEN 'institution_admin'
+            WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
+            ELSE NULL
+          END AS role
+         FROM senteloans_users u
+         LEFT JOIN senteloans_roles r ON r.id = u.role_id
+         WHERE u.supabase_user_id = $1 AND u.status = 'Active'`,
         [session!.user!.authUserId]
       )
       return res.rows[0] ?? null

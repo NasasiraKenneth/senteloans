@@ -14,6 +14,7 @@ export interface AppSessionUser {
   role: string
   type: "staff" | "client"
   institutionId?: string
+  memberId?: string
   clientId?: string
   userId?: string // senteloans_users.id for staff
 }
@@ -49,7 +50,20 @@ export const authOptions: NextAuthOptions = {
           const authUserId = row.id
 
           const staffRes = await client.query<{ id: string; full_name: string; role: string; institution_id: string }>(
-            `SELECT id, full_name, role, institution_id FROM senteloans_users WHERE supabase_user_id = $1 AND status = 'Active'`,
+            `SELECT
+               u.id,
+               u.full_name,
+               u.institution_id,
+               CASE
+                  WHEN r.name = 'System Admin' THEN 'system_admin'
+                  WHEN r.name = 'Super Admin' THEN 'super_admin'
+                 WHEN r.name = 'Admin' THEN 'institution_admin'
+                 WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
+                 ELSE NULL
+               END AS role
+             FROM senteloans_users u
+             LEFT JOIN senteloans_roles r ON r.id = u.role_id
+             WHERE u.supabase_user_id = $1 AND u.status = 'Active'`,
             [authUserId]
           )
           const staff = staffRes.rows[0]
@@ -67,7 +81,7 @@ export const authOptions: NextAuthOptions = {
           }
 
           const clientRes = await client.query<{ id: string; full_name: string }>(
-            `SELECT id, full_name FROM senteloans_clients WHERE supabase_user_id = $1 AND status = 'Active'`,
+            `SELECT id, full_name FROM senteloans_members WHERE supabase_user_id = $1 AND status = 'Active'`,
             [authUserId]
           )
           const clientRow = clientRes.rows[0]
@@ -79,6 +93,7 @@ export const authOptions: NextAuthOptions = {
               name: clientRow.full_name,
               role: "client",
               type: "client" as const,
+              memberId: clientRow.id,
               clientId: clientRow.id,
             }
           }
@@ -100,6 +115,7 @@ export const authOptions: NextAuthOptions = {
         token.role = user.role
         token.type = user.type
         token.institutionId = user.institutionId
+        token.memberId = user.memberId
         token.clientId = user.clientId
         token.userId = user.userId
       }
@@ -113,6 +129,7 @@ export const authOptions: NextAuthOptions = {
         session.user.role = token.role ?? ""
         session.user.type = token.type ?? "staff"
         session.user.institutionId = token.institutionId
+        session.user.memberId = token.memberId
         session.user.clientId = token.clientId
         session.user.userId = token.userId
       }

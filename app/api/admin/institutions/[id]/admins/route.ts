@@ -12,7 +12,34 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     if (session.user.role !== "system_admin") return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     const result = await runWithoutAuth(async (client) => {
       const res = await client.query(
-        `SELECT id, full_name, email, phone_number, status, role, supabase_user_id, created_at FROM senteloans_users WHERE institution_id = $1 AND role = 'institution_admin' ORDER BY created_at DESC`,
+        `SELECT
+           u.id,
+           u.full_name,
+           u.email,
+           u.phone_number,
+           u.status,
+           CASE
+             WHEN r.name = 'System Admin' THEN 'system_admin'
+             WHEN r.name = 'Super Admin' THEN 'super_admin'
+             WHEN r.name = 'Admin' THEN 'institution_admin'
+             WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
+             ELSE NULL
+           END AS role,
+           u.supabase_user_id,
+           u.created_at
+         FROM senteloans_users u
+         LEFT JOIN senteloans_roles r ON r.id = u.role_id
+         WHERE u.institution_id = $1
+           AND (
+             CASE
+               WHEN r.name = 'System Admin' THEN 'system_admin'
+               WHEN r.name = 'Super Admin' THEN 'super_admin'
+               WHEN r.name = 'Admin' THEN 'institution_admin'
+               WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
+               ELSE NULL
+             END
+           ) = 'institution_admin'
+         ORDER BY u.created_at DESC`,
         [id]
       )
       return { admins: res.rows }
@@ -37,6 +64,19 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const emailLower = String(email).trim().toLowerCase()
 
     const result = await runWithoutAuth(async (client) => {
+      const branchRes = await client.query(
+        `SELECT id FROM senteloans_branches WHERE institution_id = $1 ORDER BY created_at ASC LIMIT 1`,
+        [institutionId]
+      )
+      const branchId = branchRes.rows[0]?.id
+      if (!branchId) return { error: "No branch found for institution" as const }
+
+      const roleRes = await client.query(
+        `SELECT id FROM senteloans_roles WHERE name = 'Admin' LIMIT 1`
+      )
+      const adminRoleId = roleRes.rows[0]?.id
+      if (!adminRoleId) return { error: "Admin role is not seeded" as const }
+
       const existing = await client.query(`SELECT id FROM app_auth_users WHERE email = $1`, [emailLower])
       if (existing.rows.length > 0) return { error: "Auth email already exists" as const }
 
@@ -49,8 +89,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       if (!authUserId) return { error: "Failed to create auth user" as const }
 
       await client.query(
-        `INSERT INTO senteloans_users (supabase_user_id, institution_id, email, full_name, phone_number, role, status) VALUES ($1, $2, $3, $4, $5, 'institution_admin', 'Active')`,
-        [authUserId, institutionId, emailLower, String(name).trim(), phone ? String(phone).trim() : null]
+        `INSERT INTO senteloans_users (supabase_user_id, institution_id, branch_id, role_id, email, full_name, phone_number, status, is_admin)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, 'Active', TRUE)`,
+        [authUserId, institutionId, branchId, adminRoleId, emailLower, String(name).trim(), phone ? String(phone).trim() : null]
       )
       return { ok: true, user_id: authUserId }
     })

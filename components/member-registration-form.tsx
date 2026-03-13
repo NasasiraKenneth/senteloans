@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
@@ -11,6 +11,8 @@ import { useRouter } from "next/navigation"
 import { getSession } from "@/lib/session"
 import Popover from "@mui/material/Popover"
 import ReeveDatePicker, { parseDateOnly } from "@/components/newUI/date_picker"
+import TooltipButton from "@/components/newUI/tooltip_button"
+import { useToast } from "@/components/ui/toast"
 
 interface MemberRegistrationFormProps {
   onClose?: () => void
@@ -26,11 +28,13 @@ function StyledSelect({
   onChange,
   placeholder,
   options,
+  disabled = false,
 }: {
   value: string
   onChange: (value: string) => void
   placeholder: string
   options: SelectOption[]
+  disabled?: boolean
 }) {
   const [anchor, setAnchor] = useState<HTMLElement | null>(null)
   const open = Boolean(anchor)
@@ -39,8 +43,14 @@ function StyledSelect({
   return (
     <>
       <div
-        onClick={(e) => setAnchor(e.currentTarget)}
-        className={`flex items-center justify-between w-full px-3 py-2.5 text-sm border rounded-md cursor-pointer transition-all duration-200 ${
+        onClick={(e) => {
+          if (disabled) return
+          setAnchor(e.currentTarget)
+        }}
+        className={`flex items-center justify-between w-full px-3 py-2.5 text-sm border rounded-md transition-all duration-200 ${
+          disabled
+            ? "bg-muted/50 text-gray-500 cursor-not-allowed border-gray-200"
+            :
           open ? "ring-[1.5px] ring-[#f08c2b] border-transparent" : "border-gray-300 hover:border-gray-400"
         }`}
       >
@@ -99,7 +109,9 @@ function StyledSelect({
 
 export function MemberRegistrationForm({ onClose }: MemberRegistrationFormProps) {
   const router = useRouter()
+  const { toast } = useToast()
   const [session, setSession] = useState<any>(null)
+  const permissionToastShown = useRef(false)
 
   useEffect(() => {
     const sessionData = getSession()
@@ -132,6 +144,8 @@ export function MemberRegistrationForm({ onClose }: MemberRegistrationFormProps)
   const [error, setError] = useState<string | null>(null)
   const [institutionMembershipFee, setInstitutionMembershipFee] = useState(0)
   const [currency, setCurrency] = useState("UGX")
+  const [canCreateMember, setCanCreateMember] = useState(false)
+  const [canEditMembershipFee, setCanEditMembershipFee] = useState(false)
 
   useEffect(() => {
     async function loadSettings() {
@@ -153,9 +167,49 @@ export function MemberRegistrationForm({ onClose }: MemberRegistrationFormProps)
     loadSettings()
   }, [])
 
+  useEffect(() => {
+    async function loadPermissions() {
+      try {
+        const res = await fetch("/api/institution/members/permissions", { cache: "no-store" })
+        const data = await res.json().catch(() => ({}))
+        const allowed = !!data?.permissions?.createMember
+        const feeAllowed = !!data?.permissions?.editMembershipFee
+        setCanCreateMember(allowed)
+        setCanEditMembershipFee(feeAllowed)
+        if (!feeAllowed) {
+          setFormData((prev) => ({
+            ...prev,
+            membershipFeeType: "custom",
+            membershipFeeAmount: "",
+          }))
+        }
+        if (!allowed && !permissionToastShown.current) {
+          toast({
+            variant: "warning",
+            title: "Access denied",
+            description: "You do not have permission to create members.",
+          })
+          permissionToastShown.current = true
+        }
+      } catch {
+        setCanCreateMember(false)
+      }
+    }
+    loadPermissions()
+  }, [toast])
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError(null)
+
+    if (!canCreateMember) {
+      toast({
+        variant: "warning",
+        title: "Access denied",
+        description: "You do not have permission to create members.",
+      })
+      return
+    }
 
     const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
     const requiredText = (v: string) => v && v.trim().length >= 2
@@ -191,7 +245,7 @@ export function MemberRegistrationForm({ onClose }: MemberRegistrationFormProps)
     if (formData.email && !emailRe.test(formData.email)) {
       setError("Enter a valid email address"); scrollToError(); return
     }
-    if (institutionMembershipFee > 0 && formData.membershipFeeType === "custom") {
+    if (canEditMembershipFee && institutionMembershipFee > 0 && formData.membershipFeeType === "custom") {
       const amt = Number(formData.membershipFeeAmount)
       if (amt > institutionMembershipFee) {
         setError(`Membership fee amount cannot exceed ${institutionMembershipFee.toLocaleString()}`); scrollToError(); return
@@ -209,7 +263,7 @@ export function MemberRegistrationForm({ onClose }: MemberRegistrationFormProps)
         nationalId: formData.nationalId.trim(),
         dateOfBirth: formData.dateOfBirth,
         gender: formData.gender,
-        clientType: formData.memberType,
+        memberType: formData.memberType,
       }
       if (formData.email) payload.email = formData.email.trim()
       if (formData.maritalStatus) payload.maritalStatus = formData.maritalStatus
@@ -219,20 +273,30 @@ export function MemberRegistrationForm({ onClose }: MemberRegistrationFormProps)
       if (formData.monthlyIncome) payload.monthlyIncome = Number(formData.monthlyIncome)
       if (formData.monthlySavings) payload.monthlySavings = Number(formData.monthlySavings)
 
-      const feeAmount = formData.membershipFeeType === "full"
-        ? institutionMembershipFee
-        : Number(formData.membershipFeeAmount) || 0
-      if (feeAmount > 0) {
-        payload.membershipFeePaid = feeAmount
-        payload.membershipFeeMode = formData.membershipFeeMode
+      if (canEditMembershipFee) {
+        const feeAmount = formData.membershipFeeType === "full"
+          ? institutionMembershipFee
+          : Number(formData.membershipFeeAmount) || 0
+        if (feeAmount > 0) {
+          payload.membershipFeePaid = feeAmount
+          payload.membershipFeeMode = formData.membershipFeeMode
+        }
       }
 
-      const res = await fetch("/api/institution/clients", {
+      const res = await fetch("/api/institution/members", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       })
       const data = await res.json()
+      if (res.status === 403 && data?.error === "missing_permission:create_member") {
+        toast({
+          variant: "warning",
+          title: "Access denied",
+          description: "You do not have permission to create members.",
+        })
+        throw new Error("missing_permission:create_member")
+      }
       if (!res.ok) throw new Error(data.error || "Failed to create member")
 
       router.push(`/users/${data.id}`)
@@ -652,6 +716,7 @@ export function MemberRegistrationForm({ onClose }: MemberRegistrationFormProps)
                       name="membershipFeeType"
                       value="full"
                       checked={formData.membershipFeeType === "full"}
+                      disabled={!canEditMembershipFee}
                       onChange={() => handleInputChange("membershipFeeType", "full")}
                       className="w-4 h-4 accent-[#f08c2b]"
                     />
@@ -665,6 +730,7 @@ export function MemberRegistrationForm({ onClose }: MemberRegistrationFormProps)
                       name="membershipFeeType"
                       value="custom"
                       checked={formData.membershipFeeType === "custom"}
+                      disabled={!canEditMembershipFee}
                       onChange={() => handleInputChange("membershipFeeType", "custom")}
                       className="w-4 h-4 accent-[#f08c2b]"
                     />
@@ -688,6 +754,7 @@ export function MemberRegistrationForm({ onClose }: MemberRegistrationFormProps)
                       id="membershipFeeAmount"
                       type="number"
                       value={formData.membershipFeeAmount}
+                      disabled={!canEditMembershipFee}
                       onChange={(e) => handleInputChange("membershipFeeAmount", e.target.value)}
                       placeholder={`Max: ${institutionMembershipFee.toLocaleString()}`}
                       max={institutionMembershipFee}
@@ -705,6 +772,7 @@ export function MemberRegistrationForm({ onClose }: MemberRegistrationFormProps)
                     value={formData.membershipFeeMode}
                     onChange={(value) => handleInputChange("membershipFeeMode", value)}
                     placeholder="Select payment mode"
+                    disabled={!canEditMembershipFee}
                     options={[
                       { value: "Cash", label: "Cash" },
                       { value: "Mobile Money", label: "Mobile Money" },
@@ -758,10 +826,21 @@ export function MemberRegistrationForm({ onClose }: MemberRegistrationFormProps)
                 <Button type="button" variant="outline" onClick={handleCancel}>
                   Cancel
                 </Button>
-                <Button type="submit" disabled={submitting}>
-                  <Check className="h-4 w-4 mr-2" />
-                  {submitting ? "Registering..." : `Register ${clientTerminology}`}
-                </Button>
+                {canCreateMember ? (
+                  <Button type="submit" disabled={submitting}>
+                    <Check className="h-4 w-4 mr-2" />
+                    {submitting ? "Registering..." : `Register ${clientTerminology}`}
+                  </Button>
+                ) : (
+                  <TooltipButton
+                    tooltip="Missing create_member permission"
+                    disabled
+                    className="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-all h-9 px-4 py-2 bg-primary text-primary-foreground opacity-50 cursor-not-allowed"
+                  >
+                    <Check className="h-4 w-4 mr-2" />
+                    {`Register ${clientTerminology}`}
+                  </TooltipButton>
+                )}
               </div>
             </div>
           </div>

@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import Popover from "@mui/material/Popover"
 import ReeveDatePicker from "@/components/newUI/date_picker"
+import TooltipButton from "@/components/newUI/tooltip_button"
 
 import { FileUpload } from "@/components/ui/file-upload"
 // Removed mock-data; use live API
@@ -60,11 +61,13 @@ function StyledSelect({
   onChange,
   placeholder,
   options,
+  disabled = false,
 }: {
   value: string
   onChange: (value: string) => void
   placeholder: string
   options: SelectOption[]
+  disabled?: boolean
 }) {
   const [anchor, setAnchor] = useState<HTMLElement | null>(null)
   const open = Boolean(anchor)
@@ -73,9 +76,14 @@ function StyledSelect({
   return (
     <>
       <div
-        onClick={(e) => setAnchor(e.currentTarget)}
-        className={`flex items-center justify-between w-full px-3 py-2.5 text-sm border rounded-md cursor-pointer transition-all duration-200 ${
-          open ? "ring-[1.5px] ring-[#f08c2b] border-transparent" : "border-gray-300 hover:border-gray-400"
+        onClick={(e) => {
+          if (disabled) return
+          setAnchor(e.currentTarget)
+        }}
+        className={`flex items-center justify-between w-full px-3 py-2.5 text-sm border rounded-md transition-all duration-200 ${
+          disabled
+            ? "bg-muted/50 text-gray-500 cursor-not-allowed border-gray-200"
+            : open ? "ring-[1.5px] ring-[#f08c2b] border-transparent" : "border-gray-300 hover:border-gray-400"
         }`}
       >
         <span className={value ? "text-gray-900" : "text-gray-400"}>{selectedLabel || placeholder}</span>
@@ -155,6 +163,12 @@ export default function UserEditPage({ params }: UserEditPageProps) {
   const [feePayments, setFeePayments] = useState<any[]>([])
   const [sharesPaymentMode, setSharesPaymentMode] = useState("Cash")
   const [currency, setCurrency] = useState("UGX")
+  const [memberPermissions, setMemberPermissions] = useState({
+    editMembershipFee: false,
+    editShares: false,
+    editOpeningSavings: false,
+    editOpeningLoans: false,
+  })
 
   // Opening balances state
   const [obLoading, setObLoading] = useState(true)
@@ -210,13 +224,13 @@ export default function UserEditPage({ params }: UserEditPageProps) {
       setLoading(true)
       setError(null)
       try {
-        const res = await fetch(`/api/institution/clients/${id}`, { cache: "no-store" })
+        const res = await fetch(`/api/institution/members/${id}`, { cache: "no-store" })
         if (!res.ok) {
           const { error } = await res.json()
           throw new Error(error || "Failed to load client")
         }
         const responseData = (await res.json()) as any
-        const client = responseData.client
+        const client = responseData.member
         if (cancelled) return
         setUser(client)
         if (typeof responseData.membershipFee === "number") {
@@ -263,6 +277,35 @@ export default function UserEditPage({ params }: UserEditPageProps) {
       }
     }
     load()
+
+    async function loadPermissions() {
+      try {
+        const res = await fetch("/api/institution/members/permissions", { cache: "no-store" })
+        if (!res.ok) return
+        const data = (await res.json()) as {
+          permissions?: {
+            editMembershipFee?: boolean
+            editShares?: boolean
+            editOpeningSavings?: boolean
+            editOpeningLoans?: boolean
+          }
+        }
+        setMemberPermissions({
+          editMembershipFee: !!data.permissions?.editMembershipFee,
+          editShares: !!data.permissions?.editShares,
+          editOpeningSavings: !!data.permissions?.editOpeningSavings,
+          editOpeningLoans: !!data.permissions?.editOpeningLoans,
+        })
+      } catch {
+        setMemberPermissions({
+          editMembershipFee: false,
+          editShares: false,
+          editOpeningSavings: false,
+          editOpeningLoans: false,
+        })
+      }
+    }
+    loadPermissions()
     return () => {
       cancelled = true
     }
@@ -273,7 +316,7 @@ export default function UserEditPage({ params }: UserEditPageProps) {
     let cancelled = false
     async function loadFeeData() {
       try {
-        const res = await fetch(`/api/institution/clients/${id}/membership-fee`, { cache: "no-store" })
+        const res = await fetch(`/api/institution/members/${id}/membership-fee`, { cache: "no-store" })
         if (res.ok) {
           const data = await res.json()
           if (!cancelled) {
@@ -312,7 +355,7 @@ export default function UserEditPage({ params }: UserEditPageProps) {
     async function loadOb() {
       setObLoading(true)
       try {
-        const res = await fetch(`/api/institution/clients/${id}/opening-balances`, { cache: "no-store" })
+        const res = await fetch(`/api/institution/members/${id}/opening-balances`, { cache: "no-store" })
         if (res.ok) {
           const data = await res.json()
           if (!cancelled) {
@@ -339,8 +382,16 @@ export default function UserEditPage({ params }: UserEditPageProps) {
     setObError(null)
     setObSuccess(null)
 
-    const savBal = Number(obSavingsBalance) || 0
-    const loanBal = Number(obLoanBalance) || 0
+    const canEditOpeningSavings = memberPermissions.editOpeningSavings
+    const canEditOpeningLoans = memberPermissions.editOpeningLoans
+
+    if (!canEditOpeningSavings && !canEditOpeningLoans) {
+      setObError("You do not have permission to edit opening balances")
+      return
+    }
+
+    const savBal = canEditOpeningSavings ? (Number(obSavingsBalance) || 0) : 0
+    const loanBal = canEditOpeningLoans ? (Number(obLoanBalance) || 0) : 0
 
     if (savBal <= 0 && loanBal <= 0) {
       setObError("Enter at least a savings balance or loan balance")
@@ -386,7 +437,7 @@ export default function UserEditPage({ params }: UserEditPageProps) {
         if (origTenure > 0) payload.loanOriginalTenure = origTenure
       }
 
-      const res = await fetch(`/api/institution/clients/${id}/opening-balances`, {
+      const res = await fetch(`/api/institution/members/${id}/opening-balances`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -403,7 +454,7 @@ export default function UserEditPage({ params }: UserEditPageProps) {
       setObLoanOriginalTenure("")
 
       // Reload the data
-      const reloadRes = await fetch(`/api/institution/clients/${id}/opening-balances`, { cache: "no-store" })
+      const reloadRes = await fetch(`/api/institution/members/${id}/opening-balances`, { cache: "no-store" })
       if (reloadRes.ok) {
         const reloadData = await reloadRes.json()
         setObSavingsAccounts(reloadData.savingsAccounts || [])
@@ -433,7 +484,7 @@ export default function UserEditPage({ params }: UserEditPageProps) {
     if (hasShares) {
       async function loadShares() {
         try {
-          const res = await fetch(`/api/institution/clients/${id}/shares`, { cache: "no-store" })
+          const res = await fetch(`/api/institution/members/${id}/shares`, { cache: "no-store" })
           if (!res.ok) {
             const { error } = await res.json()
             throw new Error(error || "Failed to load shares")
@@ -529,7 +580,7 @@ export default function UserEditPage({ params }: UserEditPageProps) {
         throw new Error("Upload completed but no URL was returned")
       }
 
-      const saveRes = await fetch(`/api/institution/clients/${id}/kyc`, {
+      const saveRes = await fetch(`/api/institution/members/${id}/kyc`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ docType, url: blobResult.url }),
@@ -613,7 +664,7 @@ export default function UserEditPage({ params }: UserEditPageProps) {
         bankAccountName: formData.bankAccountName || undefined,
         bankBranch: formData.bankBranch || undefined,
       }
-      const res = await fetch(`/api/institution/clients/${id}`, {
+      const res = await fetch(`/api/institution/members/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -625,7 +676,7 @@ export default function UserEditPage({ params }: UserEditPageProps) {
 
       if (formData.sharesToBuy && Number(formData.sharesToBuy) > 0) {
         const sharesToBuy = Number(formData.sharesToBuy)
-        const sharesRes = await fetch(`/api/institution/clients/${id}/shares`, {
+        const sharesRes = await fetch(`/api/institution/members/${id}/shares`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -667,7 +718,7 @@ export default function UserEditPage({ params }: UserEditPageProps) {
 
     setFeeSubmitting(true)
     try {
-      const res = await fetch(`/api/institution/clients/${id}/membership-fee`, {
+      const res = await fetch(`/api/institution/members/${id}/membership-fee`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -684,7 +735,7 @@ export default function UserEditPage({ params }: UserEditPageProps) {
       setFeeSuccess(`Payment of ${currency} ${amount.toLocaleString()} recorded successfully`)
 
       // Reload payment history
-      const histRes = await fetch(`/api/institution/clients/${id}/membership-fee`, { cache: "no-store" })
+      const histRes = await fetch(`/api/institution/members/${id}/membership-fee`, { cache: "no-store" })
       if (histRes.ok) {
         const histData = await histRes.json()
         setFeePayments(histData.payments || [])
@@ -708,7 +759,7 @@ export default function UserEditPage({ params }: UserEditPageProps) {
 
     try {
       const sharesToBuy = Number(formData.sharesToBuy)
-      const res = await fetch(`/api/institution/clients/${id}/shares`, {
+      const res = await fetch(`/api/institution/members/${id}/shares`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -725,7 +776,7 @@ export default function UserEditPage({ params }: UserEditPageProps) {
       setFormData((prev) => ({ ...prev, sharesToBuy: "" }))
       // Reload shares data
       if (hasShares) {
-        const sharesRes = await fetch(`/api/institution/clients/${id}/shares`, { cache: "no-store" })
+        const sharesRes = await fetch(`/api/institution/members/${id}/shares`, { cache: "no-store" })
         if (sharesRes.ok) {
           const { shares } = await sharesRes.json()
           setShares(shares)
@@ -813,7 +864,7 @@ export default function UserEditPage({ params }: UserEditPageProps) {
                   <div className="flex-1 min-w-0 pb-0.5">
                     <h1 className="text-xl font-bold tracking-tight truncate">{user.full_name}</h1>
                     <div className="flex items-center gap-3 text-sm text-muted-foreground mt-0.5">
-                      <span className="font-mono">{user.client_number}</span>
+                      <span className="font-mono">{user.member_number}</span>
                       <span className="text-border">·</span>
                       <span>{user.phone_number}</span>
                       {user.email && (
@@ -1297,6 +1348,7 @@ export default function UserEditPage({ params }: UserEditPageProps) {
                                     value={obSavingsAccountId}
                                     onChange={setObSavingsAccountId}
                                     placeholder="Select account"
+                                    disabled={!memberPermissions.editOpeningSavings}
                                     options={obSavingsAccounts.map((acc: any) => ({
                                       value: acc.id,
                                       label: `${acc.account_number} (${acc.account_type})`,
@@ -1311,6 +1363,7 @@ export default function UserEditPage({ params }: UserEditPageProps) {
                                   type="number"
                                   min={0}
                                   value={obSavingsBalance}
+                                  disabled={!memberPermissions.editOpeningSavings}
                                   onChange={(e) => setObSavingsBalance(e.target.value)}
                                   placeholder="e.g., 500,000"
                                 />
@@ -1335,6 +1388,7 @@ export default function UserEditPage({ params }: UserEditPageProps) {
                                 value={obLoanProductId}
                                 onChange={setObLoanProductId}
                                 placeholder="Select loan product"
+                                disabled={!memberPermissions.editOpeningLoans}
                                 options={obLoanProducts.map((p: any) => ({
                                   value: p.id,
                                   label: `${p.product_name} (${p.interest_rate}%)`,
@@ -1348,6 +1402,7 @@ export default function UserEditPage({ params }: UserEditPageProps) {
                                 type="number"
                                 min={0}
                                 value={obLoanPrincipal}
+                                disabled={!memberPermissions.editOpeningLoans}
                                 onChange={(e) => setObLoanPrincipal(e.target.value)}
                                 placeholder="e.g., 2,000,000"
                               />
@@ -1360,6 +1415,7 @@ export default function UserEditPage({ params }: UserEditPageProps) {
                                 type="number"
                                 min={0}
                                 value={obLoanBalance}
+                                disabled={!memberPermissions.editOpeningLoans}
                                 onChange={(e) => setObLoanBalance(e.target.value)}
                                 placeholder="e.g., 1,000,000"
                               />
@@ -1372,6 +1428,7 @@ export default function UserEditPage({ params }: UserEditPageProps) {
                                 type="number"
                                 min={1}
                                 value={obLoanOriginalTenure}
+                                disabled={!memberPermissions.editOpeningLoans}
                                 onChange={(e) => setObLoanOriginalTenure(e.target.value)}
                                 placeholder="e.g., 24"
                               />
@@ -1384,6 +1441,7 @@ export default function UserEditPage({ params }: UserEditPageProps) {
                                 type="number"
                                 min={1}
                                 value={obLoanTenure}
+                                disabled={!memberPermissions.editOpeningLoans}
                                 onChange={(e) => setObLoanTenure(e.target.value)}
                                 placeholder="e.g., 12"
                               />
@@ -1393,7 +1451,10 @@ export default function UserEditPage({ params }: UserEditPageProps) {
                               <Label htmlFor="obLoanLastPaymentDate">Last Payment Date</Label>
                               <ReeveDatePicker
                                 value={obLoanLastPaymentDate}
-                                onChange={setObLoanLastPaymentDate}
+                                onChange={(v) => {
+                                  if (!memberPermissions.editOpeningLoans) return
+                                  setObLoanLastPaymentDate(v)
+                                }}
                                 placeholder="Select date"
                               />
                               <p className="text-xs text-muted-foreground">Date of the most recent payment in the previous system</p>
@@ -1446,7 +1507,12 @@ export default function UserEditPage({ params }: UserEditPageProps) {
                         <Button
                           type="button"
                           onClick={handleOpeningBalanceSubmit}
-                          disabled={obSubmitting || (Number(obSavingsBalance) <= 0 && Number(obLoanBalance) <= 0)}
+                          disabled={
+                            obSubmitting ||
+                            (!memberPermissions.editOpeningSavings && !memberPermissions.editOpeningLoans) ||
+                            ((memberPermissions.editOpeningSavings ? Number(obSavingsBalance) : 0) <= 0 &&
+                              (memberPermissions.editOpeningLoans ? Number(obLoanBalance) : 0) <= 0)
+                          }
                           className="w-full sm:w-auto"
                         >
                           <BookOpen className="h-4 w-4 mr-2" />
@@ -1542,14 +1608,24 @@ export default function UserEditPage({ params }: UserEditPageProps) {
                                     </div>
                                     <div className="flex items-center gap-2">
                                       <Calculator className="h-4 w-4 text-muted-foreground" />
-                                      <Button
-                                        type="button"
-                                        onClick={handleSharesPurchaseOnly}
-                                        disabled={!configuredShareValue || saving}
-                                        className="flex-1"
-                                      >
-                                        {saving ? "Processing..." : "Purchase Shares"}
-                                      </Button>
+                                      {!memberPermissions.editShares ? (
+                                        <TooltipButton
+                                          tooltip="Missing edit_shares permission"
+                                          disabled
+                                          className="flex-1 inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-all h-9 px-4 py-2 bg-primary text-primary-foreground opacity-50 cursor-not-allowed"
+                                        >
+                                          Purchase Shares
+                                        </TooltipButton>
+                                      ) : (
+                                        <Button
+                                          type="button"
+                                          onClick={handleSharesPurchaseOnly}
+                                          disabled={!configuredShareValue || saving}
+                                          className="flex-1"
+                                        >
+                                          {saving ? "Processing..." : "Purchase Shares"}
+                                        </Button>
+                                      )}
                                     </div>
                                   </div>
                                   <p className="text-xs text-muted-foreground">
@@ -1693,13 +1769,23 @@ export default function UserEditPage({ params }: UserEditPageProps) {
                                     ]}
                                   />
                                 </div>
-                                <Button
-                                  type="button"
-                                  onClick={handleFeePayment}
-                                  disabled={feeSubmitting}
-                                >
-                                  {feeSubmitting ? "Processing..." : "Record Payment"}
-                                </Button>
+                                {!memberPermissions.editMembershipFee ? (
+                                  <TooltipButton
+                                    tooltip="Missing edit_membership_fee permission"
+                                    disabled
+                                    className="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-all h-9 px-4 py-2 bg-primary text-primary-foreground opacity-50 cursor-not-allowed"
+                                  >
+                                    Record Payment
+                                  </TooltipButton>
+                                ) : (
+                                  <Button
+                                    type="button"
+                                    onClick={handleFeePayment}
+                                    disabled={feeSubmitting}
+                                  >
+                                    {feeSubmitting ? "Processing..." : "Record Payment"}
+                                  </Button>
+                                )}
                               </div>
                             </div>
                           )}

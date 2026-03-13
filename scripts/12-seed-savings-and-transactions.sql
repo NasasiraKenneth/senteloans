@@ -5,6 +5,8 @@ DO $$
 DECLARE
     kampala_sacco_id UUID;
     opportunity_mfi_id UUID;
+    kampala_sacco_branch_id UUID;
+    opportunity_mfi_branch_id UUID;
     
     -- Client IDs for Kampala Central SACCO
     sarah_id UUID;
@@ -20,23 +22,26 @@ BEGIN
     -- Get institution IDs
     SELECT id INTO kampala_sacco_id FROM senteloans_institutions WHERE name = 'Kampala Central SACCO';
     SELECT id INTO opportunity_mfi_id FROM senteloans_institutions WHERE name = 'Opportunity Microfinance Uganda';
+    SELECT id INTO kampala_sacco_branch_id FROM senteloans_branches WHERE institution_id = kampala_sacco_id ORDER BY created_at LIMIT 1;
+    SELECT id INTO opportunity_mfi_branch_id FROM senteloans_branches WHERE institution_id = opportunity_mfi_id ORDER BY created_at LIMIT 1;
 
-    -- Get client IDs for Kampala Central SACCO
-    SELECT id INTO sarah_id FROM senteloans_clients WHERE client_number = 'SL001';
-    SELECT id INTO david_id FROM senteloans_clients WHERE client_number = 'SL002';
-    SELECT id INTO grace_id FROM senteloans_clients WHERE client_number = 'SL003';
-    SELECT id INTO robert_id FROM senteloans_clients WHERE client_number = 'SL004';
+    -- Get member IDs for Kampala Central SACCO
+    SELECT id INTO sarah_id FROM senteloans_members WHERE member_number = 'SL001';
+    SELECT id INTO david_id FROM senteloans_members WHERE member_number = 'SL002';
+    SELECT id INTO grace_id FROM senteloans_members WHERE member_number = 'SL003';
+    SELECT id INTO robert_id FROM senteloans_members WHERE member_number = 'SL004';
 
-    -- Get client IDs for Opportunity MFI
-    SELECT id INTO agnes_id FROM senteloans_clients WHERE client_number = 'OM001';
-    SELECT id INTO womens_group_id FROM senteloans_clients WHERE client_number = 'OM002';
-    SELECT id INTO patricia_id FROM senteloans_clients WHERE client_number = 'OM003';
+    -- Get member IDs for Opportunity MFI
+    SELECT id INTO agnes_id FROM senteloans_members WHERE member_number = 'OM001';
+    SELECT id INTO womens_group_id FROM senteloans_members WHERE member_number = 'OM002';
+    SELECT id INTO patricia_id FROM senteloans_members WHERE member_number = 'OM003';
 
-    -- Create savings accounts for Kampala Central SACCO clients (no interest_rate in schema)
+    -- Create savings accounts for Kampala Central SACCO members (no interest_rate in schema)
     INSERT INTO senteloans_savings_accounts (
         id,
         institution_id,
-        client_id,
+        branch_id,
+        member_id,
         account_number,
         account_type,
         available_balance,
@@ -48,6 +53,7 @@ BEGIN
     (
         uuid_generate_v4(),
         kampala_sacco_id,
+        kampala_sacco_branch_id,
         sarah_id,
         'SA001',
         'Voluntary',
@@ -60,6 +66,7 @@ BEGIN
     (
         uuid_generate_v4(),
         kampala_sacco_id,
+        kampala_sacco_branch_id,
         david_id,
         'SA002',
         'Fixed',
@@ -72,6 +79,7 @@ BEGIN
     (
         uuid_generate_v4(),
         kampala_sacco_id,
+        kampala_sacco_branch_id,
         grace_id,
         'SA003',
         'Shares',
@@ -84,6 +92,7 @@ BEGIN
     (
         uuid_generate_v4(),
         kampala_sacco_id,
+        kampala_sacco_branch_id,
         robert_id,
         'SA004',
         'Voluntary',
@@ -94,11 +103,12 @@ BEGIN
     )
     ON CONFLICT (institution_id, account_number) DO NOTHING;
 
-    -- Create savings accounts for Opportunity MFI clients
+    -- Create savings accounts for Opportunity MFI members
     INSERT INTO senteloans_savings_accounts (
         id,
         institution_id,
-        client_id,
+        branch_id,
+        member_id,
         account_number,
         account_type,
         available_balance,
@@ -110,6 +120,7 @@ BEGIN
     (
         uuid_generate_v4(),
         opportunity_mfi_id,
+        opportunity_mfi_branch_id,
         agnes_id,
         'OM-SA001',
         'Voluntary',
@@ -122,6 +133,7 @@ BEGIN
     (
         uuid_generate_v4(),
         opportunity_mfi_id,
+        opportunity_mfi_branch_id,
         womens_group_id,
         'OM-SA002',
         'Voluntary',
@@ -134,6 +146,7 @@ BEGIN
     (
         uuid_generate_v4(),
         opportunity_mfi_id,
+        opportunity_mfi_branch_id,
         patricia_id,
         'OM-SA003',
         'Voluntary',
@@ -152,6 +165,9 @@ DECLARE
     kampala_sacco_id UUID;
     quick_cash_id UUID;
     opportunity_mfi_id UUID;
+    kampala_sacco_branch_id UUID;
+    quick_cash_branch_id UUID;
+    opportunity_mfi_branch_id UUID;
     
     -- Savings account IDs
     sarah_savings_id UUID;
@@ -161,7 +177,7 @@ DECLARE
     agnes_savings_id UUID;
     womens_group_savings_id UUID;
     
-    -- Client IDs
+    -- Member IDs
     sarah_id UUID;
     david_id UUID;
     grace_id UUID;
@@ -173,12 +189,6 @@ DECLARE
     womens_group_id UUID;
     patricia_id UUID;
     
-    -- Loan IDs for loan-related transactions
-    sarah_loan_id UUID;
-    moses_loan_id UUID;
-    betty_loan_id UUID;
-    agnes_loan_id UUID;
-    
     -- Staff user IDs for processed_by (must reference senteloans_users)
     kampala_staff_id UUID;
     quick_cash_staff_id UUID;
@@ -188,6 +198,9 @@ BEGIN
     SELECT id INTO kampala_sacco_id FROM senteloans_institutions WHERE name = 'Kampala Central SACCO';
     SELECT id INTO quick_cash_id FROM senteloans_institutions WHERE name = 'Quick Cash Uganda';
     SELECT id INTO opportunity_mfi_id FROM senteloans_institutions WHERE name = 'Opportunity Microfinance Uganda';
+    SELECT id INTO kampala_sacco_branch_id FROM senteloans_branches WHERE institution_id = kampala_sacco_id ORDER BY created_at LIMIT 1;
+    SELECT id INTO quick_cash_branch_id FROM senteloans_branches WHERE institution_id = quick_cash_id ORDER BY created_at LIMIT 1;
+    SELECT id INTO opportunity_mfi_branch_id FROM senteloans_branches WHERE institution_id = opportunity_mfi_id ORDER BY created_at LIMIT 1;
 
     -- Get a staff user per institution for processed_by
     SELECT id INTO kampala_staff_id FROM senteloans_users WHERE institution_id = kampala_sacco_id LIMIT 1;
@@ -196,46 +209,41 @@ BEGIN
 
     -- Get savings account IDs
     SELECT sa.id INTO sarah_savings_id FROM senteloans_savings_accounts sa 
-    JOIN senteloans_clients c ON sa.client_id = c.id WHERE c.client_number = 'SL001';
+    JOIN senteloans_members c ON sa.member_id = c.id WHERE c.member_number = 'SL001';
     
     SELECT sa.id INTO david_savings_id FROM senteloans_savings_accounts sa 
-    JOIN senteloans_clients c ON sa.client_id = c.id WHERE c.client_number = 'SL002';
+    JOIN senteloans_members c ON sa.member_id = c.id WHERE c.member_number = 'SL002';
     
     SELECT sa.id INTO grace_savings_id FROM senteloans_savings_accounts sa 
-    JOIN senteloans_clients c ON sa.client_id = c.id WHERE c.client_number = 'SL003';
+    JOIN senteloans_members c ON sa.member_id = c.id WHERE c.member_number = 'SL003';
     
     SELECT sa.id INTO robert_savings_id FROM senteloans_savings_accounts sa 
-    JOIN senteloans_clients c ON sa.client_id = c.id WHERE c.client_number = 'SL004';
+    JOIN senteloans_members c ON sa.member_id = c.id WHERE c.member_number = 'SL004';
     
     SELECT sa.id INTO agnes_savings_id FROM senteloans_savings_accounts sa 
-    JOIN senteloans_clients c ON sa.client_id = c.id WHERE c.client_number = 'OM001';
+    JOIN senteloans_members c ON sa.member_id = c.id WHERE c.member_number = 'OM001';
     
     SELECT sa.id INTO womens_group_savings_id FROM senteloans_savings_accounts sa 
-    JOIN senteloans_clients c ON sa.client_id = c.id WHERE c.client_number = 'OM002';
+    JOIN senteloans_members c ON sa.member_id = c.id WHERE c.member_number = 'OM002';
 
-    -- Get client IDs
-    SELECT id INTO sarah_id FROM senteloans_clients WHERE client_number = 'SL001';
-    SELECT id INTO david_id FROM senteloans_clients WHERE client_number = 'SL002';
-    SELECT id INTO grace_id FROM senteloans_clients WHERE client_number = 'SL003';
-    SELECT id INTO robert_id FROM senteloans_clients WHERE client_number = 'SL004';
-    SELECT id INTO moses_id FROM senteloans_clients WHERE client_number = 'QC001';
-    SELECT id INTO betty_id FROM senteloans_clients WHERE client_number = 'QC002';
-    SELECT id INTO james_id FROM senteloans_clients WHERE client_number = 'QC003';
-    SELECT id INTO agnes_id FROM senteloans_clients WHERE client_number = 'OM001';
-    SELECT id INTO womens_group_id FROM senteloans_clients WHERE client_number = 'OM002';
-    SELECT id INTO patricia_id FROM senteloans_clients WHERE client_number = 'OM003';
-
-    -- Get loan IDs for loan-related transactions
-    SELECT l.id INTO sarah_loan_id FROM senteloans_loans l WHERE l.application_id = 'LA001';
-    SELECT l.id INTO moses_loan_id FROM senteloans_loans l WHERE l.application_id = 'QC001';
-    SELECT l.id INTO betty_loan_id FROM senteloans_loans l WHERE l.application_id = 'QC002';
-    SELECT l.id INTO agnes_loan_id FROM senteloans_loans l WHERE l.application_id = 'OM001';
+    -- Get member IDs
+    SELECT id INTO sarah_id FROM senteloans_members WHERE member_number = 'SL001';
+    SELECT id INTO david_id FROM senteloans_members WHERE member_number = 'SL002';
+    SELECT id INTO grace_id FROM senteloans_members WHERE member_number = 'SL003';
+    SELECT id INTO robert_id FROM senteloans_members WHERE member_number = 'SL004';
+    SELECT id INTO moses_id FROM senteloans_members WHERE member_number = 'QC001';
+    SELECT id INTO betty_id FROM senteloans_members WHERE member_number = 'QC002';
+    SELECT id INTO james_id FROM senteloans_members WHERE member_number = 'QC003';
+    SELECT id INTO agnes_id FROM senteloans_members WHERE member_number = 'OM001';
+    SELECT id INTO womens_group_id FROM senteloans_members WHERE member_number = 'OM002';
+    SELECT id INTO patricia_id FROM senteloans_members WHERE member_number = 'OM003';
 
     -- Insert transactions for Kampala Central SACCO
     INSERT INTO senteloans_transactions (
         id,
         institution_id,
-        client_id,
+        branch_id,
+        member_id,
         account_id,
         loan_id,
         transaction_number, -- Added missing transaction_number field
@@ -253,6 +261,7 @@ BEGIN
     (
         uuid_generate_v4(),
         kampala_sacco_id,
+        kampala_sacco_branch_id,
         sarah_id,
         sarah_savings_id,
         NULL,
@@ -267,27 +276,11 @@ BEGIN
         kampala_staff_id,
         'Completed'
     ),
-    (
-        uuid_generate_v4(),
-        kampala_sacco_id,
-        sarah_id,
-        NULL,
-        sarah_loan_id,
-        'TXN-SEED-KCS-02',
-        'Loan Repayment',
-        200000,
-        'Cash',
-        '2023-12-15',
-        'Loan repayment - LA001',
-        1500000,
-        'TXN-SEED-KCS-02',
-        kampala_staff_id,
-        'Completed'
-    ),
     -- David Ssemakula transactions
     (
         uuid_generate_v4(),
         kampala_sacco_id,
+        kampala_sacco_branch_id,
         david_id,
         david_savings_id,
         NULL,
@@ -306,6 +299,7 @@ BEGIN
     (
         uuid_generate_v4(),
         kampala_sacco_id,
+        kampala_sacco_branch_id,
         grace_id,
         grace_savings_id,
         NULL,
@@ -324,6 +318,7 @@ BEGIN
     (
         uuid_generate_v4(),
         kampala_sacco_id,
+        kampala_sacco_branch_id,
         robert_id,
         robert_savings_id,
         NULL,
@@ -340,101 +335,12 @@ BEGIN
     )
     ON CONFLICT (institution_id, transaction_number) DO NOTHING;
 
-    -- Insert transactions for Quick Cash Uganda (Money Lender - only loan transactions)
-    INSERT INTO senteloans_transactions (
-        id,
-        institution_id,
-        client_id,
-        account_id,
-        loan_id,
-        transaction_number, -- Added missing transaction_number field
-        type, -- Changed from transaction_type to type to match schema
-        amount,
-        mode, -- Changed from payment_mode to mode to match schema
-        transaction_date,
-        description,
-        balance_after,
-        reference_number,
-        processed_by, -- Added required processed_by field
-        status
-    ) VALUES 
-    -- Moses Kiprotich loan transactions
-    (
-        uuid_generate_v4(),
-        quick_cash_id,
-        moses_id,
-        NULL,
-        moses_loan_id,
-        'TXN-SEED-QCU-01',
-        'Loan Disbursement',
-        800000,
-        'Cash',
-        '2023-11-02',
-        'Quick Cash Loan disbursement - QC001',
-        800000,
-        'TXN-SEED-QCU-01',
-        quick_cash_staff_id,
-        'Completed'
-    ),
-    (
-        uuid_generate_v4(),
-        quick_cash_id,
-        moses_id,
-        NULL,
-        moses_loan_id,
-        'TXN-SEED-QCU-02',
-        'Loan Repayment',
-        200000,
-        'Mobile Money',
-        '2023-12-02',
-        'Loan repayment - QC001',
-        600000,
-        'TXN-SEED-QCU-02',
-        quick_cash_staff_id,
-        'Completed'
-    ),
-    -- Betty Nakato loan transactions
-    (
-        uuid_generate_v4(),
-        quick_cash_id,
-        betty_id,
-        NULL,
-        betty_loan_id,
-        'TXN-SEED-QCU-03',
-        'Loan Disbursement',
-        1200000,
-        'Bank Transfer',
-        '2023-10-16',
-        'Business Loan disbursement - QC002',
-        1200000,
-        'TXN-SEED-QCU-03',
-        quick_cash_staff_id,
-        'Completed'
-    ),
-    (
-        uuid_generate_v4(),
-        quick_cash_id,
-        betty_id,
-        NULL,
-        betty_loan_id,
-        'TXN-SEED-QCU-04',
-        'Loan Repayment',
-        300000,
-        'Cash',
-        '2023-11-16',
-        'Loan repayment - QC002',
-        900000,
-        'TXN-SEED-QCU-04',
-        quick_cash_staff_id,
-        'Completed'
-    )
-    ON CONFLICT (institution_id, transaction_number) DO NOTHING;
-
     -- Insert transactions for Opportunity Microfinance Uganda (MFI)
     INSERT INTO senteloans_transactions (
         id,
         institution_id,
-        client_id,
+        branch_id,
+        member_id,
         account_id,
         loan_id,
         transaction_number, -- Added missing transaction_number field
@@ -452,6 +358,7 @@ BEGIN
     (
         uuid_generate_v4(),
         opportunity_mfi_id,
+        opportunity_mfi_branch_id,
         agnes_id,
         agnes_savings_id,
         NULL,
@@ -466,27 +373,11 @@ BEGIN
         opportunity_staff_id,
         'Completed'
     ),
-    (
-        uuid_generate_v4(),
-        opportunity_mfi_id,
-        agnes_id,
-        NULL,
-        agnes_loan_id,
-        'TXN-SEED-OM-02',
-        'Loan Repayment',
-        100000,
-        'Cash',
-        '2023-12-05',
-        'Loan repayment - OM001',
-        200000,
-        'TXN-SEED-OM-02',
-        opportunity_staff_id,
-        'Completed'
-    ),
     -- Kampala Women's Group transactions
     (
         uuid_generate_v4(),
         opportunity_mfi_id,
+        opportunity_mfi_branch_id,
         womens_group_id,
         womens_group_savings_id,
         NULL,

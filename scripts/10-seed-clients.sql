@@ -1,27 +1,34 @@
 -- Phase 3: Client Data Migration Script
--- Migrates client data with proper institution mapping. Idempotent: ON CONFLICT DO NOTHING.
+-- Migrates member data with proper institution mapping. Idempotent: ON CONFLICT DO NOTHING.
 
 DO $$
 DECLARE
     kampala_sacco_id UUID;
     quick_cash_id UUID;
     opportunity_mfi_id UUID;
+    kampala_sacco_branch_id UUID;
+    quick_cash_branch_id UUID;
+    opportunity_mfi_branch_id UUID;
 BEGIN
     -- Get institution IDs
     SELECT id INTO kampala_sacco_id FROM senteloans_institutions WHERE name = 'Kampala Central SACCO';
     SELECT id INTO quick_cash_id FROM senteloans_institutions WHERE name = 'Quick Cash Uganda';
     SELECT id INTO opportunity_mfi_id FROM senteloans_institutions WHERE name = 'Opportunity Microfinance Uganda';
+    SELECT id INTO kampala_sacco_branch_id FROM senteloans_branches WHERE institution_id = kampala_sacco_id ORDER BY created_at LIMIT 1;
+    SELECT id INTO quick_cash_branch_id FROM senteloans_branches WHERE institution_id = quick_cash_id ORDER BY created_at LIMIT 1;
+    SELECT id INTO opportunity_mfi_branch_id FROM senteloans_branches WHERE institution_id = opportunity_mfi_id ORDER BY created_at LIMIT 1;
 
-    -- Insert clients for Kampala Central SACCO
-    INSERT INTO senteloans_clients (
+    -- Insert members for Kampala Central SACCO
+    INSERT INTO senteloans_members (
         id,
         institution_id,
-        client_number,
+        branch_id,
+        member_number,
         full_name,
         date_of_birth,
         gender,
         marital_status,
-        client_type,
+        member_type,
         phone_number,
         email,
         national_id,
@@ -43,6 +50,7 @@ BEGIN
     (
         uuid_generate_v4(),
         kampala_sacco_id,
+        kampala_sacco_branch_id,
         'SL001',
         'Sarah Nakamya',
         '1985-03-15',
@@ -70,6 +78,7 @@ BEGIN
     (
         uuid_generate_v4(),
         kampala_sacco_id,
+        kampala_sacco_branch_id,
         'SL002',
         'David Ssemakula',
         '1978-11-22',
@@ -97,6 +106,7 @@ BEGIN
     (
         uuid_generate_v4(),
         kampala_sacco_id,
+        kampala_sacco_branch_id,
         'SL003',
         'Grace Namugga',
         '1990-07-08',
@@ -124,6 +134,7 @@ BEGIN
     (
         uuid_generate_v4(),
         kampala_sacco_id,
+        kampala_sacco_branch_id,
         'SL004',
         'Robert Kiwanuka',
         '1965-12-03',
@@ -147,18 +158,19 @@ BEGIN
         'Active',
         '2023-04-12'
     )
-    ON CONFLICT (institution_id, client_number) DO NOTHING;
+    ON CONFLICT (institution_id, member_number) DO NOTHING;
 
-    -- Insert clients for Quick Cash Uganda (Money Lender)
-    INSERT INTO senteloans_clients (
+    -- Insert members for Quick Cash Uganda (Money Lender)
+    INSERT INTO senteloans_members (
         id,
         institution_id,
-        client_number,
+        branch_id,
+        member_number,
         full_name,
         date_of_birth,
         gender,
         marital_status,
-        client_type,
+        member_type,
         phone_number,
         email,
         national_id,
@@ -180,6 +192,7 @@ BEGIN
     (
         uuid_generate_v4(),
         quick_cash_id,
+        quick_cash_branch_id,
         'QC001',
         'Moses Kiprotich',
         '1988-05-12',
@@ -207,6 +220,7 @@ BEGIN
     (
         uuid_generate_v4(),
         quick_cash_id,
+        quick_cash_branch_id,
         'QC002',
         'Betty Nakato',
         '1995-02-28',
@@ -234,6 +248,7 @@ BEGIN
     (
         uuid_generate_v4(),
         quick_cash_id,
+        quick_cash_branch_id,
         'QC003',
         'James Okello',
         '1982-11-15',
@@ -257,18 +272,19 @@ BEGIN
         'Active',
         '2023-10-05'
     )
-    ON CONFLICT (institution_id, client_number) DO NOTHING;
+    ON CONFLICT (institution_id, member_number) DO NOTHING;
 
-    -- Insert clients for Opportunity Microfinance Uganda (MFI)
-    INSERT INTO senteloans_clients (
+    -- Insert members for Opportunity Microfinance Uganda (MFI)
+    INSERT INTO senteloans_members (
         id,
         institution_id,
-        client_number,
+        branch_id,
+        member_number,
         full_name,
         date_of_birth,
         gender,
         marital_status,
-        client_type,
+        member_type,
         phone_number,
         email,
         national_id,
@@ -290,6 +306,7 @@ BEGIN
     (
         uuid_generate_v4(),
         opportunity_mfi_id,
+        opportunity_mfi_branch_id,
         'OM001',
         'Agnes Namutebi',
         '1987-04-18',
@@ -317,6 +334,7 @@ BEGIN
     (
         uuid_generate_v4(),
         opportunity_mfi_id,
+        opportunity_mfi_branch_id,
         'OM002',
         'Kampala Women''s Group',
         '2020-01-01',
@@ -344,6 +362,7 @@ BEGIN
     (
         uuid_generate_v4(),
         opportunity_mfi_id,
+        opportunity_mfi_branch_id,
         'OM003',
         'Patricia Nabirye',
         '1992-09-14',
@@ -367,45 +386,45 @@ BEGIN
         'Inactive',
         '2023-06-08'
     )
-    ON CONFLICT (institution_id, client_number) DO NOTHING;
+    ON CONFLICT (institution_id, member_number) DO NOTHING;
 
 END $$;
 
--- Create client shares for SACCO clients (skip if client already has shares) (only Kampala Central SACCO has shares)
+-- Create member shares for SACCO members (skip if member already has shares) (only Kampala Central SACCO has shares)
 DO $$
 DECLARE
-    client_rec RECORD;
+    member_rec RECORD;
 BEGIN
-    -- Insert shares for Kampala Central SACCO clients (one record per client; skip if exists)
-    FOR client_rec IN 
-        SELECT c.id as client_id, c.client_number, c.full_name
-        FROM senteloans_clients c
+    -- Insert shares for Kampala Central SACCO members (one record per member; skip if exists)
+    FOR member_rec IN 
+        SELECT c.id as member_id, c.member_number, c.full_name
+        FROM senteloans_members c
         JOIN senteloans_institutions i ON c.institution_id = i.id
         WHERE i.name = 'Kampala Central SACCO'
     LOOP
-        IF NOT EXISTS (SELECT 1 FROM senteloans_client_shares WHERE client_id = client_rec.client_id) THEN
-        INSERT INTO senteloans_client_shares (
+        IF NOT EXISTS (SELECT 1 FROM senteloans_member_shares WHERE member_id = member_rec.member_id) THEN
+        INSERT INTO senteloans_member_shares (
             id,
-            client_id,
+            member_id,
             number_of_shares,
             share_value,
             purchase_date
         ) VALUES (
             uuid_generate_v4(),
-            client_rec.client_id,
+            member_rec.member_id,
             CASE 
-                WHEN client_rec.client_number = 'SL001' THEN 15  -- Sarah Nakamya
-                WHEN client_rec.client_number = 'SL002' THEN 10  -- David Ssemakula
-                WHEN client_rec.client_number = 'SL003' THEN 20  -- Grace Namugga
-                WHEN client_rec.client_number = 'SL004' THEN 25  -- Robert Kiwanuka
+                WHEN member_rec.member_number = 'SL001' THEN 15  -- Sarah Nakamya
+                WHEN member_rec.member_number = 'SL002' THEN 10  -- David Ssemakula
+                WHEN member_rec.member_number = 'SL003' THEN 20  -- Grace Namugga
+                WHEN member_rec.member_number = 'SL004' THEN 25  -- Robert Kiwanuka
                 ELSE 5
             END,
             50000, -- Share value from institution settings
             CASE 
-                WHEN client_rec.client_number = 'SL001' THEN '2023-01-15'
-                WHEN client_rec.client_number = 'SL002' THEN '2023-02-20'
-                WHEN client_rec.client_number = 'SL003' THEN '2023-03-10'
-                WHEN client_rec.client_number = 'SL004' THEN '2023-04-12'
+                WHEN member_rec.member_number = 'SL001' THEN '2023-01-15'
+                WHEN member_rec.member_number = 'SL002' THEN '2023-02-20'
+                WHEN member_rec.member_number = 'SL003' THEN '2023-03-10'
+                WHEN member_rec.member_number = 'SL004' THEN '2023-04-12'
                 ELSE '2023-01-01'
             END::date
         );
@@ -416,25 +435,25 @@ END $$;
 -- Display results for verification
 SELECT 
     'Client Migration Completed Successfully' as status,
-    COUNT(*) as total_clients_created
-FROM senteloans_clients;
+    COUNT(*) as total_members_created
+FROM senteloans_members;
 
--- Show clients by institution
+-- Show members by institution
 SELECT 
     i.name as institution_name,
     i.type as institution_type,
-    COUNT(c.id) as client_count,
-    COUNT(CASE WHEN c.status = 'Active' THEN 1 END) as active_clients,
-    COUNT(CASE WHEN c.kyc_status = 'Verified' THEN 1 END) as verified_clients
+    COUNT(c.id) as member_count,
+    COUNT(CASE WHEN c.status = 'Active' THEN 1 END) as active_members,
+    COUNT(CASE WHEN c.kyc_status = 'Verified' THEN 1 END) as verified_members
 FROM senteloans_institutions i
-LEFT JOIN senteloans_clients c ON i.id = c.institution_id
+LEFT JOIN senteloans_members c ON i.id = c.institution_id
 GROUP BY i.id, i.name, i.type
 ORDER BY i.name;
 
--- Show client shares summary
+-- Show member shares summary
 SELECT 
     'Client Shares Created' as status,
     COUNT(*) as total_share_records,
     SUM(number_of_shares) as total_shares,
     SUM(total_value) as total_share_value
-FROM senteloans_client_shares;
+FROM senteloans_member_shares;

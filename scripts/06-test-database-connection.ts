@@ -30,7 +30,7 @@ async function testDatabaseConnection() {
     const tables = [
       "senteloans_institutions",
       "senteloans_users",
-      "senteloans_clients",
+      "senteloans_members",
       "senteloans_loans",
       "senteloans_transactions",
       "senteloans_notifications",
