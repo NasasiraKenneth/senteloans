@@ -1,12 +1,13 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useMemo, useRef } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 
 import { Plus, Eye, Edit, Mail, Phone, ShieldCheck, Clock, Calendar } from "lucide-react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
+import Tooltip from "@mui/material/Tooltip"
 import { getSession } from "@/lib/session"
 import DataTable from "@/components/datatables/DataTable"
 import { DataTableColumn } from "@/components/datatables/DataTable"
@@ -14,6 +15,7 @@ import { FilterField } from "@/components/datatables/TableFilter"
 import { ActionButtons } from "@/components/datatables/ActionButtons"
 import AddNewStaff from "./components/add/addNewStaff"
 import EditStaff from "./components/edit/editStaff"
+import { useToast } from "@/components/ui/toast"
 
 type StaffMember = {
   id: string
@@ -22,7 +24,6 @@ type StaffMember = {
   phone_number: string | null
   role: string
   status: string
-  is_admin: boolean
   joined_at: string | null
   last_login: string | null
   created_at: string
@@ -71,15 +72,25 @@ function timeAgo(iso: string | null): string {
 
 export default function StaffPage() {
   const router = useRouter()
+  const { toast } = useToast()
   const [staff, setStaff] = useState<StaffMember[]>([])
+  const [roleOptions, setRoleOptions] = useState<Array<{ value: string; label: string }>>([])
   const [session, setSession] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [staffPermissions, setStaffPermissions] = useState({
+    viewUsers: false,
+    createUser: false,
+    editUser: false,
+    isSuperAdmin: false,
+    branches: [] as Array<{ value: string; label: string }>,
+  })
   const [page, setPage] = useState(0)
   const [rowsPerPage, setRowsPerPage] = useState(10)
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [editStaffId, setEditStaffId] = useState<string | null>(null);
+  const permissionToastShown = useRef(false)
 
   const onPageChange = (_: unknown, newPage: number) => setPage(newPage)
   const onRowsPerPageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -103,20 +114,80 @@ export default function StaffPage() {
       const res = await fetch(`/api/institution/staff?${params.toString()}`, { cache: "no-store" })
       if (!res.ok) {
         const body = await res.json().catch(() => ({}))
+        if (res.status === 403 && body?.error === "missing_permission:view_users") {
+          throw new Error("missing_permission:view_users")
+        }
         throw new Error(body.error || "Failed to load staff")
       }
       const { staff: rows } = await res.json()
       setStaff(rows || [])
+      permissionToastShown.current = false
     } catch (e: any) {
-      setError(e?.message || "Failed to load staff")
+      const message = e?.message || "Failed to load staff"
+      setError(message === "missing_permission:view_users" ? null : message)
+      if (message === "missing_permission:view_users") {
+        if (!permissionToastShown.current) {
+          toast({
+            variant: "warning",
+            title: "Access denied",
+            description: "You do not have permission to view staff.",
+          })
+          permissionToastShown.current = true
+        }
+      } else {
+        toast({
+          variant: "destructive",
+          title: "Failed to load staff",
+          description: message,
+        })
+      }
     } finally {
       setLoading(false)
+    }
+  }
+
+  async function loadStaffPermissions() {
+    try {
+      const res = await fetch("/api/institution/staff/permissions", { cache: "no-store" })
+      if (!res.ok) return
+      const data = (await res.json()) as {
+        permissions?: {
+          viewUsers?: boolean
+          createUser?: boolean
+          editUser?: boolean
+          isSuperAdmin?: boolean
+          branches?: Array<{ id: string; name: string }>
+        }
+      }
+      setStaffPermissions({
+        viewUsers: !!data.permissions?.viewUsers,
+        createUser: !!data.permissions?.createUser,
+        editUser: !!data.permissions?.editUser,
+        isSuperAdmin: !!data.permissions?.isSuperAdmin,
+        branches: (data.permissions?.branches || []).map((b) => ({ value: b.id, label: b.name })),
+      })
+    } catch {
+      // keep defaults
+    }
+  }
+
+  async function loadRoleOptions() {
+    try {
+      const res = await fetch("/api/institution/staff/roles", { cache: "no-store" })
+      if (!res.ok) return
+      const body = await res.json().catch(() => ({}))
+      const options = Array.isArray(body?.roles) ? body.roles : []
+      setRoleOptions(options)
+    } catch {
+      // keep empty options
     }
   }
 
   useEffect(() => {
     const sessionData = getSession()
     setSession(sessionData)
+    loadStaffPermissions()
+    loadRoleOptions()
     loadStaff()
   }, [])
 
@@ -230,40 +301,50 @@ export default function StaffPage() {
       onClick: handleEdit,
       variant: "primary",
       icon: <Edit className="h-4 w-4" />,
+      disabled: !staffPermissions.editUser,
     },
   ]
 
   // Filter configuration
-  const filterFields: FilterField[] = [
-    {
-      field: "search",
-      label: "Search by Name or Email",
-      type: "text",
-    },
-    {
-      field: "role",
-      label: "Role",
-      options: [
-        { value: "institution_admin", label: "Admin" },
-        { value: "manager", label: "Manager" },
-        { value: "loan_officer", label: "Loan Officer" },
-        { value: "teller", label: "Teller" },
-      ],
-      multiple: false,
-      type: "select",
-    },
-    {
-      field: "status",
-      label: "Status",
-      options: [
-        { value: "Active", label: "Active" },
-        { value: "Inactive", label: "Inactive" },
-        { value: "Suspended", label: "Suspended" },
-      ],
-      multiple: false,
-      type: "select",
-    },
-  ]
+  const filterFields: FilterField[] = useMemo(() => {
+    const fields: FilterField[] = [
+      {
+        field: "search",
+        label: "Search by Name or Email",
+        type: "text",
+      },
+      {
+        field: "role",
+        label: "Role",
+        options: roleOptions,
+        multiple: false,
+        type: "select",
+      },
+      {
+        field: "status",
+        label: "Status",
+        options: [
+          { value: "Active", label: "Active" },
+          { value: "Inactive", label: "Inactive" },
+          { value: "Suspended", label: "Suspended" },
+        ],
+        multiple: false,
+        type: "select",
+      },
+    ]
+
+    if (staffPermissions.isSuperAdmin) {
+      fields.splice(2, 0, {
+        field: "branches",
+        label: "Branches",
+        options: staffPermissions.branches,
+        multiple: true,
+        type: "select",
+      })
+    }
+
+    return fields
+  }, [staffPermissions.isSuperAdmin, staffPermissions.branches, roleOptions])
 
   return (
     <>
@@ -276,15 +357,44 @@ export default function StaffPage() {
               Manage your institution&apos;s team members, roles &amp; permissions.
             </p>
           </div>
-          <div>
-            <Button
-              className="hover:bg-black/70 hover:text-[#f08c2b]"
-              onClick={() => setIsAddOpen(true)}
+          {staffPermissions.createUser ? (
+            <div>
+              <Button
+                className="hover:bg-black/70 hover:text-[#f08c2b]"
+                onClick={() => setIsAddOpen(true)}
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Add Staff
+              </Button>
+            </div>
+          ) : (
+            <Tooltip
+              title="Missing create_user permission"
+              placement="top"
+              arrow
+              enterDelay={300}
+              slotProps={{
+                tooltip: {
+                  sx: {
+                    bgcolor: "white",
+                    color: "#282f40",
+                    fontSize: "0.75rem",
+                    padding: "6px 10px",
+                    boxShadow: "0 4px 20px rgba(0,0,0,0.15)",
+                    borderRadius: "8px",
+                  },
+                },
+                arrow: { sx: { color: "white" } },
+              }}
             >
-              <Plus className="h-4 w-4 mr-2" />
-              Add Staff
-            </Button>
-          </div>
+              <span className="inline-block cursor-not-allowed">
+                <Button disabled>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add Staff
+                </Button>
+              </span>
+            </Tooltip>
+          )}
         </div>
 
         {/* Stats Cards */}

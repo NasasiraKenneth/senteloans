@@ -89,8 +89,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       if (!authUserId) return { error: "Failed to create auth user" as const }
 
       await client.query(
-        `INSERT INTO senteloans_users (supabase_user_id, institution_id, branch_id, role_id, email, full_name, phone_number, status, is_admin)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, 'Active', TRUE)`,
+        `INSERT INTO senteloans_users (supabase_user_id, institution_id, branch_id, role_id, email, full_name, phone_number, status)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, 'Active')`,
         [authUserId, institutionId, branchId, adminRoleId, emailLower, String(name).trim(), phone ? String(phone).trim() : null]
       )
       return { ok: true, user_id: authUserId }

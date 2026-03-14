@@ -1,1 +1,205 @@
-export { GET, PATCH } from "../../members/[id]/route"
+import { NextResponse } from "next/server"
+import { getServerSession } from "next-auth"
+import { authOptions } from "@/lib/auth"
+import { runWithAuth } from "@/lib/db"
+
+type ActorContext = {
+  id: string
+  institution_id: string
+  branch_id: string | null
+  role_id: string | null
+  role: string | null
+}
+
+async function resolveActorContext(client: any, authUserId: string): Promise<ActorContext | null> {
+  const actorRes = await client.query(
+    `SELECT
+       u.id,
+       u.institution_id,
+       u.branch_id,
+       u.role_id,
+       CASE
+         WHEN r.name = 'System Admin' THEN 'system_admin'
+         WHEN r.name = 'Super Admin' THEN 'super_admin'
+         WHEN r.name = 'Admin' THEN 'institution_admin'
+         WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
+         ELSE NULL
+       END AS role
+     FROM senteloans_users u
+     LEFT JOIN senteloans_roles r ON r.id = u.role_id
+     WHERE u.supabase_user_id = $1
+     LIMIT 1`,
+    [authUserId]
+  )
+  return actorRes.rows[0] || null
+}
+
+async function hasPermission(client: any, actor: ActorContext, permission: string): Promise<boolean> {
+  const role = String(actor.role || "").trim().toLowerCase()
+  if (role === "super_admin") return true
+  if (!actor.role_id || !actor.branch_id) return false
+
+  const permRes = await client.query(
+    `SELECT 1
+     FROM senteloans_role_permissions rp
+     JOIN senteloans_permissions p ON p.id = rp.permission_id
+     WHERE rp.role_id = $1
+       AND rp.branch_id = $2
+       AND p.name = $3
+     LIMIT 1`,
+    [actor.role_id, actor.branch_id, permission]
+  )
+  return permRes.rowCount > 0
+}
+
+function whereScope(actor: ActorContext) {
+  const actorRole = String(actor.role || "").trim().toLowerCase()
+  if (actorRole === "super_admin") {
+    return { clause: "c.id = $1 AND c.institution_id = $2", params: [] as unknown[] }
+  }
+  return { clause: "c.id = $1 AND c.institution_id = $2 AND c.branch_id = $3", params: [actor.branch_id] as unknown[] }
+}
+
+export async function GET(
+  req: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await params
+    if (!id) return NextResponse.json({ error: "Missing client ID" }, { status: 400 })
+
+    const session = await getServerSession(authOptions)
+    if (!session?.user?.authUserId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    if (session.user.type !== "staff") return NextResponse.json({ error: "no_app_user_profile" }, { status: 403 })
+
+    const result = await runWithAuth(session.user.authUserId, async (client) => {
+      const actor = await resolveActorContext(client, session.user.authUserId as string)
+      if (!actor?.institution_id) return { error: "no_app_user_profile" as const }
+      const allowed = await hasPermission(client, actor, "view_clients")
+      if (!allowed) return { error: "missing_permission:view_clients" as const }
+
+      const actorRole = String(actor.role || "").trim().toLowerCase()
+      if (actorRole !== "super_admin" && !actor.branch_id) return { error: "actor_branch_missing" as const }
+      const scope = whereScope(actor)
+
+      const clientRes = await client.query(
+        `SELECT
+           c.id,
+           c.institution_id,
+           c.branch_id,
+           b.name AS branch_name,
+           c.name,
+           c.status,
+           c.email,
+           c.address,
+           c.phone,
+           c.created_by,
+           c.created_at,
+           c.modified_by,
+           c.updated_at,
+           cu.full_name AS created_by_name,
+           mu.full_name AS modified_by_name
+         FROM senteloans_clients c
+         LEFT JOIN senteloans_branches b ON b.id = c.branch_id
+         LEFT JOIN senteloans_users cu ON cu.id = c.created_by
+         LEFT JOIN senteloans_users mu ON mu.id = c.modified_by
+         WHERE ${scope.clause}
+         LIMIT 1`,
+        [id, actor.institution_id, ...scope.params]
+      )
+      if (clientRes.rows.length === 0) return { error: "client_not_found" as const }
+      return { client: clientRes.rows[0] }
+    })
+
+    if (result && "error" in result) {
+      const errorCode = String(result.error || "")
+      const statusCode =
+        errorCode === "client_not_found" ? 404 :
+        errorCode === "actor_branch_missing" ? 400 :
+        errorCode.startsWith("missing_permission:") ? 403 : 400
+      return NextResponse.json({ error: errorCode }, { status: statusCode })
+    }
+    return NextResponse.json(result)
+  } catch (e: unknown) {
+    const err = e as Error
+    return NextResponse.json({ error: err?.message || "Unexpected error" }, { status: 500 })
+  }
+}
+
+export async function PATCH(
+  req: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await params
+    if (!id) return NextResponse.json({ error: "Missing client ID" }, { status: 400 })
+
+    const session = await getServerSession(authOptions)
+    if (!session?.user?.authUserId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    if (session.user.type !== "staff") return NextResponse.json({ error: "no_app_user_profile" }, { status: 403 })
+
+    const body = await req.json().catch(() => ({}))
+    const name = typeof body.name === "string" ? body.name.trim() : ""
+    const status = typeof body.status === "string" ? body.status.trim() : ""
+    const emailRaw = typeof body.email === "string" ? body.email.trim() : ""
+    const address = typeof body.address === "string" ? body.address.trim() : ""
+    const phone = typeof body.phone === "string" ? body.phone.trim() : ""
+
+    if (!name) return NextResponse.json({ error: "Name is required" }, { status: 400 })
+    if (!status) return NextResponse.json({ error: "Status is required" }, { status: 400 })
+    const validStatuses = ["Active", "Inactive", "Suspended"]
+    if (!validStatuses.includes(status)) return NextResponse.json({ error: "Invalid status" }, { status: 400 })
+
+    let email: string | null = null
+    if (emailRaw) {
+      const normalized = emailRaw.toLowerCase()
+      const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+      if (!emailRe.test(normalized)) return NextResponse.json({ error: "Invalid email format" }, { status: 400 })
+      email = normalized
+    }
+
+    const result = await runWithAuth(session.user.authUserId, async (client) => {
+      const actor = await resolveActorContext(client, session.user.authUserId as string)
+      if (!actor?.institution_id) return { error: "no_app_user_profile" as const }
+      const allowed = await hasPermission(client, actor, "edit_client")
+      if (!allowed) return { error: "missing_permission:edit_client" as const }
+
+      const actorRole = String(actor.role || "").trim().toLowerCase()
+      if (actorRole !== "super_admin" && !actor.branch_id) return { error: "actor_branch_missing" as const }
+      const scope = whereScope(actor)
+
+      const updateRes = await client.query(
+        `UPDATE senteloans_clients c
+         SET
+           name = $4,
+           status = $5,
+           email = $6,
+           address = $7,
+           phone = $8,
+           modified_by = $9,
+           updated_at = NOW()
+         WHERE ${scope.clause}
+         RETURNING
+           c.id, c.institution_id, c.branch_id, c.name, c.status, c.email, c.address, c.phone,
+           c.created_by, c.created_at, c.modified_by, c.updated_at`,
+        [id, actor.institution_id, ...scope.params, name, status, email, address || null, phone || null, actor.id]
+      )
+      if (updateRes.rows.length === 0) return { error: "client_not_found" as const }
+      return { client: updateRes.rows[0] }
+    })
+
+    if (result && "error" in result) {
+      const errorCode = String(result.error || "")
+      const statusCode =
+        errorCode === "client_not_found" ? 404 :
+        errorCode === "actor_branch_missing" ? 400 :
+        errorCode.startsWith("missing_permission:") ? 403 : 400
+      return NextResponse.json({ error: errorCode }, { status: statusCode })
+    }
+    return NextResponse.json(result)
+  } catch (e: unknown) {
+    const err = e as Error
+    return NextResponse.json({ error: err?.message || "Unexpected error" }, { status: 500 })
+  }
+}
+

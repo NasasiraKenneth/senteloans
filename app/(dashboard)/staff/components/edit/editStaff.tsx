@@ -32,7 +32,15 @@ export default function EditStaff({ isOpen, staffId, onClose, onSuccess }: EditS
       try {
         const res = await fetch(`/api/institution/staff/${staffId}`)
         const body = await res.json()
-        if (!res.ok) throw new Error(body.error || "Failed to load staff member")
+        if (!res.ok) {
+          if (res.status === 403 && body?.error === "missing_permission:view_users") {
+            throw new Error("missing_permission:view_users")
+          }
+          if (res.status === 404 && body?.error === "staff_not_found") {
+            throw new Error("staff_not_found")
+          }
+          throw new Error(body.error || "Failed to load staff member")
+        }
 
         const s = body.staff
         const nameParts = (s.full_name || "").trim().split(/\s+/)
@@ -52,10 +60,27 @@ export default function EditStaff({ isOpen, staffId, onClose, onSuccess }: EditS
           confirmPassword: "",
         })
       } catch (e: any) {
-        setFetchError(e?.message || "Failed to load staff member")
+        const message = e?.message || "Failed to load staff member"
+        setFetchError(message)
+        if (message === "missing_permission:view_users") {
+          toast({
+            title: "Access denied",
+            description: "You do not have permission to view staff.",
+            variant: "warning",
+          })
+          return
+        }
+        if (message === "staff_not_found") {
+          toast({
+            title: "Staff not found",
+            description: "The selected staff record no longer exists.",
+            variant: "warning",
+          })
+          return
+        }
         toast({
           title: "Failed to load staff",
-          description: e?.message || "Could not fetch staff details.",
+          description: message || "Could not fetch staff details.",
           variant: "destructive",
         })
       } finally {
@@ -77,6 +102,12 @@ export default function EditStaff({ isOpen, staffId, onClose, onSuccess }: EditS
       })
       const body = await res.json()
       if (!res.ok) {
+        if (res.status === 403 && body?.error === "missing_permission:edit_user") {
+          throw new Error("missing_permission:edit_user")
+        }
+        if (res.status === 404 && body?.error === "Staff member not found") {
+          throw new Error("staff_not_found")
+        }
         throw new Error(body.error || "Failed to update staff member")
       }
       toast({
@@ -87,9 +118,26 @@ export default function EditStaff({ isOpen, staffId, onClose, onSuccess }: EditS
       onSuccess()
       handleClose()
     } catch (e: any) {
+      const message = e?.message || "Something went wrong. Please try again."
+      if (message === "missing_permission:edit_user") {
+        toast({
+          title: "Access denied",
+          description: "You do not have permission to edit staff users.",
+          variant: "warning",
+        })
+        return
+      }
+      if (message === "staff_not_found") {
+        toast({
+          title: "Staff not found",
+          description: "The selected staff record no longer exists.",
+          variant: "warning",
+        })
+        return
+      }
       toast({
         title: "Failed to update staff",
-        description: e?.message || "Something went wrong. Please try again.",
+        description: message,
         variant: "destructive",
       })
     } finally {

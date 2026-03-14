@@ -84,11 +84,15 @@ export default function NewTransactionPage() {
       }
       setLoadingMembers(true)
       try {
-        const res = await fetch(`/api/institution/clients?search=${encodeURIComponent(q)}&limit=10`, { cache: "no-store" })
+        const res = await fetch(`/api/institution/members?search=${encodeURIComponent(q)}&limit=10`, { cache: "no-store" })
         const data = await res.json()
         if (!res.ok) throw new Error(data?.error || "Failed to search members")
-        if (!abort) setMemberResults(data.clients || [])
+        if (!abort) setMemberResults(data.members || data.clients || [])
       } catch (e) {
+        if (!abort) {
+          const message = (e as Error)?.message || "Failed to search members"
+          toast({ title: "Search failed", description: message, variant: "destructive" })
+        }
         if (!abort) setMemberResults([])
       } finally {
         if (!abort) setLoadingMembers(false)
@@ -104,7 +108,7 @@ export default function NewTransactionPage() {
   const fetchMemberAccounts = async (memberId: string) => {
     setLoadingAccounts(true)
     try {
-      const res = await fetch(`/api/institution/savings?client_id=${encodeURIComponent(memberId)}&limit=50`, { cache: "no-store" })
+      const res = await fetch(`/api/institution/savings?member_id=${encodeURIComponent(memberId)}&limit=50`, { cache: "no-store" })
       const data = await res.json()
       if (!res.ok) throw new Error(data?.error || "Failed to load accounts")
       const mapped: MemberAccount[] = (data.items || data.accounts || []).map((a: any) => ({
@@ -117,6 +121,8 @@ export default function NewTransactionPage() {
       setAccounts(mapped)
       return mapped
     } catch (e) {
+      const message = (e as Error)?.message || "Failed to load accounts"
+      toast({ title: "Failed to load accounts", description: message, variant: "destructive" })
       setAccounts([])
       return [] as MemberAccount[]
     } finally {
@@ -129,7 +135,7 @@ export default function NewTransactionPage() {
     setLoadingAccountsFor(memberId)
     try {
       // Use same endpoint but don't overwrite main accounts selection state
-      const res = await fetch(`/api/institution/savings?client_id=${encodeURIComponent(memberId)}&limit=50`, { cache: "no-store" })
+      const res = await fetch(`/api/institution/savings?member_id=${encodeURIComponent(memberId)}&limit=50`, { cache: "no-store" })
       const data = await res.json()
       const mapped: MemberAccount[] = (data.items || data.accounts || []).map((a: any) => ({
         id: a.id,
@@ -150,7 +156,7 @@ export default function NewTransactionPage() {
       member: {
         id: member.id,
         fullName: member.full_name || member.fullName,
-        memberNumber: member.client_number || member.clientNumber,
+        memberNumber: member.member_number || member.client_number || member.clientNumber,
         kycStatus: member.kyc_status || member.kycStatus,
       },
     }))
@@ -185,7 +191,7 @@ export default function NewTransactionPage() {
     // Map UI payment mode to DB enum
     const mode = transactionData.paymentMode === "Bank" ? "Bank Transfer" : transactionData.paymentMode
     const payload = {
-      client_id: transactionData.member.id,
+      member_id: transactionData.member.id,
       account_id: transactionData.account.id,
       type: transactionData.transactionType,
       amount: amountNum,
@@ -205,7 +211,12 @@ export default function NewTransactionPage() {
       toast({ title: "Transaction created", description: `Transaction ${data.transaction_number} completed.` })
       router.push(`/transactions/${data.id}`)
     } catch (e: any) {
-      toast({ title: "Create failed", description: e?.message || "Unexpected error", variant: "destructive" })
+      const message = e?.message || "Unexpected error"
+      if (message === "missing_permission:create_transaction") {
+        toast({ title: "Access denied", description: "You do not have permission to create transactions.", variant: "warning" })
+      } else {
+        toast({ title: "Create failed", description: message, variant: "destructive" })
+      }
     } finally {
       setSubmitting(false)
     }
@@ -377,7 +388,7 @@ export default function NewTransactionPage() {
                               <div>
                                 <div className="font-medium">{member.full_name || member.fullName}</div>
                                         <div className="text-sm text-muted-foreground">
-                                  Client No: {member.client_number || member.clientNumber}
+                                  Client No: {member.member_number || member.client_number || member.clientNumber}
                                 </div>
                                 {(member.phone_number || member.phoneNumber || member.email) && (
                                   <div className="text-xs text-muted-foreground">
@@ -427,7 +438,7 @@ export default function NewTransactionPage() {
                                         member: {
                                           id: member.id,
                                           fullName: member.full_name || member.fullName,
-                                          memberNumber: member.client_number || member.clientNumber,
+                                          memberNumber: member.member_number || member.client_number || member.clientNumber,
                                           kycStatus: member.kyc_status || member.kycStatus,
                                         },
                                         account: null,

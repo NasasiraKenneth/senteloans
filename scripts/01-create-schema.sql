@@ -140,6 +140,22 @@ CREATE TABLE IF NOT EXISTS senteloans_users (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- 4b. CLIENTS DIRECTORY TABLE (Institution-level client organizations/contacts)
+CREATE TABLE IF NOT EXISTS senteloans_clients (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    institution_id UUID NOT NULL REFERENCES senteloans_institutions(id) ON DELETE RESTRICT,
+    branch_id UUID NOT NULL REFERENCES senteloans_branches(id) ON DELETE RESTRICT,
+    name VARCHAR(150) NOT NULL,
+    status VARCHAR(20) NOT NULL,
+    email VARCHAR(255),
+    address VARCHAR(250),
+    phone VARCHAR(20),
+    created_by UUID REFERENCES senteloans_users(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    modified_by UUID REFERENCES senteloans_users(id) ON DELETE SET NULL,
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- 5. CLIENTS TABLE (Customer/Member records)
 CREATE TABLE IF NOT EXISTS senteloans_members (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),

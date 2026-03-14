@@ -5,11 +5,56 @@ import { runWithAuth } from "@/lib/db"
 import { hash } from "bcryptjs"
 import { auditLogger } from "@/lib/audit/audit-logger"
 
-function isElevated(role?: string | null) {
-  return role === "super_admin" || role === "institution_admin" || role === "manager"
+type ActorContext = {
+  id: string
+  institution_id: string
+  branch_id: string | null
+  role_id: string | null
+  role: string | null
 }
 
 const VALID_STATUSES = ["Active", "Inactive", "Suspended"]
+
+async function resolveActorContext(client: any, authUserId: string): Promise<ActorContext | null> {
+  const actorRes = await client.query(
+    `SELECT
+       u.id,
+       u.institution_id,
+       u.branch_id,
+       u.role_id,
+       CASE
+         WHEN r.name = 'System Admin' THEN 'system_admin'
+         WHEN r.name = 'Super Admin' THEN 'super_admin'
+         WHEN r.name = 'Admin' THEN 'institution_admin'
+         WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
+         ELSE NULL
+       END AS role
+     FROM senteloans_users u
+     LEFT JOIN senteloans_roles r ON r.id = u.role_id
+     WHERE u.supabase_user_id = $1
+     LIMIT 1`,
+    [authUserId]
+  )
+  return actorRes.rows[0] || null
+}
+
+async function hasPermission(client: any, actor: ActorContext, permission: string): Promise<boolean> {
+  const role = String(actor.role || "").trim().toLowerCase()
+  if (role === "super_admin") return true
+  if (!actor.role_id || !actor.branch_id) return false
+
+  const permRes = await client.query(
+    `SELECT 1
+     FROM senteloans_role_permissions rp
+     JOIN senteloans_permissions p ON p.id = rp.permission_id
+     WHERE rp.role_id = $1
+       AND rp.branch_id = $2
+       AND p.name = $3
+     LIMIT 1`,
+    [actor.role_id, actor.branch_id, permission]
+  )
+  return permRes.rowCount > 0
+}
 
 async function resolveRoleById(client: any, roleId: string): Promise<{ id: string; app_role: string } | null> {
   const roleRes = await client.query(
@@ -46,12 +91,19 @@ export async function GET(
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
 
     const result = await runWithAuth(session.user.authUserId, async (client) => {
-      const actorRes = await client.query(
-        `SELECT institution_id FROM senteloans_users WHERE supabase_user_id = $1`,
-        [session!.user!.authUserId]
-      )
-      const actor = actorRes.rows[0]
+      const actor = await resolveActorContext(client, session.user.authUserId as string)
       if (!actor) return { error: "user_not_linked" as const }
+      const allowed = await hasPermission(client, actor, "view_users")
+      if (!allowed) return { error: "missing_permission:view_users" as const }
+      const actorRole = String(actor.role || "").trim().toLowerCase()
+      if (actorRole !== "super_admin" && !actor.branch_id) return { error: "actor_branch_missing" as const }
+
+      const whereBranchClause =
+        actorRole === "super_admin" ? "" : " AND u.branch_id = $3"
+      const queryParams =
+        actorRole === "super_admin"
+          ? [id, actor.institution_id]
+          : [id, actor.institution_id, actor.branch_id]
 
       const res = await client.query(
         `SELECT
@@ -68,7 +120,6 @@ export async function GET(
                   ELSE NULL
                 END AS role,
                 u.status,
-                u.is_admin,
                 u.joined_at,
                 u.last_login,
                 u.created_at,
@@ -76,15 +127,18 @@ export async function GET(
          FROM senteloans_users u
          LEFT JOIN senteloans_roles r ON r.id = u.role_id
          LEFT JOIN app_auth_users a ON a.id = u.supabase_user_id
-         WHERE u.id = $1 AND u.institution_id = $2`,
-        [id, actor.institution_id]
+         WHERE u.id = $1 AND u.institution_id = $2${whereBranchClause}`,
+        queryParams
       )
       if (res.rows.length === 0) return { error: "staff_not_found" as const }
       return { staff: res.rows[0] }
     })
 
     if (result && "error" in result) {
-      const status = result.error === "staff_not_found" ? 404 : 400
+      const status =
+        result.error === "staff_not_found" ? 404 :
+        result.error === "missing_permission:view_users" ? 403 :
+        result.error === "actor_branch_missing" ? 400 : 400
       return NextResponse.json({ error: result.error }, { status })
     }
 
@@ -109,8 +163,6 @@ export async function PUT(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     if (session.user.type !== "staff")
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
-    if (!isElevated(session.user.role))
-      return NextResponse.json({ error: "Only admins and managers can edit staff" }, { status: 403 })
 
     const body = await req.json().catch(() => ({}))
     const firstName = String(body.firstName || "").trim()
@@ -137,25 +189,19 @@ export async function PUT(
     const fullName = `${firstName} ${lastName}`
 
     const result = await runWithAuth(session.user.authUserId, async (client) => {
-      // Get actor
-      const actorRes = await client.query(
-        `SELECT
-           u.id,
-           u.institution_id,
-           CASE
-             WHEN r.name = 'System Admin' THEN 'system_admin'
-             WHEN r.name = 'Super Admin' THEN 'super_admin'
-             WHEN r.name = 'Admin' THEN 'institution_admin'
-             WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
-             ELSE NULL
-           END AS role
-         FROM senteloans_users u
-         LEFT JOIN senteloans_roles r ON r.id = u.role_id
-         WHERE u.supabase_user_id = $1`,
-        [session!.user!.authUserId]
-      )
-      const actor = actorRes.rows[0]
+      const actor = await resolveActorContext(client, session.user.authUserId as string)
       if (!actor) return { error: "user_not_linked" as const }
+      const allowed = await hasPermission(client, actor, "edit_user")
+      if (!allowed) return { error: "missing_permission:edit_user" as const }
+      const actorRole = String(actor.role || "").trim().toLowerCase()
+      if (actorRole !== "super_admin" && !actor.branch_id) return { error: "actor_branch_missing" as const }
+
+      const whereBranchClause =
+        actorRole === "super_admin" ? "" : " AND u.branch_id = $3"
+      const queryParams =
+        actorRole === "super_admin"
+          ? [id, actor.institution_id]
+          : [id, actor.institution_id, actor.branch_id]
 
       // Get existing staff member
       const staffRes = await client.query(
@@ -172,12 +218,11 @@ export async function PUT(
              ELSE NULL
            END AS role,
            u.status,
-           u.is_admin,
            u.role_id
          FROM senteloans_users u
          LEFT JOIN senteloans_roles r ON r.id = u.role_id
-         WHERE u.id = $1 AND u.institution_id = $2`,
-        [id, actor.institution_id]
+         WHERE u.id = $1 AND u.institution_id = $2${whereBranchClause}`,
+        queryParams
       )
       if (staffRes.rows.length === 0) return { error: "staff_not_found" as const }
       const existing = staffRes.rows[0]
@@ -216,16 +261,15 @@ export async function PUT(
         email: existing.email,
         role: existing.role,
         status: existing.status,
-        is_admin: existing.is_admin,
       }
 
       // 1. Update senteloans_users
       await client.query(
         `UPDATE senteloans_users
          SET full_name = $1, email = $2, phone_number = $3, role_id = $4,
-             status = $5, is_admin = $6, joined_at = $7, updated_at = NOW()
-         WHERE id = $8`,
-        [fullName, email, phoneNumber || null, roleRow.id, status, roleRow.app_role === "institution_admin", joinDate || null, id]
+             status = $5, joined_at = $6, updated_at = NOW()
+         WHERE id = $7`,
+        [fullName, email, phoneNumber || null, roleRow.id, status, joinDate || null, id]
       )
 
       // 2. Update app_auth_users (email, username, and optionally password)
@@ -249,7 +293,7 @@ export async function PUT(
         "senteloans_users",
         id,
         oldValues,
-        { full_name: fullName, email, role: roleRow.app_role, role_id: roleRow.id, status, is_admin: roleRow.app_role === "institution_admin" },
+        { full_name: fullName, email, role: roleRow.app_role, role_id: roleRow.id, status },
         actor.institution_id,
         actor.id,
         undefined,
@@ -265,7 +309,6 @@ export async function PUT(
           phone_number: phoneNumber || null,
           role: roleRow.app_role,
           status,
-          is_admin: roleRow.app_role === "institution_admin",
           joined_at: joinDate || null,
         },
       }
@@ -279,6 +322,8 @@ export async function PUT(
         result.error === "role_not_found" ? 400 :
         result.error === "invalid_role_for_institution_staff" ? 400 :
         result.error === "insufficient_role_scope_for_assignment" ? 403 :
+        result.error === "missing_permission:edit_user" ? 403 :
+        result.error === "actor_branch_missing" ? 400 :
         result.error === "user_not_linked" ? 400 : 500
       const message =
         result.error === "email_already_exists" ? "A staff member with this email already exists" :
@@ -286,6 +331,8 @@ export async function PUT(
         result.error === "role_not_found" ? "Selected role is not available in role catalog" :
         result.error === "invalid_role_for_institution_staff" ? "System Admin cannot be assigned as institution staff role" :
         result.error === "insufficient_role_scope_for_assignment" ? "You are not allowed to assign the selected role" :
+        result.error === "missing_permission:edit_user" ? "missing_permission:edit_user" :
+        result.error === "actor_branch_missing" ? "Current staff user has no branch configured" :
         result.error === "staff_not_found" ? "Staff member not found" :
         result.error
       return NextResponse.json({ error: message }, { status: statusCode })

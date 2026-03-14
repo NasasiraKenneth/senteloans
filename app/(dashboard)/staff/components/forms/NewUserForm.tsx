@@ -72,7 +72,7 @@ const BioStep = ({ register, errors, control }: any) => (
                 type="text"
                 placeholder="Last Name"
                 className={`w-full pl-10 pr-3 py-2.5 text-sm rounded-md border transition-all duration-200 focus:ring-[1.5px] focus:ring-[#f08c2b] focus:border-transparent focus:outline-none
-                  ${errors.firstName 
+                  ${errors.lastName 
                     ? 'border-red-500 focus:ring-red-500' 
                     : 'border-gray-300 hover:border-gray-400'
                   }`

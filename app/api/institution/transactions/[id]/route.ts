@@ -3,6 +3,63 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { runWithAuth } from "@/lib/db"
 
+type ActorContext = {
+  id: string
+  institution_id: string
+  branch_id: string | null
+  role_id: string | null
+  role: string | null
+}
+
+async function resolveActorContext(client: any, authUserId: string): Promise<ActorContext | null> {
+  const actorRes = await client.query(
+    `SELECT
+       u.id,
+       u.institution_id,
+       u.branch_id,
+       u.role_id,
+       CASE
+         WHEN r.name = 'System Admin' THEN 'system_admin'
+         WHEN r.name = 'Super Admin' THEN 'super_admin'
+         WHEN r.name = 'Admin' THEN 'institution_admin'
+         WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
+         ELSE NULL
+       END AS role
+     FROM senteloans_users u
+     LEFT JOIN senteloans_roles r ON r.id = u.role_id
+     WHERE u.supabase_user_id = $1
+     LIMIT 1`,
+    [authUserId]
+  )
+  return actorRes.rows[0] || null
+}
+
+async function hasPermission(client: any, actor: ActorContext, permission: string): Promise<boolean> {
+  const role = String(actor.role || "").trim().toLowerCase()
+  if (role === "super_admin") return true
+  if (!actor.role_id || !actor.branch_id) return false
+
+  const permRes = await client.query(
+    `SELECT 1
+     FROM senteloans_role_permissions rp
+     JOIN senteloans_permissions p ON p.id = rp.permission_id
+     WHERE rp.role_id = $1
+       AND rp.branch_id = $2
+       AND p.name = $3
+     LIMIT 1`,
+    [actor.role_id, actor.branch_id, permission]
+  )
+  return permRes.rowCount > 0
+}
+
+function whereScope(actor: ActorContext) {
+  const actorRole = String(actor.role || "").trim().toLowerCase()
+  if (actorRole === "super_admin") {
+    return { clause: "t.id = $1 AND t.institution_id = $2", params: [] as unknown[] }
+  }
+  return { clause: "t.id = $1 AND t.institution_id = $2 AND t.branch_id = $3", params: [actor.branch_id] as unknown[] }
+}
+
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params
@@ -10,21 +67,50 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 
     const session = await getServerSession(authOptions)
     if (!session?.user?.authUserId) return NextResponse.json({ error: "unauthorized" }, { status: 401 })
+    if (session.user.type !== "staff") return NextResponse.json({ error: "no_app_user_profile" }, { status: 403 })
 
     const result = await runWithAuth(session.user.authUserId, async (client) => {
+      const actor = await resolveActorContext(client, session.user.authUserId as string)
+      if (!actor?.institution_id) return { error: "no_app_user_profile" as const }
+      const allowed = await hasPermission(client, actor, "view_transactions")
+      if (!allowed) return { error: "missing_permission:view_transactions" as const }
+
+      const actorRole = String(actor.role || "").trim().toLowerCase()
+      if (actorRole !== "super_admin" && !actor.branch_id) return { error: "actor_branch_missing" as const }
+      const scope = whereScope(actor)
+
       const txRes = await client.query(
-        `SELECT id, institution_id, client_id, account_id, loan_id, transaction_number, type, amount, mode, description, reference_number, balance_before, balance_after, processed_by, transaction_date, status, created_at FROM senteloans_transactions WHERE id = $1`,
-        [id]
+        `SELECT
+           t.id,
+           t.institution_id,
+           t.member_id,
+           t.account_id,
+           t.loan_id,
+           t.transaction_number,
+           t.type,
+           t.amount,
+           t.mode,
+           t.description,
+           t.reference_number,
+           t.balance_before,
+           t.balance_after,
+           t.processed_by,
+           t.transaction_date,
+           t.status,
+           t.created_at
+         FROM senteloans_transactions t
+         WHERE ${scope.clause}`,
+        [id, actor.institution_id, ...scope.params]
       )
       const tx = txRes.rows[0]
-      if (!tx) return null
+      if (!tx) return { error: "transaction_not_found" as const }
 
       let clientName = ""
       let clientNumber = ""
-      if (tx.client_id) {
-        const cRes = await client.query(`SELECT id, full_name, client_number FROM senteloans_clients WHERE id = $1`, [tx.client_id])
+      if (tx.member_id) {
+        const cRes = await client.query(`SELECT id, full_name, member_number FROM senteloans_members WHERE id = $1`, [tx.member_id])
         clientName = cRes.rows[0]?.full_name || ""
-        clientNumber = cRes.rows[0]?.client_number || ""
+        clientNumber = cRes.rows[0]?.member_number || ""
       }
       let accountNumber = ""
       if (tx.account_id) {
@@ -57,7 +143,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
           transaction_date: tx.transaction_date,
           status: tx.status,
           created_at: tx.created_at,
-          client_id: tx.client_id,
+          member_id: tx.member_id,
           client_number: clientNumber,
           client_name: clientName,
           account_id: tx.account_id,
@@ -70,7 +156,15 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       }
     })
 
-    if (!result) return NextResponse.json({ error: "not_found" }, { status: 404 })
+    if (result && "error" in result) {
+      const errorCode = String(result.error || "")
+      const statusCode =
+        errorCode === "transaction_not_found" ? 404 :
+        errorCode.startsWith("missing_permission:") ? 403 :
+        errorCode === "actor_branch_missing" ? 400 :
+        errorCode === "no_app_user_profile" ? 403 : 400
+      return NextResponse.json({ error: errorCode }, { status: statusCode })
+    }
     return NextResponse.json(result)
   } catch (e: unknown) {
     const err = e as Error

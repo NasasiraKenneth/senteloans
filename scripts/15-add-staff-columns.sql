@@ -1,10 +1,9 @@
--- Migration: Add joined_at, is_admin to senteloans_users; username to app_auth_users
+-- Migration: Add joined_at to senteloans_users; username to app_auth_users
 -- Run this after existing migrations.
 
--- 1. Add joined_at and is_admin to senteloans_users
+-- 1. Add joined_at to senteloans_users
 ALTER TABLE senteloans_users
-  ADD COLUMN IF NOT EXISTS joined_at DATE,
-  ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT FALSE;
+  ADD COLUMN IF NOT EXISTS joined_at DATE;
 
 -- 2. Add username to app_auth_users
 ALTER TABLE app_auth_users
@@ -15,17 +14,7 @@ UPDATE senteloans_users
   SET joined_at = created_at::date
   WHERE joined_at IS NULL;
 
--- 4. Backfill is_admin for existing institution_admin users
-UPDATE senteloans_users
-SET is_admin = TRUE
-FROM senteloans_roles r
-WHERE r.id = senteloans_users.role_id
-  AND (
-    r.name = 'Admin'
-    OR regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g') = 'institution_admin'
-  );
-
--- 5. Backfill username from email (use full email to avoid duplicates like multiple "admin" prefixes)
+-- 4. Backfill username from email (use full email to avoid duplicates like multiple "admin" prefixes)
 DO $$
 DECLARE
   r RECORD;
@@ -47,13 +36,13 @@ BEGIN
   END LOOP;
 END $$;
 
--- 6. Create index on username for fast lookups
+-- 5. Create index on username for fast lookups
 CREATE INDEX IF NOT EXISTS idx_app_auth_users_username ON app_auth_users(username);
 
 -- Verify
 SELECT 'senteloans_users columns' AS check_type, column_name, data_type
 FROM information_schema.columns
-WHERE table_name = 'senteloans_users' AND column_name IN ('joined_at', 'is_admin')
+WHERE table_name = 'senteloans_users' AND column_name IN ('joined_at')
 UNION ALL
 SELECT 'app_auth_users columns', column_name, data_type
 FROM information_schema.columns

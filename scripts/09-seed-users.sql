@@ -32,6 +32,8 @@ VALUES
   ('create_client', 'clients'),
   ('edit_client', 'clients'),
   ('view_clients', 'clients'),
+  ('view_savings', 'savings'),
+  ('view_account', 'savings'),
   ('view_loans', 'loans'),
   ('approve_loan', 'loans'),
   ('review_loan', 'loans'),
@@ -42,7 +44,9 @@ VALUES
   ('close_loan', 'loans'),
   ('view_loan_products', 'loan_products'),
   ('create_loan_product', 'loan_products'),
-  ('edit_loan_product', 'loan_products')
+  ('edit_loan_product', 'loan_products'),
+  ('view_transactions', 'transactions'),
+  ('create_transaction', 'transactions')
 ON CONFLICT (name) DO NOTHING;
 
 -- 3) Seed role permissions
@@ -52,8 +56,12 @@ WITH role_permission_map(role_name, permission_name) AS (
     ('Loan Officer', 'view_users'),
     ('Loan Officer', 'view_members'),
     ('Loan Officer', 'view_clients'),
+    ('Loan Officer', 'view_savings'),
+    ('Loan Officer', 'view_account'),
     ('Loan Officer', 'view_loans'),
     ('Loan Officer', 'view_loan_products'),
+    ('Loan Officer', 'view_transactions'),
+    ('Loan Officer', 'create_transaction'),
     ('Loan Officer', 'record_payment'),
 
     -- Manager
@@ -70,6 +78,8 @@ WITH role_permission_map(role_name, permission_name) AS (
     ('Manager', 'view_clients'),
     ('Manager', 'create_client'),
     ('Manager', 'edit_client'),
+    ('Manager', 'view_savings'),
+    ('Manager', 'view_account'),
     ('Manager', 'view_loans'),
     ('Manager', 'review_loan'),
     ('Manager', 'create_loan'),
@@ -80,7 +90,9 @@ WITH role_permission_map(role_name, permission_name) AS (
     ('Manager', 'close_loan'),
     ('Manager', 'view_loan_products'),
     ('Manager', 'create_loan_product'),
-    ('Manager', 'edit_loan_product')
+    ('Manager', 'edit_loan_product'),
+    ('Manager', 'view_transactions'),
+    ('Manager', 'create_transaction')
 )
 INSERT INTO senteloans_role_permissions (branch_id, role_id, permission_id)
 SELECT

@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState, useCallback } from "react"
+import { useEffect, useState, useCallback, useMemo, useRef } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 
@@ -11,6 +11,8 @@ import DataTable from "@/components/datatables/DataTable"
 import { DataTableColumn } from "@/components/datatables/DataTable"
 import { FilterField } from "@/components/datatables/TableFilter"
 import { ActionButtons } from "@/components/datatables/ActionButtons"
+import { useToast } from "@/components/ui/toast"
+import Tooltip from "@mui/material/Tooltip"
 
 type SavingsRow = {
   id: string
@@ -32,6 +34,7 @@ function getInitials(name: string): string {
 
 export default function SavingsPage() {
   const router = useRouter()
+  const { toast } = useToast()
   const [accounts, setAccounts] = useState<SavingsRow[]>([])
   const [transactions, setTransactions] = useState<Array<any>>([])
   const [total, setTotal] = useState<number>(0)
@@ -40,6 +43,14 @@ export default function SavingsPage() {
   const [page, setPage] = useState(0)
   const [rowsPerPage, setRowsPerPage] = useState(10)
   const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [savingsPermissions, setSavingsPermissions] = useState({
+    viewSavings: false,
+    viewAccount: false,
+    createTransaction: false,
+    isSuperAdmin: false,
+    branches: [] as Array<{ value: string; label: string }>,
+  })
+  const permissionToastShown = useRef(false)
 
   const onPageChange = (_: unknown, newPage: number) => setPage(newPage)
   const onRowsPerPageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -68,18 +79,68 @@ export default function SavingsPage() {
       params.set("pageSize", "200")
       const res = await fetch(`/api/institution/savings?${params.toString()}`, { cache: "no-store" })
       const data = await res.json()
-      if (!res.ok) throw new Error(data.error || "Failed to load savings")
+      if (!res.ok) {
+        if (res.status === 403 && data?.error === "missing_permission:view_savings") {
+          throw new Error("missing_permission:view_savings")
+        }
+        throw new Error(data.error || "Failed to load savings")
+      }
       setAccounts(data.items || [])
       setTransactions(data.recentTransactions || [])
       setTotal(data.total || 0)
+      permissionToastShown.current = false
     } catch (e: any) {
-      setError(e?.message || "Failed to load savings")
+      const message = e?.message || "Failed to load savings"
+      if (message === "missing_permission:view_savings") {
+        if (!permissionToastShown.current) {
+          toast({
+            variant: "warning",
+            title: "Access denied",
+            description: "You do not have permission to view savings.",
+          })
+          permissionToastShown.current = true
+        }
+        setError("")
+      } else {
+        setError(message)
+        toast({
+          variant: "destructive",
+          title: "Failed to load savings",
+          description: message,
+        })
+      }
     } finally {
       setLoading(false)
     }
   }
 
+  async function loadSavingsPermissions() {
+    try {
+      const res = await fetch("/api/institution/savings/permissions", { cache: "no-store" })
+      if (!res.ok) return
+      const data = (await res.json()) as {
+        permissions?: {
+          viewSavings?: boolean
+          viewAccount?: boolean
+          createTransaction?: boolean
+          isSuperAdmin?: boolean
+          branches?: Array<{ id: string; name: string }>
+        }
+      }
+      setSavingsPermissions({
+        viewSavings: !!data.permissions?.viewSavings,
+        viewAccount: !!data.permissions?.viewAccount,
+        createTransaction: !!data.permissions?.createTransaction,
+        isSuperAdmin: !!data.permissions?.isSuperAdmin,
+        branches: (data.permissions?.branches || []).map((b) => ({ value: b.id, label: b.name })),
+      })
+    } catch {
+      // keep defaults
+    }
+  }
+
   useEffect(() => {
+    loadSavingsPermissions()
     loadAccounts()
   }, [])
 
@@ -209,6 +270,7 @@ export default function SavingsPage() {
       onClick: handleView,
       variant: "view",
       icon: <Eye className="h-4 w-4" />,
+      disabled: !savingsPermissions.viewAccount,
     },
     {
       label: "Transaction",
@@ -218,30 +280,44 @@ export default function SavingsPage() {
     },
   ]
 
-  const filterFields: FilterField[] = [
-    {
-      field: "search",
-      label: "Search by member name or account number",
-      type: "text",
-    },
-    {
-      field: "status",
-      label: "Status",
-      options: [
-        { value: "Active", label: "Active" },
-        { value: "Inactive", label: "Inactive" },
-        { value: "Suspended", label: "Suspended" },
-        { value: "Closed", label: "Closed" },
-      ],
-      multiple: false,
-      type: "select",
-    },
-    {
-      field: "open_date",
-      label: "Search By Open Date Range",
-      type:"date-range"
-    },
-  ]
+  const filterFields: FilterField[] = useMemo(() => {
+    const fields: FilterField[] = [
+      {
+        field: "search",
+        label: "Search by member name or account number",
+        type: "text",
+      },
+      {
+        field: "status",
+        label: "Status",
+        options: [
+          { value: "Active", label: "Active" },
+          { value: "Inactive", label: "Inactive" },
+          { value: "Suspended", label: "Suspended" },
+          { value: "Closed", label: "Closed" },
+        ],
+        multiple: false,
+        type: "select",
+      },
+      {
+        field: "open_date",
+        label: "Search By Open Date Range",
+        type: "date-range",
+      },
+    ]
+
+    if (savingsPermissions.isSuperAdmin) {
+      fields.splice(1, 0, {
+        field: "branches",
+        label: "Branches",
+        options: savingsPermissions.branches,
+        multiple: true,
+        type: "select",
+      })
+    }
+
+    return fields
+  }, [savingsPermissions.isSuperAdmin, savingsPermissions.branches])
 
   return (
     <>
@@ -254,12 +330,23 @@ export default function SavingsPage() {
                   Manage member savings accounts, process transactions, and track balances.
                 </p>
               </div>
-              <Link href="/transactions/new">
-                <Button>
-                  <Plus className="h-4 w-4 mr-2" />
-                  New Transaction
-                </Button>
-              </Link>
+              {savingsPermissions.createTransaction ? (
+                <Link href="/transactions/new">
+                  <Button>
+                    <Plus className="h-4 w-4 mr-2" />
+                    New Transaction
+                  </Button>
+                </Link>
+              ) : (
+                <Tooltip title="Missing create_transaction permission" placement="top" arrow>
+                  <span className="inline-block cursor-not-allowed">
+                    <Button disabled>
+                      <Plus className="h-4 w-4 mr-2" />
+                      New Transaction
+                    </Button>
+                  </span>
+                </Tooltip>
+              )}
             </div>
 
             {/* Stats Cards */}

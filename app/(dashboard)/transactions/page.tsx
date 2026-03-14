@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState, useCallback } from "react"
+import { useEffect, useState, useCallback, useMemo, useRef } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
@@ -8,10 +8,12 @@ import { Progress } from "@/components/ui/progress"
 import { Plus, Eye, TrendingUp, TrendingDown, ArrowUpDown, Calendar, CreditCard, Banknote, PanelRightOpen, PanelRightClose } from "lucide-react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
+import Tooltip from "@mui/material/Tooltip"
 import DataTable from "@/components/datatables/DataTable"
 import { DataTableColumn } from "@/components/datatables/DataTable"
 import { FilterField } from "@/components/datatables/TableFilter"
 import { ActionButtons } from "@/components/datatables/ActionButtons"
+import { useToast } from "@/components/ui/toast"
 
 type TransactionRow = {
   id: string
@@ -49,6 +51,7 @@ function getInitials(name: string): string {
 
 export default function TransactionsPage() {
   const router = useRouter()
+  const { toast } = useToast()
   const [transactions, setTransactions] = useState<TransactionRow[]>([])
   const [recentTransactions, setRecentTransactions] = useState<any[]>([])
   const [total, setTotal] = useState<number>(0)
@@ -57,6 +60,13 @@ export default function TransactionsPage() {
   const [page, setPage] = useState(0)
   const [rowsPerPage, setRowsPerPage] = useState(10)
   const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [txPermissions, setTxPermissions] = useState({
+    viewTransactions: false,
+    createTransaction: false,
+    isSuperAdmin: false,
+    branches: [] as Array<{ value: string; label: string }>,
+  })
+  const permissionToastShown = useRef(false)
 
   const onPageChange = (_: unknown, newPage: number) => setPage(newPage)
   const onRowsPerPageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -91,18 +101,66 @@ export default function TransactionsPage() {
       params.set("pageSize", "200")
       const res = await fetch(`/api/institution/transactions?${params.toString()}`, { cache: "no-store" })
       const data = await res.json()
-      if (!res.ok) throw new Error(data.error || "Failed to load transactions")
+      if (!res.ok) {
+        if (res.status === 403 && data?.error === "missing_permission:view_transactions") {
+          throw new Error("missing_permission:view_transactions")
+        }
+        throw new Error(data.error || "Failed to load transactions")
+      }
       setTransactions(data.items || [])
       setRecentTransactions(data.recentTransactions || [])
       setTotal(data.total || 0)
+      permissionToastShown.current = false
     } catch (e: any) {
-      setError(e?.message || "Failed to load transactions")
+      const message = e?.message || "Failed to load transactions"
+      if (message === "missing_permission:view_transactions") {
+        if (!permissionToastShown.current) {
+          toast({
+            variant: "warning",
+            title: "Access denied",
+            description: "You do not have permission to view transactions.",
+          })
+          permissionToastShown.current = true
+        }
+        setError("")
+      } else {
+        setError(message)
+        toast({
+          variant: "destructive",
+          title: "Failed to load transactions",
+          description: message,
+        })
+      }
     } finally {
       setLoading(false)
     }
   }
 
+  async function loadTransactionPermissions() {
+    try {
+      const res = await fetch("/api/institution/transactions/permissions", { cache: "no-store" })
+      if (!res.ok) return
+      const data = (await res.json()) as {
+        permissions?: {
+          viewTransactions?: boolean
+          createTransaction?: boolean
+          isSuperAdmin?: boolean
+          branches?: Array<{ id: string; name: string }>
+        }
+      }
+      setTxPermissions({
+        viewTransactions: !!data.permissions?.viewTransactions,
+        createTransaction: !!data.permissions?.createTransaction,
+        isSuperAdmin: !!data.permissions?.isSuperAdmin,
+        branches: (data.permissions?.branches || []).map((b) => ({ value: b.id, label: b.name })),
+      })
+    } catch {
+      // keep defaults
+    }
+  }
+
   useEffect(() => {
+    loadTransactionPermissions()
     loadTransactions()
   }, [])
 
@@ -240,46 +298,61 @@ export default function TransactionsPage() {
       onClick: handleView,
       variant: "view",
       icon: <Eye className="h-4 w-4" />,
+      disabled: !txPermissions.viewTransactions,
     },
   ]
 
-  const filterFields: FilterField[] = [
-    {
-      field: "search",
-      label: "Search by member name, transaction ID, or description",
-      type: "text",
-    },
-    {
-      field: "type",
-      label: "Type",
-      options: [
-        { value: "Deposit", label: "Deposit" },
-        { value: "Withdrawal", label: "Withdrawal" },
-        { value: "Loan Disbursement", label: "Loan Disbursement" },
-        { value: "Loan Repayment", label: "Loan Repayment" },
-        { value: "Fee Payment", label: "Fee Payment" },
-        { value: "Shares Purchase", label: "Shares Purchase" },
-      ],
-      multiple: false,
-      type: "select",
-    },
-    {
-      field: "mode",
-      label: "Mode",
-      options: [
-        { value: "Cash", label: "Cash" },
-        { value: "Mobile Money", label: "Mobile Money" },
-        { value: "Bank Transfer", label: "Bank Transfer" },
-      ],
-      multiple: false,
-      type: "select",
-    },
-    {
-      field: "date",
-      label: "Search By Date Range",
-      type:"date-range"
-    },
-  ]
+  const filterFields: FilterField[] = useMemo(() => {
+    const fields: FilterField[] = [
+      {
+        field: "search",
+        label: "Search by member name, transaction ID, or description",
+        type: "text",
+      },
+      {
+        field: "type",
+        label: "Type",
+        options: [
+          { value: "Deposit", label: "Deposit" },
+          { value: "Withdrawal", label: "Withdrawal" },
+          { value: "Loan Disbursement", label: "Loan Disbursement" },
+          { value: "Loan Repayment", label: "Loan Repayment" },
+          { value: "Fee Payment", label: "Fee Payment" },
+          { value: "Shares Purchase", label: "Shares Purchase" },
+        ],
+        multiple: false,
+        type: "select",
+      },
+      {
+        field: "mode",
+        label: "Mode",
+        options: [
+          { value: "Cash", label: "Cash" },
+          { value: "Mobile Money", label: "Mobile Money" },
+          { value: "Bank Transfer", label: "Bank Transfer" },
+        ],
+        multiple: false,
+        type: "select",
+      },
+      {
+        field: "date",
+        label: "Search By Date Range",
+        type: "date-range",
+      },
+    ]
+
+    if (txPermissions.isSuperAdmin) {
+      fields.splice(1, 0, {
+        field: "branches",
+        label: "Branches",
+        options: txPermissions.branches,
+        multiple: true,
+        type: "select",
+      })
+    }
+
+    return fields
+  }, [txPermissions.isSuperAdmin, txPermissions.branches])
 
   return (
     <>
@@ -292,12 +365,23 @@ export default function TransactionsPage() {
                   Monitor all financial transactions, deposits, withdrawals, and loan activities.
                 </p>
               </div>
-              <Link href="/transactions/new">
-                <Button>
-                  <Plus className="h-4 w-4 mr-2" />
-                  Add New Transaction
-                </Button>
-              </Link>
+              {txPermissions.createTransaction ? (
+                <Link href="/transactions/new">
+                  <Button>
+                    <Plus className="h-4 w-4 mr-2" />
+                    Add New Transaction
+                  </Button>
+                </Link>
+              ) : (
+                <Tooltip title="Missing create_transaction permission" placement="top" arrow>
+                  <span className="inline-block cursor-not-allowed">
+                    <Button disabled>
+                      <Plus className="h-4 w-4 mr-2" />
+                      Add New Transaction
+                    </Button>
+                  </span>
+                </Tooltip>
+              )}
             </div>
 
             {/* Stats Cards */}

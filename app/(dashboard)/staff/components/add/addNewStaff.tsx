@@ -25,6 +25,9 @@ export default function AddNewStaff({ isOpen, onClose, onSuccess }: AddNewStaffP
       })
       const body = await res.json()
       if (!res.ok) {
+        if (res.status === 403 && body?.error === "missing_permission:create_user") {
+          throw new Error("missing_permission:create_user")
+        }
         throw new Error(body.error || "Failed to create staff member")
       }
       toast({
@@ -35,9 +38,18 @@ export default function AddNewStaff({ isOpen, onClose, onSuccess }: AddNewStaffP
       onSuccess()
       handleClose()
     } catch (e: any) {
+      const message = e?.message || "Something went wrong. Please try again."
+      if (message === "missing_permission:create_user") {
+        toast({
+          title: "Access denied",
+          description: "You do not have permission to create staff users.",
+          variant: "warning",
+        })
+        return
+      }
       toast({
         title: "Failed to create staff",
-        description: e?.message || "Something went wrong. Please try again.",
+        description: message,
         variant: "destructive",
       })
     } finally {

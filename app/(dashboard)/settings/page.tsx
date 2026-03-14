@@ -55,7 +55,6 @@ interface StaffMember {
   role: string | null
   status: string | null
   joined_at: string | null
-  is_admin?: boolean
 }
 
 export default function SettingsPage() {
@@ -962,12 +961,12 @@ export default function SettingsPage() {
                   <CardContent className="space-y-4">
                     <div className="flex flex-wrap items-center gap-2 mb-1">
                       <Badge className="bg-[#f08c2b]/15 text-[#c06107] border border-[#f08c2b]/25 hover:bg-[#f08c2b]/15">
-                        Admins: {staffMembers.filter((s) => s.role === "institution_admin" || s.is_admin).length}
+                        Admins: {staffMembers.filter((s) => s.role === "institution_admin").length}
                       </Badge>
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                       {[...staffMembers]
-                        .filter((member) => member.role === "institution_admin" || member.is_admin)
+                        .filter((member) => member.role === "institution_admin")
                         .sort((a, b) => {
                           return String(a.full_name || "").localeCompare(String(b.full_name || ""))
                         })
@@ -983,7 +982,7 @@ export default function SettingsPage() {
                                   <p className="text-xs text-muted-foreground truncate">{member.email || "No email"}</p>
                                 </div>
                               </div>
-                              {(member.role === "institution_admin" || member.is_admin) && (
+                              {member.role === "institution_admin" && (
                                 <Badge className="bg-[#111111] text-white hover:bg-[#111111]">Admin</Badge>
                               )}
                             </div>
@@ -1003,7 +1002,7 @@ export default function SettingsPage() {
                             </div>
                           </div>
                         ))}
-                      {staffMembers.filter((member) => member.role === "institution_admin" || member.is_admin).length === 0 && (
+                      {staffMembers.filter((member) => member.role === "institution_admin").length === 0 && (
                         <div className="md:col-span-2 rounded-xl border border-dashed border-[#111111]/20 bg-[#111111]/5 p-6 text-center text-sm text-muted-foreground">
                           No admin records found for this institution.
                         </div>
