@@ -1,16 +1,12 @@
 "use client"
 
-import { useEffect, useState, useCallback } from "react"
+import { useEffect, useState, useCallback, useRef, useMemo } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import {
   Plus,
   Edit,
-  Percent,
   Calendar,
-  Shield,
-  Users,
-  FileText,
 } from "lucide-react"
 import DataTable from "@/components/datatables/DataTable"
 import { DataTableColumn } from "@/components/datatables/DataTable"
@@ -19,6 +15,9 @@ import { ActionButtons } from "@/components/datatables/ActionButtons"
 import { getSession } from "@/lib/session"
 import AddNewLoanProduct from "./components/add/addNewLoanProduct"
 import EditLoanProduct from "./components/edit/editLoanProduct"
+import LoanProductExpandableContent from "./components/LoanProductExpandableContent"
+import Tooltip from "@mui/material/Tooltip"
+import { useToast } from "@/components/ui/toast"
 
 type LoanProduct = {
   id: string
@@ -36,18 +35,29 @@ type LoanProduct = {
   processing_fee_percentage: number
   insurance_required: boolean
   status: string
+  eligibilities: Array<{ id: string; eligibility: string; status: string }>
 }
 
 export default function LoanProductsPage() {
+  const { toast } = useToast()
   const [products, setProducts] = useState<LoanProduct[]>([])
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState("")
+  const [error, setError] = useState<string | null>(null)
   const [page, setPage] = useState(0)
   const [rowsPerPage, setRowsPerPage] = useState(10)
   const [currency, setCurrency] = useState("UGX")
   const [isAddOpen, setIsAddOpen] = useState(false)
   const [isEditOpen, setIsEditOpen] = useState(false)
   const [editProductId, setEditProductId] = useState<string | null>(null)
+  const [expandedRowIds, setExpandedRowIds] = useState<Set<string | number>>(new Set())
+  const [loanProductPermissions, setLoanProductPermissions] = useState({
+    viewLoanProducts: false,
+    createLoanProduct: false,
+    editLoanProduct: false,
+    isSuperAdmin: false,
+    branches: [] as Array<{ value: string; label: string }>,
+  })
+  const permissionToastShown = useRef(false)
 
   useEffect(() => {
     const s = getSession()
@@ -58,6 +68,17 @@ export default function LoanProductsPage() {
   const onRowsPerPageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setPage(0)
     setRowsPerPage(parseInt(e.target.value, 10))
+  }
+  const toggleRowExpand = (rowId: string | number) => {
+    setExpandedRowIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(rowId)) {
+        next.delete(rowId)
+      } else {
+        next.add(rowId)
+      }
+      return next
+    })
   }
 
   const formatCurrency = (amount: number) =>
@@ -82,7 +103,7 @@ export default function LoanProductsPage() {
 
   async function loadProducts(queryParams?: object) {
     setLoading(true)
-    setError("")
+    setError(null)
     try {
       const params = new URLSearchParams()
       if (queryParams) {
@@ -95,7 +116,13 @@ export default function LoanProductsPage() {
       if (!params.has("status")) params.set("status", "")
       params.set("limit", "200")
       const res = await fetch(`/api/institution/loan-products?${params.toString()}`, { cache: "no-store" })
-      if (!res.ok) throw new Error(`Failed to load: ${res.status}`)
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        if (res.status === 403 && body?.error === "missing_permission:view_loan_products") {
+          throw new Error("missing_permission:view_loan_products")
+        }
+        throw new Error(body.error || `Failed to load: ${res.status}`)
+      }
       const json = await res.json()
       const items: LoanProduct[] = Array.isArray(json.items) ? json.items : []
       setProducts(
@@ -108,16 +135,61 @@ export default function LoanProductsPage() {
           maximum_tenure_months: Number(p.maximum_tenure_months || 0),
           guarantors_required: Number(p.guarantors_required || 0),
           processing_fee_percentage: Number(p.processing_fee_percentage || 0),
+          eligibilities: Array.isArray(p.eligibilities) ? p.eligibilities : [],
         })),
       )
+      permissionToastShown.current = false
     } catch (e: any) {
-      setError(e?.message || "Failed to load loan products")
+      const message = e?.message || "Failed to load loan products"
+      setError(message === "missing_permission:view_loan_products" ? null : message)
+      if (message === "missing_permission:view_loan_products") {
+        if (!permissionToastShown.current) {
+          toast({
+            variant: "warning",
+            title: "Access denied",
+            description: "You do not have permission to view loan products.",
+          })
+          permissionToastShown.current = true
+        }
+      } else {
+        toast({
+          variant: "destructive",
+          title: "Failed to load loan products",
+          description: message,
+        })
+      }
     } finally {
       setLoading(false)
     }
   }
 
+  async function loadLoanProductPermissions() {
+    try {
+      const res = await fetch("/api/institution/loan-products/permissions", { cache: "no-store" })
+      if (!res.ok) return
+      const data = (await res.json()) as {
+        permissions?: {
+          viewLoanProducts?: boolean
+          createLoanProduct?: boolean
+          editLoanProduct?: boolean
+          isSuperAdmin?: boolean
+          branches?: Array<{ id: string; name: string }>
+        }
+      }
+      setLoanProductPermissions({
+        viewLoanProducts: !!data.permissions?.viewLoanProducts,
+        createLoanProduct: !!data.permissions?.createLoanProduct,
+        editLoanProduct: !!data.permissions?.editLoanProduct,
+        isSuperAdmin: !!data.permissions?.isSuperAdmin,
+        branches: (data.permissions?.branches || []).map((b) => ({ value: b.id, label: b.name })),
+      })
+    } catch {
+      // keep defaults
+    }
+  }
+
   useEffect(() => {
+    loadLoanProductPermissions()
     loadProducts()
   }, [])
 
@@ -149,6 +221,11 @@ export default function LoanProductsPage() {
     products.length > 0
       ? (products.reduce((sum, p) => sum + p.interest_rate, 0) / products.length).toFixed(1)
       : "0"
+  const getRequirementsCount = (row: LoanProduct) =>
+    (row.collateral_required ? 1 : 0) +
+    (row.guarantors_required > 0 ? 1 : 0) +
+    (row.insurance_required ? 1 : 0) +
+    (row.processing_fee_percentage > 0 ? 1 : 0)
 
   const columns: DataTableColumn<LoanProduct>[] = [
     {
@@ -204,33 +281,12 @@ export default function LoanProductsPage() {
     {
       key: "requirements",
       header: "Requirements",
-      render: (row) => (
-        <div className="flex flex-wrap gap-1.5">
-          {row.collateral_required && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700 border border-blue-200">
-              <Shield className="h-3 w-3" /> Collateral
-            </span>
-          )}
-          {row.guarantors_required > 0 && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-purple-50 px-2 py-0.5 text-[11px] font-medium text-purple-700 border border-purple-200">
-              <Users className="h-3 w-3" /> {row.guarantors_required} Guarantor{row.guarantors_required > 1 ? "s" : ""}
-            </span>
-          )}
-          {row.insurance_required && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700 border border-amber-200">
-              <FileText className="h-3 w-3" /> Insurance
-            </span>
-          )}
-          {row.processing_fee_percentage > 0 && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-gray-50 px-2 py-0.5 text-[11px] font-medium text-gray-600 border border-gray-200">
-              {row.processing_fee_percentage}% Fee
-            </span>
-          )}
-          {!row.collateral_required && row.guarantors_required === 0 && !row.insurance_required && row.processing_fee_percentage === 0 && (
-            <span className="text-xs text-muted-foreground">None</span>
-          )}
-        </div>
-      ),
+      render: (row) => <span className="font-semibold text-gray-800">{getRequirementsCount(row)}</span>,
+    },
+    {
+      key: "eligibilities",
+      header: "Eligibilities",
+      render: (row) => <span className="font-semibold text-gray-800">{row.eligibilities.length}</span>,
     },
     {
       key: "status",
@@ -258,28 +314,43 @@ export default function LoanProductsPage() {
       onClick: handleEdit,
       variant: "primary",
       icon: <Edit className="h-4 w-4" />,
+      disabled: !loanProductPermissions.editLoanProduct,
     },
   ]
 
-  const filterFields: FilterField[] = [
-    {
-      field: "q",
-      label: "Search by product name or code",
-      type: "text",
-    },
-    {
-      field: "status",
-      label: "Status",
-      options: [
-        { value: "", label: "All" },
-        { value: "Active", label: "Active" },
-        { value: "Inactive", label: "Inactive" },
-        { value: "Suspended", label: "Suspended" },
-      ],
-      multiple: false,
-      type: "select",
-    },
-  ]
+  const filterFields: FilterField[] = useMemo(() => {
+    const fields: FilterField[] = [
+      {
+        field: "q",
+        label: "Search by product name or code",
+        type: "text",
+      },
+      {
+        field: "status",
+        label: "Status",
+        options: [
+          { value: "", label: "All" },
+          { value: "Active", label: "Active" },
+          { value: "Inactive", label: "Inactive" },
+          { value: "Suspended", label: "Suspended" },
+        ],
+        multiple: false,
+        type: "select",
+      },
+    ]
+
+    if (loanProductPermissions.isSuperAdmin) {
+      fields.splice(1, 0, {
+        field: "branches",
+        label: "Branches",
+        options: loanProductPermissions.branches,
+        multiple: true,
+        type: "select",
+      })
+    }
+
+    return fields
+  }, [loanProductPermissions.isSuperAdmin, loanProductPermissions.branches])
 
   return (
     <div className="space-y-6">
@@ -291,13 +362,22 @@ export default function LoanProductsPage() {
             Configure and manage the loan products offered by your institution.
           </p>
         </div>
-        <Button
-          className="hover:bg-black/70 hover:text-[#f08c2b]"
-          onClick={() => setIsAddOpen(true)}
+        <Tooltip
+          title={loanProductPermissions.createLoanProduct ? "" : "You do not have permission to create loan products"}
+          arrow
+          placement="top"
         >
-          <Plus className="h-4 w-4 mr-2" />
-          Add Loan Product
-        </Button>
+          <span className="inline-flex">
+            <Button
+              className="hover:bg-black/70 hover:text-[#f08c2b]"
+              onClick={() => setIsAddOpen(true)}
+              disabled={!loanProductPermissions.createLoanProduct}
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              Add Loan Product
+            </Button>
+          </span>
+        </Tooltip>
       </div>
 
       {/* Stats */}
@@ -332,7 +412,6 @@ export default function LoanProductsPage() {
       </div>
 
       {/* Table */}
-      {error && <div className="text-sm text-red-600">{error}</div>}
       <DataTable<LoanProduct>
         columns={columns}
         rows={products.slice(page * rowsPerPage, (page + 1) * rowsPerPage)}
@@ -342,6 +421,10 @@ export default function LoanProductsPage() {
         onQueryParamsChange={handleQueryParamsChange}
         emptyMessage="No loan products found"
         getRowId={(row) => row.id}
+        renderDetail={(row) => <LoanProductExpandableContent loanProduct={row} />}
+        expandedRowIds={expandedRowIds}
+        onToggleExpand={toggleRowExpand}
+        onRowClick={(row) => toggleRowExpand(row.id)}
         pagination={{
           page,
           rowsPerPage,

@@ -56,14 +56,30 @@ export default function EditLoanProduct({ isOpen, productId, onClose, onSuccess 
           processing_fee_percentage: String(p.processing_fee_percentage || "0"),
           insurance_required: p.insurance_required || false,
           status: p.status || "Active",
+          eligibilities: Array.isArray(p.eligibilities)
+            ? p.eligibilities.map((el: any) => ({
+                id: String(el.id || `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`),
+                eligibility: String(el.eligibility || ""),
+                status: String(el.status || "Active") === "Inactive" ? "Inactive" : "Active",
+              }))
+            : [],
         })
       } catch (e: any) {
-        setFetchError(e?.message || "Failed to load loan product")
-        toast({
-          title: "Failed to load product",
-          description: e?.message || "Could not fetch product details.",
-          variant: "destructive",
-        })
+        const message = e?.message || "Failed to load loan product"
+        setFetchError(message)
+        if (message === "missing_permission:view_loan_products") {
+          toast({
+            title: "Access denied",
+            description: "You do not have permission to view loan products.",
+            variant: "warning",
+          })
+        } else {
+          toast({
+            title: "Failed to load product",
+            description: message || "Could not fetch product details.",
+            variant: "destructive",
+          })
+        }
       } finally {
         setFetching(false)
       }
@@ -92,6 +108,14 @@ export default function EditLoanProduct({ isOpen, productId, onClose, onSuccess 
       onSuccess()
       handleClose()
     } catch (e: any) {
+      if (e?.message === "missing_permission:edit_loan_product") {
+        toast({
+          title: "Access denied",
+          description: "You do not have permission to edit loan products.",
+          variant: "warning",
+        })
+        return
+      }
       toast({
         title: "Failed to update product",
         description: e?.message || "Something went wrong. Please try again.",

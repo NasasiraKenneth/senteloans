@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState, useCallback } from "react"
+import { useEffect, useState, useCallback, useMemo, useRef } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
@@ -8,11 +8,14 @@ import { Progress } from "@/components/ui/progress"
 import { Plus, Eye, CheckCircle, XCircle, Clock, AlertTriangle, DollarSign, Calendar, Activity, Lock } from "lucide-react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
+import Tooltip from "@mui/material/Tooltip"
 import DataTable from "@/components/datatables/DataTable"
 import { DataTableColumn } from "@/components/datatables/DataTable"
 import { FilterField } from "@/components/datatables/TableFilter"
 import { ActionButtons } from "@/components/datatables/ActionButtons"
 import { Filter } from "@/types"
+import { useToast } from "@/components/ui/toast"
+import AddNewLoan from "./components/add/newLoan"
 
 type LoanUI = {
   id: string
@@ -40,12 +43,20 @@ function getInitials(name: string): string {
 
 export default function LoansPage() {
   const router = useRouter()
+  const { toast } = useToast()
   const [loans, setLoans] = useState<LoanUI[]>([])
   const [products, setProducts] = useState<{ id: string; name: string }[]>([])
   const [loading, setLoading] = useState<boolean>(true)
-  const [error, setError] = useState<string>("")
+  const [loanPermissions, setLoanPermissions] = useState({
+    viewLoans: false,
+    createLoan: false,
+    isSuperAdmin: false,
+    branches: [] as Array<{ value: string; label: string }>,
+  })
+  const permissionToastShown = useRef(false)
   const [page, setPage] = useState(0)
   const [rowsPerPage, setRowsPerPage] = useState(10)
+  const [isAddOpen, setIsAddOpen] = useState(false)
 
   const onPageChange = (_: unknown, newPage: number) => setPage(newPage)
   const onRowsPerPageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -107,7 +118,6 @@ export default function LoansPage() {
 
   async function loadLoans(queryParams?: object) {
     setLoading(true)
-    setError("")
     try {
       const params = new URLSearchParams()
       if (queryParams) {
@@ -126,7 +136,13 @@ export default function LoansPage() {
       params.set("page", "1")
       params.set("pageSize", "200")
       const res = await fetch(`/api/institution/loans?${params.toString()}`, { cache: "no-store" })
-      if (!res.ok) throw new Error(`failed_to_load: ${res.status}`)
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        if (res.status === 403 && body?.error === "missing_permission:view_loans") {
+          throw new Error("missing_permission:view_loans")
+        }
+        throw new Error(body?.error || `failed_to_load: ${res.status}`)
+      }
       const json = await res.json()
       const items = Array.isArray(json.items) ? json.items : []
       const mapped: LoanUI[] = items.map((row: any) => ({
@@ -146,14 +162,55 @@ export default function LoansPage() {
         overdueDays: 0,
       }))
       setLoans(mapped)
+      permissionToastShown.current = false
     } catch (e: any) {
-      setError(e?.message || "Failed to load loans")
+      const message = e?.message || "Failed to load loans"
+      if (message === "missing_permission:view_loans") {
+        if (!permissionToastShown.current) {
+          toast({
+            variant: "warning",
+            title: "Access denied",
+            description: "You do not have permission to view loans.",
+          })
+          permissionToastShown.current = true
+        }
+      } else {
+        toast({
+          variant: "destructive",
+          title: "Failed to load loans",
+          description: message,
+        })
+      }
     } finally {
       setLoading(false)
     }
   }
 
+  async function loadLoanPermissions() {
+    try {
+      const res = await fetch("/api/institution/loans/permissions", { cache: "no-store" })
+      if (!res.ok) return
+      const data = (await res.json()) as {
+        permissions?: {
+          viewLoans?: boolean
+          createLoan?: boolean
+          isSuperAdmin?: boolean
+          branches?: Array<{ id: string; name: string }>
+        }
+      }
+      setLoanPermissions({
+        viewLoans: !!data.permissions?.viewLoans,
+        createLoan: !!data.permissions?.createLoan,
+        isSuperAdmin: !!data.permissions?.isSuperAdmin,
+        branches: (data.permissions?.branches || []).map((b) => ({ value: b.id, label: b.name })),
+      })
+    } catch {
+      // keep defaults
+    }
+  }
+
   useEffect(() => {
+    loadLoanPermissions()
     loadLoans()
   }, [])
 
@@ -305,58 +362,73 @@ export default function LoansPage() {
       onClick: handleView,
       variant: "view",
       icon: <Eye className="h-4 w-4" />,
+      disabled: !loanPermissions.viewLoans,
     },
   ]
 
-  const filterFields: FilterField[] = [
-    {
-      field: "q",
-      label: "Search by member name, application ID, or loan product",
-      type: "text",
-    },
-    {
-      field: "product_id",
-      label: "Loan Products",
-      options: products.map((p) => ({ value: p.id, label: p.name })),
-      multiple: true,
-      type: "select",
-    },
-    {
-      field: "loan_type",
-      label: "Loan Type",
-      options: [
-        { value: "normal", label: "Normal" },
-        { value: "top up", label: "Top Up" },
-        { value: "buy out", label: "Buy Out" },
-        { value: "transferred", label: "Transferred" },
-      ],
-      multiple: false,
-      type: "select",
-    },
-    {
-      field: "remainingTenure",
-      label: "Remaining Tenure",
-      options: [
-        { value: "eq1", label: "1 month" },
-        { value: "lte3", label: "<= 3 months" },
-        { value: "lte6", label: "<= 6 months" },
-        { value: "lte12", label: "<= 12 months" },
-        { value: "gt12", label: "> 12 months" },
-      ],
-      multiple: false,
-      type: "select",
-    },
-    {
-      field: "applicationDate",
-      label: "Search By Application Date Range",
-      type: "date-range"
-    },
-    {
-      field: "nextPaymentDate",
-      label: "Search By Next Payment Date Range",
-      type: "date-range"
-    },
-  ]
+  const filterFields: FilterField[] = useMemo(() => {
+    const fields: FilterField[] = [
+      {
+        field: "q",
+        label: "Search by member name, application ID, or loan product",
+        type: "text",
+      },
+      {
+        field: "product_id",
+        label: "Loan Products",
+        options: products.map((p) => ({ value: p.id, label: p.name })),
+        multiple: true,
+        type: "select",
+      },
+      {
+        field: "loan_type",
+        label: "Loan Type",
+        options: [
+          { value: "normal", label: "Normal" },
+          { value: "top up", label: "Top Up" },
+          { value: "buy off", label: "Buy Off" },
+          { value: "buy out", label: "Buy Out" },
+        ],
+        multiple: false,
+        type: "select",
+      },
+      {
+        field: "remainingTenure",
+        label: "Remaining Tenure",
+        options: [
+          { value: "eq1", label: "1 month" },
+          { value: "lte3", label: "<= 3 months" },
+          { value: "lte6", label: "<= 6 months" },
+          { value: "lte12", label: "<= 12 months" },
+          { value: "gt12", label: "> 12 months" },
+        ],
+        multiple: false,
+        type: "select",
+      },
+      {
+        field: "applicationDate",
+        label: "Search By Application Date Range",
+        type: "date-range",
+      },
+      {
+        field: "nextPaymentDate",
+        label: "Search By Next Payment Date Range",
+        type: "date-range",
+      },
+    ]
+
+    if (loanPermissions.isSuperAdmin) {
+      fields.splice(2, 0, {
+        field: "branches",
+        label: "Branches",
+        options: loanPermissions.branches,
+        multiple: true,
+        type: "select",
+      })
+    }
+
+    return fields
+  }, [loanPermissions.isSuperAdmin, loanPermissions.branches, products])
 
   // Tabular filter options
   const filters:Filter[] = [
@@ -383,12 +455,33 @@ export default function LoansPage() {
                   Manage loan applications, approvals, disbursements, and repayments.
                 </p>
               </div>
-              <Link href="/loans/new">
-                <Button>
-                  <Plus className="h-4 w-4 mr-2" />
-                  New Loan Application
-                </Button>
-              </Link>
+              <Tooltip
+                title={loanPermissions.createLoan ? "" : "You do not have permission to create loans"}
+                arrow
+                placement="top"
+              >
+                <span className="inline-flex">
+                  {loanPermissions.createLoan ? (
+                    <Link href="/loans/new">
+                      <Button>
+                        <Plus className="h-4 w-4 mr-2" />
+                        New Loan Application
+                      </Button>
+                    </Link>
+                  ) : (
+                    <Button disabled>
+                      <Plus className="h-4 w-4 mr-2" />
+                      New Loan Application
+                    </Button>
+                  )}
+                </span>
+              </Tooltip>
+            </div>
+            <div className="grid place-items-end">
+              <Button onClick={() => setIsAddOpen(true)} disabled={!loanPermissions.createLoan}>
+                      <Plus className="h-4 w-4 mr-2" />
+                      New Loan
+                    </Button>
             </div>
 
             {/* Stats Cards */}
@@ -432,7 +525,6 @@ export default function LoansPage() {
             </div>
 
             {/* Loans DataTable */}
-            {error && <div className="text-sm text-red-600">{error}</div>}
             <DataTable<LoanUI>
               columns={columns}
               rows={loans.slice(page * rowsPerPage, (page + 1) * rowsPerPage)}
@@ -451,6 +543,11 @@ export default function LoansPage() {
                 onPageChange,
                 onRowsPerPageChange,
               }}
+            />
+            <AddNewLoan
+              isOpen={isAddOpen}
+              onClose={() => setIsAddOpen(false)}
+              onSuccess={() => loadLoans()}
             />
           </div>
     </>

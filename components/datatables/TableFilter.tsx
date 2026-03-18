@@ -321,7 +321,7 @@ const TableFilter: React.FC<SelectFilterProps> = ({filter, onChange, value, layo
                                 </label>
                             )}
 
-                            <div className="max-h-96 overflow-y-auto">
+                            <div className="max-h-60 overflow-y-auto">
                                 {options.map((option) => {
                                     const isSelected = filter.multiple
                                         ? Array.isArray(selectedValues) && selectedValues.includes(option.value)

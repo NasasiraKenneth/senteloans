@@ -34,6 +34,14 @@ export default function AddNewLoanProduct({ isOpen, onClose, onSuccess }: AddNew
       onSuccess()
       onClose()
     } catch (e: any) {
+      if (e?.message === "missing_permission:create_loan_product") {
+        toast({
+          title: "Access denied",
+          description: "You do not have permission to create loan products.",
+          variant: "warning",
+        })
+        return
+      }
       toast({
         title: "Failed to create product",
         description: e?.message || "Something went wrong. Please try again.",

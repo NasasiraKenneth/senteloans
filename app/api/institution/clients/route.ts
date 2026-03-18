@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { runWithAuth } from "@/lib/db"
+import { apiLog, getApiPath } from "@/lib/api/api-log"
 
 type ActorContext = {
   id: string
@@ -53,10 +54,17 @@ async function hasPermission(client: any, actor: ActorContext, permission: strin
 }
 
 export async function GET(req: Request) {
+  const apiPath = getApiPath(req)
   try {
     const session = await getServerSession(authOptions)
-    if (!session?.user?.authUserId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    if (session.user.type !== "staff") return NextResponse.json({ error: "no_app_user_profile" }, { status: 403 })
+    if (!session?.user?.authUserId) {
+      apiLog("warn", "clients.list.denied", { method: "GET", apiPath, status: 401, error: "unauthorized" })
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+    if (session.user.type !== "staff") {
+      apiLog("warn", "clients.list.denied", { method: "GET", apiPath, status: 403, error: "no_app_user_profile" })
+      return NextResponse.json({ error: "no_app_user_profile" }, { status: 403 })
+    }
 
     const { searchParams } = new URL(req.url)
     const search = (searchParams.get("search") || "").trim()
@@ -130,20 +138,30 @@ export async function GET(req: Request) {
 
     if (result && "error" in result) {
       const statusCode = result.error === "actor_branch_missing" ? 400 : 403
+      apiLog("warn", "clients.list.denied", { method: "GET", apiPath, status: statusCode, error: result.error, authUserId: session.user.authUserId })
       return NextResponse.json({ error: result.error }, { status: statusCode })
     }
+    apiLog("info", "clients.list.success", { method: "GET", apiPath, status: 200, count: result?.clients?.length || 0, authUserId: session.user.authUserId })
     return NextResponse.json({ clients: result?.clients || [] })
   } catch (e: unknown) {
     const err = e as Error
+    apiLog("error", "clients.list.error", { method: "GET", apiPath, status: 500, error: err?.message || "Unexpected error" })
     return NextResponse.json({ error: err?.message || "Unexpected error" }, { status: 500 })
   }
 }
 
 export async function POST(req: Request) {
+  const apiPath = getApiPath(req)
   try {
     const session = await getServerSession(authOptions)
-    if (!session?.user?.authUserId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    if (session.user.type !== "staff") return NextResponse.json({ error: "no_app_user_profile" }, { status: 403 })
+    if (!session?.user?.authUserId) {
+      apiLog("warn", "clients.create.denied", { method: "POST", apiPath, status: 401, error: "unauthorized" })
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+    if (session.user.type !== "staff") {
+      apiLog("warn", "clients.create.denied", { method: "POST", apiPath, status: 403, error: "no_app_user_profile" })
+      return NextResponse.json({ error: "no_app_user_profile" }, { status: 403 })
+    }
 
     const body = await req.json().catch(() => ({}))
     const name = String(body.name || "").trim()
@@ -197,11 +215,14 @@ export async function POST(req: Request) {
       const statusCode =
         errorCode === "actor_branch_missing" ? 400 :
         errorCode.startsWith("missing_permission:") ? 403 : 400
+      apiLog("warn", "clients.create.denied", { method: "POST", apiPath, status: statusCode, error: errorCode, authUserId: session.user.authUserId })
       return NextResponse.json({ error: errorCode }, { status: statusCode })
     }
+    apiLog("info", "clients.create.success", { method: "POST", apiPath, status: 201, authUserId: session.user.authUserId, clientId: result?.client?.id })
     return NextResponse.json(result, { status: 201 })
   } catch (e: unknown) {
     const err = e as Error
+    apiLog("error", "clients.create.error", { method: "POST", apiPath, status: 500, error: err?.message || "Unexpected error" })
     return NextResponse.json({ error: err?.message || "Unexpected error" }, { status: 500 })
   }
 }

@@ -60,10 +60,10 @@ export default function NewLoanApplicationPage() {
       }
       setLoadingMembers(true)
       try {
-        const res = await fetch(`/api/institution/clients?search=${encodeURIComponent(q)}&limit=10`, { cache: "no-store" })
+        const res = await fetch(`/api/institution/members?search=${encodeURIComponent(q)}&limit=10`, { cache: "no-store" })
         const data = await res.json()
         if (!res.ok) throw new Error(data?.error || "Failed to search members")
-        if (!abort) setMemberResults(data.clients || [])
+        if (!abort) setMemberResults(data.members || [])
       } catch {
         if (!abort) setMemberResults([])
       } finally {
@@ -105,10 +105,10 @@ export default function NewLoanApplicationPage() {
     ;(async () => {
       setLoadingClients(true)
       try {
-        const res = await fetch(`/api/institution/clients?limit=50`, { cache: "no-store" })
+        const res = await fetch(`/api/institution/members?limit=50`, { cache: "no-store" })
         const data = await res.json()
-        if (!res.ok) throw new Error(data?.error || "Failed to load clients")
-        if (!abort) setClientOptions(data.clients || [])
+        if (!res.ok) throw new Error(data?.error || "Failed to load members")
+        if (!abort) setClientOptions(data.members || [])
       } catch {
         if (!abort) setClientOptions([])
       } finally {
@@ -122,7 +122,7 @@ export default function NewLoanApplicationPage() {
     const normalized = {
       id: member.id,
       fullName: member.full_name || member.fullName,
-      memberNumber: member.client_number || member.memberNumber,
+      memberNumber: member.member_number || member.memberNumber,
       phoneNumber: member.phone_number || member.phoneNumber,
       email: member.email,
       status: member.status,
@@ -193,14 +193,14 @@ export default function NewLoanApplicationPage() {
     }
 
     const payload: any = {
-      client_id: formData.memberId,
+      member_id: formData.memberId,
       loan_product_id: formData.loanProduct,
       principal_amount: principal,
       tenure_months: tenure,
       purpose,
     }
     if (String(formData.collateral || "").trim()) payload.collateral_description = String(formData.collateral).trim()
-    if (uniqueGuars.length > 0) payload.guarantor_ids = uniqueGuars
+    if (uniqueGuars.length > 0) payload.guarantor_member_ids = uniqueGuars
 
     setSubmitting(true)
     try {
@@ -210,11 +210,22 @@ export default function NewLoanApplicationPage() {
         body: JSON.stringify(payload),
       })
       const data = await res.json()
+      if (res.status === 403 && data?.error === "missing_permission:create_loan") {
+        throw new Error("missing_permission:create_loan")
+      }
       if (!res.ok) throw new Error(data?.error || "Failed to submit application")
       toast({ variant: "success", title: "Application submitted", description: `Application ${data.application_id} created.` })
       if (data?.id) router.push(`/loans/${data.id}`)
       else router.push("/loans")
     } catch (e: any) {
+      if (e?.message === "missing_permission:create_loan") {
+        toast({
+          variant: "warning",
+          title: "Access denied",
+          description: "You do not have permission to create loans.",
+        })
+        return
+      }
       toast({ variant: "destructive", title: "Submit failed", description: e?.message || "Unexpected error" })
     } finally {
       setSubmitting(false)
@@ -346,7 +357,7 @@ export default function NewLoanApplicationPage() {
                                 <div>
                                   <h3 className="font-semibold">{member.full_name || member.fullName}</h3>
                                   <p className="text-sm text-muted-foreground">
-                                    {(member.client_number || member.memberNumber) ?? ""} • {(member.phone_number || member.phoneNumber) ?? ""}
+                                    {(member.member_number || member.memberNumber) ?? ""} • {(member.phone_number || member.phoneNumber) ?? ""}
                                   </p>
                                   <p className="text-sm text-muted-foreground">{member.email}</p>
                                 </div>
@@ -567,7 +578,7 @@ export default function NewLoanApplicationPage() {
                                 .filter((m: any) => m.id !== formData.memberId)
                                 .map((m: any) => (
                                   <SelectItem key={m.id} value={m.id}>
-                                    {(m.full_name || m.fullName)} ({m.client_number || m.memberNumber})
+                                    {(m.full_name || m.fullName)} ({m.member_number || m.memberNumber})
                                   </SelectItem>
                                 ))}
                             </SelectContent>
@@ -587,7 +598,7 @@ export default function NewLoanApplicationPage() {
                                 .filter((m: any) => m.id !== formData.memberId && m.id !== formData.guarantor1)
                                 .map((m: any) => (
                                   <SelectItem key={m.id} value={m.id}>
-                                    {(m.full_name || m.fullName)} ({m.client_number || m.memberNumber})
+                                    {(m.full_name || m.fullName)} ({m.member_number || m.memberNumber})
                                   </SelectItem>
                                 ))}
                             </SelectContent>

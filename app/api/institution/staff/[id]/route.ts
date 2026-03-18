@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth"
 import { runWithAuth } from "@/lib/db"
 import { hash } from "bcryptjs"
 import { auditLogger } from "@/lib/audit/audit-logger"
+import { apiLog, getApiPath } from "@/lib/api/api-log"
 
 type ActorContext = {
   id: string
@@ -80,15 +81,20 @@ export async function GET(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const apiPath = getApiPath(req)
   try {
     const { id } = await params
     if (!id) return NextResponse.json({ error: "Missing staff ID" }, { status: 400 })
 
     const session = await getServerSession(authOptions)
-    if (!session?.user?.authUserId)
+    if (!session?.user?.authUserId) {
+      apiLog("warn", "staff.detail.denied", { method: "GET", apiPath, status: 401, error: "unauthorized" })
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    if (session.user.type !== "staff")
+    }
+    if (session.user.type !== "staff") {
+      apiLog("warn", "staff.detail.denied", { method: "GET", apiPath, status: 403, error: "forbidden" })
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+    }
 
     const result = await runWithAuth(session.user.authUserId, async (client) => {
       const actor = await resolveActorContext(client, session.user.authUserId as string)
@@ -139,12 +145,15 @@ export async function GET(
         result.error === "staff_not_found" ? 404 :
         result.error === "missing_permission:view_users" ? 403 :
         result.error === "actor_branch_missing" ? 400 : 400
+      apiLog("warn", "staff.detail.denied", { method: "GET", apiPath, status, error: result.error, authUserId: session.user.authUserId, staffId: id })
       return NextResponse.json({ error: result.error }, { status })
     }
 
+    apiLog("info", "staff.detail.success", { method: "GET", apiPath, status: 200, authUserId: session.user.authUserId, staffId: id })
     return NextResponse.json(result)
   } catch (e: unknown) {
     const err = e as Error
+    apiLog("error", "staff.detail.error", { method: "GET", apiPath, status: 500, error: err?.message || "Unexpected error" })
     return NextResponse.json({ error: err?.message || "Unexpected error" }, { status: 500 })
   }
 }
@@ -154,15 +163,20 @@ export async function PUT(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const apiPath = getApiPath(req)
   try {
     const { id } = await params
     if (!id) return NextResponse.json({ error: "Missing staff ID" }, { status: 400 })
 
     const session = await getServerSession(authOptions)
-    if (!session?.user?.authUserId)
+    if (!session?.user?.authUserId) {
+      apiLog("warn", "staff.update.denied", { method: "PUT", apiPath, status: 401, error: "unauthorized" })
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    if (session.user.type !== "staff")
+    }
+    if (session.user.type !== "staff") {
+      apiLog("warn", "staff.update.denied", { method: "PUT", apiPath, status: 403, error: "forbidden" })
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+    }
 
     const body = await req.json().catch(() => ({}))
     const firstName = String(body.firstName || "").trim()
@@ -335,12 +349,15 @@ export async function PUT(
         result.error === "actor_branch_missing" ? "Current staff user has no branch configured" :
         result.error === "staff_not_found" ? "Staff member not found" :
         result.error
+      apiLog("warn", "staff.update.denied", { method: "PUT", apiPath, status: statusCode, error: result.error, authUserId: session.user.authUserId, staffId: id })
       return NextResponse.json({ error: message }, { status: statusCode })
     }
 
+    apiLog("info", "staff.update.success", { method: "PUT", apiPath, status: 200, authUserId: session.user.authUserId, staffId: id })
     return NextResponse.json(result)
   } catch (e: unknown) {
     const err = e as Error
+    apiLog("error", "staff.update.error", { method: "PUT", apiPath, status: 500, error: err?.message || "Unexpected error" })
     return NextResponse.json({ error: err?.message || "Unexpected error" }, { status: 500 })
   }
 }

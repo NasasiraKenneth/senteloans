@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { runWithAuth } from "@/lib/db"
+import { apiLog, getApiPath } from "@/lib/api/api-log"
 
 type ActorContext = {
   id: string
@@ -64,13 +65,20 @@ export async function GET(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const apiPath = getApiPath(req)
   try {
     const { id } = await params
     if (!id) return NextResponse.json({ error: "Missing client ID" }, { status: 400 })
 
     const session = await getServerSession(authOptions)
-    if (!session?.user?.authUserId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    if (session.user.type !== "staff") return NextResponse.json({ error: "no_app_user_profile" }, { status: 403 })
+    if (!session?.user?.authUserId) {
+      apiLog("warn", "clients.detail.denied", { method: "GET", apiPath, status: 401, error: "unauthorized" })
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+    if (session.user.type !== "staff") {
+      apiLog("warn", "clients.detail.denied", { method: "GET", apiPath, status: 403, error: "no_app_user_profile" })
+      return NextResponse.json({ error: "no_app_user_profile" }, { status: 403 })
+    }
 
     const result = await runWithAuth(session.user.authUserId, async (client) => {
       const actor = await resolveActorContext(client, session.user.authUserId as string)
@@ -117,11 +125,14 @@ export async function GET(
         errorCode === "client_not_found" ? 404 :
         errorCode === "actor_branch_missing" ? 400 :
         errorCode.startsWith("missing_permission:") ? 403 : 400
+      apiLog("warn", "clients.detail.denied", { method: "GET", apiPath, status: statusCode, error: errorCode, authUserId: session.user.authUserId, clientId: id })
       return NextResponse.json({ error: errorCode }, { status: statusCode })
     }
+    apiLog("info", "clients.detail.success", { method: "GET", apiPath, status: 200, authUserId: session.user.authUserId, clientId: id })
     return NextResponse.json(result)
   } catch (e: unknown) {
     const err = e as Error
+    apiLog("error", "clients.detail.error", { method: "GET", apiPath, status: 500, error: err?.message || "Unexpected error" })
     return NextResponse.json({ error: err?.message || "Unexpected error" }, { status: 500 })
   }
 }
@@ -130,13 +141,20 @@ export async function PATCH(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const apiPath = getApiPath(req)
   try {
     const { id } = await params
     if (!id) return NextResponse.json({ error: "Missing client ID" }, { status: 400 })
 
     const session = await getServerSession(authOptions)
-    if (!session?.user?.authUserId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    if (session.user.type !== "staff") return NextResponse.json({ error: "no_app_user_profile" }, { status: 403 })
+    if (!session?.user?.authUserId) {
+      apiLog("warn", "clients.update.denied", { method: "PATCH", apiPath, status: 401, error: "unauthorized" })
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+    if (session.user.type !== "staff") {
+      apiLog("warn", "clients.update.denied", { method: "PATCH", apiPath, status: 403, error: "no_app_user_profile" })
+      return NextResponse.json({ error: "no_app_user_profile" }, { status: 403 })
+    }
 
     const body = await req.json().catch(() => ({}))
     const name = typeof body.name === "string" ? body.name.trim() : ""
@@ -194,11 +212,14 @@ export async function PATCH(
         errorCode === "client_not_found" ? 404 :
         errorCode === "actor_branch_missing" ? 400 :
         errorCode.startsWith("missing_permission:") ? 403 : 400
+      apiLog("warn", "clients.update.denied", { method: "PATCH", apiPath, status: statusCode, error: errorCode, authUserId: session.user.authUserId, clientId: id })
       return NextResponse.json({ error: errorCode }, { status: statusCode })
     }
+    apiLog("info", "clients.update.success", { method: "PATCH", apiPath, status: 200, authUserId: session.user.authUserId, clientId: id })
     return NextResponse.json(result)
   } catch (e: unknown) {
     const err = e as Error
+    apiLog("error", "clients.update.error", { method: "PATCH", apiPath, status: 500, error: err?.message || "Unexpected error" })
     return NextResponse.json({ error: err?.message || "Unexpected error" }, { status: 500 })
   }
 }

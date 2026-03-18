@@ -5,6 +5,7 @@ import { runWithAuth } from "@/lib/db"
 import { hash } from "bcryptjs"
 import * as crypto from "crypto"
 import { auditLogger } from "@/lib/audit/audit-logger"
+import { apiLog, getApiPath } from "@/lib/api/api-log"
 
 type ActorContext = {
   id: string
@@ -77,6 +78,7 @@ async function resolveRoleById(client: any, roleId: string): Promise<{ id: strin
 }
 
 export async function GET(req: Request) {
+  const apiPath = getApiPath(req)
   try {
     const session = await getServerSession(authOptions)
     if (!session?.user?.authUserId)
@@ -173,8 +175,14 @@ export async function GET(req: Request) {
     )
 
     if (result && "error" in result) {
-      const status =
-        result.error === "actor_branch_missing" ? 400 : 403
+      const status = result.error === "no_app_user_profile" ? 403 : 403
+      apiLog("warn", "staff.list.denied", {
+        method: "GET",
+        apiPath,
+        status,
+        error: result.error,
+        authUserId: session.user.authUserId,
+      })
       return NextResponse.json({ error: result.error }, { status })
     }
 
@@ -189,12 +197,17 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
+  const apiPath = getApiPath(req)
   try {
     const session = await getServerSession(authOptions)
-    if (!session?.user?.authUserId)
+    if (!session?.user?.authUserId){
+      apiLog("warn", "staff.list.denied", { method: "GET", apiPath, status: 401, error: "unauthorized" })
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    if (session.user.type !== "staff")
+    }
+    if (session.user.type !== "staff"){
+      apiLog("warn", "staff.list.denied", { method: "GET", apiPath, status: 403, error: "no_app_user_profile" })
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+    }
 
     const body = await req.json().catch(() => ({}))
     const firstName = String(body.firstName || "").trim()

@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from "react"
 import Popover from "@mui/material/Popover"
 import { getSession } from "@/lib/session"
+import { FaTrash } from "react-icons/fa"
 
 export interface LoanProductFormData {
   product_name: string
@@ -19,6 +20,13 @@ export interface LoanProductFormData {
   processing_fee_percentage: string
   insurance_required: boolean
   status: string
+  eligibilities: LoanProductEligibilityForm[]
+}
+
+export interface LoanProductEligibilityForm {
+  id: string
+  eligibility: string
+  status: "Active" | "Inactive"
 }
 
 interface LoanProductFormProps {
@@ -55,6 +63,7 @@ const defaultValues: LoanProductFormData = {
   processing_fee_percentage: "0",
   insurance_required: false,
   status: "Active",
+  eligibilities: [],
 }
 
 const inputClass = (hasError: boolean) =>
@@ -84,6 +93,40 @@ export default function LoanProductForm({
     if (errors[field]) setErrors((prev) => ({ ...prev, [field]: undefined }))
   }
 
+  const addEligibility = () => {
+    const row: LoanProductEligibilityForm = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      eligibility: "",
+      status: "Active",
+    }
+    setForm((prev) => ({ ...prev, eligibilities: [...(prev.eligibilities || []), row] }))
+  }
+
+  const updateEligibility = (id: string, field: keyof LoanProductEligibilityForm, value: string) => {
+    setForm((prev) => ({
+      ...prev,
+      eligibilities: (prev.eligibilities || []).map((item) =>
+        item.id === id ? { ...item, [field]: value } : item
+      ),
+    }))
+  }
+
+  const toggleEligibilityStatus = (id: string, checked: boolean) => {
+    setForm((prev) => ({
+      ...prev,
+      eligibilities: (prev.eligibilities || []).map((item) =>
+        item.id === id ? { ...item, status: checked ? "Active" : "Inactive" } : item
+      ),
+    }))
+  }
+
+  const removeEligibility = (id: string) => {
+    setForm((prev) => ({
+      ...prev,
+      eligibilities: (prev.eligibilities || []).filter((item) => item.id !== id),
+    }))
+  }
+
   const validate = (): boolean => {
     const e: Partial<Record<keyof LoanProductFormData, string>> = {}
     if (!form.product_name.trim()) e.product_name = "Product name is required"
@@ -95,6 +138,9 @@ export default function LoanProductForm({
     if (!form.minimum_tenure_months || Number(form.minimum_tenure_months) <= 0) e.minimum_tenure_months = "Must be ≥ 1"
     if (!form.maximum_tenure_months || Number(form.maximum_tenure_months) <= 0) e.maximum_tenure_months = "Must be ≥ 1"
     if (Number(form.maximum_tenure_months) < Number(form.minimum_tenure_months)) e.maximum_tenure_months = "Must be ≥ minimum tenure"
+    if ((form.eligibilities || []).some((el) => !el.eligibility.trim())) {
+      e.eligibilities = "Eligibility name cannot be empty"
+    }
     setErrors(e)
     return Object.keys(e).length === 0
   }
@@ -358,6 +404,66 @@ export default function LoanProductForm({
             <span className="text-sm text-gray-700">Insurance Required</span>
           </label>
         </div>
+      </div>
+
+      <hr className="border-gray-200" />
+
+      {/* Eligibilities */}
+      <div>
+        <div className="flex items-center justify-between mb-3">
+          <h4 className="text-sm font-semibold text-gray-800">Eligibilities</h4>
+          <button
+            type="button"
+            onClick={addEligibility}
+            className="px-3 py-1.5 text-xs font-medium text-white bg-[#f08c2b] rounded-md hover:bg-[#d97a1f] transition-colors"
+          >
+            Add Eligibility
+          </button>
+        </div>
+
+        {(form.eligibilities || []).length === 0 ? (
+          <div className="text-xs text-gray-500 border border-dashed border-gray-300 rounded-md px-3 py-3">
+            No eligibilities added yet.
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {(form.eligibilities || []).map((item) => (
+              <div key={item.id} className="flex items-center gap-3">
+                <input
+                  type="text"
+                  placeholder="Eligibility name (e.g. Active savings account)"
+                  className={inputClass(false)}
+                  value={item.eligibility}
+                  onChange={(e) => updateEligibility(item.id, "eligibility", e.target.value)}
+                />
+                <label className="flex items-center gap-2.5 cursor-pointer min-w-[140px]">
+                  <div className="relative">
+                    <input
+                      type="checkbox"
+                      className="sr-only peer"
+                      checked={item.status === "Active"}
+                      onChange={(e) => toggleEligibilityStatus(item.id, e.target.checked)}
+                    />
+                    <div className="w-9 h-5 bg-gray-300 rounded-full peer-checked:bg-[#f08c2b] transition-colors" />
+                    <div className="absolute left-0.5 top-0.5 bg-white w-4 h-4 rounded-full transition-transform peer-checked:translate-x-4 shadow" />
+                  </div>
+                  <span className="text-sm text-gray-700">
+                    {item.status}
+                  </span>
+                </label>
+                <button
+                  type="button"
+                  onClick={() => removeEligibility(item.id)}
+                  className="px-2.5 py-2 text-xs font-medium text-red-600 border border-red-200 rounded-md hover:bg-red-50 transition-colors"
+                >
+                  <FaTrash className="w-3 h-3" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {errors.eligibilities && <p className="mt-1 text-xs text-red-500">{errors.eligibilities}</p>}
       </div>
 
       <hr className="border-gray-200" />

@@ -31,7 +31,7 @@ export default function UserLoansPage() {
     setSession(getSession())
     Promise.all([
       fetch(`/api/institution/members/${userId}`).then((r) => r.json()),
-      fetch(`/api/institution/loans?client_id=${userId}&pageSize=100`).then((r) => r.json()),
+      fetch(`/api/institution/loans?member_id=${userId}&pageSize=100`).then((r) => r.json()),
     ])
       .then(([memberRes, loansRes]) => {
         const c = memberRes.member

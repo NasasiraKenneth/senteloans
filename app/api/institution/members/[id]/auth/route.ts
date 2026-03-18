@@ -5,6 +5,7 @@ import { runWithAuth } from "@/lib/db"
 import { hash } from "bcryptjs"
 import * as crypto from "crypto"
 import { auditLogger } from "@/lib/audit/audit-logger"
+import { apiLog, getApiPath } from "@/lib/api/api-log"
 
 function isElevated(role?: string | null) {
   return role === "institution_admin" || role === "manager"
@@ -14,14 +15,24 @@ export async function POST(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const apiPath = getApiPath(req)
   try {
     const { id } = await params
     if (!id) return NextResponse.json({ error: "missing_member_id" }, { status: 400 })
 
     const session = await getServerSession(authOptions)
-    if (!session?.user?.authUserId) return NextResponse.json({ error: "unauthorized" }, { status: 401 })
-    if (session.user.type !== "staff") return NextResponse.json({ error: "user_not_linked" }, { status: 403 })
-    if (!isElevated(session.user.role)) return NextResponse.json({ error: "forbidden" }, { status: 403 })
+    if (!session?.user?.authUserId) {
+      apiLog("warn", "member.auth.enable.denied", { method: "POST", apiPath, status: 401, error: "unauthorized" })
+      return NextResponse.json({ error: "unauthorized" }, { status: 401 })
+    }
+    if (session.user.type !== "staff") {
+      apiLog("warn", "member.auth.enable.denied", { method: "POST", apiPath, status: 403, error: "user_not_linked" })
+      return NextResponse.json({ error: "user_not_linked" }, { status: 403 })
+    }
+    if (!isElevated(session.user.role)) {
+      apiLog("warn", "member.auth.enable.denied", { method: "POST", apiPath, status: 403, error: "forbidden" })
+      return NextResponse.json({ error: "forbidden" }, { status: 403 })
+    }
 
     const body = await req.json().catch(() => ({})) as { email?: string; password?: string }
     const email = String(body?.email || "").trim().toLowerCase()
@@ -90,11 +101,16 @@ export async function POST(
       return { ok: true, email, password }
     })
 
-    if (result && "error" in result)
+    if (result && "error" in result) {
+      const statusCode = result.error === "cross_tenant_operation_forbidden" ? 403 : result.error === "member_not_found" ? 404 : 400
+      apiLog("warn", "member.auth.enable.denied", { method: "POST", apiPath, status: statusCode, error: result.error, memberId: id, authUserId: session.user.authUserId })
       return NextResponse.json({ error: result.error }, { status: result.error === "cross_tenant_operation_forbidden" ? 403 : result.error === "member_not_found" ? 404 : 400 })
+    }
+    apiLog("info", "member.auth.enable.success", { method: "POST", apiPath, status: 200, memberId: id, authUserId: session.user.authUserId })
     return NextResponse.json(result)
   } catch (e: unknown) {
     const err = e as Error
+    apiLog("error", "member.auth.enable.error", { method: "POST", apiPath, status: 500, error: err?.message || "Unexpected error" })
     return NextResponse.json({ error: err?.message || "Unexpected error" }, { status: 500 })
   }
 }

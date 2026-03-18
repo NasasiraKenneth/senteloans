@@ -63,7 +63,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
     const result = await runWithAuth(session.user.authUserId, async (client) => {
       const loanRes = await client.query(
-        `SELECT l.id, l.institution_id, l.client_id, l.outstanding_balance, l.status, l.principal_amount, l.interest_rate, l.tenure_months, l.disbursement_date,
+        `SELECT l.id, l.institution_id, l.member_id, l.outstanding_balance, l.status, l.principal_amount, l.interest_rate, l.tenure_months, l.disbursement_date,
                 lp.interest_calculation_method
          FROM senteloans_loans l
          LEFT JOIN senteloans_loan_products lp ON lp.id = l.loan_product_id
@@ -224,11 +224,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
       const transaction_number = `LR-${Date.now()}`
       await client.query(
-        `INSERT INTO senteloans_transactions (institution_id, client_id, account_id, loan_id, transaction_number, type, amount, mode, description, balance_before, balance_after, processed_by, transaction_date, status)
+        `INSERT INTO senteloans_transactions (institution_id, member_id, account_id, loan_id, transaction_number, type, amount, mode, description, balance_before, balance_after, processed_by, transaction_date, status)
          VALUES ($1, $2, NULL, $3, $4, 'Loan Repayment', $5, $6, $7, $8, $9, $10, $11, 'Completed')`,
         [
           institutionId,
-          loan.client_id,
+          loan.member_id,
           loanId,
           transaction_number,
           totalApplied,

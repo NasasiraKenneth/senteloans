@@ -2,14 +2,19 @@ import { NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { runWithAuth } from "@/lib/db"
+import { apiLog, getApiPath } from "@/lib/api/api-log"
 
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const apiPath = getApiPath(_req)
   try {
     const { id: memberId } = await params
     if (!memberId) return NextResponse.json({ error: "missing_member_id" }, { status: 400 })
 
     const session = await getServerSession(authOptions)
-    if (!session?.user?.authUserId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    if (!session?.user?.authUserId) {
+      apiLog("warn", "member.kyc.pending.denied", { method: "GET", apiPath, status: 401, error: "unauthorized" })
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
 
     const result = await runWithAuth(session.user.authUserId, async (client) => {
       const appUserRes = await client.query(
@@ -47,10 +52,15 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       return { ok: true, pending: rowsRes.rows }
     })
 
-    if (!result) return NextResponse.json({ error: "member_not_found" }, { status: 404 })
+    if (!result) {
+      apiLog("warn", "member.kyc.pending.not_found", { method: "GET", apiPath, status: 404, memberId, authUserId: session.user.authUserId })
+      return NextResponse.json({ error: "member_not_found" }, { status: 404 })
+    }
+    apiLog("info", "member.kyc.pending.success", { method: "GET", apiPath, status: 200, memberId, authUserId: session.user.authUserId })
     return NextResponse.json(result)
   } catch (e: unknown) {
     const err = e as Error
+    apiLog("error", "member.kyc.pending.error", { method: "GET", apiPath, status: 500, error: err?.message || "Unexpected error" })
     return NextResponse.json({ error: err?.message || "Unexpected error" }, { status: 500 })
   }
 }

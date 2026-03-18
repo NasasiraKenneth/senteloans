@@ -434,7 +434,6 @@ export default function StaffPage() {
         </div>
 
         {/* Staff DataTable */}
-        {error && <div className="text-sm text-red-600">{error}</div>}
         <DataTable<StaffMember>
           columns={columns}
           rows={staff.slice(page * rowsPerPage, (page + 1) * rowsPerPage)}

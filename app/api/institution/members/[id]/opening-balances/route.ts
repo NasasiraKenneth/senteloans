@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { runWithAuth } from "@/lib/db"
 import { addMonthsDateOnly, buildRepaymentSchedule } from "@/lib/loans/calculations"
+import { apiLog, getApiPath } from "@/lib/api/api-log"
 
 type ActorContext = {
   id: string
@@ -91,13 +92,20 @@ const reconcilePendingScheduleToOutstanding = (rows: RepaymentRow[], targetOutst
  * Returns the member's current savings accounts, active loans, and opening_balance_recorded flag
  */
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const apiPath = getApiPath(_req)
   try {
     const { id: memberId } = await params
     if (!memberId) return NextResponse.json({ error: "Missing member id" }, { status: 400 })
 
     const session = await getServerSession(authOptions)
-    if (!session?.user?.authUserId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    if (session.user.type !== "staff") return NextResponse.json({ error: "no_app_user_profile" }, { status: 403 })
+    if (!session?.user?.authUserId) {
+      apiLog("warn", "member.opening_balances.get.denied", { method: "GET", apiPath, status: 401, error: "unauthorized" })
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+    if (session.user.type !== "staff") {
+      apiLog("warn", "member.opening_balances.get.denied", { method: "GET", apiPath, status: 403, error: "no_app_user_profile" })
+      return NextResponse.json({ error: "no_app_user_profile" }, { status: 403 })
+    }
 
     const result = await runWithAuth(session.user.authUserId, async (client) => {
       const actor = await resolveActorContext(client, session!.user!.authUserId)
@@ -159,9 +167,11 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
             : 400
       return NextResponse.json({ error: result.error }, { status })
     }
+    apiLog("info", "member.opening_balances.get.success", { method: "GET", apiPath, status: 200, memberId, authUserId: session.user.authUserId })
     return NextResponse.json(result)
   } catch (e: unknown) {
     const err = e as Error
+    apiLog("error", "member.opening_balances.get.error", { method: "GET", apiPath, status: 500, error: err?.message || "Unexpected error" })
     return NextResponse.json({ error: err?.message || "Unexpected error" }, { status: 500 })
   }
 }
@@ -184,13 +194,20 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
  * }
  */
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const apiPath = getApiPath(req)
   try {
     const { id: memberId } = await params
     if (!memberId) return NextResponse.json({ error: "Missing member id" }, { status: 400 })
 
     const session = await getServerSession(authOptions)
-    if (!session?.user?.authUserId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    if (session.user.type !== "staff") return NextResponse.json({ error: "no_app_user_profile" }, { status: 403 })
+    if (!session?.user?.authUserId) {
+      apiLog("warn", "member.opening_balances.create.denied", { method: "POST", apiPath, status: 401, error: "unauthorized" })
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+    if (session.user.type !== "staff") {
+      apiLog("warn", "member.opening_balances.create.denied", { method: "POST", apiPath, status: 403, error: "no_app_user_profile" })
+      return NextResponse.json({ error: "no_app_user_profile" }, { status: 403 })
+    }
 
     const body = await req.json().catch(() => ({})) as Record<string, unknown>
 
@@ -450,9 +467,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         400
       return NextResponse.json({ error: result.error }, { status })
     }
+    apiLog("info", "member.opening_balances.create.success", { method: "POST", apiPath, status: 201, memberId, authUserId: session.user.authUserId })
     return NextResponse.json(result, { status: 201 })
   } catch (e: unknown) {
     const err = e as Error
+    apiLog("error", "member.opening_balances.create.error", { method: "POST", apiPath, status: 500, error: err?.message || "Unexpected error" })
     return NextResponse.json({ error: err?.message || "Unexpected error" }, { status: 500 })
   }
 }

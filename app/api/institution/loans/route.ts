@@ -1,17 +1,75 @@
 import { NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
-import { runWithAuth, runWithoutAuth } from "@/lib/db"
+import { runWithAuth } from "@/lib/db"
 import { notificationService } from "@/lib/notifications/notification-service"
 import { NotificationTemplates } from "@/lib/notifications/notification-types"
 import { auditLogger } from "@/lib/audit/audit-logger"
 import { calculateLoanTerms } from "@/lib/loans/calculations"
+import { apiLog, getApiPath } from "@/lib/api/api-log"
+
+type ActorContext = {
+  id: string
+  institution_id: string
+  branch_id: string | null
+  role_id: string | null
+  role: string | null
+}
+
+async function resolveActorContext(client: any, authUserId: string): Promise<ActorContext | null> {
+  const actorRes = await client.query(
+    `SELECT
+       u.id,
+       u.institution_id,
+       u.branch_id,
+       u.role_id,
+       CASE
+         WHEN r.name = 'System Admin' THEN 'system_admin'
+         WHEN r.name = 'Super Admin' THEN 'super_admin'
+         WHEN r.name = 'Admin' THEN 'institution_admin'
+         WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
+         ELSE NULL
+       END AS role
+     FROM senteloans_users u
+     LEFT JOIN senteloans_roles r ON r.id = u.role_id
+     WHERE u.supabase_user_id = $1
+       AND u.status = 'Active'
+     LIMIT 1`,
+    [authUserId]
+  )
+  return actorRes.rows[0] || null
+}
+
+async function hasPermission(client: any, actor: ActorContext, permission: string): Promise<boolean> {
+  const role = String(actor.role || "").trim().toLowerCase()
+  if (role === "super_admin") return true
+  if (!actor.role_id || !actor.branch_id) return false
+
+  const permRes = await client.query(
+    `SELECT 1
+     FROM senteloans_role_permissions rp
+     JOIN senteloans_permissions p ON p.id = rp.permission_id
+     WHERE rp.role_id = $1
+       AND rp.branch_id = $2
+       AND p.name = $3
+     LIMIT 1`,
+    [actor.role_id, actor.branch_id, permission]
+  )
+  return permRes.rowCount > 0
+}
 
 export async function GET(req: Request) {
+  const apiPath = getApiPath(req)
   try {
     const session = await getServerSession(authOptions)
-    if (!session?.user?.authUserId) return NextResponse.json({ error: "unauthorized" }, { status: 401 })
-    if (session.user.type !== "staff") return NextResponse.json({ error: "not_staff" }, { status: 403 })
+    if (!session?.user?.authUserId) {
+      apiLog("warn", "loans.list.denied", { method: "GET", apiPath, status: 401, error: "unauthorized" })
+      return NextResponse.json({ error: "unauthorized" }, { status: 401 })
+    }
+    if (session.user.type !== "staff") {
+      apiLog("warn", "loans.list.denied", { method: "GET", apiPath, status: 403, error: "not_staff" })
+      return NextResponse.json({ error: "not_staff" }, { status: 403 })
+    }
 
     const url = new URL(req.url)
     const page = Math.max(parseInt(url.searchParams.get("page") || "1", 10), 1)
@@ -21,58 +79,57 @@ export async function GET(req: Request) {
     const selectedProductIds = productIdRaw
       ? productIdRaw.split(",").map((v) => v.trim()).filter(Boolean)
       : []
-    const clientId = (url.searchParams.get("client_id") || "").trim()
+    const memberId = (url.searchParams.get("member_id") || url.searchParams.get("client_id") || "").trim()
     const q = (url.searchParams.get("q") || "").trim()
+    const branchesRaw = (url.searchParams.get("branches") || "").trim()
+    const selectedBranchIds = branchesRaw ? branchesRaw.split(",").map((v) => v.trim()).filter(Boolean) : []
     const remainingTenure = (url.searchParams.get("remainingTenure") || "").trim()
+    const loanType = (url.searchParams.get("loan_type") || "").trim().toLowerCase()
     const applicationDateStart = (url.searchParams.get("applicationDateStart") || "").trim()
     const applicationDateEnd = (url.searchParams.get("applicationDateEnd") || "").trim()
     const nextPaymentDateStart = (url.searchParams.get("nextPaymentDateStart") || "").trim()
     const nextPaymentDateEnd = (url.searchParams.get("nextPaymentDateEnd") || "").trim()
 
-    const actor = await runWithoutAuth(async (client) => {
-      const res = await client.query<{ institution_id: string; role: string }>(
-        `SELECT
-           u.institution_id,
-          CASE
-            WHEN r.name = 'System Admin' THEN 'system_admin'
-            WHEN r.name = 'Super Admin' THEN 'super_admin'
-            WHEN r.name = 'Admin' THEN 'institution_admin'
-            WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
-            ELSE NULL
-          END AS role
-         FROM senteloans_users u
-         LEFT JOIN senteloans_roles r ON r.id = u.role_id
-         WHERE u.supabase_user_id = $1 AND u.status = 'Active'`,
-        [session!.user!.authUserId]
-      )
-      return res.rows[0] ?? null
-    })
-    if (!actor) return NextResponse.json({ error: "user_not_linked" }, { status: 403 })
-
-    const isSystemAdmin = String(actor.role || "").trim().toLowerCase() === "system_admin"
-
     const result = await runWithAuth(session.user.authUserId, async (client) => {
-      let matchedClientIds: string[] = []
-      if (clientId) {
-        matchedClientIds = [clientId]
+      const actor = await resolveActorContext(client, session.user.authUserId as string)
+      if (!actor?.institution_id) return { error: "user_not_linked" as const }
+      const allowed = await hasPermission(client, actor, "view_loans")
+      if (!allowed) return { error: "missing_permission:view_loans" as const }
+
+      const role = String(actor.role || "").trim().toLowerCase()
+      const isSuperAdmin = role === "super_admin"
+      if (!isSuperAdmin && !actor.branch_id) return { error: "actor_branch_missing" as const }
+
+      let matchedMemberIds: string[] = []
+      if (memberId) {
+        matchedMemberIds = [memberId]
       } else if (q) {
-        const searchWhere = isSystemAdmin
-          ? `(full_name ILIKE $1 OR client_number ILIKE $1 OR phone_number ILIKE $1 OR email ILIKE $1)`
-          : `institution_id = $1 AND (full_name ILIKE $2 OR client_number ILIKE $2 OR phone_number ILIKE $2 OR email ILIKE $2)`
-        const searchParams = isSystemAdmin ? [`%${q}%`] : [actor.institution_id, `%${q}%`]
+        const searchWhere = isSuperAdmin
+          ? `institution_id = $1 AND (full_name ILIKE $2 OR member_number ILIKE $2 OR phone_number ILIKE $2 OR email ILIKE $2)`
+          : `institution_id = $1 AND branch_id = $2 AND (full_name ILIKE $3 OR member_number ILIKE $3 OR phone_number ILIKE $3 OR email ILIKE $3)`
+        const searchParams = isSuperAdmin
+          ? [actor.institution_id, `%${q}%`]
+          : [actor.institution_id, actor.branch_id, `%${q}%`]
         const searchRes = await client.query(
-          `SELECT id FROM senteloans_clients WHERE ${searchWhere} LIMIT 200`,
+          `SELECT id FROM senteloans_members WHERE ${searchWhere} LIMIT 200`,
           searchParams
         )
-        matchedClientIds = searchRes.rows.map((r: { id: string }) => r.id)
-        if (matchedClientIds.length === 0)
+        matchedMemberIds = searchRes.rows.map((r: { id: string }) => r.id)
+        if (matchedMemberIds.length === 0)
           return { items: [], total: 0, page, pageSize }
       }
 
       const from = (page - 1) * pageSize
-      let where = isSystemAdmin ? "TRUE" : "l.institution_id = $1"
-      const params: unknown[] = isSystemAdmin ? [] : [actor.institution_id]
-      let idx = isSystemAdmin ? 1 : 2
+      let where = "l.institution_id = $1"
+      const params: unknown[] = [actor.institution_id]
+      let idx = 2
+      if (!isSuperAdmin) {
+        where += ` AND l.branch_id = $${idx++}`
+        params.push(actor.branch_id)
+      } else if (selectedBranchIds.length > 0) {
+        where += ` AND l.branch_id = ANY($${idx++}::uuid[])`
+        params.push(selectedBranchIds)
+      }
       if (status) {
         where += ` AND l.status = $${idx++}`
         params.push(status)
@@ -84,6 +141,10 @@ export async function GET(req: Request) {
         where += ` AND l.loan_product_id = ANY($${idx}::uuid[])`
         params.push(selectedProductIds)
         idx++
+      }
+      if (loanType) {
+        where += ` AND lower(l.loan_type) = $${idx++}`
+        params.push(loanType)
       }
       if (remainingTenure) {
         if (remainingTenure === "eq1") where += ` AND l.tenure_months = 1`
@@ -112,9 +173,9 @@ export async function GET(req: Request) {
         params.push(nextPaymentDateEnd)
         idx++
       }
-      if (matchedClientIds.length > 0) {
-        where += ` AND l.client_id = ANY($${idx}::uuid[])`
-        params.push(matchedClientIds)
+      if (matchedMemberIds.length > 0) {
+        where += ` AND l.member_id = ANY($${idx}::uuid[])`
+        params.push(matchedMemberIds)
         idx++
       }
 
@@ -126,19 +187,19 @@ export async function GET(req: Request) {
 
       params.push(pageSize, from)
       const dataRes = await client.query(
-        `SELECT l.id, l.application_id, l.client_id, l.loan_product_id, l.principal_amount, l.interest_rate, l.tenure_months, l.outstanding_balance, l.status, l.approval_date, l.disbursement_date, l.application_date, l.next_payment_date
+        `SELECT l.id, l.application_id, l.member_id, l.loan_product_id, l.principal_amount, l.interest_rate, l.tenure_months, l.outstanding_balance, l.status, l.loan_type, l.approved_at, l.disbursement_date, l.application_date, l.next_payment_date
          FROM senteloans_loans l WHERE ${where} ORDER BY l.application_date DESC LIMIT $${idx} OFFSET $${idx + 1}`,
         params
       )
       const data = dataRes.rows
 
-      const clientIds = [...new Set(data.map((r: { client_id: string }) => r.client_id).filter(Boolean))]
+      const memberIds = [...new Set(data.map((r: { member_id: string }) => r.member_id).filter(Boolean))]
       const productIds = [...new Set(data.map((r: { loan_product_id: string }) => r.loan_product_id).filter(Boolean))]
-      let clientMap: Record<string, { name: string; number?: string }> = {}
+      let memberMap: Record<string, { name: string; number?: string }> = {}
       let productMap: Record<string, string> = {}
-      if (clientIds.length > 0) {
-        const cRes = await client.query(`SELECT id, full_name, client_number FROM senteloans_clients WHERE id = ANY($1::uuid[])`, [clientIds])
-        clientMap = Object.fromEntries(cRes.rows.map((c: { id: string; full_name: string; client_number: string }) => [c.id, { name: c.full_name, number: c.client_number }]))
+      if (memberIds.length > 0) {
+        const mRes = await client.query(`SELECT id, full_name, member_number FROM senteloans_members WHERE id = ANY($1::uuid[])`, [memberIds])
+        memberMap = Object.fromEntries(mRes.rows.map((m: { id: string; full_name: string; member_number: string }) => [m.id, { name: m.full_name, number: m.member_number }]))
       }
       if (productIds.length > 0) {
         const pRes = await client.query(`SELECT id, product_name FROM senteloans_loan_products WHERE id = ANY($1::uuid[])`, [productIds])
@@ -148,15 +209,16 @@ export async function GET(req: Request) {
       const items = data.map((row: Record<string, unknown>) => ({
         id: row.id,
         application_id: row.application_id,
-        memberName: clientMap[row.client_id as string]?.name || "",
-        memberNumber: clientMap[row.client_id as string]?.number || "",
+        memberName: memberMap[row.member_id as string]?.name || "",
+        memberNumber: memberMap[row.member_id as string]?.number || "",
         productName: productMap[row.loan_product_id as string] || "",
         principal_amount: row.principal_amount,
         interest_rate: row.interest_rate,
         tenure_months: row.tenure_months,
         outstanding_balance: row.outstanding_balance,
         status: row.status,
-        approval_date: row.approval_date,
+        loan_type: row.loan_type,
+        approved_at: row.approved_at,
         disbursement_date: row.disbursement_date,
         application_date: row.application_date,
         next_payment_date: row.next_payment_date ?? null,
@@ -164,52 +226,78 @@ export async function GET(req: Request) {
       return { items, total, page, pageSize }
     })
 
-    if (!result) return NextResponse.json({ error: "forbidden" }, { status: 403 })
+    if (result && "error" in result) {
+      const statusCode =
+        result.error === "missing_permission:view_loans" ? 403 :
+        result.error === "user_not_linked" ? 403 :
+        result.error === "actor_branch_missing" ? 400 : 400
+      apiLog("warn", "loans.list.denied", { method: "GET", apiPath, status: statusCode, error: result.error, authUserId: session.user.authUserId })
+      return NextResponse.json({ error: result.error }, { status: statusCode })
+    }
+    apiLog("info", "loans.list.success", { method: "GET", apiPath, status: 200, count: result.items?.length || 0, authUserId: session.user.authUserId })
     return NextResponse.json(result)
   } catch (e: unknown) {
     const err = e as Error
+    apiLog("error", "loans.list.error", { method: "GET", apiPath, status: 500, error: err?.message || "Unexpected error" })
     return NextResponse.json({ error: err?.message || "Unexpected error" }, { status: 500 })
   }
 }
 
 export async function POST(req: Request) {
+  const apiPath = getApiPath(req)
   try {
     const session = await getServerSession(authOptions)
-    if (!session?.user?.authUserId) return NextResponse.json({ error: "unauthorized" }, { status: 401 })
-    if (session.user.type !== "staff") return NextResponse.json({ error: "not_staff" }, { status: 403 })
+    if (!session?.user?.authUserId) {
+      apiLog("warn", "loans.create.denied", { method: "POST", apiPath, status: 401, error: "unauthorized" })
+      return NextResponse.json({ error: "unauthorized" }, { status: 401 })
+    }
+    if (session.user.type !== "staff") {
+      apiLog("warn", "loans.create.denied", { method: "POST", apiPath, status: 403, error: "not_staff" })
+      return NextResponse.json({ error: "not_staff" }, { status: 403 })
+    }
 
     const body = await req.json().catch(() => ({})) as Record<string, unknown>
-    const client_id = String(body.client_id || "").trim()
+    const member_id = String(body.member_id || body.client_id || "").trim()
     const loan_product_id = String(body.loan_product_id || "").trim()
     const principal_amount = Number(body.principal_amount)
     const tenure_months = Number(body.tenure_months)
+    const loan_type_raw = String(body.loan_type || "normal").trim().toLowerCase()
+    const loan_type = ["normal", "top up", "buy off", "buy out"].includes(loan_type_raw) ? loan_type_raw : "normal"
     const purpose = typeof body.purpose === "string" ? body.purpose.trim() : ""
     const collateral_description = typeof body.collateral_description === "string" ? body.collateral_description.trim() : null
-    const guarantors = Array.isArray(body.guarantors) ? body.guarantors as Array<{ client_id: string; amount?: number }> : []
+    const guarantors = Array.isArray(body.guarantors) ? body.guarantors as Array<{ member_id?: string; client_id?: string; amount?: number }> : []
     const guarantor_ids = Array.isArray(body.guarantor_ids) ? (body.guarantor_ids as string[]) : []
-    const inputGuarantors = guarantors.length > 0 ? guarantors : guarantor_ids.map((id) => ({ client_id: id }))
-    const uniqGuars = Array.from(new Map(inputGuarantors.map((g) => [g.client_id, g])).values()).filter((g) => g.client_id !== client_id)
+    const guarantor_member_ids = Array.isArray(body.guarantor_member_ids) ? (body.guarantor_member_ids as string[]) : []
+    const inputGuarantors =
+      guarantors.length > 0
+        ? guarantors.map((g) => ({ member_id: String(g.member_id || g.client_id || "").trim(), amount: g.amount }))
+        : [...guarantor_member_ids, ...guarantor_ids].map((id) => ({ member_id: id }))
+    const uniqGuars = Array.from(new Map(inputGuarantors.map((g) => [g.member_id, g])).values()).filter((g) => g.member_id && g.member_id !== member_id)
 
-    if (!client_id) return NextResponse.json({ error: "client_id_required" }, { status: 400 })
+    if (!member_id) return NextResponse.json({ error: "member_id_required" }, { status: 400 })
     if (!loan_product_id) return NextResponse.json({ error: "loan_product_id_required" }, { status: 400 })
     if (!Number.isFinite(principal_amount) || principal_amount <= 0) return NextResponse.json({ error: "invalid_principal_amount" }, { status: 400 })
     if (!Number.isFinite(tenure_months) || tenure_months <= 0) return NextResponse.json({ error: "invalid_tenure_months" }, { status: 400 })
     if (!purpose) return NextResponse.json({ error: "purpose_required" }, { status: 400 })
 
     const result = await runWithAuth(session.user.authUserId, async (client) => {
-      const actorRes = await client.query(`SELECT id, institution_id FROM senteloans_users WHERE supabase_user_id = $1`, [session!.user!.authUserId])
-      const actor = actorRes.rows[0]
-      if (!actor) return { error: "user_not_linked" as const }
+      const actor = await resolveActorContext(client, session.user.authUserId as string)
+      if (!actor?.institution_id) return { error: "user_not_linked" as const }
+      const allowed = await hasPermission(client, actor, "create_loan")
+      if (!allowed) return { error: "missing_permission:create_loan" as const }
+      if (!actor.branch_id) return { error: "actor_branch_missing" as const }
       const [borrowerRes, productRes] = await Promise.all([
-        client.query(`SELECT id, institution_id, status, kyc_status FROM senteloans_clients WHERE id = $1`, [client_id]),
-        client.query(`SELECT id, institution_id, status, interest_rate, minimum_amount, maximum_amount, maximum_tenure_months, guarantors_required, interest_calculation_method FROM senteloans_loan_products WHERE id = $1`, [loan_product_id]),
+        client.query(`SELECT id, institution_id, branch_id, status, kyc_status FROM senteloans_members WHERE id = $1`, [member_id]),
+        client.query(`SELECT id, institution_id, branch_id, status, interest_rate, minimum_amount, maximum_amount, maximum_tenure_months, guarantors_required, interest_calculation_method FROM senteloans_loan_products WHERE id = $1`, [loan_product_id]),
       ])
       const borrower = borrowerRes.rows[0]
       const product = productRes.rows[0]
-      if (!borrower) return { error: "client_not_found" as const }
+      if (!borrower) return { error: "member_not_found" as const }
       if (!product) return { error: "loan_product_not_found" as const }
       if (borrower.institution_id !== actor.institution_id || product.institution_id !== actor.institution_id)
         return { error: "cross_tenant_operation_forbidden" as const }
+      if (borrower.branch_id !== actor.branch_id || product.branch_id !== actor.branch_id)
+        return { error: "cross_branch_operation_forbidden" as const }
       if (String(product.status) !== "Active") return { error: "product_not_active" as const }
       if (String(borrower.status) !== "Active") return { error: "borrower_not_active" as const }
       if (Number(product.minimum_amount) > 0 && principal_amount < Number(product.minimum_amount)) return { error: "below_min_amount" as const }
@@ -219,8 +307,8 @@ export async function POST(req: Request) {
       if (required > 0 && uniqGuars.length < required) return { error: "insufficient_guarantors" as const }
 
       if (uniqGuars.length > 0) {
-        const guarIds = uniqGuars.map((g) => g.client_id)
-        const guarRes = await client.query(`SELECT id, institution_id, status FROM senteloans_clients WHERE id = ANY($1::uuid[])`, [guarIds])
+        const guarIds = uniqGuars.map((g) => g.member_id)
+        const guarRes = await client.query(`SELECT id, institution_id, status FROM senteloans_members WHERE id = ANY($1::uuid[])`, [guarIds])
         const bad = guarRes.rows.find((r: { institution_id: string; status: string }) => r.institution_id !== actor.institution_id || r.status !== "Active")
         if (bad) return { error: "invalid_guarantor" as const }
       }
@@ -238,9 +326,9 @@ export async function POST(req: Request) {
       const today = new Date().toISOString().slice(0, 10)
 
       const loanRes = await client.query(
-        `INSERT INTO senteloans_loans (institution_id, client_id, loan_product_id, application_id, principal_amount, interest_rate, tenure_months, monthly_payment, total_amount, status, purpose, collateral_description, application_date, created_by)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'Applied', $10, $11, $12, $13) RETURNING id, application_id`,
-        [actor.institution_id, client_id, loan_product_id, application_id, principal_amount, annualRate, tenure_months, monthly_payment, total_amount, purpose, collateral_description, today, actor.id]
+        `INSERT INTO senteloans_loans (institution_id, branch_id, member_id, loan_product_id, application_id, principal_amount, interest_rate, tenure_months, monthly_payment, total_amount, status, loan_type, purpose, collateral_description, application_date, created_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'Applied', $11, $12, $13, $14, $15) RETURNING id, application_id`,
+        [actor.institution_id, actor.branch_id, member_id, loan_product_id, application_id, principal_amount, annualRate, tenure_months, monthly_payment, total_amount, loan_type, purpose, collateral_description, today, actor.id]
       )
       const loanRow = loanRes.rows[0]
       if (!loanRow) return { error: "insert_failed" as const }
@@ -249,22 +337,30 @@ export async function POST(req: Request) {
         const per = Math.round((principal_amount / uniqGuars.length) * 100) / 100
         for (const g of uniqGuars) {
           await client.query(
-            `INSERT INTO senteloans_loan_guarantors (loan_id, guarantor_client_id, guaranteed_amount, status) VALUES ($1, $2, $3, 'Active')`,
-            [loanRow.id, g.client_id, Number.isFinite(g.amount) && g.amount! >= 0 ? g.amount! : per]
+            `INSERT INTO senteloans_loan_guarantors (loan_id, guarantor_member_id, guaranteed_amount, status) VALUES ($1, $2, $3, 'Active')`,
+            [loanRow.id, g.member_id, Number.isFinite(g.amount) && g.amount! >= 0 ? g.amount! : per]
           )
         }
       }
 
       await client.query(
         `INSERT INTO senteloans_audit_logs (institution_id, user_id, table_name, operation, record_id, new_values) VALUES ($1, $2, 'senteloans_loans', 'INSERT', $3, $4)`,
-        [actor.institution_id, actor.id, loanRow.id, JSON.stringify({ application_id, client_id, principal_amount, purpose })]
+        [actor.institution_id, actor.id, loanRow.id, JSON.stringify({ application_id, member_id, principal_amount, loan_type, purpose })]
       )
 
-      const clientNameRes = await client.query(`SELECT full_name FROM senteloans_clients WHERE id = $1`, [client_id])
-      const clientName = clientNameRes.rows[0]?.full_name || ""
-      const adminsRes = await client.query(`SELECT id FROM senteloans_users WHERE institution_id = $1 AND role IN ('institution_admin', 'manager') AND id != $2`, [actor.institution_id, actor.id])
-      if (adminsRes.rows.length > 0 && clientName) {
-        const tpl = NotificationTemplates.pendingLoanApproval(clientName, principal_amount, loanRow.id)
+      const memberNameRes = await client.query(`SELECT full_name FROM senteloans_members WHERE id = $1`, [member_id])
+      const memberName = memberNameRes.rows[0]?.full_name || ""
+      const adminsRes = await client.query(
+        `SELECT u.id
+         FROM senteloans_users u
+         JOIN senteloans_roles r ON r.id = u.role_id
+         WHERE u.institution_id = $1
+           AND u.id != $2
+           AND lower(r.name) IN ('admin', 'manager')`,
+        [actor.institution_id, actor.id]
+      )
+      if (adminsRes.rows.length > 0 && memberName) {
+        const tpl = NotificationTemplates.pendingLoanApproval(memberName, principal_amount, loanRow.id)
         await notificationService.createBulk(
           adminsRes.rows.map((a: { id: string }) => ({
             institutionId: actor.institution_id,
@@ -274,7 +370,7 @@ export async function POST(req: Request) {
             title: tpl.title,
             message: tpl.message,
             actionUrl: tpl.actionUrl,
-            metadata: { loan_id: loanRow.id, client_id, client_name: clientName, amount: principal_amount },
+            metadata: { loan_id: loanRow.id, member_id, member_name: memberName, amount: principal_amount },
           })),
           client
         )
@@ -283,12 +379,19 @@ export async function POST(req: Request) {
     })
 
     if (result && "error" in result) {
-      const status = result.error === "cross_tenant_operation_forbidden" ? 403 : result.error === "client_not_found" || result.error === "loan_product_not_found" ? 404 : 400
+      const status =
+        result.error === "missing_permission:create_loan" ? 403 :
+        result.error === "cross_tenant_operation_forbidden" || result.error === "cross_branch_operation_forbidden" ? 403 :
+        result.error === "user_not_linked" ? 403 :
+        result.error === "member_not_found" || result.error === "loan_product_not_found" ? 404 : 400
+      apiLog("warn", "loans.create.denied", { method: "POST", apiPath, status, error: result.error, authUserId: session.user.authUserId })
       return NextResponse.json({ error: result.error }, { status })
     }
+    apiLog("info", "loans.create.success", { method: "POST", apiPath, status: 200, loanId: result.id, authUserId: session.user.authUserId })
     return NextResponse.json(result)
   } catch (e: unknown) {
     const err = e as Error
+    apiLog("error", "loans.create.error", { method: "POST", apiPath, status: 500, error: err?.message || "Unexpected error" })
     return NextResponse.json({ error: err?.message || "Unexpected error" }, { status: 500 })
   }
 }

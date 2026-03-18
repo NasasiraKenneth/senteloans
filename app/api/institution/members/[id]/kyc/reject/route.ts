@@ -5,14 +5,19 @@ import { runWithAuth } from "@/lib/db"
 import { auditLogger } from "@/lib/audit/audit-logger"
 import { notificationService } from "@/lib/notifications/notification-service"
 import { NotificationTemplates } from "@/lib/notifications/notification-types"
+import { apiLog, getApiPath } from "@/lib/api/api-log"
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const apiPath = getApiPath(req)
   try {
     const { id: memberId } = await params
     if (!memberId) return NextResponse.json({ error: "missing_member_id" }, { status: 400 })
 
     const session = await getServerSession(authOptions)
-    if (!session?.user?.authUserId) return NextResponse.json({ error: "unauthorized" }, { status: 401 })
+    if (!session?.user?.authUserId) {
+      apiLog("warn", "member.kyc.reject.denied", { method: "POST", apiPath, status: 401, error: "unauthorized" })
+      return NextResponse.json({ error: "unauthorized" }, { status: 401 })
+    }
 
     const body = (await req.json().catch(() => ({}))) as { pendingId?: string; reason?: string }
     const pendingId = (body?.pendingId || "").trim()
@@ -94,11 +99,14 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
     if (result && "error" in result) {
       const status = result.error === "member_not_found" || result.error === "pending_not_found" ? 404 : 403
+      apiLog("warn", "member.kyc.reject.denied", { method: "POST", apiPath, status, error: result.error, memberId, authUserId: session.user.authUserId })
       return NextResponse.json({ error: result.error }, { status })
     }
+    apiLog("info", "member.kyc.reject.success", { method: "POST", apiPath, status: 200, memberId, authUserId: session.user.authUserId })
     return NextResponse.json(result)
   } catch (e: unknown) {
     const err = e as Error
+    apiLog("error", "member.kyc.reject.error", { method: "POST", apiPath, status: 500, error: err?.message || "Unexpected error" })
     return NextResponse.json({ error: err?.message || "Unexpected error" }, { status: 500 })
   }
 }
