@@ -2,10 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { UserRound, CreditCard, Wallet, CalendarClock, ShieldCheck, CheckCircle2, Circle } from "lucide-react"
 import { useToast } from "@/components/ui/toast"
 import { AnimatePresence, motion } from "framer-motion"
@@ -16,6 +13,7 @@ export type LoanFormData = {
   loan_product_id: string
   loan_type: "normal" | "top up" | "buy off"
   top_up_loan_id?: string
+  external_outstanding_balance?: number
   principal_amount: number
   tenure_months: number
   purpose: string
@@ -40,12 +38,12 @@ export default function LoanForm({ onSubmit, loading = false }: LoanFormProps) {
     loan_product_id: "",
     loan_type: "normal" as LoanFormData["loan_type"],
     top_up_loan_id: "",
+    external_outstanding_balance: "",
     principal_amount: "",
     tenure_months: "",
     purpose: "",
     collateral_description: "",
-    guarantor1: "",
-    guarantor2: "",
+    guarantors: [] as string[],
   })
   const steps = ["Member", "Setup", "Financial", "Supporting", "Review"] as const
 
@@ -89,6 +87,34 @@ export default function LoanForm({ onSubmit, loading = false }: LoanFormProps) {
       })),
     [topUpLoans]
   )
+  const requiredGuarantorCount = useMemo(
+    () => Math.max(Number(selectedProduct?.guarantors_required || 0), 0),
+    [selectedProduct]
+  )
+  const selectedTopUpLoan = useMemo(
+    () => topUpLoans.find((l) => String(l.id) === String(form.top_up_loan_id)) || null,
+    [topUpLoans, form.top_up_loan_id]
+  )
+  const selectedGuarantorNames = useMemo(
+    () =>
+      form.guarantors
+        .filter(Boolean)
+        .map((id) => guarantorOptions.find((m) => String(m.id) === String(id))?.full_name || "Unknown")
+        .filter(Boolean),
+    [form.guarantors, guarantorOptions]
+  )
+  const productStyleInputClass = (hasError = false) =>
+    `w-full px-3 py-2.5 text-sm border rounded-md transition-all duration-200 focus:ring-[1.5px] focus:ring-[#f08c2b] focus:border-transparent focus:outline-none ${
+      hasError ? "border-red-500" : "border-gray-300 hover:border-gray-400"
+    }`
+
+  useEffect(() => {
+    setForm((prev) => {
+      const normalized = Array.isArray(prev.guarantors) ? prev.guarantors.slice(0, requiredGuarantorCount) : []
+      while (normalized.length < requiredGuarantorCount) normalized.push("")
+      return { ...prev, guarantors: normalized }
+    })
+  }, [requiredGuarantorCount])
 
   useEffect(() => {
     let stop = false
@@ -158,13 +184,25 @@ export default function LoanForm({ onSubmit, loading = false }: LoanFormProps) {
   }, [])
 
   const getUniqueGuarantors = () => {
-    const guarantorIds = [form.guarantor1, form.guarantor2].filter(Boolean)
+    const guarantorIds = form.guarantors.filter(Boolean)
     return Array.from(new Set(guarantorIds)).filter((id) => id !== form.member_id)
+  }
+
+  const getGuarantorOptionsForIndex = (index: number) => {
+    const taken = new Set(
+      form.guarantors
+        .filter((id, idx) => idx !== index && Boolean(id))
+        .map((id) => String(id))
+    )
+    return guarantorOptions
+      .filter((m) => String(m.id) !== form.member_id && !taken.has(String(m.id)))
+      .map((m) => ({ value: String(m.id), label: `${m.full_name} (${m.member_number})` }))
   }
 
   const validateAll = () => {
     const principal = Number(form.principal_amount)
     const tenure = Number(form.tenure_months)
+    const externalOutstandingBalance = Number(form.external_outstanding_balance)
     const uniqueGuarantors = getUniqueGuarantors()
 
     if (!form.member_id) {
@@ -177,6 +215,10 @@ export default function LoanForm({ onSubmit, loading = false }: LoanFormProps) {
     }
     if (form.loan_type === "top up" && !form.top_up_loan_id) {
       toast({ variant: "warning", title: "Select top up loan", description: "Please choose the loan being topped up." })
+      return false
+    }
+    if (form.loan_type === "buy off" && (!Number.isFinite(externalOutstandingBalance) || externalOutstandingBalance <= 0)) {
+      toast({ variant: "warning", title: "Enter outstanding balance", description: "Please provide the external loan outstanding balance." })
       return false
     }
     if (!Number.isFinite(principal) || principal <= 0) {
@@ -241,6 +283,7 @@ export default function LoanForm({ onSubmit, loading = false }: LoanFormProps) {
   const validateForStep = (targetStep: number) => {
     const principal = Number(form.principal_amount)
     const tenure = Number(form.tenure_months)
+    const externalOutstandingBalance = Number(form.external_outstanding_balance)
     const uniqueGuarantors = getUniqueGuarantors()
 
     if (targetStep === 0 && !form.member_id) {
@@ -253,6 +296,10 @@ export default function LoanForm({ onSubmit, loading = false }: LoanFormProps) {
     }
     if (targetStep === 1 && form.loan_type === "top up" && !form.top_up_loan_id) {
       toast({ variant: "warning", title: "Select top up loan", description: "Please choose the loan being topped up." })
+      return false
+    }
+    if (targetStep === 1 && form.loan_type === "buy off" && (!Number.isFinite(externalOutstandingBalance) || externalOutstandingBalance <= 0)) {
+      toast({ variant: "warning", title: "Enter outstanding balance", description: "Please provide the external loan outstanding balance." })
       return false
     }
     if (targetStep === 2) {
@@ -329,6 +376,8 @@ export default function LoanForm({ onSubmit, loading = false }: LoanFormProps) {
       loan_product_id: form.loan_product_id,
       loan_type: form.loan_type,
       top_up_loan_id: form.loan_type === "top up" ? form.top_up_loan_id : undefined,
+      external_outstanding_balance:
+        form.loan_type === "buy off" ? Number(form.external_outstanding_balance || 0) : undefined,
       principal_amount: principal,
       tenure_months: tenure,
       purpose: form.purpose.trim(),
@@ -462,6 +511,7 @@ export default function LoanForm({ onSubmit, loading = false }: LoanFormProps) {
                       ...prev,
                       loan_type: value as LoanFormData["loan_type"],
                       top_up_loan_id: value === "top up" ? prev.top_up_loan_id : "",
+                      external_outstanding_balance: value === "buy off" ? prev.external_outstanding_balance : "",
                     }))
                   }
                   placeholder="Choose loan type"
@@ -477,6 +527,20 @@ export default function LoanForm({ onSubmit, loading = false }: LoanFormProps) {
                     placeholder={loadingTopUpLoans ? "Loading member loans..." : "Select existing loan"}
                     options={topUpLoanSelectOptions}
                     searchable
+                  />
+                </div>
+              )}
+              {form.loan_type === "buy off" && (
+                <div className="space-y-2">
+                  <Label className="flex items-center gap-2"><Wallet className="h-4 w-4 text-[#de4925]" /> External Loan Outstanding Balance</Label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="any"
+                    placeholder="e.g. 2500000"
+                    className={productStyleInputClass()}
+                    value={form.external_outstanding_balance}
+                    onChange={(e) => setForm((prev) => ({ ...prev, external_outstanding_balance: e.target.value }))}
                   />
                 </div>
               )}
@@ -503,25 +567,29 @@ export default function LoanForm({ onSubmit, loading = false }: LoanFormProps) {
           transition={{ duration: 0.24 }}
           className="space-y-4 rounded-xl border border-gray-200 bg-white p-3"
         >
+              <div>
+                <h4 className="text-sm font-semibold text-gray-800 mb-3">Financial Details</h4>
+              </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label className="flex items-center gap-2"><Wallet className="h-4 w-4 text-[#de4925]" /> Principal Amount</Label>
-                  <Input
+                  <input
                     type="number"
                     min="0"
+                    step="any"
                     placeholder="0"
-                    className="h-11 border-black/15 focus-visible:ring-[#f08c2b]"
+                    className={productStyleInputClass()}
                     value={form.principal_amount}
                     onChange={(e) => setForm((prev) => ({ ...prev, principal_amount: e.target.value }))}
                   />
                 </div>
                 <div className="space-y-2">
                   <Label className="flex items-center gap-2"><CalendarClock className="h-4 w-4 text-[#de4925]" /> Tenure (Months)</Label>
-                  <Input
+                  <input
                     type="number"
                     min="1"
                     placeholder="12"
-                    className="h-11 border-black/15 focus-visible:ring-[#f08c2b]"
+                    className={productStyleInputClass()}
                     value={form.tenure_months}
                     onChange={(e) => setForm((prev) => ({ ...prev, tenure_months: e.target.value }))}
                   />
@@ -530,25 +598,57 @@ export default function LoanForm({ onSubmit, loading = false }: LoanFormProps) {
 
               <div className="space-y-2">
                 <Label>Purpose</Label>
-                <Textarea
+                <textarea
                   rows={4}
                   placeholder="Describe the purpose of this loan..."
-                  className="border-black/15 focus-visible:ring-[#f08c2b]"
+                  className={productStyleInputClass()}
                   value={form.purpose}
                   onChange={(e) => setForm((prev) => ({ ...prev, purpose: e.target.value }))}
                 />
               </div>
 
-              <div className="rounded-xl border border-black/10 bg-black p-3 text-white">
-                <p className="text-xs uppercase tracking-wide text-orange-300">Financial Snapshot</p>
-                <div className="mt-2 grid grid-cols-2 gap-2 text-sm">
-                  <p>Loan Type: <span className="font-semibold text-[#f08c2b] capitalize">{form.loan_type || "-"}</span></p>
+              <div className="rounded-2xl border border-[#f08c2b]/25 bg-linear-to-r from-black via-[#171717] to-black p-4 text-white shadow-sm">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-[11px] uppercase tracking-[0.16em] text-orange-300">Financial Snapshot</p>
+                    <p className="mt-1 text-sm text-white/75">Quick summary of selected setup and amount details.</p>
+                  </div>
+                  <span className="rounded-full border border-[#f08c2b]/35 bg-[#f08c2b]/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-[#f7b267]">
+                    {form.loan_type || "normal"}
+                  </span>
+                </div>
+
+                <div className="mt-4 grid grid-cols-2 gap-3">
+                  <div className="rounded-xl border border-white/10 bg-white/5 p-3">
+                    <p className="text-[11px] uppercase tracking-wide text-white/60">Principal</p>
+                    <p className="mt-1 text-base font-semibold text-[#f7b267]">
+                      UGX {Number(form.principal_amount || 0).toLocaleString()}
+                    </p>
+                  </div>
+                  <div className="rounded-xl border border-white/10 bg-white/5 p-3">
+                    <p className="text-[11px] uppercase tracking-wide text-white/60">Tenure</p>
+                    <p className="mt-1 text-base font-semibold text-[#f7b267]">{form.tenure_months || "-"} months</p>
+                  </div>
+                  <div className="col-span-2 rounded-xl border border-white/10 bg-white/5 p-3">
+                    <p className="text-[11px] uppercase tracking-wide text-white/60">Loan Product</p>
+                    <p className="mt-1 text-sm font-semibold text-white">{selectedProduct?.product_name || "-"}</p>
+                  </div>
                   {form.loan_type === "top up" && (
-                    <p>Top Up Loan: <span className="font-semibold text-[#f08c2b]">{topUpLoans.find((l) => String(l.id) === form.top_up_loan_id)?.application_id || "-"}</span></p>
+                    <div className="col-span-2 rounded-xl border border-[#f08c2b]/30 bg-[#f08c2b]/10 p-3">
+                      <p className="text-[11px] uppercase tracking-wide text-orange-200">Top Up Reference Loan</p>
+                      <p className="mt-1 text-sm font-semibold text-[#f7b267]">
+                        {topUpLoans.find((l) => String(l.id) === form.top_up_loan_id)?.application_id || "-"}
+                      </p>
+                    </div>
                   )}
-                  <p>Tenure: <span className="font-semibold text-[#f08c2b]">{form.tenure_months || "-"} months</span></p>
-                  <p>Principal: <span className="font-semibold text-[#f08c2b]">{form.principal_amount || "-"}</span></p>
-                  <p>Product: <span className="font-semibold text-[#f08c2b]">{selectedProduct?.product_name || "-"}</span></p>
+                  {form.loan_type === "buy off" && (
+                    <div className="col-span-2 rounded-xl border border-[#f08c2b]/30 bg-[#f08c2b]/10 p-3">
+                      <p className="text-[11px] uppercase tracking-wide text-orange-200">External Outstanding Balance</p>
+                      <p className="mt-1 text-sm font-semibold text-[#f7b267]">
+                        UGX {Number(form.external_outstanding_balance || 0).toLocaleString()}
+                      </p>
+                    </div>
+                  )}
                 </div>
               </div>
         </motion.div>
@@ -562,44 +662,57 @@ export default function LoanForm({ onSubmit, loading = false }: LoanFormProps) {
           transition={{ duration: 0.24 }}
           className="space-y-4 rounded-xl border border-gray-200 bg-white p-3"
         >
+              <div>
+                <h4 className="text-sm font-semibold text-gray-800 mb-1">Supporting Details</h4>
+                <p className="text-xs text-gray-500">Capture collateral and guarantor information for risk assessment.</p>
+              </div>
+
+              {selectedProduct && (
+                <div className="rounded-xl border border-[#f08c2b]/30 bg-orange-50 p-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-[#de4925]">Product Requirements</p>
+                  <div className="mt-2 grid grid-cols-2 gap-2 text-sm text-gray-700">
+                    <p>Collateral: <span className="font-semibold">{selectedProduct.collateral_required ? "Required" : "Optional"}</span></p>
+                    <p>Guarantors: <span className="font-semibold">{Number(selectedProduct.guarantors_required || 0)}</span></p>
+                  </div>
+                </div>
+              )}
+
               <div className="space-y-2">
                 <Label>Collateral Description</Label>
-                <Textarea
+                <textarea
                   rows={3}
                   placeholder="Optional unless product requires collateral"
-                  className="border-black/15 focus-visible:ring-[#f08c2b]"
+                  className={productStyleInputClass()}
                   value={form.collateral_description}
                   onChange={(e) => setForm((prev) => ({ ...prev, collateral_description: e.target.value }))}
                 />
               </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>Guarantor 1</Label>
-                  <Select value={form.guarantor1} onValueChange={(value) => setForm((prev) => ({ ...prev, guarantor1: value }))}>
-                    <SelectTrigger className="h-11 border-black/15 focus:ring-[#f08c2b]"><SelectValue placeholder="Select guarantor" /></SelectTrigger>
-                    <SelectContent>
-                      {guarantorOptions
-                        .filter((m) => String(m.id) !== form.member_id)
-                        .map((m) => (
-                          <SelectItem key={m.id} value={m.id}>{m.full_name} ({m.member_number})</SelectItem>
-                        ))}
-                    </SelectContent>
-                  </Select>
+              {requiredGuarantorCount > 0 ? (
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+                  {Array.from({ length: requiredGuarantorCount }).map((_, idx) => (
+                    <div key={`guarantor-${idx}`} className="space-y-2">
+                      <Label>{`Guarantor ${idx + 1}`}</Label>
+                      <StyledSelect
+                        value={form.guarantors[idx] || ""}
+                        onChange={(value) =>
+                          setForm((prev) => {
+                            const next = [...prev.guarantors]
+                            next[idx] = value
+                            return { ...prev, guarantors: next }
+                          })
+                        }
+                        placeholder="Select guarantor"
+                        options={getGuarantorOptionsForIndex(idx)}
+                        searchable
+                      />
+                    </div>
+                  ))}
                 </div>
-                <div className="space-y-2">
-                  <Label>Guarantor 2</Label>
-                  <Select value={form.guarantor2} onValueChange={(value) => setForm((prev) => ({ ...prev, guarantor2: value }))}>
-                    <SelectTrigger className="h-11 border-black/15 focus:ring-[#f08c2b]"><SelectValue placeholder="Select guarantor" /></SelectTrigger>
-                    <SelectContent>
-                      {guarantorOptions
-                        .filter((m) => String(m.id) !== form.member_id && String(m.id) !== form.guarantor1)
-                        .map((m) => (
-                          <SelectItem key={m.id} value={m.id}>{m.full_name} ({m.member_number})</SelectItem>
-                        ))}
-                    </SelectContent>
-                  </Select>
+              ) : (
+                <div className="rounded-xl border border-dashed border-gray-300 bg-gray-50 p-3 text-sm text-gray-600">
+                  This product does not require guarantors.
                 </div>
-              </div>
+              )}
 
         </motion.div>
         )}
@@ -610,24 +723,82 @@ export default function LoanForm({ onSubmit, loading = false }: LoanFormProps) {
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: -10 }}
           transition={{ duration: 0.24 }}
-          className="space-y-4 rounded-xl border border-gray-200 bg-white p-3"
+          className="space-y-4 rounded-xl border border-gray-200 bg-white p-4"
         >
-              <div className="rounded-xl border border-[#f08c2b]/30 bg-orange-50 p-4">
-                <p className="text-xs uppercase tracking-wide text-[#de4925] font-semibold">Final Review</p>
-                <div className="mt-3 grid grid-cols-2 gap-3 text-sm text-gray-700">
-                  <p>Member: <span className="font-semibold">{selectedMember?.full_name || "-"}</span></p>
-                  <p>Member No: <span className="font-semibold">{selectedMember?.member_number || "-"}</span></p>
-                  <p>Product: <span className="font-semibold">{selectedProduct?.product_name || "-"}</span></p>
-                  <p>Loan Type: <span className="font-semibold capitalize">{form.loan_type}</span></p>
-                  {form.loan_type === "top up" && (
-                    <p>Top Up Loan: <span className="font-semibold">{topUpLoans.find((l) => String(l.id) === form.top_up_loan_id)?.application_id || "-"}</span></p>
-                  )}
-                  <p>Principal: <span className="font-semibold">{form.principal_amount || "-"}</span></p>
-                  <p>Tenure: <span className="font-semibold">{form.tenure_months || "-"} months</span></p>
-                  <p className="col-span-2">Purpose: <span className="font-semibold">{form.purpose || "-"}</span></p>
-                  <p className="col-span-2">Collateral: <span className="font-semibold">{form.collateral_description || "N/A"}</span></p>
+              <div className="rounded-2xl border border-[#f08c2b]/30 bg-linear-to-r from-[#fff2e2] via-white to-[#fff7ef] p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-xs uppercase tracking-wide text-[#de4925] font-semibold">Final Review</p>
+                    <p className="mt-1 text-sm text-gray-600">Confirm every detail before creating this loan application.</p>
+                  </div>
+                  <span className="rounded-full border border-[#f08c2b]/35 bg-[#f08c2b]/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-[#de4925]">
+                    Step 5 of 5
+                  </span>
                 </div>
               </div>
+
+              <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+                <div className="rounded-xl border border-black/10 bg-white p-3">
+                  <p className="text-[11px] uppercase tracking-wide text-gray-500">Member Details</p>
+                  <div className="mt-2 space-y-1 text-sm text-gray-700">
+                    <p>Name: <span className="font-semibold">{selectedMember?.full_name || "-"}</span></p>
+                    <p>Member No: <span className="font-semibold">{selectedMember?.member_number || "-"}</span></p>
+                    <p>Phone: <span className="font-semibold">{selectedMember?.phone_number || "-"}</span></p>
+                    <p>Status: <span className="font-semibold">{selectedMember?.status || "-"}</span></p>
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-black/10 bg-white p-3">
+                  <p className="text-[11px] uppercase tracking-wide text-gray-500">Product & Type</p>
+                  <div className="mt-2 space-y-1 text-sm text-gray-700">
+                    <p>Product: <span className="font-semibold">{selectedProduct?.product_name || "-"}</span></p>
+                    <p>Loan Type: <span className="font-semibold capitalize">{form.loan_type}</span></p>
+                    <p>Interest Rate: <span className="font-semibold">{Number(selectedProduct?.interest_rate || 0)}%</span></p>
+                    <p>Tenure Limit: <span className="font-semibold">{Number(selectedProduct?.maximum_tenure_months || 0)} months</span></p>
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-black/10 bg-white p-3">
+                  <p className="text-[11px] uppercase tracking-wide text-gray-500">Financials</p>
+                  <div className="mt-2 space-y-1 text-sm text-gray-700">
+                    <p>Principal: <span className="font-semibold">UGX {Number(form.principal_amount || 0).toLocaleString()}</span></p>
+                    <p>Tenure: <span className="font-semibold">{form.tenure_months || "-"} months</span></p>
+                    {form.loan_type === "top up" && (
+                      <p>Top Up Loan: <span className="font-semibold">{selectedTopUpLoan?.application_id || "-"}</span></p>
+                    )}
+                    {form.loan_type === "buy off" && (
+                      <p>External Balance: <span className="font-semibold">UGX {Number(form.external_outstanding_balance || 0).toLocaleString()}</span></p>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                <div className="rounded-xl border border-black/10 bg-white p-3">
+                  <p className="text-[11px] uppercase tracking-wide text-gray-500">Purpose</p>
+                  <p className="mt-2 text-sm text-gray-700">{form.purpose?.trim() || "-"}</p>
+                </div>
+                <div className="rounded-xl border border-black/10 bg-white p-3">
+                  <p className="text-[11px] uppercase tracking-wide text-gray-500">Collateral</p>
+                  <p className="mt-2 text-sm text-gray-700">{form.collateral_description?.trim() || "N/A"}</p>
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-black/10 bg-white p-3">
+                <p className="text-[11px] uppercase tracking-wide text-gray-500">Guarantors</p>
+                {requiredGuarantorCount > 0 ? (
+                  <div className="mt-2 grid grid-cols-1 gap-2 text-sm text-gray-700 md:grid-cols-2 xl:grid-cols-3">
+                    {Array.from({ length: requiredGuarantorCount }).map((_, idx) => (
+                      <p key={`review-guarantor-${idx}`}>
+                        {`Guarantor ${idx + 1}`}: <span className="font-semibold">{selectedGuarantorNames[idx] || "-"}</span>
+                      </p>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="mt-2 text-sm text-gray-600">No guarantors required for this product.</p>
+                )}
+              </div>
+
               <div className="rounded-xl border border-black/10 bg-black p-3 text-white">
                 <p className="text-xs uppercase tracking-wide text-orange-300">Ready to submit</p>
                 <p className="mt-1 text-sm text-white/80">Confirm details above and create the loan application.</p>
