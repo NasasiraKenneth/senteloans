@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import DataTable, { DataTableColumn } from "@/components/datatables/DataTable"
 
-import { ArrowLeft, CreditCard, User, DollarSign, CheckCircle, XCircle, Calendar, Percent, Clock, TrendingDown, Banknote } from "lucide-react"
+import { ArrowLeft, CreditCard, User, DollarSign, CheckCircle, XCircle, Calendar, Percent, Clock, TrendingDown, Banknote, Pencil, X, FileText, Check } from "lucide-react"
 import Link from "next/link"
 import { useToast } from "@/components/ui/toast"
 import { Input } from "@/components/ui/input"
@@ -20,6 +20,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import Disburse from "../components/add/Disburse"
 
 export default function LoanDetailsPage() {
   const params = useParams()
@@ -38,12 +39,21 @@ export default function LoanDetailsPage() {
     monthlyPayment: number
     outstandingBalance: number
     status: string
+    loanType?: string
     purpose?: string
     applicationDate: string
     disbursementDate?: string | null
     maturityDate?: string | null
     nextPaymentDate?: string | null
     overdueDays?: number
+    settlement?: {
+      settlementType?: string | null
+      settlementStatus?: string | null
+      settlementAmount?: number
+      settledApplicationId?: string | null
+      externalLenderName?: string | null
+    } | null
+    eligibilityReviews?: { id: string; eligibility: string; isEligible: boolean }[]
   }
 
   const [loan, setLoan] = useState<LoanUI | null>(null)
@@ -57,10 +67,11 @@ export default function LoanDetailsPage() {
   const [recordPaymentMode, setRecordPaymentMode] = useState<string>("Cash")
   const [recordPaymentDate, setRecordPaymentDate] = useState<string>(() => new Date().toISOString().slice(0, 10))
   const [disburseLoanOpen, setDisburseLoanOpen] = useState<boolean>(false)
-  const [disbursementMode, setDisbursementMode] = useState<string>("Cash")
-  const [disbursementDate, setDisbursementDate] = useState<string>(() => new Date().toISOString().slice(0, 10))
+  const [reviewEditMode, setReviewEditMode] = useState<boolean>(false)
   const [schedPage, setSchedPage] = useState(0)
   const [schedRowsPerPage, setSchedRowsPerPage] = useState(6)
+  const [reviewSavingIds, setReviewSavingIds] = useState<string[]>([])
+  const [markReviewedLoading, setMarkReviewedLoading] = useState<boolean>(false)
   const { toast } = useToast()
 
   async function refetchLoanAndRepayments() {
@@ -87,12 +98,29 @@ export default function LoanDetailsPage() {
             monthlyPayment: Number(l.monthly_payment || 0),
             outstandingBalance: Number(l.outstanding_balance || 0),
             status: String(l.status || "Applied"),
+            loanType: String(l.loan_type || "normal"),
             purpose: l.purpose || "",
             applicationDate: l.application_date,
             disbursementDate: l.disbursement_date || null,
             maturityDate: l.maturity_date || null,
             nextPaymentDate: l.next_payment_date || null,
             overdueDays: Number(l.overdue_days || 0),
+            settlement: l.settlement
+              ? {
+                  settlementType: l.settlement.settlement_type || null,
+                  settlementStatus: l.settlement.settlement_status || null,
+                  settlementAmount: Number(l.settlement.settlement_amount || 0),
+                  settledApplicationId: l.settlement.settled_application_id || null,
+                  externalLenderName: l.settlement.external_lender_name || null,
+                }
+              : null,
+            eligibilityReviews: Array.isArray(l.eligibility_reviews)
+              ? l.eligibility_reviews.map((r: any) => ({
+                  id: String(r.id),
+                  eligibility: String(r.eligibility || ""),
+                  isEligible: Boolean(r.is_eligible),
+                }))
+              : [],
           })
         }
       }
@@ -142,12 +170,29 @@ export default function LoanDetailsPage() {
               monthlyPayment: Number(l.monthly_payment || 0),
               outstandingBalance: Number(l.outstanding_balance || 0),
               status: String(l.status || "Applied"),
+              loanType: String(l.loan_type || "normal"),
               purpose: l.purpose || "",
               applicationDate: l.application_date,
               disbursementDate: l.disbursement_date || null,
               maturityDate: l.maturity_date || null,
               nextPaymentDate: l.next_payment_date || null,
               overdueDays: Number(l.overdue_days || 0),
+              settlement: l.settlement
+                ? {
+                    settlementType: l.settlement.settlement_type || null,
+                    settlementStatus: l.settlement.settlement_status || null,
+                    settlementAmount: Number(l.settlement.settlement_amount || 0),
+                    settledApplicationId: l.settlement.settled_application_id || null,
+                    externalLenderName: l.settlement.external_lender_name || null,
+                  }
+                : null,
+              eligibilityReviews: Array.isArray(l.eligibility_reviews)
+                ? l.eligibility_reviews.map((r: any) => ({
+                    id: String(r.id),
+                    eligibility: String(r.eligibility || ""),
+                    isEligible: Boolean(r.is_eligible),
+                  }))
+                : [],
             }
             setLoan(mapped)
           } else {
@@ -242,7 +287,8 @@ export default function LoanDetailsPage() {
   const getStatusStyle = (status: string) => {
     switch (status) {
       case "Approved":
-      case "Disbursed":
+      case "Fully Disbursed":
+      case "Partially Disbursed":
       case "Active":
         return { bg: "bg-green-100 text-green-700 border border-green-200", dot: "bg-green-500" }
       case "Rejected":
@@ -334,6 +380,61 @@ export default function LoanDetailsPage() {
   const monthlyPayment = Number(loan.monthlyPayment || 0)
   const remainingInstallments = repaymentSchedule.filter((r) => r.status !== "Paid").length
   const remainingTenureMonths = repaymentSchedule.length > 0 ? remainingInstallments : loan.tenure
+  const canEditLoanReview = loan.status === "Under Review"
+  const allEligibilityReviewed =
+    Array.isArray(loan.eligibilityReviews) &&
+    loan.eligibilityReviews.every((r) => r.isEligible)
+
+  const updateEligibilityReview = async (reviewId: string, checked: boolean) => {
+    if (!loan) return
+    try {
+      setReviewSavingIds((prev) => (prev.includes(reviewId) ? prev : [...prev, reviewId]))
+      const res = await fetch(`/api/institution/loans/${loan.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          eligibility_reviews: [{ id: reviewId, is_eligible: checked }],
+        }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data?.error || "Failed to update review")
+      setLoan((prev) =>
+        prev
+          ? {
+              ...prev,
+              eligibilityReviews: (prev.eligibilityReviews || []).map((r) =>
+                r.id === reviewId ? { ...r, isEligible: checked } : r
+              ),
+            }
+          : prev
+      )
+    } catch (e: any) {
+      toast({ variant: "destructive", title: "Action failed", description: e?.message || "Please try again" })
+    } finally {
+      setReviewSavingIds((prev) => prev.filter((id) => id !== reviewId))
+    }
+  }
+
+  const markLoanReviewed = async () => {
+    if (!loan) return
+    try {
+      setMarkReviewedLoading(true)
+      const res = await fetch(`/api/institution/loans/${loan.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "Reviewed" }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data?.error || "Failed to mark loan reviewed")
+      setLoan((prev) => (prev ? { ...prev, status: "Reviewed" } : prev))
+      setReviewEditMode(false)
+      toast({ variant: "success", title: "Loan reviewed" })
+    } catch (e: any) {
+      toast({ variant: "destructive", title: "Action failed", description: e?.message || "Please try again" })
+    } finally {
+      setMarkReviewedLoading(false)
+    }
+  }
 
   return (
     <>
@@ -471,6 +572,10 @@ export default function LoanDetailsPage() {
                       <p className="text-sm font-medium mt-0.5">{loan.interestRate}% per annum</p>
                     </div>
                     <div>
+                      <SectionLabel>Loan Type</SectionLabel>
+                      <p className="text-sm font-medium mt-0.5 capitalize">{loan.loanType || "normal"}</p>
+                    </div>
+                    <div>
                       <SectionLabel>Tenure</SectionLabel>
                       <p className="text-sm font-medium mt-0.5">{loan.tenure} months</p>
                     </div>
@@ -504,56 +609,206 @@ export default function LoanDetailsPage() {
                 </CardContent>
               </Card>
 
-              {/* Member Information */}
+              {loan.status === "Applied" ? (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <User className="h-5 w-5 text-primary" />
+                      Member Information
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-4">
+                      <div className="flex items-center gap-4 p-3 rounded-lg bg-muted/30">
+                        <div className="h-10 w-10 shrink-0 rounded-full bg-primary/10 flex items-center justify-center">
+                          <span className="text-sm font-bold text-primary">
+                            {loan.memberName.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2)}
+                          </span>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold truncate">{loan.memberName}</p>
+                          <p className="text-xs text-muted-foreground font-mono">{loan.memberNumber || loan.memberId}</p>
+                        </div>
+                        {loan.memberId && (
+                          <Link href={`/users/${loan.memberId}`}>
+                            <Button variant="outline" size="sm">View</Button>
+                          </Link>
+                        )}
+                      </div>
+                      <div className="grid grid-cols-2 gap-x-6 gap-y-4">
+                        {loan.nextPaymentDate && (
+                          <div>
+                            <SectionLabel>Next Payment Due</SectionLabel>
+                            <p className="text-sm font-medium mt-0.5 flex items-center gap-1.5">
+                              <Clock className="h-3.5 w-3.5 text-muted-foreground" />
+                              {formatDate(loan.nextPaymentDate)}
+                            </p>
+                          </div>
+                        )}
+                        {loan.maturityDate && (
+                          <div>
+                            <SectionLabel>Maturity Date</SectionLabel>
+                            <p className="text-sm font-medium mt-0.5 flex items-center gap-1.5">
+                              <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
+                              {formatDate(loan.maturityDate)}
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ) : (
+                <Card className="group">
+                  <CardHeader>
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <CardTitle className="flex items-center gap-2">
+                          <CheckCircle className="h-5 w-5 text-primary" />
+                          Loan Review
+                        </CardTitle>
+                        <CardDescription>Review and mark each eligibility before approval</CardDescription>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled
+                          title="PDF export coming soon"
+                        >
+                          <FileText className="h-4 w-4" />
+                        </Button>
+                        {canEditLoanReview && allEligibilityReviewed && (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={markLoanReviewed}
+                            disabled={actionLoading || markReviewedLoading || reviewSavingIds.length > 0}
+                            title="Mark loan reviewed"
+                          >
+                            <Check className="h-4 w-4" />
+                          </Button>
+                        )}
+                        {canEditLoanReview && (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setReviewEditMode((prev) => !prev)}
+                            disabled={actionLoading || markReviewedLoading || reviewSavingIds.length > 0}
+                            className={`transition-opacity ${
+                              reviewEditMode ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+                            }`}
+                            title={reviewEditMode ? "Disable edit mode" : "Enable edit mode"}
+                          >
+                            {reviewEditMode ? <X className="h-4 w-4" /> : <Pencil className="h-4 w-4" />}
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    {Array.isArray(loan.eligibilityReviews) && loan.eligibilityReviews.length > 0 ? (
+                      <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
+                        {loan.eligibilityReviews.map((review) => {
+                          const saving = reviewSavingIds.includes(review.id)
+                          const disabled = !canEditLoanReview || !reviewEditMode || saving || actionLoading
+                          return (
+                            <label
+                              key={review.id}
+                              className={`flex items-start gap-3 rounded-lg border p-3 transition-colors ${
+                                review.isEligible ? "border-green-200 bg-green-50/50" : "border-gray-200 bg-white"
+                              } ${disabled ? "cursor-not-allowed opacity-85" : ""}`}
+                            >
+                              <input
+                                type="checkbox"
+                                className="sr-only"
+                                checked={review.isEligible}
+                                disabled={disabled}
+                                onChange={(e) => updateEligibilityReview(review.id, e.target.checked)}
+                              />
+                              <div
+                                className={`relative mt-0.5 h-[18px] w-[18px] border-2 flex items-center justify-center rounded-full transition-all ${
+                                  review.isEligible
+                                    ? "bg-[#f08c2b] border-[#f08c2b]"
+                                    : "bg-white border-gray-400"
+                                }`}
+                              >
+                                {review.isEligible && (
+                                  <svg
+                                    className="h-3 w-3 text-white"
+                                    fill="none"
+                                    viewBox="0 0 24 24"
+                                    stroke="currentColor"
+                                    strokeWidth={3}
+                                  >
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                                  </svg>
+                                )}
+                              </div>
+                              <div className="min-w-0">
+                                <p className="text-sm font-medium text-gray-800 wrap-break-word">{review.eligibility}</p>
+                                <p className="mt-0.5 text-xs text-gray-500">
+                                  {review.isEligible ? "Marked eligible" : "Not yet marked eligible"}
+                                  {saving ? " · Saving..." : ""}
+                                </p>
+                              </div>
+                            </label>
+                          )
+                        })}
+                      </div>
+                    ) : (
+                      <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50 p-3 text-sm text-gray-600">
+                        No eligibility checks configured for this loan product.
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              )}
+            </div>
+
+            {/* Settlement Details */}
+            {loan.settlement && (
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
-                    <User className="h-5 w-5 text-primary" />
-                    Member Information
+                    <Banknote className="h-5 w-5 text-primary" />
+                    Settlement Details
                   </CardTitle>
+                  <CardDescription>Top up and buy off settlement context for this loan</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <div className="space-y-4">
-                    <div className="flex items-center gap-4 p-3 rounded-lg bg-muted/30">
-                      <div className="h-10 w-10 shrink-0 rounded-full bg-primary/10 flex items-center justify-center">
-                        <span className="text-sm font-bold text-primary">
-                          {loan.memberName.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2)}
-                        </span>
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold truncate">{loan.memberName}</p>
-                        <p className="text-xs text-muted-foreground font-mono">{loan.memberNumber || loan.memberId}</p>
-                      </div>
-                      {loan.memberId && (
-                        <Link href={`/users/${loan.memberId}`}>
-                          <Button variant="outline" size="sm">View</Button>
-                        </Link>
-                      )}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
+                    <div>
+                      <SectionLabel>Settlement Type</SectionLabel>
+                      <p className="text-sm font-medium mt-0.5">{loan.settlement.settlementType || "—"}</p>
                     </div>
-                    <div className="grid grid-cols-2 gap-x-6 gap-y-4">
-                      {loan.nextPaymentDate && (
-                        <div>
-                          <SectionLabel>Next Payment Due</SectionLabel>
-                          <p className="text-sm font-medium mt-0.5 flex items-center gap-1.5">
-                            <Clock className="h-3.5 w-3.5 text-muted-foreground" />
-                            {formatDate(loan.nextPaymentDate)}
-                          </p>
-                        </div>
-                      )}
-                      {loan.maturityDate && (
-                        <div>
-                          <SectionLabel>Maturity Date</SectionLabel>
-                          <p className="text-sm font-medium mt-0.5 flex items-center gap-1.5">
-                            <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
-                            {formatDate(loan.maturityDate)}
-                          </p>
-                        </div>
-                      )}
+                    <div>
+                      <SectionLabel>Status</SectionLabel>
+                      <p className="text-sm font-medium mt-0.5">{loan.settlement.settlementStatus || "—"}</p>
                     </div>
+                    <div>
+                      <SectionLabel>Settlement Amount</SectionLabel>
+                      <p className="text-sm font-medium mt-0.5">{formatCurrency(Number(loan.settlement.settlementAmount || 0))}</p>
+                    </div>
+                    {loan.settlement.settledApplicationId && (
+                      <div>
+                        <SectionLabel>Settled Loan</SectionLabel>
+                        <p className="text-sm font-medium mt-0.5">{loan.settlement.settledApplicationId}</p>
+                      </div>
+                    )}
+                    {loan.settlement.externalLenderName && (
+                      <div className="md:col-span-2">
+                        <SectionLabel>External Lender</SectionLabel>
+                        <p className="text-sm font-medium mt-0.5">{loan.settlement.externalLenderName}</p>
+                      </div>
+                    )}
                   </div>
                 </CardContent>
               </Card>
-            </div>
+            )}
 
             {/* Repayment Schedule */}
             <DataTable<RepaymentRow>
@@ -576,84 +831,15 @@ export default function LoanDetailsPage() {
               }}
             />
 
-            {/* Disburse Loan form */}
-            {disburseLoanOpen && loan && (
-              <Card className="mt-6">
-                <CardHeader>
-                  <CardTitle>Disburse Loan</CardTitle>
-                  <CardDescription>Select disbursement mode and date</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div>
-                    <Label htmlFor="disbursement-date">Disbursement Date</Label>
-                    <Input
-                      id="disbursement-date"
-                      type="date"
-                      value={disbursementDate}
-                      onChange={(e) => setDisbursementDate(e.target.value)}
-                    />
-                  </div>
-                  <div>
-                    <Label>Disbursement Mode</Label>
-                    <Select value={disbursementMode} onValueChange={setDisbursementMode}>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {["Cash", "Mobile Money", "Bank Transfer", "Cheque", "Card"].map((m) => (
-                          <SelectItem key={m} value={m}>
-                            {m}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="flex justify-end gap-2">
-                    <Button
-                      variant="outline"
-                      onClick={() => {
-                        setDisburseLoanOpen(false)
-                        setDisbursementMode("Cash")
-                        setDisbursementDate(new Date().toISOString().slice(0, 10))
-                      }}
-                    >
-                      Cancel
-                    </Button>
-                    <Button
-                      disabled={actionLoading}
-                      onClick={async () => {
-                        try {
-                          setActionLoading(true)
-                          const res = await fetch(`/api/institution/loans/${loan.id}`, {
-                            method: "PUT",
-                            headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({
-                              status: "Disbursed",
-                              disbursement_mode: disbursementMode,
-                              disbursement_date: disbursementDate,
-                            }),
-                          })
-                          const data = await res.json()
-                          if (!res.ok) throw new Error(data?.error || "Failed to disburse loan")
-                          await refetchLoanAndRepayments()
-                          setDisburseLoanOpen(false)
-                          setDisbursementMode("Cash")
-                          setDisbursementDate(new Date().toISOString().slice(0, 10))
-                          toast({ variant: "success", title: "Loan Disbursed" })
-                        } catch (e: unknown) {
-                          const err = e as Error
-                          toast({ variant: "destructive", title: "Action failed", description: err?.message || "Please try again" })
-                        } finally {
-                          setActionLoading(false)
-                        }
-                      }}
-                    >
-                      Disburse Loan
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
+            <Disburse
+              isOpen={disburseLoanOpen}
+              onClose={() => setDisburseLoanOpen(false)}
+              loanId={loan.id}
+              principalAmount={loan.principalAmount}
+              loanType={loan.loanType}
+              settlementOutstandingBalance={Number(loan.settlement?.settlementAmount || 0)}
+              onSuccess={refetchLoanAndRepayments}
+            />
 
             {/* Record Payment form */}
             {recordPaymentOpen && loan && (
@@ -785,6 +971,88 @@ export default function LoanDetailsPage() {
                         const res = await fetch(`/api/institution/loans/${loan.id}`, {
                           method: "PUT",
                           headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ status: "Under Review" }),
+                        })
+                        const data = await res.json()
+                        if (!res.ok) throw new Error(data?.error || "Failed to move loan under review")
+                        setLoan((prev) => (prev ? { ...prev, status: "Under Review" } : prev))
+                        toast({ variant: "success", title: "Loan moved to review" })
+                      } catch (e: any) {
+                        toast({ variant: "destructive", title: "Action failed", description: e?.message || "Please try again" })
+                      } finally {
+                        setActionLoading(false)
+                      }
+                    }}
+                  >
+                    <CheckCircle className="h-4 w-4 mr-2" />
+                    Review Loan
+                  </Button>
+                </>
+              )}
+              {loan.status === "Under Review" && (
+                <>
+                  <Button
+                    variant="outline"
+                    disabled={actionLoading}
+                    onClick={async () => {
+                      try {
+                        setActionLoading(true)
+                        const res = await fetch(`/api/institution/loans/${loan.id}`, {
+                          method: "PUT",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ status: "Rejected" }),
+                        })
+                        const data = await res.json()
+                        if (!res.ok) throw new Error(data?.error || "Failed to reject application")
+                        setLoan((prev) => (prev ? { ...prev, status: "Rejected" } : prev))
+                        toast({ variant: "success", title: "Application Rejected" })
+                      } catch (e: any) {
+                        toast({ variant: "destructive", title: "Action failed", description: e?.message || "Please try again" })
+                      } finally {
+                        setActionLoading(false)
+                      }
+                    }}
+                  >
+                    <XCircle className="h-4 w-4 mr-2" />
+                    Reject Application
+                  </Button>
+                </>
+              )}
+              {loan.status === "Reviewed" && (
+                <>
+                  <Button
+                    variant="outline"
+                    disabled={actionLoading}
+                    onClick={async () => {
+                      try {
+                        setActionLoading(true)
+                        const res = await fetch(`/api/institution/loans/${loan.id}`, {
+                          method: "PUT",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ status: "Rejected" }),
+                        })
+                        const data = await res.json()
+                        if (!res.ok) throw new Error(data?.error || "Failed to reject application")
+                        setLoan((prev) => (prev ? { ...prev, status: "Rejected" } : prev))
+                        toast({ variant: "success", title: "Application Rejected" })
+                      } catch (e: any) {
+                        toast({ variant: "destructive", title: "Action failed", description: e?.message || "Please try again" })
+                      } finally {
+                        setActionLoading(false)
+                      }
+                    }}
+                  >
+                    <XCircle className="h-4 w-4 mr-2" />
+                    Reject Application
+                  </Button>
+                  <Button
+                    disabled={actionLoading}
+                    onClick={async () => {
+                      try {
+                        setActionLoading(true)
+                        const res = await fetch(`/api/institution/loans/${loan.id}`, {
+                          method: "PUT",
+                          headers: { "Content-Type": "application/json" },
                           body: JSON.stringify({ status: "Approved" }),
                         })
                         const data = await res.json()
@@ -815,7 +1083,7 @@ export default function LoanDetailsPage() {
                   Disburse Loan
                 </Button>
               )}
-              {(loan.status === "Disbursed" || loan.status === "Active") && (
+              {(loan.status === "Fully Disbursed" || loan.status === "Partially Disbursed" || loan.status === "Active") && (
                 <Button
                   variant="outline"
                   disabled={actionLoading}

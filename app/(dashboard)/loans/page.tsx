@@ -77,12 +77,14 @@ export default function LoansPage() {
       case "Applied":
         return <Clock className="h-4 w-4 text-amber-600" />
       case "Under Review":
+        return <Eye className="h-4 w-4 text-violet-300" />
+      case "Reviewed":
         return <Eye className="h-4 w-4 text-violet-600" />
       case "Approved":
         return <CheckCircle className="h-4 w-4 text-green-600" />
-      case "Disbursed":
-        return <DollarSign className="h-4 w-4 text-blue-600" />
-      case "Disbursed":
+      case "Partially Disbursed":
+        return <DollarSign className="h-4 w-4 text-blue-300" />
+      case "Fully Disbursed":
         return <DollarSign className="h-4 w-4 text-blue-600" />
       case "Active":
         return <Activity className="h-4 w-4 text-cyan-600" />
@@ -227,10 +229,14 @@ export default function LoansPage() {
       case "Applied":
         return "bg-amber-100 text-amber-700 border border-amber-200"
       case "Under Review":
+        return "bg-violet-70 text-violet-400 border border-violet-130"
+      case "Reviewed":
         return "bg-violet-100 text-violet-700 border border-violet-200"
       case "Approved":
         return "bg-green-100 text-green-700 border border-green-200"
-      case "Disbursed":
+      case "Partially Disbursed":
+        return "bg-blue-70 text-blue-400 border border-blue-130"
+      case "Fully Disbursed":
         return "bg-blue-100 text-blue-700 border border-blue-200"
       case "Active":
         return "bg-cyan-100 text-cyan-700 border border-cyan-200"
@@ -247,7 +253,7 @@ export default function LoansPage() {
 
   // Calculate statistics
   const totalLoans = loans.length
-  const activeLoans = loans.filter((l) => l.status === "Disbursed").length
+  const activeLoans = loans.filter((l) => l.status === "Fully Disbursed").length
   const pendingLoans = loans.filter((l) => l.status === "Applied").length
   const defaultedLoans = loans.filter((l) => l.status === "Defaulted").length
   const totalPortfolio = loans.reduce((sum, loan) => sum + loan.principalAmount, 0)
@@ -435,6 +441,7 @@ export default function LoansPage() {
       { label: "All", value: "" },
       { value: "Applied", label: "Applied" },
       { value: "Under Review", label: "Under Review" },
+      { value: "Reviewed", label: "Reviewed" },
       { value: "Approved", label: "Approved" },
       { value: "Partially Disbursed", label: "Partial Disburse" },
       { value: "Fully Disbursed", label: "Fully Disbursed" },
@@ -462,12 +469,10 @@ export default function LoansPage() {
               >
                 <span className="inline-flex">
                   {loanPermissions.createLoan ? (
-                    <Link href="/loans/new">
-                      <Button>
+                      <Button onClick={() => setIsAddOpen(true)} disabled={!loanPermissions.createLoan}>
                         <Plus className="h-4 w-4 mr-2" />
                         New Loan Application
                       </Button>
-                    </Link>
                   ) : (
                     <Button disabled>
                       <Plus className="h-4 w-4 mr-2" />
@@ -476,12 +481,6 @@ export default function LoansPage() {
                   )}
                 </span>
               </Tooltip>
-            </div>
-            <div className="grid place-items-end">
-              <Button onClick={() => setIsAddOpen(true)} disabled={!loanPermissions.createLoan}>
-                      <Plus className="h-4 w-4 mr-2" />
-                      New Loan
-                    </Button>
             </div>
 
             {/* Stats Cards */}

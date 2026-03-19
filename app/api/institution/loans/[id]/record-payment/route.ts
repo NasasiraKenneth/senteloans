@@ -63,7 +63,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
     const result = await runWithAuth(session.user.authUserId, async (client) => {
       const loanRes = await client.query(
-        `SELECT l.id, l.institution_id, l.member_id, l.outstanding_balance, l.status, l.principal_amount, l.interest_rate, l.tenure_months, l.disbursement_date,
+        `SELECT l.id, l.institution_id, l.branch_id, l.member_id, l.outstanding_balance, l.status, l.principal_amount, l.interest_rate, l.tenure_months, l.disbursement_date,
                 lp.interest_calculation_method
          FROM senteloans_loans l
          LEFT JOIN senteloans_loan_products lp ON lp.id = l.loan_product_id
@@ -90,7 +90,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       const institutionId = isSystemAdmin ? loanInstitutionId : actorInstitutionId
 
       const status = String(loan.status)
-      if (status !== "Disbursed" && status !== "Active") {
+      if (status !== "Fully Disbursed" && status !== "Partially Disbursed" && status !== "Active") {
         return { error: "loan_not_eligible_for_payment" as const }
       }
 
@@ -190,7 +190,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
       const nextStatus = balanceAfter <= 0
         ? "Closed"
-        : (String(loan.status) === "Disbursed" ? "Active" : String(loan.status))
+        : (String(loan.status) === "Fully Disbursed" || String(loan.status) === "Partially Disbursed" ? "Active" : String(loan.status))
       await client.query(
         `UPDATE senteloans_loans SET outstanding_balance = $1, status = $2, updated_at = NOW() WHERE id = $3`,
         [balanceAfter, nextStatus, loanId]
@@ -224,10 +224,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
       const transaction_number = `LR-${Date.now()}`
       await client.query(
-        `INSERT INTO senteloans_transactions (institution_id, member_id, account_id, loan_id, transaction_number, type, amount, mode, description, balance_before, balance_after, processed_by, transaction_date, status)
-         VALUES ($1, $2, NULL, $3, $4, 'Loan Repayment', $5, $6, $7, $8, $9, $10, $11, 'Completed')`,
+        `INSERT INTO senteloans_transactions (institution_id, branch_id, member_id, account_id, loan_id, transaction_number, type, amount, mode, description, balance_before, balance_after, processed_by, transaction_date, status)
+         VALUES ($1, $2, $3, NULL, $4, $5, 'Loan Repayment', $6, $7, $8, $9, $10, $11, $12, 'Completed')`,
         [
           institutionId,
+          loan.branch_id,
           loan.member_id,
           loanId,
           transaction_number,
@@ -242,8 +243,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       )
 
       await client.query(
-        `INSERT INTO senteloans_audit_logs (institution_id, user_id, table_name, operation, record_id, new_values) VALUES ($1, $2, 'senteloans_loan_repayments', 'UPDATE', $3, $4)`,
-        [institutionId, actor.id, loanId, JSON.stringify({ amount: totalApplied, payment_date, mode })]
+        `INSERT INTO senteloans_audit_logs (institution_id, branch_id, user_id, table_name, operation, record_id, new_values) VALUES ($1, $2, $3, 'senteloans_loan_repayments', 'UPDATE', $4, $5)`,
+        [institutionId, loan.branch_id, actor.id, loanId, JSON.stringify({ amount: totalApplied, payment_date, mode })]
       )
 
       return { ok: true, amount_applied: totalApplied, balance_after: balanceAfter }

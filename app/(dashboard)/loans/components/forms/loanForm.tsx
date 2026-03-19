@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { UserRound, CreditCard, Wallet, CalendarClock, ShieldCheck, CheckCircle2, Circle } from "lucide-react"
@@ -14,6 +14,7 @@ export type LoanFormData = {
   loan_type: "normal" | "top up" | "buy off"
   top_up_loan_id?: string
   external_outstanding_balance?: number
+  external_lender_name?: string
   principal_amount: number
   tenure_months: number
   purpose: string
@@ -29,6 +30,7 @@ interface LoanFormProps {
 export default function LoanForm({ onSubmit, loading = false }: LoanFormProps) {
   const { toast } = useToast()
   const [step, setStep] = useState(0)
+  const stepContentRef = useRef<HTMLDivElement | null>(null)
   const [products, setProducts] = useState<any[]>([])
   const [guarantorOptions, setGuarantorOptions] = useState<any[]>([])
   const [topUpLoans, setTopUpLoans] = useState<any[]>([])
@@ -39,6 +41,7 @@ export default function LoanForm({ onSubmit, loading = false }: LoanFormProps) {
     loan_type: "normal" as LoanFormData["loan_type"],
     top_up_loan_id: "",
     external_outstanding_balance: "",
+    external_lender_name: "",
     principal_amount: "",
     tenure_months: "",
     purpose: "",
@@ -103,6 +106,30 @@ export default function LoanForm({ onSubmit, loading = false }: LoanFormProps) {
         .filter(Boolean),
     [form.guarantors, guarantorOptions]
   )
+  const principalRangeError = useMemo(() => {
+    if (!selectedProduct) return ""
+    const raw = String(form.principal_amount ?? "").trim()
+    if (!raw) return ""
+    const principal = Number(raw)
+    if (!Number.isFinite(principal) || principal <= 0) return "Principal amount must be greater than 0."
+    const minAmt = Number(selectedProduct.minimum_amount || 0)
+    const maxAmt = Number(selectedProduct.maximum_amount || 0)
+    if (principal < minAmt) return `Minimum allowed is UGX ${minAmt.toLocaleString()}.`
+    if (maxAmt > 0 && principal > maxAmt) return `Maximum allowed is UGX ${maxAmt.toLocaleString()}.`
+    return ""
+  }, [form.principal_amount, selectedProduct])
+  const tenureRangeError = useMemo(() => {
+    if (!selectedProduct) return ""
+    const raw = String(form.tenure_months ?? "").trim()
+    if (!raw) return ""
+    const tenure = Number(raw)
+    if (!Number.isFinite(tenure) || tenure <= 0) return "Tenure must be greater than 0 months."
+    const minTen = Number(selectedProduct.minimum_tenure_months || 1)
+    const maxTen = Number(selectedProduct.maximum_tenure_months || 0)
+    if (tenure < minTen) return `Minimum tenure is ${minTen} month(s).`
+    if (maxTen > 0 && tenure > maxTen) return `Maximum tenure is ${maxTen} month(s).`
+    return ""
+  }, [form.tenure_months, selectedProduct])
   const productStyleInputClass = (hasError = false) =>
     `w-full px-3 py-2.5 text-sm border rounded-md transition-all duration-200 focus:ring-[1.5px] focus:ring-[#f08c2b] focus:border-transparent focus:outline-none ${
       hasError ? "border-red-500" : "border-gray-300 hover:border-gray-400"
@@ -132,6 +159,12 @@ export default function LoanForm({ onSubmit, loading = false }: LoanFormProps) {
       stop = true
     }
   }, [])
+
+  useEffect(() => {
+    if (stepContentRef.current) {
+      stepContentRef.current.scrollTop = 0
+    }
+  }, [step])
 
   useEffect(() => {
     let stop = false
@@ -203,6 +236,7 @@ export default function LoanForm({ onSubmit, loading = false }: LoanFormProps) {
     const principal = Number(form.principal_amount)
     const tenure = Number(form.tenure_months)
     const externalOutstandingBalance = Number(form.external_outstanding_balance)
+    const externalLenderName = String(form.external_lender_name || "").trim()
     const uniqueGuarantors = getUniqueGuarantors()
 
     if (!form.member_id) {
@@ -219,6 +253,10 @@ export default function LoanForm({ onSubmit, loading = false }: LoanFormProps) {
     }
     if (form.loan_type === "buy off" && (!Number.isFinite(externalOutstandingBalance) || externalOutstandingBalance <= 0)) {
       toast({ variant: "warning", title: "Enter outstanding balance", description: "Please provide the external loan outstanding balance." })
+      return false
+    }
+    if (form.loan_type === "buy off" && !externalLenderName) {
+      toast({ variant: "warning", title: "Enter lender name", description: "Please provide the external lender name." })
       return false
     }
     if (!Number.isFinite(principal) || principal <= 0) {
@@ -284,6 +322,7 @@ export default function LoanForm({ onSubmit, loading = false }: LoanFormProps) {
     const principal = Number(form.principal_amount)
     const tenure = Number(form.tenure_months)
     const externalOutstandingBalance = Number(form.external_outstanding_balance)
+    const externalLenderName = String(form.external_lender_name || "").trim()
     const uniqueGuarantors = getUniqueGuarantors()
 
     if (targetStep === 0 && !form.member_id) {
@@ -300,6 +339,10 @@ export default function LoanForm({ onSubmit, loading = false }: LoanFormProps) {
     }
     if (targetStep === 1 && form.loan_type === "buy off" && (!Number.isFinite(externalOutstandingBalance) || externalOutstandingBalance <= 0)) {
       toast({ variant: "warning", title: "Enter outstanding balance", description: "Please provide the external loan outstanding balance." })
+      return false
+    }
+    if (targetStep === 1 && form.loan_type === "buy off" && !externalLenderName) {
+      toast({ variant: "warning", title: "Enter lender name", description: "Please provide the external lender name." })
       return false
     }
     if (targetStep === 2) {
@@ -364,6 +407,17 @@ export default function LoanForm({ onSubmit, loading = false }: LoanFormProps) {
     if (!validateForStep(step)) return
     setStep((prev) => Math.min(prev + 1, steps.length - 1))
   }
+  const goToStep = (targetStep: number) => {
+    if (targetStep <= step) {
+      setStep(targetStep)
+      return
+    }
+
+    for (let s = 0; s < targetStep; s++) {
+      if (!validateForStep(s)) return
+    }
+    setStep(targetStep)
+  }
 
   const submit = async () => {
     const principal = Number(form.principal_amount)
@@ -378,6 +432,8 @@ export default function LoanForm({ onSubmit, loading = false }: LoanFormProps) {
       top_up_loan_id: form.loan_type === "top up" ? form.top_up_loan_id : undefined,
       external_outstanding_balance:
         form.loan_type === "buy off" ? Number(form.external_outstanding_balance || 0) : undefined,
+      external_lender_name:
+        form.loan_type === "buy off" ? String(form.external_lender_name || "").trim() : undefined,
       principal_amount: principal,
       tenure_months: tenure,
       purpose: form.purpose.trim(),
@@ -404,7 +460,7 @@ export default function LoanForm({ onSubmit, loading = false }: LoanFormProps) {
                 <motion.button
                   key={label}
                   type="button"
-                  onClick={() => setStep(idx)}
+                  onClick={() => goToStep(idx)}
                   initial={{ opacity: 0, x: -16, y: 8 }}
                   animate={{ opacity: 1, x: 0, y: 0 }}
                   transition={{ duration: 0.32, delay: idx * 0.06, ease: "easeOut" }}
@@ -450,7 +506,7 @@ export default function LoanForm({ onSubmit, loading = false }: LoanFormProps) {
           </div>
         </aside>
 
-      <div className="rounded-2xl max-h-[41vh] overflow-auto border border-black/10 bg-white p-4 shadow-sm space-y-4">
+      <div ref={stepContentRef} className="rounded-2xl max-h-[41vh] overflow-auto border border-black/10 bg-white p-4 shadow-sm space-y-4">
         <AnimatePresence mode="wait">
         {step === 0 && (
         <motion.div
@@ -512,6 +568,7 @@ export default function LoanForm({ onSubmit, loading = false }: LoanFormProps) {
                       loan_type: value as LoanFormData["loan_type"],
                       top_up_loan_id: value === "top up" ? prev.top_up_loan_id : "",
                       external_outstanding_balance: value === "buy off" ? prev.external_outstanding_balance : "",
+                      external_lender_name: value === "buy off" ? prev.external_lender_name : "",
                     }))
                   }
                   placeholder="Choose loan type"
@@ -531,17 +588,29 @@ export default function LoanForm({ onSubmit, loading = false }: LoanFormProps) {
                 </div>
               )}
               {form.loan_type === "buy off" && (
-                <div className="space-y-2">
-                  <Label className="flex items-center gap-2"><Wallet className="h-4 w-4 text-[#de4925]" /> External Loan Outstanding Balance</Label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="any"
-                    placeholder="e.g. 2500000"
-                    className={productStyleInputClass()}
-                    value={form.external_outstanding_balance}
-                    onChange={(e) => setForm((prev) => ({ ...prev, external_outstanding_balance: e.target.value }))}
-                  />
+                <div className="grid grid-cols-1 gap-3">
+                  <div className="space-y-2">
+                    <Label className="flex items-center gap-2"><Wallet className="h-4 w-4 text-[#de4925]" /> External Loan Outstanding Balance</Label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="any"
+                      placeholder="e.g. 2500000"
+                      className={productStyleInputClass()}
+                      value={form.external_outstanding_balance}
+                      onChange={(e) => setForm((prev) => ({ ...prev, external_outstanding_balance: e.target.value }))}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="flex items-center gap-2"><CreditCard className="h-4 w-4 text-[#de4925]" /> External Lender Name</Label>
+                    <input
+                      type="text"
+                      placeholder="e.g. ABC Finance Ltd"
+                      className={productStyleInputClass()}
+                      value={form.external_lender_name}
+                      onChange={(e) => setForm((prev) => ({ ...prev, external_lender_name: e.target.value }))}
+                    />
+                  </div>
                 </div>
               )}
 
@@ -578,10 +647,11 @@ export default function LoanForm({ onSubmit, loading = false }: LoanFormProps) {
                     min="0"
                     step="any"
                     placeholder="0"
-                    className={productStyleInputClass()}
+                    className={productStyleInputClass(Boolean(principalRangeError))}
                     value={form.principal_amount}
                     onChange={(e) => setForm((prev) => ({ ...prev, principal_amount: e.target.value }))}
                   />
+                  {principalRangeError && <p className="text-xs text-red-500">{principalRangeError}</p>}
                 </div>
                 <div className="space-y-2">
                   <Label className="flex items-center gap-2"><CalendarClock className="h-4 w-4 text-[#de4925]" /> Tenure (Months)</Label>
@@ -589,10 +659,11 @@ export default function LoanForm({ onSubmit, loading = false }: LoanFormProps) {
                     type="number"
                     min="1"
                     placeholder="12"
-                    className={productStyleInputClass()}
+                    className={productStyleInputClass(Boolean(tenureRangeError))}
                     value={form.tenure_months}
                     onChange={(e) => setForm((prev) => ({ ...prev, tenure_months: e.target.value }))}
                   />
+                  {tenureRangeError && <p className="text-xs text-red-500">{tenureRangeError}</p>}
                 </div>
               </div>
 
@@ -635,9 +706,12 @@ export default function LoanForm({ onSubmit, loading = false }: LoanFormProps) {
                   </div>
                   {form.loan_type === "top up" && (
                     <div className="col-span-2 rounded-xl border border-[#f08c2b]/30 bg-[#f08c2b]/10 p-3">
-                      <p className="text-[11px] uppercase tracking-wide text-orange-200">Top Up Reference Loan</p>
+                      <p className="text-[11px] uppercase tracking-wide text-orange-200">Internal Outstanding Balance</p>
                       <p className="mt-1 text-sm font-semibold text-[#f7b267]">
-                        {topUpLoans.find((l) => String(l.id) === form.top_up_loan_id)?.application_id || "-"}
+                        UGX {Number(selectedTopUpLoan?.outstanding_balance || 0).toLocaleString()}
+                      </p>
+                      <p className="mt-1 text-xs text-orange-100">
+                        Source Loan: <span className="font-semibold text-[#f7b267]">{selectedTopUpLoan?.application_id || "-"}</span>
                       </p>
                     </div>
                   )}
@@ -646,6 +720,9 @@ export default function LoanForm({ onSubmit, loading = false }: LoanFormProps) {
                       <p className="text-[11px] uppercase tracking-wide text-orange-200">External Outstanding Balance</p>
                       <p className="mt-1 text-sm font-semibold text-[#f7b267]">
                         UGX {Number(form.external_outstanding_balance || 0).toLocaleString()}
+                      </p>
+                      <p className="mt-1 text-xs text-orange-100">
+                        Lender: <span className="font-semibold text-[#f7b267]">{form.external_lender_name?.trim() || "-"}</span>
                       </p>
                     </div>
                   )}
@@ -737,40 +814,51 @@ export default function LoanForm({ onSubmit, loading = false }: LoanFormProps) {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
-                <div className="rounded-xl border border-black/10 bg-white p-3">
+              <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                <div className="rounded-xl border border-black/10 bg-white p-3 xl:col-span-2">
                   <p className="text-[11px] uppercase tracking-wide text-gray-500">Member Details</p>
                   <div className="mt-2 space-y-1 text-sm text-gray-700">
-                    <p>Name: <span className="font-semibold">{selectedMember?.full_name || "-"}</span></p>
-                    <p>Member No: <span className="font-semibold">{selectedMember?.member_number || "-"}</span></p>
-                    <p>Phone: <span className="font-semibold">{selectedMember?.phone_number || "-"}</span></p>
-                    <p>Status: <span className="font-semibold">{selectedMember?.status || "-"}</span></p>
+                    <p className="wrap-break-word">Name: <span className="font-semibold">{selectedMember?.full_name || "-"}</span></p>
+                    <p className="wrap-break-word">Member No: <span className="font-semibold">{selectedMember?.member_number || "-"}</span></p>
+                    <p className="wrap-break-word">Phone: <span className="font-semibold">{selectedMember?.phone_number || "-"}</span></p>
+                    <p className="wrap-break-word">Status: <span className="font-semibold">{selectedMember?.status || "-"}</span></p>
                   </div>
                 </div>
 
                 <div className="rounded-xl border border-black/10 bg-white p-3">
                   <p className="text-[11px] uppercase tracking-wide text-gray-500">Product & Type</p>
                   <div className="mt-2 space-y-1 text-sm text-gray-700">
-                    <p>Product: <span className="font-semibold">{selectedProduct?.product_name || "-"}</span></p>
-                    <p>Loan Type: <span className="font-semibold capitalize">{form.loan_type}</span></p>
-                    <p>Interest Rate: <span className="font-semibold">{Number(selectedProduct?.interest_rate || 0)}%</span></p>
-                    <p>Tenure Limit: <span className="font-semibold">{Number(selectedProduct?.maximum_tenure_months || 0)} months</span></p>
+                    <p className="wrap-break-word">Product: <span className="font-semibold">{selectedProduct?.product_name || "-"}</span></p>
+                    <p className="wrap-break-word">Loan Type: <span className="font-semibold capitalize">{form.loan_type}</span></p>
+                    <p className="wrap-break-word">Interest Rate: <span className="font-semibold">{Number(selectedProduct?.interest_rate || 0)}%</span></p>
+                    <p className="wrap-break-word">Tenure Limit: <span className="font-semibold">{Number(selectedProduct?.maximum_tenure_months || 0)} months</span></p>
                   </div>
                 </div>
 
                 <div className="rounded-xl border border-black/10 bg-white p-3">
                   <p className="text-[11px] uppercase tracking-wide text-gray-500">Financials</p>
                   <div className="mt-2 space-y-1 text-sm text-gray-700">
-                    <p>Principal: <span className="font-semibold">UGX {Number(form.principal_amount || 0).toLocaleString()}</span></p>
-                    <p>Tenure: <span className="font-semibold">{form.tenure_months || "-"} months</span></p>
-                    {form.loan_type === "top up" && (
-                      <p>Top Up Loan: <span className="font-semibold">{selectedTopUpLoan?.application_id || "-"}</span></p>
-                    )}
-                    {form.loan_type === "buy off" && (
-                      <p>External Balance: <span className="font-semibold">UGX {Number(form.external_outstanding_balance || 0).toLocaleString()}</span></p>
-                    )}
+                    <p className="wrap-break-word">Principal: <span className="font-semibold">UGX {Number(form.principal_amount || 0).toLocaleString()}</span></p>
+                    <p className="wrap-break-word">Tenure: <span className="font-semibold">{form.tenure_months || "-"} months</span></p>
                   </div>
                 </div>
+              </div>
+
+              <div className="rounded-xl border border-black/10 bg-white p-3">
+                <p className="text-[11px] uppercase tracking-wide text-gray-500">Loan Type Specific Details</p>
+                {form.loan_type === "top up" ? (
+                  <div className="mt-2 grid grid-cols-1 gap-2 text-sm text-gray-700 md:grid-cols-2">
+                    <p className="wrap-break-word">Top Up Loan: <span className="font-semibold">{selectedTopUpLoan?.application_id || "-"}</span></p>
+                    <p className="wrap-break-word">Internal Outstanding Balance: <span className="font-semibold">UGX {Number(selectedTopUpLoan?.outstanding_balance || 0).toLocaleString()}</span></p>
+                  </div>
+                ) : form.loan_type === "buy off" ? (
+                  <div className="mt-2 grid grid-cols-1 gap-2 text-sm text-gray-700 md:grid-cols-2">
+                    <p className="wrap-break-word">External Lender: <span className="font-semibold">{form.external_lender_name?.trim() || "-"}</span></p>
+                    <p className="wrap-break-word">External Outstanding Balance: <span className="font-semibold">UGX {Number(form.external_outstanding_balance || 0).toLocaleString()}</span></p>
+                  </div>
+                ) : (
+                  <p className="mt-2 text-sm text-gray-600">No additional type-specific details required for normal loans.</p>
+                )}
               </div>
 
               <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">

@@ -262,7 +262,15 @@ export async function POST(req: Request) {
     const principal_amount = Number(body.principal_amount)
     const tenure_months = Number(body.tenure_months)
     const loan_type_raw = String(body.loan_type || "normal").trim().toLowerCase()
-    const loan_type = ["normal", "top up", "buy off", "buy out"].includes(loan_type_raw) ? loan_type_raw : "normal"
+    const loan_type =
+      loan_type_raw === "buy out"
+        ? "buy off"
+        : ["normal", "top up", "buy off"].includes(loan_type_raw)
+          ? loan_type_raw
+          : "normal"
+    const top_up_loan_id = String(body.top_up_loan_id || "").trim()
+    const external_outstanding_balance = Number(body.external_outstanding_balance)
+    const external_lender_name = typeof body.external_lender_name === "string" ? body.external_lender_name.trim() : ""
     const purpose = typeof body.purpose === "string" ? body.purpose.trim() : ""
     const collateral_description = typeof body.collateral_description === "string" ? body.collateral_description.trim() : null
     const guarantors = Array.isArray(body.guarantors) ? body.guarantors as Array<{ member_id?: string; client_id?: string; amount?: number }> : []
@@ -278,6 +286,10 @@ export async function POST(req: Request) {
     if (!loan_product_id) return NextResponse.json({ error: "loan_product_id_required" }, { status: 400 })
     if (!Number.isFinite(principal_amount) || principal_amount <= 0) return NextResponse.json({ error: "invalid_principal_amount" }, { status: 400 })
     if (!Number.isFinite(tenure_months) || tenure_months <= 0) return NextResponse.json({ error: "invalid_tenure_months" }, { status: 400 })
+    if (loan_type === "top up" && !top_up_loan_id) return NextResponse.json({ error: "top_up_loan_id_required" }, { status: 400 })
+    if (loan_type === "buy off" && (!Number.isFinite(external_outstanding_balance) || external_outstanding_balance <= 0))
+      return NextResponse.json({ error: "invalid_external_outstanding_balance" }, { status: 400 })
+    if (loan_type === "buy off" && !external_lender_name) return NextResponse.json({ error: "external_lender_name_required" }, { status: 400 })
     if (!purpose) return NextResponse.json({ error: "purpose_required" }, { status: 400 })
 
     const result = await runWithAuth(session.user.authUserId, async (client) => {
@@ -286,12 +298,22 @@ export async function POST(req: Request) {
       const allowed = await hasPermission(client, actor, "create_loan")
       if (!allowed) return { error: "missing_permission:create_loan" as const }
       if (!actor.branch_id) return { error: "actor_branch_missing" as const }
-      const [borrowerRes, productRes] = await Promise.all([
+      const [borrowerRes, productRes, topUpLoanRes] = await Promise.all([
         client.query(`SELECT id, institution_id, branch_id, status, kyc_status FROM senteloans_members WHERE id = $1`, [member_id]),
-        client.query(`SELECT id, institution_id, branch_id, status, interest_rate, minimum_amount, maximum_amount, maximum_tenure_months, guarantors_required, interest_calculation_method FROM senteloans_loan_products WHERE id = $1`, [loan_product_id]),
+        client.query(`SELECT id, institution_id, branch_id, status, interest_rate, minimum_amount, maximum_amount, minimum_tenure_months, maximum_tenure_months, guarantors_required, interest_calculation_method FROM senteloans_loan_products WHERE id = $1`, [loan_product_id]),
+        loan_type === "top up"
+          ? client.query(
+              `SELECT id, institution_id, branch_id, member_id, outstanding_balance, status
+               FROM senteloans_loans
+               WHERE id = $1
+               LIMIT 1`,
+              [top_up_loan_id]
+            )
+          : Promise.resolve({ rows: [] as any[] }),
       ])
       const borrower = borrowerRes.rows[0]
       const product = productRes.rows[0]
+      const topUpLoan = topUpLoanRes.rows[0]
       if (!borrower) return { error: "member_not_found" as const }
       if (!product) return { error: "loan_product_not_found" as const }
       if (borrower.institution_id !== actor.institution_id || product.institution_id !== actor.institution_id)
@@ -300,8 +322,16 @@ export async function POST(req: Request) {
         return { error: "cross_branch_operation_forbidden" as const }
       if (String(product.status) !== "Active") return { error: "product_not_active" as const }
       if (String(borrower.status) !== "Active") return { error: "borrower_not_active" as const }
+      if (loan_type === "top up") {
+        if (!topUpLoan) return { error: "top_up_loan_not_found" as const }
+        if (topUpLoan.institution_id !== actor.institution_id) return { error: "cross_tenant_operation_forbidden" as const }
+        if (topUpLoan.branch_id !== actor.branch_id) return { error: "cross_branch_operation_forbidden" as const }
+        if (String(topUpLoan.member_id) !== String(member_id)) return { error: "top_up_loan_member_mismatch" as const }
+        if (["Rejected", "Closed"].includes(String(topUpLoan.status || ""))) return { error: "top_up_loan_not_eligible" as const }
+      }
       if (Number(product.minimum_amount) > 0 && principal_amount < Number(product.minimum_amount)) return { error: "below_min_amount" as const }
       if (Number(product.maximum_amount) > 0 && principal_amount > Number(product.maximum_amount)) return { error: "above_max_amount" as const }
+      if (Number(product.minimum_tenure_months) > 0 && tenure_months < Number(product.minimum_tenure_months)) return { error: "below_min_tenure" as const }
       if (Number(product.maximum_tenure_months) > 0 && tenure_months > Number(product.maximum_tenure_months)) return { error: "above_max_tenure" as const }
       const required = Number(product.guarantors_required) || 0
       if (required > 0 && uniqGuars.length < required) return { error: "insufficient_guarantors" as const }
@@ -343,9 +373,69 @@ export async function POST(req: Request) {
         }
       }
 
+      if (loan_type === "top up") {
+        await client.query(
+          `INSERT INTO senteloans_loan_settlements
+            (institution_id, branch_id, new_loan_id, settled_loan_id, settlement_amount, settlement_type, settlement_status)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+          [
+            actor.institution_id,
+            actor.branch_id,
+            loanRow.id,
+            topUpLoan.id,
+            Number(topUpLoan.outstanding_balance || 0),
+            "internal_topup",
+            "Pending",
+          ]
+        )
+      }
+
+      if (loan_type === "buy off") {
+        await client.query(
+          `INSERT INTO senteloans_loan_settlements
+            (institution_id, branch_id, new_loan_id, settled_loan_id, external_lender_name, settlement_amount, settlement_type, settlement_status)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+          [
+            actor.institution_id,
+            actor.branch_id,
+            loanRow.id,
+            null,
+            external_lender_name,
+            external_outstanding_balance,
+            "external_buyout",
+            "Pending",
+          ]
+        )
+      }
+
+      const eligibilityRes = await client.query(
+        `SELECT eligibility
+         FROM senteloans_loan_product_eligibilities
+         WHERE loan_product_id = $1`,
+        [loan_product_id]
+      )
+      if (eligibilityRes.rows.length > 0) {
+        for (const er of eligibilityRes.rows) {
+          const eligibility = String(er.eligibility || "").trim()
+          if (!eligibility) continue
+          await client.query(
+            `INSERT INTO senteloans_loan_eligibility_reviews (loan_id, eligibility, is_eligible)
+             VALUES ($1, $2, FALSE)
+             ON CONFLICT (loan_id, eligibility) DO NOTHING`,
+            [loanRow.id, eligibility]
+          )
+        }
+      }
+
       await client.query(
-        `INSERT INTO senteloans_audit_logs (institution_id, user_id, table_name, operation, record_id, new_values) VALUES ($1, $2, 'senteloans_loans', 'INSERT', $3, $4)`,
-        [actor.institution_id, actor.id, loanRow.id, JSON.stringify({ application_id, member_id, principal_amount, loan_type, purpose })]
+        `INSERT INTO senteloans_audit_logs (institution_id, branch_id, user_id, table_name, operation, record_id, new_values) VALUES ($1, $2, $3, 'senteloans_loans', 'INSERT', $4, $5)`,
+        [
+          actor.institution_id,
+          actor.branch_id,
+          actor.id,
+          loanRow.id,
+          JSON.stringify({ application_id, member_id, principal_amount, loan_type, purpose, top_up_loan_id, external_outstanding_balance, external_lender_name }),
+        ]
       )
 
       const memberNameRes = await client.query(`SELECT full_name FROM senteloans_members WHERE id = $1`, [member_id])
@@ -383,7 +473,7 @@ export async function POST(req: Request) {
         result.error === "missing_permission:create_loan" ? 403 :
         result.error === "cross_tenant_operation_forbidden" || result.error === "cross_branch_operation_forbidden" ? 403 :
         result.error === "user_not_linked" ? 403 :
-        result.error === "member_not_found" || result.error === "loan_product_not_found" ? 404 : 400
+        result.error === "member_not_found" || result.error === "loan_product_not_found" || result.error === "top_up_loan_not_found" ? 404 : 400
       apiLog("warn", "loans.create.denied", { method: "POST", apiPath, status, error: result.error, authUserId: session.user.authUserId })
       return NextResponse.json({ error: result.error }, { status })
     }

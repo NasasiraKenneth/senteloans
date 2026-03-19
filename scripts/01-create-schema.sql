@@ -17,11 +17,12 @@ DECLARE
         {"name": "marital_status_type", "values": ["Single", "Married", "Divorced", "Widowed"]},
         {"name": "member_type", "values": ["Individual", "Group", "Corporate"]},
         {"name": "kyc_status_type", "values": ["Pending", "Verified", "Rejected"]},
-        {"name": "loan_status_type", "values": ["Applied", "Under Review", "Approved", "Partially Disbursed", "Fully Disbursed", "Active", "Closed", "Defaulted", "Rejected"]},
+        {"name": "loan_status_type", "values": ["Applied", "Under Review", "Reviewed", "Approved", "Partially Disbursed", "Fully Disbursed", "Active", "Closed", "Defaulted", "Rejected"]},
         {"name": "account_type", "values": ["Voluntary", "Fixed", "Shares", "Current"]},
         {"name": "transaction_type", "values": ["Deposit", "Withdrawal", "Transfer", "Loan Disbursement", "Loan Repayment", "Interest Payment", "Fee Payment", "Shares Purchase"]},
         {"name": "payment_mode", "values": ["Cash", "Mobile Money", "Bank Transfer", "Cheque", "Card"]},
         {"name": "transaction_status", "values": ["Pending", "Completed", "Failed", "Reversed"]},
+        {"name": "settlement_status", "values": ["Pending", "Completed", "Failed", "Reversed"]},
         {"name": "repayment_status", "values": ["Pending", "Paid", "Overdue", "Partial"]},
         {"name": "interest_calculation_method", "values": ["reducing_balance", "flat_rate", "compound"]}
     ]';
@@ -359,6 +360,7 @@ CREATE TABLE IF NOT EXISTS senteloans_loan_settlements (
 
     settlement_type VARCHAR(20) NOT NULL, 
     -- internal_topup | external_buyout
+    settlement_status settlement_status VARCHAR(20) DEFAULT 'Pending',
 
     created_at TIMESTAMPTZ DEFAULT NOW(),
     CONSTRAINT uk_settlement UNIQUE(new_loan_id, settled_loan_id)
