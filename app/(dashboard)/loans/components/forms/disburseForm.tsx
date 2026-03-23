@@ -10,15 +10,18 @@ export type DisburseFormData = {
   disbursement_type: "complete" | "partial"
   disbursement_amount: number
   disbursement_mode: string
+  notes?: string
 }
 
 interface DisburseFormProps {
   onSubmit: (data: DisburseFormData) => Promise<void> | void
   onCancel: () => void
   loading?: boolean
-  principalAmount?: number
-  loanType?: "normal" | "top up" | "buy off" | string
+  completeDisbursementAmount?: number
+  processingFeeAmount?: number
+  processingFeePercentage?: number
   settlementOutstandingBalance?: number
+  loanType?: "normal" | "top up" | "buy off" | string
   initialMode?: string
 }
 
@@ -28,23 +31,22 @@ export default function DisburseForm({
   onSubmit,
   onCancel,
   loading = false,
-  principalAmount = 0,
-  loanType = "normal",
+  completeDisbursementAmount = 0,
+  processingFeeAmount = 0,
+  processingFeePercentage = 0,
   settlementOutstandingBalance = 0,
+  loanType = "normal",
   initialMode = "Cash",
 }: DisburseFormProps) {
-  const completeAmount = useMemo(() => {
-    const principal = Number(principalAmount || 0)
-    const settlement = Number(settlementOutstandingBalance || 0)
-    if (loanType === "top up" || loanType === "buy off") {
-      return Math.max(principal - settlement, 0)
-    }
-    return Math.max(principal, 0)
-  }, [principalAmount, settlementOutstandingBalance, loanType])
+  const completeAmount = useMemo(
+    () => Math.max(0, Number(completeDisbursementAmount || 0)),
+    [completeDisbursementAmount]
+  )
 
   const [disbursementType, setDisbursementType] = useState<"complete" | "partial">("complete")
   const [amount, setAmount] = useState(String(completeAmount))
   const [mode, setMode] = useState(initialMode)
+  const [notes, setNotes] = useState("")
   const modeOptions = useMemo(
     () => PAYMENT_MODES.map((m) => ({ value: m, label: m })),
     []
@@ -60,12 +62,12 @@ export default function DisburseForm({
   const invalidAmount =
     !Number.isFinite(amountNumber) ||
     amountNumber <= 0 ||
-    (disbursementType === "partial" && amountNumber > completeAmount)
+    amountNumber > completeAmount
 
   const amountError =
     !Number.isFinite(amountNumber) || amountNumber <= 0
       ? "Amount must be greater than 0."
-      : disbursementType === "partial" && amountNumber > completeAmount
+      : amountNumber > completeAmount
         ? `Amount cannot exceed disbursable amount (UGX ${completeAmount.toLocaleString()}).`
         : ""
 
@@ -80,6 +82,7 @@ export default function DisburseForm({
       disbursement_type: disbursementType,
       disbursement_amount: amountNumber,
       disbursement_mode: mode,
+      notes: disbursementType === "partial" ? notes.trim() : undefined,
     })
   }
 
@@ -144,16 +147,37 @@ export default function DisburseForm({
           <p className="mt-1 text-xs text-gray-500">
             {loanType === "top up" || loanType === "buy off" ? (
               <>
-                Principal (UGX {Number(principalAmount || 0).toLocaleString()}) - Settlement outstanding (UGX{" "}
-                {Number(settlementOutstandingBalance || 0).toLocaleString()}) = Disbursable (UGX{" "}
-                {completeAmount.toLocaleString()})
+                Processing fee ({Number(processingFeePercentage || 0)}%): UGX{" "}
+                {Number(processingFeeAmount || 0).toLocaleString()} | Settlement: UGX{" "}
+                {Number(settlementOutstandingBalance || 0).toLocaleString()} | Disbursable: UGX{" "}
+                {completeAmount.toLocaleString()}
               </>
             ) : (
-              <>Disbursable amount: UGX {completeAmount.toLocaleString()}</>
+              <>
+                Processing fee ({Number(processingFeePercentage || 0)}%): UGX{" "}
+                {Number(processingFeeAmount || 0).toLocaleString()} | Disbursable: UGX{" "}
+                {completeAmount.toLocaleString()}
+              </>
             )}
           </p>
         )}
       </div>
+
+      {disbursementType === "partial" && (
+        <div>
+          <Label htmlFor="disbursement-notes" className="mb-2 block">
+            Notes
+          </Label>
+          <textarea
+            id="disbursement-notes"
+            rows={3}
+            placeholder="Add a note for this partial disbursement..."
+            className={productStyleInputClass()}
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+          />
+        </div>
+      )}
 
       <div className="flex justify-end gap-2">
         <Button variant="outline" onClick={onCancel} disabled={loading}>

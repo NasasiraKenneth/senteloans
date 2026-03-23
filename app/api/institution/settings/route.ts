@@ -41,7 +41,7 @@ export async function GET() {
         maximumShares: typeof settings.maximum_shares === "number" ? settings.maximum_shares : undefined,
         clientTerminology: (settings.clientTerminology as string) || "Member",
         membershipFee: typeof settings.membershipFee === "number" ? settings.membershipFee : 0,
-        loanProcessingFee: typeof settings.loanProcessingFee === "number" ? settings.loanProcessingFee : 0,
+        maximumParallelLoans: typeof settings.maximumParallelLoans === "number" ? settings.maximumParallelLoans : 1,
         loanLatePenalty: typeof settings.loanLatePenalty === "number" ? settings.loanLatePenalty : 0,
         loanLatePenaltyPeriodDays: typeof settings.loanLatePenaltyPeriodDays === "number" ? settings.loanLatePenaltyPeriodDays : 30,
         membershipLatePenalty: typeof settings.membershipLatePenalty === "number" ? settings.membershipLatePenalty : 0,
@@ -74,7 +74,7 @@ export async function PUT(req: Request) {
         maximumShares?: number
         clientTerminology?: string
         membershipFee?: number
-        loanProcessingFee?: number
+        maximumParallelLoans?: number
         loanLatePenalty?: number
         loanLatePenaltyPeriodDays?: number
         membershipLatePenalty?: number
@@ -116,7 +116,7 @@ export async function PUT(req: Request) {
       if (typeof payload.minimumShares !== "undefined") settingsUpdate.minimum_shares = Number(payload.minimumShares)
       if (typeof payload.maximumShares !== "undefined") settingsUpdate.maximum_shares = Number(payload.maximumShares)
       if (typeof payload.membershipFee !== "undefined") settingsUpdate.membershipFee = Number(payload.membershipFee)
-      if (typeof payload.loanProcessingFee !== "undefined") settingsUpdate.loanProcessingFee = Number(payload.loanProcessingFee)
+      if (typeof payload.maximumParallelLoans !== "undefined") settingsUpdate.maximumParallelLoans = Number(payload.maximumParallelLoans)
       if (typeof payload.loanLatePenalty !== "undefined") settingsUpdate.loanLatePenalty = Number(payload.loanLatePenalty)
       if (typeof payload.loanLatePenaltyPeriodDays !== "undefined") settingsUpdate.loanLatePenaltyPeriodDays = Number(payload.loanLatePenaltyPeriodDays)
       if (typeof payload.membershipLatePenalty !== "undefined") settingsUpdate.membershipLatePenalty = Number(payload.membershipLatePenalty)
@@ -134,6 +134,15 @@ export async function PUT(req: Request) {
         const max = settingsUpdate.maximum_shares
         if (typeof min === "number" && typeof max === "number" && min > max)
           throw new Error("min_greater_than_max")
+      }
+
+      const loanLatePenaltyPct = Number(settingsUpdate.loanLatePenalty ?? 0)
+      if (!Number.isFinite(loanLatePenaltyPct) || loanLatePenaltyPct < 0 || loanLatePenaltyPct > 100) {
+        throw new Error("loan_late_penalty_percentage_invalid")
+      }
+      const maximumParallelLoans = Number(settingsUpdate.maximumParallelLoans ?? 1)
+      if (!Number.isFinite(maximumParallelLoans) || !Number.isInteger(maximumParallelLoans) || maximumParallelLoans < 1) {
+        throw new Error("maximum_parallel_loans_invalid")
       }
 
       await client.query(
@@ -166,7 +175,7 @@ export async function PUT(req: Request) {
         maximumShares: typeof s2.maximum_shares === "number" ? s2.maximum_shares : undefined,
         clientTerminology: (s2.clientTerminology as string) || "Member",
         membershipFee: typeof s2.membershipFee === "number" ? s2.membershipFee : 0,
-        loanProcessingFee: typeof s2.loanProcessingFee === "number" ? s2.loanProcessingFee : 0,
+        maximumParallelLoans: typeof s2.maximumParallelLoans === "number" ? s2.maximumParallelLoans : 1,
         loanLatePenalty: typeof s2.loanLatePenalty === "number" ? s2.loanLatePenalty : 0,
         loanLatePenaltyPeriodDays: typeof s2.loanLatePenaltyPeriodDays === "number" ? s2.loanLatePenaltyPeriodDays : 30,
         membershipLatePenalty: typeof s2.membershipLatePenalty === "number" ? s2.membershipLatePenalty : 0,
@@ -179,7 +188,12 @@ export async function PUT(req: Request) {
     })
   } catch (e: unknown) {
     const err = e as Error
-    if (err.message === "share_value_required" || err.message === "min_greater_than_max")
+    if (
+      err.message === "share_value_required" ||
+      err.message === "min_greater_than_max" ||
+      err.message === "loan_late_penalty_percentage_invalid" ||
+      err.message === "maximum_parallel_loans_invalid"
+    )
       return NextResponse.json({ error: err.message }, { status: 400 })
     return NextResponse.json({ error: err?.message || "Unexpected error" }, { status: 500 })
   }

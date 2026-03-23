@@ -393,7 +393,7 @@ export default function LoansPage() {
           { value: "normal", label: "Normal" },
           { value: "top up", label: "Top Up" },
           { value: "buy off", label: "Buy Off" },
-          { value: "buy out", label: "Buy Out" },
+          { value: "sell off", label: "Sell Off" },
         ],
         multiple: false,
         type: "select",

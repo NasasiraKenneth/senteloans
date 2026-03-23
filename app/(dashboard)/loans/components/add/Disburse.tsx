@@ -9,7 +9,9 @@ interface DisburseProps {
   isOpen: boolean
   onClose: () => void
   loanId: string
-  principalAmount?: number
+  completeDisbursementAmount?: number
+  processingFeeAmount?: number
+  processingFeePercentage?: number
   loanType?: "normal" | "top up" | "buy off" | string
   settlementOutstandingBalance?: number
   onSuccess: () => Promise<void> | void
@@ -19,7 +21,9 @@ export default function Disburse({
   isOpen,
   onClose,
   loanId,
-  principalAmount = 0,
+  completeDisbursementAmount = 0,
+  processingFeeAmount = 0,
+  processingFeePercentage = 0,
   loanType = "normal",
   settlementOutstandingBalance = 0,
   onSuccess,
@@ -28,24 +32,17 @@ export default function Disburse({
   const [loading, setLoading] = useState(false)
 
   const handleDisburse = async (data: DisburseFormData) => {
-    if (data.disbursement_type === "partial") {
-      toast({
-        variant: "warning",
-        title: "Partial disbursement pending",
-        description: "Partial disbursement API is not implemented yet.",
-      })
-      return
-    }
-
     try {
       setLoading(true)
       const res = await fetch(`/api/institution/loans/${loanId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          status: "Fully Disbursed",
+          status: data.disbursement_type === "partial" ? "Partially Disbursed" : "Fully Disbursed",
+          disbursement_type: data.disbursement_type,
           disbursement_mode: data.disbursement_mode,
           disbursement_amount: data.disbursement_amount,
+          notes: data.notes,
         }),
       })
       const body = await res.json().catch(() => ({}))
@@ -70,7 +67,9 @@ export default function Disburse({
         onSubmit={handleDisburse}
         onCancel={onClose}
         loading={loading}
-        principalAmount={principalAmount}
+        completeDisbursementAmount={completeDisbursementAmount}
+        processingFeeAmount={processingFeeAmount}
+        processingFeePercentage={processingFeePercentage}
         loanType={loanType}
         settlementOutstandingBalance={settlementOutstandingBalance}
       />

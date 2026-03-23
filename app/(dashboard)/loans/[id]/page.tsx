@@ -11,16 +11,9 @@ import DataTable, { DataTableColumn } from "@/components/datatables/DataTable"
 import { ArrowLeft, CreditCard, User, DollarSign, CheckCircle, XCircle, Calendar, Percent, Clock, TrendingDown, Banknote, Pencil, X, FileText, Check } from "lucide-react"
 import Link from "next/link"
 import { useToast } from "@/components/ui/toast"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import Disburse from "../components/add/Disburse"
+import NewPayment from "../components/add/newPayment"
+import SellOff from "../components/add/sellOff"
 
 export default function LoanDetailsPage() {
   const params = useParams()
@@ -53,6 +46,13 @@ export default function LoanDetailsPage() {
       settledApplicationId?: string | null
       externalLenderName?: string | null
     } | null
+    disbursementPreview?: {
+      processingFeePercentage?: number
+      processingFeeAmount?: number
+      settlementAmount?: number
+      completeDisbursementAmount?: number
+      remainingDisbursementBalance?: number
+    } | null
     eligibilityReviews?: { id: string; eligibility: string; isEligible: boolean }[]
   }
 
@@ -63,10 +63,8 @@ export default function LoanDetailsPage() {
   const [loading, setLoading] = useState<boolean>(true)
   const [actionLoading, setActionLoading] = useState<boolean>(false)
   const [recordPaymentOpen, setRecordPaymentOpen] = useState<boolean>(false)
-  const [recordPaymentAmount, setRecordPaymentAmount] = useState<string>("")
-  const [recordPaymentMode, setRecordPaymentMode] = useState<string>("Cash")
-  const [recordPaymentDate, setRecordPaymentDate] = useState<string>(() => new Date().toISOString().slice(0, 10))
   const [disburseLoanOpen, setDisburseLoanOpen] = useState<boolean>(false)
+  const [sellOffOpen, setSellOffOpen] = useState<boolean>(false)
   const [reviewEditMode, setReviewEditMode] = useState<boolean>(false)
   const [schedPage, setSchedPage] = useState(0)
   const [schedRowsPerPage, setSchedRowsPerPage] = useState(6)
@@ -112,6 +110,15 @@ export default function LoanDetailsPage() {
                   settlementAmount: Number(l.settlement.settlement_amount || 0),
                   settledApplicationId: l.settlement.settled_application_id || null,
                   externalLenderName: l.settlement.external_lender_name || null,
+                }
+              : null,
+            disbursementPreview: l.disbursement_preview
+              ? {
+                  processingFeePercentage: Number(l.disbursement_preview.processing_fee_percentage || 0),
+                  processingFeeAmount: Number(l.disbursement_preview.processing_fee_amount || 0),
+                  settlementAmount: Number(l.disbursement_preview.settlement_amount || 0),
+                  completeDisbursementAmount: Number(l.disbursement_preview.complete_disbursement_amount || 0),
+                  remainingDisbursementBalance: Number(l.disbursement_preview.remaining_disbursement_balance || 0),
                 }
               : null,
             eligibilityReviews: Array.isArray(l.eligibility_reviews)
@@ -184,6 +191,15 @@ export default function LoanDetailsPage() {
                     settlementAmount: Number(l.settlement.settlement_amount || 0),
                     settledApplicationId: l.settlement.settled_application_id || null,
                     externalLenderName: l.settlement.external_lender_name || null,
+                  }
+                : null,
+              disbursementPreview: l.disbursement_preview
+                ? {
+                    processingFeePercentage: Number(l.disbursement_preview.processing_fee_percentage || 0),
+                    processingFeeAmount: Number(l.disbursement_preview.processing_fee_amount || 0),
+                    settlementAmount: Number(l.disbursement_preview.settlement_amount || 0),
+                    completeDisbursementAmount: Number(l.disbursement_preview.complete_disbursement_amount || 0),
+                    remainingDisbursementBalance: Number(l.disbursement_preview.remaining_disbursement_balance || 0),
                   }
                 : null,
               eligibilityReviews: Array.isArray(l.eligibility_reviews)
@@ -439,12 +455,36 @@ export default function LoanDetailsPage() {
   return (
     <>
           <div className="max-w-6xl mx-auto space-y-6">
-            {/* Back link */}
-            <div>
+            {/* Back link + quick actions */}
+            <div className="flex items-center justify-between gap-4">
               <Link href="/loans" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors">
                 <ArrowLeft className="h-4 w-4" />
                 Back to Loans
               </Link>
+              <div className="flex items-center gap-2">
+                {loan.status === "Approved" &&
+                  (loan.loanType === "top up" || loan.loanType === "buy off") && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() =>
+                        toast({
+                          variant: "warning",
+                          title: "Coming soon",
+                          description: "Settle previous loan flow is not implemented yet.",
+                        })
+                      }
+                    >
+                      Settle Previous Loan
+                    </Button>
+                  )}
+                {(loan.status === "Fully Disbursed" || loan.status === "Active") && (
+                  <Button type="button" variant="outline" size="sm" onClick={() => setSellOffOpen(true)}>
+                    Sell Off Loan
+                  </Button>
+                )}
+              </div>
             </div>
 
             {/* Loan Header Card */}
@@ -835,104 +875,25 @@ export default function LoanDetailsPage() {
               isOpen={disburseLoanOpen}
               onClose={() => setDisburseLoanOpen(false)}
               loanId={loan.id}
-              principalAmount={loan.principalAmount}
+              completeDisbursementAmount={Number(loan.disbursementPreview?.remainingDisbursementBalance || 0)}
+              processingFeeAmount={Number(loan.disbursementPreview?.processingFeeAmount || 0)}
+              processingFeePercentage={Number(loan.disbursementPreview?.processingFeePercentage || 0)}
               loanType={loan.loanType}
-              settlementOutstandingBalance={Number(loan.settlement?.settlementAmount || 0)}
+              settlementOutstandingBalance={Number(loan.disbursementPreview?.settlementAmount || 0)}
               onSuccess={refetchLoanAndRepayments}
             />
 
-            {/* Record Payment form */}
-            {recordPaymentOpen && loan && (
-              <Card className="mt-6">
-                <CardHeader>
-                  <CardTitle>Record Payment</CardTitle>
-                  <CardDescription>Enter the payment amount and details</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div>
-                    <Label htmlFor="payment-amount">Amount</Label>
-                    <Input
-                      id="payment-amount"
-                      type="number"
-                      min="0.01"
-                      step="0.01"
-                      placeholder="0.00"
-                      value={recordPaymentAmount}
-                      onChange={(e) => setRecordPaymentAmount(e.target.value)}
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="payment-date">Payment Date</Label>
-                    <Input
-                      id="payment-date"
-                      type="date"
-                      value={recordPaymentDate}
-                      onChange={(e) => setRecordPaymentDate(e.target.value)}
-                    />
-                  </div>
-                  <div>
-                    <Label>Payment Mode</Label>
-                    <Select value={recordPaymentMode} onValueChange={setRecordPaymentMode}>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {["Cash", "Mobile Money", "Bank Transfer", "Cheque", "Card"].map((m) => (
-                          <SelectItem key={m} value={m}>
-                            {m}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="flex justify-end gap-2">
-                    <Button
-                      variant="outline"
-                      onClick={() => {
-                        setRecordPaymentOpen(false)
-                        setRecordPaymentAmount("")
-                        setRecordPaymentDate(new Date().toISOString().slice(0, 10))
-                        setRecordPaymentMode("Cash")
-                      }}
-                    >
-                      Cancel
-                    </Button>
-                    <Button
-                      disabled={actionLoading || !recordPaymentAmount || Number(recordPaymentAmount) <= 0}
-                      onClick={async () => {
-                        try {
-                          setActionLoading(true)
-                          const res = await fetch(`/api/institution/loans/${loan.id}/record-payment`, {
-                            method: "POST",
-                            headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({
-                              amount: Number(recordPaymentAmount),
-                              payment_date: recordPaymentDate,
-                              mode: recordPaymentMode,
-                            }),
-                          })
-                          const data = await res.json()
-                          if (!res.ok) throw new Error(data?.message || data?.error || "Failed to record payment")
-                          await refetchLoanAndRepayments()
-                          setRecordPaymentOpen(false)
-                          setRecordPaymentAmount("")
-                          setRecordPaymentDate(new Date().toISOString().slice(0, 10))
-                          setRecordPaymentMode("Cash")
-                          toast({ variant: "success", title: "Payment recorded" })
-                        } catch (e: unknown) {
-                          const err = e as Error
-                          toast({ variant: "destructive", title: "Action failed", description: err?.message || "Please try again" })
-                        } finally {
-                          setActionLoading(false)
-                        }
-                      }}
-                    >
-                      Record Payment
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
+            <NewPayment
+              isOpen={recordPaymentOpen}
+              onClose={() => setRecordPaymentOpen(false)}
+              loanId={loan.id}
+              onSuccess={refetchLoanAndRepayments}
+            />
+            <SellOff
+              isOpen={sellOffOpen}
+              onClose={() => setSellOffOpen(false)}
+              outstandingBalance={Number(loan.outstandingBalance || 0)}
+            />
 
             {/* Action Buttons */}
             <div className="flex justify-end space-x-4 pt-6 border-t">
@@ -1071,7 +1032,7 @@ export default function LoanDetailsPage() {
                   </Button>
                 </>
               )}
-              {loan.status === "Approved" && (
+              {(loan.status === "Approved" || loan.status === "Partially Disbursed") && (
                 <Button
                   disabled={actionLoading}
                   onClick={() => {
@@ -1083,7 +1044,7 @@ export default function LoanDetailsPage() {
                   Disburse Loan
                 </Button>
               )}
-              {(loan.status === "Fully Disbursed" || loan.status === "Partially Disbursed" || loan.status === "Active") && (
+              {(loan.status === "Fully Disbursed" || loan.status === "Active") && (
                 <Button
                   variant="outline"
                   disabled={actionLoading}

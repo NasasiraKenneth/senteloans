@@ -21,7 +21,7 @@ interface InstitutionConfig {
   maximumShares?: number
   clientTerminology: string
   membershipFee?: number
-  loanProcessingFee?: number
+  maximumParallelLoans?: number
   loanLatePenalty?: number
   loanLatePenaltyPeriodDays?: number
   membershipLatePenalty?: number
@@ -158,6 +158,14 @@ export default function SettingsPage() {
     }
     if ((config.loanLatePenaltyPeriodDays ?? 0) < 1 || (config.membershipLatePenaltyPeriodDays ?? 0) < 1) {
       toast({ title: "Validation", description: "Penalty periods must be at least 1 day.", variant: "warning" })
+      return false
+    }
+    if ((config.loanLatePenalty ?? 0) < 0 || (config.loanLatePenalty ?? 0) > 100) {
+      toast({ title: "Validation", description: "Loan late penalty must be between 0% and 100%.", variant: "warning" })
+      return false
+    }
+    if (!Number.isInteger(config.maximumParallelLoans ?? 1) || (config.maximumParallelLoans ?? 1) < 1) {
+      toast({ title: "Validation", description: "Maximum number of parallel loans must be at least 1.", variant: "warning" })
       return false
     }
 
@@ -616,14 +624,14 @@ export default function SettingsPage() {
                       </div>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="space-y-2">
-                          <Label htmlFor="loanProcessingFee">Default Loan Processing Fee (%)</Label>
+                          <Label htmlFor="maximumParallelLoans">Maximum Number of Parallel Loans</Label>
                           <Input
-                            id="loanProcessingFee"
+                            id="maximumParallelLoans"
                             type="number"
-                            min={0}
-                            step="0.01"
-                            value={Number(config.loanProcessingFee ?? 0)}
-                            onChange={(e) => setConfigField("loanProcessingFee", Number.parseFloat(e.target.value || "0"))}
+                            min={1}
+                            step="1"
+                            value={Number(config.maximumParallelLoans ?? 1)}
+                            onChange={(e) => setConfigField("maximumParallelLoans", Number.parseInt(e.target.value || "1"))}
                             disabled={!canEditInstitutionWorkspace("loan")}
                             className={memberInputClass}
                           />
@@ -696,11 +704,13 @@ export default function SettingsPage() {
                       </div>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="space-y-2">
-                          <Label htmlFor="loanLatePenalty">Loan Late Penalty ({config.currency})</Label>
+                          <Label htmlFor="loanLatePenalty">Loan Late Penalty (%)</Label>
                           <Input
                             id="loanLatePenalty"
                             type="number"
                             min={0}
+                            max={100}
+                            step="0.01"
                             value={Number(config.loanLatePenalty ?? 0)}
                             onChange={(e) => setConfigField("loanLatePenalty", Number.parseFloat(e.target.value || "0"))}
                             disabled={!canEditInstitutionWorkspace("penalties")}

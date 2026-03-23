@@ -8,6 +8,45 @@ export const normalizeLoanMethod = (value: unknown): LoanCalculationMethod => {
 
 const round2 = (value: number): number => Math.round((value + Number.EPSILON) * 100) / 100
 
+export const calculateProcessingFeeAmount = (principal: number, processingFeePercentage: number): number => {
+  const p = Math.max(0, Number(principal) || 0)
+  const feePct = Math.max(0, Number(processingFeePercentage) || 0)
+  return round2((p * feePct) / 100)
+}
+
+export const calculateCompleteDisbursementAmount = (args: {
+  principal: number
+  processingFeePercentage: number
+  settlementAmount?: number
+  loanType?: unknown
+}): {
+  loanType: "normal" | "top up" | "buy off"
+  principal: number
+  processingFeePercentage: number
+  processingFeeAmount: number
+  settlementAmount: number
+  completeDisbursementAmount: number
+} => {
+  const principal = Math.max(0, Number(args.principal) || 0)
+  const processingFeePercentage = Math.max(0, Number(args.processingFeePercentage) || 0)
+  const processingFeeAmount = calculateProcessingFeeAmount(principal, processingFeePercentage)
+  const normalizedLoanTypeRaw = String(args.loanType || "normal").trim().toLowerCase()
+  const loanType: "normal" | "top up" | "buy off" =
+    normalizedLoanTypeRaw === "top up" || normalizedLoanTypeRaw === "buy off" ? normalizedLoanTypeRaw : "normal"
+  const settlementAmount = loanType === "normal" ? 0 : Math.max(0, Number(args.settlementAmount) || 0)
+
+  const completeDisbursementAmount = round2(Math.max(principal - processingFeeAmount - settlementAmount, 0))
+
+  return {
+    loanType,
+    principal,
+    processingFeePercentage,
+    processingFeeAmount,
+    settlementAmount,
+    completeDisbursementAmount,
+  }
+}
+
 export const addMonthsDateOnly = (dateStr: string, n: number): string => {
   const s = String(dateStr || "").slice(0, 10)
   const [y, m, d] = s.split("-").map(Number)

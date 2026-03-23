@@ -4,7 +4,11 @@ import { authOptions } from "@/lib/auth"
 import { runWithAuth } from "@/lib/db"
 import { notificationService } from "@/lib/notifications/notification-service"
 import { NotificationTemplates } from "@/lib/notifications/notification-types"
-import { buildRepaymentSchedule, calculateLoanTerms } from "@/lib/loans/calculations"
+import {
+  buildRepaymentSchedule,
+  calculateCompleteDisbursementAmount,
+  calculateLoanTerms,
+} from "@/lib/loans/calculations"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
 
 const PAYMENT_MODES = ["Cash", "Mobile Money", "Bank Transfer", "Cheque", "Card"] as const
@@ -96,7 +100,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       if (!isSuperAdmin && !actor.branch_id) return { error: "actor_branch_missing" as const }
 
       const loanRes = await client.query(
-        `SELECT id, institution_id, branch_id, member_id, loan_product_id, application_id, principal_amount, interest_rate, tenure_months, monthly_payment, total_amount, outstanding_balance, status, loan_type, purpose, collateral_description, application_date, approved_at, disbursement_date, maturity_date, next_payment_date, overdue_days, created_by, created_at, updated_at
+        `SELECT id, institution_id, branch_id, member_id, loan_product_id, application_id, principal_amount, interest_rate, tenure_months, monthly_payment, total_amount, outstanding_balance, disbursement_balance, status, loan_type, purpose, collateral_description, application_date, approved_at, disbursement_date, maturity_date, next_payment_date, overdue_days, created_by, created_at, updated_at
          FROM senteloans_loans WHERE id = $1`,
         [id]
       )
@@ -114,9 +118,16 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       }
 
       let product_name = ""
+      let processing_fee_percentage = 0
       if (loan.loan_product_id) {
-        const pRes = await client.query(`SELECT id, product_name FROM senteloans_loan_products WHERE id = $1`, [loan.loan_product_id])
+        const pRes = await client.query(
+          `SELECT id, product_name, processing_fee_percentage
+           FROM senteloans_loan_products
+           WHERE id = $1`,
+          [loan.loan_product_id]
+        )
         product_name = pRes.rows[0]?.product_name || ""
+        processing_fee_percentage = Number(pRes.rows[0]?.processing_fee_percentage || 0)
       }
 
       const guarsRes = await client.query(
@@ -168,6 +179,31 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
         [loan.id]
       )
       const settlement = settlementRes.rows[0] || null
+      const disbursementPreview = calculateCompleteDisbursementAmount({
+        principal: Number(loan.principal_amount || 0),
+        processingFeePercentage: processing_fee_percentage,
+        settlementAmount: Number(settlement?.settlement_amount || 0),
+        loanType: loan.loan_type,
+      })
+      const disbursedTotalsRes = await client.query(
+        `SELECT COALESCE(SUM(amount), 0)::numeric AS total_disbursed
+         FROM senteloans_loan_disbursements
+         WHERE loan_id = $1`,
+        [loan.id]
+      )
+      const totalDisbursed = Number(disbursedTotalsRes.rows[0]?.total_disbursed || 0)
+      const computedRemainingDisbursementBalance = Math.max(
+        0,
+        Number(disbursementPreview.completeDisbursementAmount || 0) - Math.max(0, totalDisbursed)
+      )
+      const remainingDisbursementBalance = Math.max(
+        0,
+        Number(
+          String(loan.status || "") === "Partially Disbursed"
+            ? (loan.disbursement_balance ?? computedRemainingDisbursementBalance)
+            : computedRemainingDisbursementBalance
+        )
+      )
       const eligibilityRes = await client.query(
         `SELECT id, eligibility, is_eligible, reviewed_at, reviewed_by, updated_at
          FROM senteloans_loan_eligibility_reviews
@@ -231,6 +267,13 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
                 created_at: settlement.created_at || null,
               }
             : null,
+          disbursement_preview: {
+            processing_fee_percentage: disbursementPreview.processingFeePercentage,
+            processing_fee_amount: disbursementPreview.processingFeeAmount,
+            settlement_amount: disbursementPreview.settlementAmount,
+            complete_disbursement_amount: disbursementPreview.completeDisbursementAmount,
+            remaining_disbursement_balance: remainingDisbursementBalance,
+          },
           eligibility_reviews: eligibilityReviews,
         },
       }
@@ -282,6 +325,12 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     const disbursement_mode = PAYMENT_MODES.includes(body.disbursement_mode as typeof PAYMENT_MODES[number])
       ? (body.disbursement_mode as string)
       : "Cash"
+    const disbursement_type = typeof body.disbursement_type === "string" ? body.disbursement_type.trim().toLowerCase() : "complete"
+    const disbursement_notes = typeof body.notes === "string" ? body.notes.trim() : ""
+    const disbursement_amount =
+      Number.isFinite(Number(body.disbursement_amount))
+        ? Number(body.disbursement_amount)
+        : null
     const disbursement_date = typeof body.disbursement_date === "string" && body.disbursement_date.trim()
       ? body.disbursement_date.trim().slice(0, 10)
       : new Date().toISOString().slice(0, 10)
@@ -290,10 +339,10 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       Applied: ["Under Review", "Rejected"],
       "Under Review": ["Reviewed", "Rejected"],
       Reviewed: ["Approved", "Rejected"],
-      Approved: ["Fully Disbursed"],
+      Approved: ["Partially Disbursed", "Fully Disbursed"],
       Rejected: [],
       "Fully Disbursed": [],
-      "Partially Disbursed": [],
+      "Partially Disbursed": ["Fully Disbursed"],
       Active: [],
       Closed: [],
       Defaulted: [],
@@ -321,7 +370,12 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       }
 
       const [loanRes, actorRes] = await Promise.all([
-        client.query(`SELECT id, institution_id, branch_id, member_id, status, approved_at, total_amount, principal_amount, interest_rate, tenure_months, loan_product_id FROM senteloans_loans WHERE id = $1`, [id]),
+        client.query(
+          `SELECT id, institution_id, branch_id, member_id, status, approved_at, total_amount, principal_amount, interest_rate, tenure_months, loan_product_id, loan_type, disbursement_balance
+           FROM senteloans_loans
+           WHERE id = $1`,
+          [id]
+        ),
         client.query(`SELECT id, institution_id, branch_id FROM senteloans_users WHERE id = $1`, [actor.id]),
       ])
       const loan = loanRes.rows[0]
@@ -372,6 +426,14 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
           }
         }
       }
+      let completeDisbursementAmount = 0
+      let disbursementContext: null | {
+        amount: number
+        balanceBefore: number
+        balanceAfter: number
+        disbursementTypeLabel: string
+        notes: string
+      } = null
       if (typeof newStatus !== "undefined") {
         const current = String(loan.status)
         if (!Object.prototype.hasOwnProperty.call(allowedTargets, current)) return { error: "invalid_current_status" as const }
@@ -396,29 +458,109 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
           updates.reviewed_at = new Date().toISOString()
           updates.reviewed_by = actor.id
         }
-        if (newStatus === "Approved" && !loan.approved_at) {
-          updates.approved_at = new Date().toISOString()
+        if (newStatus === "Approved") {
+          if (!loan.approved_at) updates.approved_at = new Date().toISOString()
+          updates.approved_by = actor.id
         }
-        if (newStatus === "Fully Disbursed") {
-          updates.disbursement_date = disbursement_date
-          const totalAmount = Number(loan.total_amount ?? 0)
-          const principal = Number(loan.principal_amount ?? 0)
-          const tenureMonths = Math.floor(Number(loan.tenure_months ?? 0))
-          const rate = Number(loan.interest_rate ?? 0)
-          let calcMethod: string = "reducing_balance"
+        if (newStatus === "Fully Disbursed" || newStatus === "Partially Disbursed") {
+          const round2 = (v: number) => Math.round((v + Number.EPSILON) * 100) / 100
+          const normalizedLoanType = String(loan.loan_type || "normal").trim().toLowerCase()
+          if (normalizedLoanType !== "normal") {
+            return { error: "disbursement_not_supported_for_loan_type_yet" as const }
+          }
+          if (disbursement_type !== "complete" && disbursement_type !== "partial") {
+            return { error: "disbursement_type_not_supported_yet" as const }
+          }
+          let processingFeePercentage = 0
           if (loan.loan_product_id) {
-            const methodRes = await client.query(
-              `SELECT interest_calculation_method FROM senteloans_loan_products WHERE id = $1`,
+            const feeRes = await client.query(
+              `SELECT processing_fee_percentage
+               FROM senteloans_loan_products
+               WHERE id = $1`,
               [loan.loan_product_id]
             )
-            calcMethod = String(methodRes.rows[0]?.interest_calculation_method || "reducing_balance")
+            processingFeePercentage = Number(feeRes.rows[0]?.processing_fee_percentage || 0)
           }
-          const initialOutstanding = totalAmount > 0
-            ? totalAmount
-            : tenureMonths > 0 && principal > 0
-              ? calculateLoanTerms(principal, rate, tenureMonths, calcMethod).totalAmount
-              : principal
-          updates.outstanding_balance = initialOutstanding
+          const settlementRes = await client.query(
+            `SELECT settlement_amount
+             FROM senteloans_loan_settlements
+             WHERE new_loan_id = $1
+             ORDER BY created_at DESC
+             LIMIT 1`,
+            [id]
+          )
+          const settlementAmount = Number(settlementRes.rows[0]?.settlement_amount || 0)
+          const disbursementCalc = calculateCompleteDisbursementAmount({
+            principal: Number(loan.principal_amount || 0),
+            processingFeePercentage,
+            settlementAmount,
+            loanType: loan.loan_type,
+          })
+          completeDisbursementAmount = disbursementCalc.completeDisbursementAmount
+          const currentStatus = String(loan.status || "")
+          const defaultRemaining = Math.max(0, Number(completeDisbursementAmount || 0))
+          const savedRemaining = Math.max(0, Number(loan.disbursement_balance || 0))
+          const remainingBefore = currentStatus === "Partially Disbursed" ? savedRemaining : defaultRemaining
+          if (remainingBefore <= 0) return { error: "no_remaining_disbursement_balance" as const }
+          if (disbursement_amount === null || disbursement_amount <= 0) {
+            return { error: "invalid_disbursement_amount" as const }
+          }
+          const roundedIncoming = round2(Number(disbursement_amount || 0))
+          const roundedRemaining = round2(remainingBefore)
+
+          if (disbursement_type === "partial") {
+            if (newStatus !== "Partially Disbursed") {
+              return { error: "invalid_disbursement_status_for_partial" as const }
+            }
+            if (roundedIncoming >= roundedRemaining) {
+              return { error: "partial_amount_must_be_less_than_remaining_disbursable" as const }
+            }
+            const remainingAfter = round2(Math.max(roundedRemaining - roundedIncoming, 0))
+            disbursementContext = {
+              amount: roundedIncoming,
+              balanceBefore: roundedRemaining,
+              balanceAfter: remainingAfter,
+              disbursementTypeLabel: "partial loan disburse",
+              notes: disbursement_notes || "Partial loan disbursement",
+            }
+            updates.disbursement_balance = remainingAfter
+          } else {
+            if (newStatus !== "Fully Disbursed") {
+              return { error: "invalid_disbursement_status_for_complete" as const }
+            }
+            if (roundedIncoming !== roundedRemaining) {
+              return { error: "invalid_disbursement_amount" as const }
+            }
+            disbursementContext = {
+              amount: roundedIncoming,
+              balanceBefore: roundedRemaining,
+              balanceAfter: 0,
+              disbursementTypeLabel: "full loan disburse",
+              notes: "Full loan disbursement",
+            }
+            updates.disbursement_balance = 0
+          }
+          updates.disbursement_date = disbursement_date
+          if (newStatus === "Fully Disbursed") {
+            const totalAmount = Number(loan.total_amount ?? 0)
+            const principal = Number(loan.principal_amount ?? 0)
+            const tenureMonths = Math.floor(Number(loan.tenure_months ?? 0))
+            const rate = Number(loan.interest_rate ?? 0)
+            let calcMethod: string = "reducing_balance"
+            if (loan.loan_product_id) {
+              const methodRes = await client.query(
+                `SELECT interest_calculation_method FROM senteloans_loan_products WHERE id = $1`,
+                [loan.loan_product_id]
+              )
+              calcMethod = String(methodRes.rows[0]?.interest_calculation_method || "reducing_balance")
+            }
+            const initialOutstanding = totalAmount > 0
+              ? totalAmount
+              : tenureMonths > 0 && principal > 0
+                ? calculateLoanTerms(principal, rate, tenureMonths, calcMethod).totalAmount
+                : principal
+            updates.outstanding_balance = initialOutstanding
+          }
         }
       }
 
@@ -478,12 +620,20 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
             [id]
           )
         }
-
-        const disburseTxNumber = `LD-${Date.now()}`
-        const amount = Number(loan.principal_amount ?? 0)
+      } else if (newStatus === "Partially Disbursed") {
         await client.query(
-          `INSERT INTO senteloans_transactions (institution_id, branch_id, member_id, account_id, loan_id, transaction_number, type, amount, mode, description, balance_before, balance_after, processed_by, transaction_date, status)
-           VALUES ($1, $2, $3, NULL, $4, $5, 'Loan Disbursement', $6, $7, $8, $9, $10, $11, $12, 'Completed')`,
+          `UPDATE senteloans_loans SET updated_at = NOW() WHERE id = $1`,
+          [id]
+        )
+      }
+
+      if (disbursementContext) {
+        const disburseTxNumber = `LD-${Date.now()}`
+        const amount = Number(disbursementContext.amount || 0)
+        const txRes = await client.query(
+          `INSERT INTO senteloans_transactions (institution_id, branch_id, member_id, account_id, loan_id, transaction_number, type, amount, mode, description, reference_number, balance_before, balance_after, processed_by, transaction_date, status)
+           VALUES ($1, $2, $3, NULL, $4, $5, 'Loan Disbursement', $6, $7, $8, $9, $10, $11, $12, $13, 'Completed')
+           RETURNING id`,
           [
             actor.institution_id,
             loan.branch_id,
@@ -493,10 +643,30 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
             amount,
             disbursement_mode,
             `Loan disbursement - ${id.slice(0, 8)}`,
-            0,
-            amount,
+            disburseTxNumber,
+            Number(disbursementContext.balanceBefore || 0),
+            Number(disbursementContext.balanceAfter || 0),
             actor.id,
             disbursement_date,
+          ]
+        )
+        const transactionId = String(txRes.rows[0]?.id || "")
+        if (!transactionId) return { error: "disbursement_transaction_create_failed" as const }
+
+        await client.query(
+          `INSERT INTO senteloans_loan_disbursements
+            (institution_id, branch_id, loan_id, disbursement_type, transaction_id, amount, disbursement_date, notes, created_by)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+          [
+            actor.institution_id,
+            loan.branch_id,
+            id,
+            disbursementContext.disbursementTypeLabel,
+            transactionId,
+            amount,
+            disbursement_date,
+            disbursementContext.notes,
+            actor.id,
           ]
         )
       }
