@@ -464,21 +464,36 @@ export default function LoanDetailsPage() {
               <div className="flex items-center gap-2">
                 {loan.status === "Approved" &&
                   (loan.loanType === "top up" || loan.loanType === "buy off") && (
+                  String(loan.settlement?.settlementStatus || "").toLowerCase() === "pending" && (
                     <Button
                       type="button"
                       variant="outline"
                       size="sm"
-                      onClick={() =>
-                        toast({
-                          variant: "warning",
-                          title: "Coming soon",
-                          description: "Settle previous loan flow is not implemented yet.",
-                        })
-                      }
+                      disabled={actionLoading}
+                      onClick={async () => {
+                        try {
+                          setActionLoading(true)
+                          const res = await fetch(`/api/institution/loans/${loan.id}/settle-previous`, {
+                            method: "POST",
+                          })
+                          const data = await res.json().catch(() => ({}))
+                          if (!res.ok) throw new Error(data?.error || "Failed to settle previous loan")
+                          await refetchLoanAndRepayments()
+                          toast({ variant: "success", title: "Previous loan settled" })
+                        } catch (e: any) {
+                          toast({
+                            variant: "destructive",
+                            title: "Action failed",
+                            description: e?.message || "Please try again",
+                          })
+                        } finally {
+                          setActionLoading(false)
+                        }
+                      }}
                     >
                       Settle Previous Loan
                     </Button>
-                  )}
+                  ))}
                 {(loan.status === "Fully Disbursed" || loan.status === "Active") && (
                   <Button type="button" variant="outline" size="sm" onClick={() => setSellOffOpen(true)}>
                     Sell Off Loan

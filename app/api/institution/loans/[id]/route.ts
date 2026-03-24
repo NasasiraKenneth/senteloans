@@ -188,7 +188,11 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       const disbursedTotalsRes = await client.query(
         `SELECT COALESCE(SUM(amount), 0)::numeric AS total_disbursed
          FROM senteloans_loan_disbursements
-         WHERE loan_id = $1`,
+         WHERE loan_id = $1
+           AND NOT (
+             disbursement_type = 'partial loan disburse'
+             AND notes = 'Partial disbursement to settle previous loan'
+           )`,
         [loan.id]
       )
       const totalDisbursed = Number(disbursedTotalsRes.rows[0]?.total_disbursed || 0)
