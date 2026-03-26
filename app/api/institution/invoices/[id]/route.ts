@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { runWithAuth } from "@/lib/db"
-import { auditLogger } from "@/lib/audit/audit-logger"
+import { apiLog, getApiPath } from "@/lib/api/api-log"
 
 
 const normalizeDate = (value: unknown): string | null => {
@@ -15,33 +15,89 @@ const normalizeDate = (value: unknown): string | null => {
 const round2 = (value: number): number =>
   Math.round((value + Number.EPSILON) * 100) / 100;
 
+type ActorContext = {
+  id: string;
+  institution_id: string;
+  branch_id: string | null;
+  role_id: string | null;
+  role: string | null;
+}
+
+async function resolveActorContext(client: any, authUserId: string): Promise<ActorContext | null> {
+  const actorRes = await client.query(
+    `SELECT
+       u.id,
+       u.institution_id,
+       u.branch_id,
+       u.role_id,
+       CASE
+         WHEN r.name = 'System Admin' THEN 'system_admin'
+         WHEN r.name = 'Super Admin' THEN 'super_admin'
+         WHEN r.name = 'Admin' THEN 'institution_admin'
+         WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
+         ELSE NULL
+       END AS role
+     FROM senteloans_users u
+     LEFT JOIN senteloans_roles r ON r.id = u.role_id
+     WHERE u.supabase_user_id = $1
+     LIMIT 1`,
+    [authUserId]
+  )
+  return actorRes.rows[0] || null
+}
+
+async function hasPermission(client: any, actor: ActorContext, permission: string): Promise<boolean> {
+  const role = String(actor.role || "").trim().toLowerCase()
+  if (role === "super_admin") return true
+  if (!actor.role_id || !actor.branch_id) return false
+
+  const permRes = await client.query(
+    `SELECT 1
+     FROM senteloans_role_permissions rp
+     JOIN senteloans_permissions p ON p.id = rp.permission_id
+     WHERE rp.role_id = $1
+       AND rp.branch_id = $2
+       AND p.name = $3
+     LIMIT 1`,
+    [actor.role_id, actor.branch_id, permission]
+  )
+  return permRes.rowCount > 0
+}
 
 /** GET /api/institution/invoices/[id] — fetch a single invoice and its details */
 export async function GET(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const apiPath = getApiPath(req)
   try {
     const { id } = await params
-    if (!id) return NextResponse.json({ error: "Missing invoice ID" }, { status: 400 })
+    if (!id) {
+      apiLog("warn", "invoice.detail.invalid_request", { method: "GET", apiPath, status: 400, error: "missing_invoice_id" })
+      return NextResponse.json({ error: "Missing invoice ID" }, { status: 400 })
+    }
 
     const session = await getServerSession(authOptions)
-    if (!session?.user?.authUserId)
+    if (!session?.user?.authUserId) {
+      apiLog("warn", "invoice.detail.denied", { method: "GET", apiPath, status: 401, error: "unauthorized" })
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    if (session.user.type !== "staff")
+    }
+    if (session.user.type !== "staff") {
+      apiLog("warn", "invoice.detail.denied", { method: "GET", apiPath, status: 403, error: "forbidden", authUserId: session.user.authUserId })
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+    }
 
     const result = await runWithAuth(session.user.authUserId, async (client) => {
-      const actorRes = await client.query(
-        `SELECT institution_id FROM senteloans_users WHERE supabase_user_id = $1`,
-        [session!.user!.authUserId]
-      )
-      const actor = actorRes.rows[0]
+      const actor = await resolveActorContext(client, session.user.authUserId as string)
       if (!actor) return { error: "user_not_linked" as const }
+      const allowed = await hasPermission(client, actor, "view_invoices")
+      if (!allowed) return { error: "missing_permission:view_invoices" as const }
+      const isSuperAdmin = String(actor.role || "").trim().toLowerCase() === "super_admin"
+      if (!isSuperAdmin && !actor.branch_id) return { error: "actor_branch_missing" as const }
 
       const res = await client.query(
         `SELECT 
-            i.id, i.institution_id, i.client_id, i.invoice_number, i.invoice_date, i.invoice_due,
+            i.id, i.institution_id, i.member_id, i.invoice_number, i.invoice_date, i.invoice_due,
             i.subtotal, i.vat, i.total_amount, i.inwords, i.invoice_type, i.status,
             i.created_by, i.created_at, i.modified_by, i.updated_at,
 
@@ -67,22 +123,34 @@ export async function GET(
 
         WHERE i.id = $1
         AND i.institution_id = $2
+        ${isSuperAdmin ? "" : "AND i.branch_id = $3"}
 
         GROUP BY i.id`,
-        [id, actor.institution_id]
+        isSuperAdmin ? [id, actor.institution_id] : [id, actor.institution_id, actor.branch_id]
       )
       if (res.rows.length === 0) return { error: "invoice_not_found" as const }
-      return { invoice: res.rows[0] }
+      const invoice = res.rows[0]
+      return {
+        invoice: {
+          ...invoice,
+          client_id: invoice.member_id,
+        },
+      }
     })
 
     if (result && "error" in result) {
-      const status = result.error === "invoice_not_found" ? 404 : 400
+      const status =
+        result.error === "invoice_not_found" ? 404 :
+        result.error === "user_not_linked" || result.error === "missing_permission:view_invoices" ? 403 : 400
+      apiLog("warn", "invoice.detail.denied", { method: "GET", apiPath, status, error: result.error, invoiceId: id, authUserId: session.user.authUserId })
       return NextResponse.json({ error: result.error }, { status })
     }
 
+    apiLog("info", "invoice.detail.success", { method: "GET", apiPath, status: 200, invoiceId: id, authUserId: session.user.authUserId })
     return NextResponse.json(result)
   } catch (e: unknown) {
     const err = e as Error
+    apiLog("error", "invoice.detail.error", { method: "GET", apiPath, status: 500, error: err?.message || "Unexpected error" })
     return NextResponse.json({ error: err?.message || "Unexpected error" }, { status: 500 })
   }
 }
@@ -90,18 +158,24 @@ export async function GET(
 export async function PUT(req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const apiPath = getApiPath(req)
   try {
 
     const { id } = await params
-    if (!id) return NextResponse.json({ error: "Missing invoice ID" }, { status: 400 })
+    if (!id) {
+      apiLog("warn", "invoice.update.invalid_request", { method: "PUT", apiPath, status: 400, error: "missing_invoice_id" })
+      return NextResponse.json({ error: "Missing invoice ID" }, { status: 400 })
+    }
 
     const session = await getServerSession(authOptions);
-    if (!session?.user?.authUserId)
+    if (!session?.user?.authUserId) {
+      apiLog("warn", "invoice.update.denied", { method: "PUT", apiPath, status: 401, error: "unauthorized" })
       return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-    if (session.user.type !== "staff")
+    }
+    if (session.user.type !== "staff") {
+      apiLog("warn", "invoice.update.denied", { method: "PUT", apiPath, status: 403, error: "not_staff", authUserId: session.user.authUserId })
       return NextResponse.json({ error: "not_staff" }, { status: 403 });
-
-    const url = new URL(req.url);
+    }
     const body = (await req.json().catch(() => ({}))) as Record<
       string,
       unknown
@@ -139,15 +213,12 @@ export async function PUT(req: Request,
     const result = await runWithAuth(
       session.user.authUserId,
       async (client) => {
-        const actorRes = await client.query<{
-          id: string;
-          institution_id: string;
-        }>(
-          `SELECT id, institution_id FROM senteloans_users WHERE supabase_user_id = $1`,
-          [session!.user!.authUserId],
-        );
-        const actor = actorRes.rows[0];
+        const actor = await resolveActorContext(client, session.user.authUserId as string)
         if (!actor) return { error: "user_not_linked" as const };
+        const allowed = await hasPermission(client, actor, "edit_invoice")
+        if (!allowed) return { error: "missing_permission:edit_invoice" as const }
+        const isSuperAdmin = String(actor.role || "").trim().toLowerCase() === "super_admin"
+        if (!actor.branch_id) return { error: "actor_branch_missing" as const };
 
         const existingInvoiceRes = await client.query<{
           id: string;
@@ -155,14 +226,15 @@ export async function PUT(req: Request,
         }>(
           `SELECT id, invoice_number
          FROM senteloans_invoices
-         WHERE id = $1 AND institution_id = $2`,
-          [invoiceId, actor.institution_id],
+         WHERE id = $1 AND institution_id = $2
+         ${isSuperAdmin ? "" : "AND branch_id = $3"}`,
+          isSuperAdmin ? [invoiceId, actor.institution_id] : [invoiceId, actor.institution_id, actor.branch_id],
         );
         const existing = existingInvoiceRes.rows[0];
         if (!existing) return { error: "invoice_not_found" as const };
 
         const clientRes = await client.query<{ id: string }>(
-          `SELECT id FROM senteloans_clients WHERE id = $1 AND institution_id = $2`,
+          `SELECT id FROM senteloans_members WHERE id = $1 AND institution_id = $2`,
           [clientId, actor.institution_id],
         );
         if (clientRes.rows.length === 0)
@@ -213,18 +285,20 @@ export async function PUT(req: Request,
         try {
           await client.query(
             `UPDATE senteloans_invoices
-           SET client_id = $1,
+           SET member_id = $1,
                invoice_date = $2,
                invoice_due = $3,
                subtotal = $4,
                vat = $5,
                total_amount = $6,
                inwords = $7,
-               invoice_type = $8,
+              invoice_type = $8,
                status = $9,
                modified_by = $10,
                updated_at = NOW()
-           WHERE id = $11`,
+           WHERE id = $11
+             AND institution_id = $12
+             ${isSuperAdmin ? "" : "AND branch_id = $13"}`,
             [
               clientId,
               invoiceDate,
@@ -237,6 +311,8 @@ export async function PUT(req: Request,
               status,
               actor.id,
               invoiceId,
+              actor.institution_id,
+              ...(isSuperAdmin ? [] : [actor.branch_id]),
             ],
           );
 
@@ -262,6 +338,28 @@ export async function PUT(req: Request,
           }
 
           await client.query("COMMIT");
+          await client.query(
+            `INSERT INTO senteloans_audit_logs
+              (institution_id, branch_id, user_id, table_name, operation, record_id, new_values)
+             VALUES ($1, $2, $3, 'senteloans_invoices', 'UPDATE', $4, $5)`,
+            [
+              actor.institution_id,
+              existing.branch_id ?? actor.branch_id,
+              actor.id,
+              invoiceId,
+              JSON.stringify({
+                member_id: clientId,
+                invoice_date: invoiceDate,
+                invoice_due: invoiceDue,
+                status,
+                invoice_type: invoiceType,
+                subtotal: computedSubtotal,
+                vat: round2(vat),
+                total_amount: totalAmount,
+                item_count: normalizedItems.length,
+              }),
+            ],
+          );
           return {
             ok: true,
             id: invoiceId,
@@ -279,15 +377,18 @@ export async function PUT(req: Request,
         result.error === "invoice_not_found" ||
         result.error === "client_not_found"
           ? 404
-          : result.error === "user_not_linked"
+          : result.error === "user_not_linked" || result.error === "missing_permission:edit_invoice"
             ? 403
             : 400;
+      apiLog("warn", "invoice.update.denied", { method: "PUT", apiPath, status: statusCode, error: result.error, invoiceId, authUserId: session.user.authUserId });
       return NextResponse.json({ error: result.error }, { status: statusCode });
     }
 
+    apiLog("info", "invoice.update.success", { method: "PUT", apiPath, status: 200, invoiceId, authUserId: session.user.authUserId });
     return NextResponse.json(result);
   } catch (e: unknown) {
     const err = e as Error;
+    apiLog("error", "invoice.update.error", { method: "PUT", apiPath, status: 500, error: err?.message || "Unexpected error" });
     return NextResponse.json(
       { error: err?.message || "Unexpected error" },
       { status: 500 },
@@ -299,6 +400,7 @@ export async function PATCH(
   req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  const apiPath = getApiPath(req)
   try {
     const { id } = await params;
     if (!id) {
@@ -307,9 +409,11 @@ export async function PATCH(
 
     const session = await getServerSession(authOptions);
     if (!session?.user?.authUserId) {
+      apiLog("warn", "invoice.status.denied", { method: "PATCH", apiPath, status: 401, error: "unauthorized" })
       return NextResponse.json({ error: "unauthorized" }, { status: 401 });
     }
     if (session.user.type !== "staff") {
+      apiLog("warn", "invoice.status.denied", { method: "PATCH", apiPath, status: 403, error: "not_staff", authUserId: session.user.authUserId })
       return NextResponse.json({ error: "not_staff" }, { status: 403 });
     }
 
@@ -330,21 +434,39 @@ export async function PATCH(
     }
 
     const result = await runWithAuth(session.user.authUserId, async (client) => {
-      const actorRes = await client.query<{ id: string; institution_id: string }>(
-        `SELECT id, institution_id FROM senteloans_users WHERE supabase_user_id = $1`,
-        [session!.user!.authUserId],
-      );
-      const actor = actorRes.rows[0];
+      const actor = await resolveActorContext(client, session.user.authUserId as string)
       if (!actor) return { error: "user_not_linked" as const };
+      const allowed = await hasPermission(client, actor, "edit_invoice_status")
+      if (!allowed) return { error: "missing_permission:edit_invoice_status" as const }
+      const isSuperAdmin = String(actor.role || "").trim().toLowerCase() === "super_admin"
+      if (!isSuperAdmin && !actor.branch_id) return { error: "actor_branch_missing" as const }
 
-      const updateRes = await client.query<{ id: string }>(
+      const updateRes = await client.query<{ id: string; branch_id: string }>(
         `UPDATE senteloans_invoices
          SET status = $1, modified_by = $2, updated_at = NOW()
          WHERE id = $3 AND institution_id = $4
-         RETURNING id`,
-        [nextStatus, actor.id, id, actor.institution_id],
+         ${isSuperAdmin ? "" : "AND branch_id = $5"}
+         RETURNING id, branch_id`,
+        isSuperAdmin
+          ? [nextStatus, actor.id, id, actor.institution_id]
+          : [nextStatus, actor.id, id, actor.institution_id, actor.branch_id],
       );
       if (updateRes.rows.length === 0) return { error: "invoice_not_found" as const };
+
+      const invoiceBranchId = updateRes.rows[0]?.branch_id || actor.branch_id
+      await client.query(
+        `INSERT INTO senteloans_audit_logs
+          (institution_id, branch_id, user_id, table_name, operation, record_id, new_values)
+         VALUES
+          ($1, $2, $3, 'senteloans_invoices', 'UPDATE', $4, $5)`,
+        [
+          actor.institution_id,
+          invoiceBranchId,
+          actor.id,
+          id,
+          JSON.stringify({ status: nextStatus }),
+        ],
+      )
 
       return { ok: true, id, status: nextStatus };
     });
@@ -353,15 +475,18 @@ export async function PATCH(
       const statusCode =
         result.error === "invoice_not_found"
           ? 404
-          : result.error === "user_not_linked"
+          : result.error === "user_not_linked" || result.error === "missing_permission:edit_invoice_status"
             ? 403
             : 400;
+      apiLog("warn", "invoice.status.denied", { method: "PATCH", apiPath, status: statusCode, error: result.error, invoiceId: id, authUserId: session.user.authUserId })
       return NextResponse.json({ error: result.error }, { status: statusCode });
     }
 
+    apiLog("info", "invoice.status.success", { method: "PATCH", apiPath, status: 200, invoiceId: id, authUserId: session.user.authUserId })
     return NextResponse.json(result);
   } catch (e: unknown) {
     const err = e as Error;
+    apiLog("error", "invoice.status.error", { method: "PATCH", apiPath, status: 500, error: err?.message || "Unexpected error" })
     return NextResponse.json(
       { error: err?.message || "Unexpected error" },
       { status: 500 },

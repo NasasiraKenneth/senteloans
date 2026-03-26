@@ -2,12 +2,44 @@ import { NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { runWithAuth } from "@/lib/db"
+import { apiLog, getApiPath } from "@/lib/api/api-log"
 
-export async function GET() {
+const readNumber = (obj: Record<string, unknown>, ...keys: string[]): number | undefined => {
+  for (const key of keys) {
+    const value = obj[key]
+    if (typeof value === "number" && Number.isFinite(value)) return value
+  }
+  return undefined
+}
+
+const readBoolean = (obj: Record<string, unknown>, ...keys: string[]): boolean | undefined => {
+  for (const key of keys) {
+    const value = obj[key]
+    if (typeof value === "boolean") return value
+  }
+  return undefined
+}
+
+const readString = (obj: Record<string, unknown>, ...keys: string[]): string | undefined => {
+  for (const key of keys) {
+    const value = obj[key]
+    if (typeof value === "string" && value.trim().length > 0) return value
+  }
+  return undefined
+}
+
+export async function GET(req: Request) {
+  const apiPath = getApiPath(req)
   try {
     const session = await getServerSession(authOptions)
-    if (!session?.user?.authUserId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    if (session.user.type !== "staff") return NextResponse.json({ error: "no_app_user" }, { status: 403 })
+    if (!session?.user?.authUserId) {
+      apiLog("warn", "institution.settings.denied", { method: "GET", apiPath, status: 401, error: "unauthorized" })
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+    if (session.user.type !== "staff") {
+      apiLog("warn", "institution.settings.denied", { method: "GET", apiPath, status: 403, error: "no_app_user", authUserId: session.user.authUserId })
+      return NextResponse.json({ error: "no_app_user" }, { status: 403 })
+    }
 
     const inst = await runWithAuth(session.user.authUserId, async (client) => {
       const res = await client.query(
@@ -20,7 +52,10 @@ export async function GET() {
       return res.rows[0]
     })
 
-    if (!inst) return NextResponse.json({ error: "institution_not_found" }, { status: 404 })
+    if (!inst) {
+      apiLog("warn", "institution.settings.not_found", { method: "GET", apiPath, status: 404, authUserId: session.user.authUserId })
+      return NextResponse.json({ error: "institution_not_found" }, { status: 404 })
+    }
     const settings = (inst.settings as Record<string, unknown>) || {}
     const modules = (settings.modules as Record<string, unknown>) || {}
 
@@ -30,40 +65,49 @@ export async function GET() {
       type: inst.type,
       config: {
         modules: {
-          loans: Boolean(modules.loans),
-          shares: Boolean(modules.shares),
-          savings: Boolean(modules.savings),
-          mobile_money: Boolean(modules.mobile_money),
+          loans: Boolean(readBoolean(modules, "loans") ?? false),
+          shares: Boolean(readBoolean(modules, "shares") ?? false),
+          savings: Boolean(readBoolean(modules, "savings") ?? false),
+          mobile_money: Boolean(readBoolean(modules, "mobile_money", "mobileMoney") ?? false),
         },
-        currency: (settings.currency as string) || "UGX",
-        shareValue: typeof settings.share_value === "number" ? settings.share_value : undefined,
-        minimumShares: typeof settings.minimum_shares === "number" ? settings.minimum_shares : undefined,
-        maximumShares: typeof settings.maximum_shares === "number" ? settings.maximum_shares : undefined,
-        clientTerminology: (settings.clientTerminology as string) || "Member",
-        membershipFee: typeof settings.membershipFee === "number" ? settings.membershipFee : 0,
-        maximumParallelLoans: typeof settings.maximumParallelLoans === "number" ? settings.maximumParallelLoans : 1,
-        loanLatePenalty: typeof settings.loanLatePenalty === "number" ? settings.loanLatePenalty : 0,
-        loanLatePenaltyPeriodDays: typeof settings.loanLatePenaltyPeriodDays === "number" ? settings.loanLatePenaltyPeriodDays : 30,
-        membershipLatePenalty: typeof settings.membershipLatePenalty === "number" ? settings.membershipLatePenalty : 0,
-        membershipLatePenaltyPeriodDays: typeof settings.membershipLatePenaltyPeriodDays === "number" ? settings.membershipLatePenaltyPeriodDays : 30,
-        autoInvoices: typeof settings.autoInvoices === "boolean" ? settings.autoInvoices : false,
-        invoicePeriodDays: typeof settings.invoicePeriodDays === "number" ? settings.invoicePeriodDays : 30,
-        defaultedAfterDays: typeof settings.defaultedAfterDays === "number" ? settings.defaultedAfterDays : 90,
-        monthlyOverdueGraceDays: typeof settings.monthlyOverdueGraceDays === "number" ? settings.monthlyOverdueGraceDays : 0,
+        currency: readString(settings, "currency") || "UGX",
+        shareValue: readNumber(settings, "share_value", "shareValue"),
+        minimumShares: readNumber(settings, "minimum_shares", "minimumShares"),
+        maximumShares: readNumber(settings, "maximum_shares", "maximumShares"),
+        clientTerminology: readString(settings, "clientTerminology", "client_terminology") || "Member",
+        membershipFee: readNumber(settings, "membershipFee", "membership_fee") ?? 0,
+        maximumParallelLoans: readNumber(settings, "maximumParallelLoans", "maximum_parallel_loans") ?? 1,
+        loanLatePenalty: readNumber(settings, "loanLatePenalty", "loan_late_penalty") ?? 0,
+        loanLatePenaltyPeriodDays: readNumber(settings, "loanLatePenaltyPeriodDays", "loan_late_penalty_period_days") ?? 30,
+        membershipLatePenalty: readNumber(settings, "membershipLatePenalty", "membership_late_penalty") ?? 0,
+        membershipLatePenaltyPeriodDays: readNumber(settings, "membershipLatePenaltyPeriodDays", "membership_late_penalty_period_days") ?? 30,
+        autoInvoices: readBoolean(settings, "autoInvoices", "auto_invoices") ?? false,
+        invoicePeriodDays: readNumber(settings, "invoicePeriodDays", "invoice_period_days") ?? 30,
+        defaultedAfterDays: readNumber(settings, "defaultedAfterDays", "defaulted_after_days") ?? 90,
+        monthlyOverdueGraceDays: readNumber(settings, "monthlyOverdueGraceDays", "monthly_overdue_grace_days") ?? 0,
       },
     }
+    apiLog("info", "institution.settings.success", { method: "GET", apiPath, status: 200, authUserId: session.user.authUserId })
     return NextResponse.json(normalized)
   } catch (e: unknown) {
     const err = e as Error
+    apiLog("error", "institution.settings.error", { method: "GET", apiPath, status: 500, error: err?.message || "Unexpected error" })
     return NextResponse.json({ error: err?.message || "Unexpected error" }, { status: 500 })
   }
 }
 
 export async function PUT(req: Request) {
+  const apiPath = getApiPath(req)
   try {
     const session = await getServerSession(authOptions)
-    if (!session?.user?.authUserId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    if (session.user.type !== "staff") return NextResponse.json({ error: "no_app_user" }, { status: 403 })
+    if (!session?.user?.authUserId) {
+      apiLog("warn", "institution.settings.denied", { method: "PUT", apiPath, status: 401, error: "unauthorized" })
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+    if (session.user.type !== "staff") {
+      apiLog("warn", "institution.settings.denied", { method: "PUT", apiPath, status: 403, error: "no_app_user", authUserId: session.user.authUserId })
+      return NextResponse.json({ error: "no_app_user" }, { status: 403 })
+    }
 
     const body = (await req.json()) as {
       config?: {
@@ -156,36 +200,41 @@ export async function PUT(req: Request) {
       return updated.rows[0]
     })
 
-    if (!result) return NextResponse.json({ error: "institution_not_found" }, { status: 404 })
+    if (!result) {
+      apiLog("warn", "institution.settings.not_found", { method: "PUT", apiPath, status: 404, authUserId: session.user.authUserId })
+      return NextResponse.json({ error: "institution_not_found" }, { status: 404 })
+    }
     const s2 = (result.settings as Record<string, unknown>) || {}
     const m2 = (s2.modules as Record<string, unknown>) || {}
-    return NextResponse.json({
+    const response = {
       id: result.id,
       type: result.type,
       config: {
         modules: {
-          loans: Boolean(m2.loans),
-          shares: Boolean(m2.shares),
-          savings: Boolean(m2.savings),
-          mobile_money: Boolean(m2.mobile_money),
+          loans: Boolean(readBoolean(m2, "loans") ?? false),
+          shares: Boolean(readBoolean(m2, "shares") ?? false),
+          savings: Boolean(readBoolean(m2, "savings") ?? false),
+          mobile_money: Boolean(readBoolean(m2, "mobile_money", "mobileMoney") ?? false),
         },
-        currency: (s2.currency as string) || "UGX",
-        shareValue: typeof s2.share_value === "number" ? s2.share_value : undefined,
-        minimumShares: typeof s2.minimum_shares === "number" ? s2.minimum_shares : undefined,
-        maximumShares: typeof s2.maximum_shares === "number" ? s2.maximum_shares : undefined,
-        clientTerminology: (s2.clientTerminology as string) || "Member",
-        membershipFee: typeof s2.membershipFee === "number" ? s2.membershipFee : 0,
-        maximumParallelLoans: typeof s2.maximumParallelLoans === "number" ? s2.maximumParallelLoans : 1,
-        loanLatePenalty: typeof s2.loanLatePenalty === "number" ? s2.loanLatePenalty : 0,
-        loanLatePenaltyPeriodDays: typeof s2.loanLatePenaltyPeriodDays === "number" ? s2.loanLatePenaltyPeriodDays : 30,
-        membershipLatePenalty: typeof s2.membershipLatePenalty === "number" ? s2.membershipLatePenalty : 0,
-        membershipLatePenaltyPeriodDays: typeof s2.membershipLatePenaltyPeriodDays === "number" ? s2.membershipLatePenaltyPeriodDays : 30,
-        autoInvoices: typeof s2.autoInvoices === "boolean" ? s2.autoInvoices : false,
-        invoicePeriodDays: typeof s2.invoicePeriodDays === "number" ? s2.invoicePeriodDays : 30,
-        defaultedAfterDays: typeof s2.defaultedAfterDays === "number" ? s2.defaultedAfterDays : 90,
-        monthlyOverdueGraceDays: typeof s2.monthlyOverdueGraceDays === "number" ? s2.monthlyOverdueGraceDays : 0,
+        currency: readString(s2, "currency") || "UGX",
+        shareValue: readNumber(s2, "share_value", "shareValue"),
+        minimumShares: readNumber(s2, "minimum_shares", "minimumShares"),
+        maximumShares: readNumber(s2, "maximum_shares", "maximumShares"),
+        clientTerminology: readString(s2, "clientTerminology", "client_terminology") || "Member",
+        membershipFee: readNumber(s2, "membershipFee", "membership_fee") ?? 0,
+        maximumParallelLoans: readNumber(s2, "maximumParallelLoans", "maximum_parallel_loans") ?? 1,
+        loanLatePenalty: readNumber(s2, "loanLatePenalty", "loan_late_penalty") ?? 0,
+        loanLatePenaltyPeriodDays: readNumber(s2, "loanLatePenaltyPeriodDays", "loan_late_penalty_period_days") ?? 30,
+        membershipLatePenalty: readNumber(s2, "membershipLatePenalty", "membership_late_penalty") ?? 0,
+        membershipLatePenaltyPeriodDays: readNumber(s2, "membershipLatePenaltyPeriodDays", "membership_late_penalty_period_days") ?? 30,
+        autoInvoices: readBoolean(s2, "autoInvoices", "auto_invoices") ?? false,
+        invoicePeriodDays: readNumber(s2, "invoicePeriodDays", "invoice_period_days") ?? 30,
+        defaultedAfterDays: readNumber(s2, "defaultedAfterDays", "defaulted_after_days") ?? 90,
+        monthlyOverdueGraceDays: readNumber(s2, "monthlyOverdueGraceDays", "monthly_overdue_grace_days") ?? 0,
       },
-    })
+    }
+    apiLog("info", "institution.settings.success", { method: "PUT", apiPath, status: 200, authUserId: session.user.authUserId })
+    return NextResponse.json(response)
   } catch (e: unknown) {
     const err = e as Error
     if (
@@ -194,7 +243,15 @@ export async function PUT(req: Request) {
       err.message === "loan_late_penalty_percentage_invalid" ||
       err.message === "maximum_parallel_loans_invalid"
     )
+      apiLog("warn", "institution.settings.invalid", { method: "PUT", apiPath, status: 400, error: err.message })
+    if (
+      err.message === "share_value_required" ||
+      err.message === "min_greater_than_max" ||
+      err.message === "loan_late_penalty_percentage_invalid" ||
+      err.message === "maximum_parallel_loans_invalid"
+    )
       return NextResponse.json({ error: err.message }, { status: 400 })
+    apiLog("error", "institution.settings.error", { method: "PUT", apiPath, status: 500, error: err?.message || "Unexpected error" })
     return NextResponse.json({ error: err?.message || "Unexpected error" }, { status: 500 })
   }
 }

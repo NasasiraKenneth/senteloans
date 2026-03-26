@@ -2,11 +2,13 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { runWithAuth } from "@/lib/db";
+import { apiLog, getApiPath } from "@/lib/api/api-log";
 
 type InvoiceRow = {
   id: string;
   institution_id: string;
-  client_id: string;
+  member_id: string;
+  branch_id: string;
   invoice_number: string;
   invoice_date: string;
   invoice_due: string | null;
@@ -32,6 +34,55 @@ type InvoiceItemRow = {
   total_price: string | number;
   vatinclusive: boolean;
 };
+
+type ActorContext = {
+  id: string;
+  institution_id: string;
+  branch_id: string | null;
+  role_id: string | null;
+  role: string | null;
+};
+
+async function resolveActorContext(client: any, authUserId: string): Promise<ActorContext | null> {
+  const actorRes = await client.query(
+    `SELECT
+       u.id,
+       u.institution_id,
+       u.branch_id,
+       u.role_id,
+       CASE
+         WHEN r.name = 'System Admin' THEN 'system_admin'
+         WHEN r.name = 'Super Admin' THEN 'super_admin'
+         WHEN r.name = 'Admin' THEN 'institution_admin'
+         WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
+         ELSE NULL
+       END AS role
+     FROM senteloans_users u
+     LEFT JOIN senteloans_roles r ON r.id = u.role_id
+     WHERE u.supabase_user_id = $1
+     LIMIT 1`,
+    [authUserId],
+  );
+  return actorRes.rows[0] || null;
+}
+
+async function hasPermission(client: any, actor: ActorContext, permission: string): Promise<boolean> {
+  const role = String(actor.role || "").trim().toLowerCase();
+  if (role === "super_admin") return true;
+  if (!actor.role_id || !actor.branch_id) return false;
+
+  const permRes = await client.query(
+    `SELECT 1
+     FROM senteloans_role_permissions rp
+     JOIN senteloans_permissions p ON p.id = rp.permission_id
+     WHERE rp.role_id = $1
+       AND rp.branch_id = $2
+       AND p.name = $3
+     LIMIT 1`,
+    [actor.role_id, actor.branch_id, permission],
+  );
+  return permRes.rowCount > 0;
+}
 
 const normalizeDate = (value: unknown): string | null => {
   if (typeof value !== "string" || !value.trim()) return null;
@@ -66,10 +117,15 @@ const generateInvoiceNumber = async (
 };
 
 export async function GET(req: Request) {
+  const apiPath = getApiPath(req);
   try {
     const session = await getServerSession(authOptions);
     if (!session?.user?.authUserId)
+      apiLog("warn", "invoices.list.denied", { method: "GET", apiPath, status: 401, error: "unauthorized" });
+    if (!session?.user?.authUserId)
       return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    if (session.user.type !== "staff")
+      apiLog("warn", "invoices.list.denied", { method: "GET", apiPath, status: 403, error: "not_staff", authUserId: session.user.authUserId });
     if (session.user.type !== "staff")
       return NextResponse.json({ error: "not_staff" }, { status: 403 });
 
@@ -86,6 +142,8 @@ export async function GET(req: Request) {
     const invoiceId = (url.searchParams.get("invoice_id") || "").trim();
     const dateFrom = (url.searchParams.get("date_from") || "").trim();
     const dateTo = (url.searchParams.get("date_to") || "").trim();
+    const branchesRaw = (url.searchParams.get("branches") || "").trim();
+    const selectedBranchIds = branchesRaw ? branchesRaw.split(",").map((v) => v.trim()).filter(Boolean) : [];
     const dueFrom = (
       url.searchParams.get("due_from") ||
       url.searchParams.get("invoice_due_from") ||
@@ -103,17 +161,32 @@ export async function GET(req: Request) {
     const result = await runWithAuth(
       session.user.authUserId,
       async (client) => {
+        const actor = await resolveActorContext(client, session.user.authUserId as string);
+        if (!actor?.institution_id) return { error: "user_not_linked" as const };
+        const allowed = await hasPermission(client, actor, "view_invoices");
+        if (!allowed) return { error: "missing_permission:view_invoices" as const };
+        const isSuperAdmin = String(actor.role || "").trim().toLowerCase() === "super_admin";
+        if (!isSuperAdmin && !actor.branch_id) return { error: "actor_branch_missing" as const };
+
         let where =
-          "i.institution_id = (SELECT institution_id FROM senteloans_users WHERE supabase_user_id = $1)";
-        const params: unknown[] = [session!.user!.authUserId];
+          "i.institution_id = $1";
+        const params: unknown[] = [actor.institution_id];
         let idx = 2;
+
+        if (!isSuperAdmin) {
+          where += ` AND i.branch_id = $${idx++}`;
+          params.push(actor.branch_id);
+        } else if (selectedBranchIds.length > 0) {
+          where += ` AND i.branch_id = ANY($${idx++}::uuid[])`;
+          params.push(selectedBranchIds);
+        }
 
         if (invoiceId) {
           where += ` AND i.id = $${idx++}`;
           params.push(invoiceId);
         }
         if (clientId) {
-          where += ` AND i.client_id = $${idx++}`;
+          where += ` AND i.member_id = $${idx++}`;
           params.push(clientId);
         }
         if (status) {
@@ -148,8 +221,8 @@ export async function GET(req: Request) {
           where += ` AND (
           i.invoice_number ILIKE $${idx}
           OR i.inwords ILIKE $${idx}
-          OR c.full_name ILIKE $${idx}
-          OR c.client_number ILIKE $${idx}
+          OR m.full_name ILIKE $${idx}
+          OR m.member_number ILIKE $${idx}
         )`;
           params.push(`%${search}%`);
           idx++;
@@ -158,7 +231,7 @@ export async function GET(req: Request) {
         const countRes = await client.query<{ c: number }>(
           `SELECT COUNT(*)::int AS c
          FROM senteloans_invoices i
-         LEFT JOIN senteloans_clients c ON c.id = i.client_id
+         LEFT JOIN senteloans_members m ON m.id = i.member_id
          WHERE ${where}`,
           params,
         );
@@ -168,11 +241,11 @@ export async function GET(req: Request) {
         const dataParams = [...params, pageSize, from];
         const dataRes = await client.query<InvoiceRow>(
           `SELECT
-          i.id, i.institution_id, i.client_id, i.invoice_number, i.invoice_date, i.invoice_due,
+          i.id, i.institution_id, i.member_id, i.branch_id, i.invoice_number, i.invoice_date, i.invoice_due,
           i.subtotal, i.vat, i.total_amount, i.inwords, i.invoice_type, i.status,
           i.created_by, i.created_at, i.modified_by, i.updated_at
          FROM senteloans_invoices i
-         LEFT JOIN senteloans_clients c ON c.id = i.client_id
+         LEFT JOIN senteloans_members m ON m.id = i.member_id
          LEFT JOIN senteloans_users u ON u.id = i.created_by
          WHERE ${where}
          ORDER BY i.created_at DESC
@@ -182,7 +255,7 @@ export async function GET(req: Request) {
 
         const invoices = dataRes.rows;
         const clientIds = [
-          ...new Set(invoices.map((i) => i.client_id).filter(Boolean)),
+          ...new Set(invoices.map((i) => i.member_id).filter(Boolean)),
         ];
         let clientMap: Record<
           string,
@@ -193,15 +266,15 @@ export async function GET(req: Request) {
           const clientsRes = await client.query<{
             id: string;
             full_name: string;
-            client_number: string | null;
+            member_number: string | null;
           }>(
-            `SELECT id, full_name, client_number FROM senteloans_clients WHERE id = ANY($1::uuid[])`,
+            `SELECT id, full_name, member_number FROM senteloans_members WHERE id = ANY($1::uuid[])`,
             [clientIds],
           );
           clientMap = Object.fromEntries(
             clientsRes.rows.map((c) => [
               c.id,
-              { name: c.full_name, client_number: c.client_number },
+              { name: c.full_name, client_number: c.member_number },
             ]),
           );
         }
@@ -243,9 +316,10 @@ export async function GET(req: Request) {
         const mapped = invoices.map((row) => ({
           id: row.id,
           institution_id: row.institution_id,
-          client_id: row.client_id,
-          client_name: clientMap[row.client_id]?.name || "",
-          client_number: clientMap[row.client_id]?.client_number || null,
+          client_id: row.member_id,
+          member_id: row.member_id,
+          client_name: clientMap[row.member_id]?.name || "",
+          client_number: clientMap[row.member_id]?.client_number || null,
           staff_name: userMap[row.created_by]?.full_name || "",
           invoice_number: row.invoice_number,
           invoice_date: row.invoice_date,
@@ -278,9 +352,18 @@ export async function GET(req: Request) {
       },
     );
 
+    if (result && "error" in result) {
+      const statusCode =
+        result.error === "missing_permission:view_invoices" || result.error === "user_not_linked" ? 403 : 400;
+      apiLog("warn", "invoices.list.denied", { method: "GET", apiPath, status: statusCode, error: result.error, authUserId: session.user.authUserId });
+      return NextResponse.json({ error: result.error }, { status: statusCode });
+    }
+
+    apiLog("info", "invoices.list.success", { method: "GET", apiPath, status: 200, count: result.items?.length || 0, authUserId: session.user.authUserId });
     return NextResponse.json(result);
   } catch (e: unknown) {
     const err = e as Error;
+    apiLog("error", "invoices.list.error", { method: "GET", apiPath, status: 500, error: err?.message || "Unexpected error" });
     return NextResponse.json(
       { error: err?.message || "Unexpected error" },
       { status: 500 },
@@ -289,10 +372,15 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
+  const apiPath = getApiPath(req);
   try {
     const session = await getServerSession(authOptions);
     if (!session?.user?.authUserId)
+      apiLog("warn", "invoices.create.denied", { method: "POST", apiPath, status: 401, error: "unauthorized" });
+    if (!session?.user?.authUserId)
       return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    if (session.user.type !== "staff")
+      apiLog("warn", "invoices.create.denied", { method: "POST", apiPath, status: 403, error: "not_staff", authUserId: session.user.authUserId });
     if (session.user.type !== "staff")
       return NextResponse.json({ error: "not_staff" }, { status: 403 });
 
@@ -332,22 +420,17 @@ export async function POST(req: Request) {
     const result = await runWithAuth(
       session.user.authUserId,
       async (client) => {
-        const actorRes = await client.query<{
-          id: string;
-          institution_id: string;
-        }>(
-          `SELECT id, institution_id FROM senteloans_users WHERE supabase_user_id = $1`,
-          [session!.user!.authUserId],
-        );
-        const actor = actorRes.rows[0];
+        const actor = await resolveActorContext(client, session.user.authUserId as string);
         if (!actor) return { error: "user_not_linked" as const };
+        const allowed = await hasPermission(client, actor, "add_invoice");
+        if (!allowed) return { error: "missing_permission:add_invoice" as const };
+        if (!actor.branch_id) return { error: "actor_branch_missing" as const };
 
         const clientRes = await client.query<{ id: string }>(
-          `SELECT id FROM senteloans_clients WHERE id = $1 AND institution_id = $2`,
+          `SELECT id FROM senteloans_members WHERE id = $1 AND institution_id = $2`,
           [clientId, actor.institution_id],
         );
-        if (clientRes.rows.length === 0)
-          return { error: "client_not_found" as const };
+        if (clientRes.rows.length === 0) return { error: "member_not_found" as const };
 
         const normalizedItems = items
           .map((item) => {
@@ -402,16 +485,17 @@ export async function POST(req: Request) {
             invoice_number: string;
           }>(
             `INSERT INTO senteloans_invoices (
-            institution_id, client_id, invoice_number, invoice_date, invoice_due,
+            institution_id, branch_id, member_id, invoice_number, invoice_date, invoice_due,
             subtotal, vat, total_amount, inwords, invoice_type, status,
             created_by
           ) VALUES (
             $1, $2, $3, $4, $5,
             $6, $7, $8, $9, $10, $11,
-            $12, $12
+            $12, $13
           ) RETURNING id, invoice_number`,
             [
               actor.institution_id,
+              actor.branch_id,
               clientId,
               invoiceNumber,
               invoiceDate,
@@ -445,6 +529,29 @@ export async function POST(req: Request) {
           }
 
           await client.query("COMMIT");
+          await client.query(
+            `INSERT INTO senteloans_audit_logs
+              (institution_id, branch_id, user_id, table_name, operation, record_id, new_values)
+             VALUES ($1, $2, $3, 'senteloans_invoices', 'INSERT', $4, $5)`,
+            [
+              actor.institution_id,
+              actor.branch_id,
+              actor.id,
+              invoice.id,
+              JSON.stringify({
+                member_id: clientId,
+                invoice_number: invoice.invoice_number,
+                invoice_date: invoiceDate,
+                invoice_due: invoiceDue,
+                status,
+                invoice_type: invoiceType,
+                subtotal: computedSubtotal,
+                vat: round2(vat),
+                total_amount: totalAmount,
+                item_count: normalizedItems.length,
+              }),
+            ],
+          );
           return {
             ok: true,
             id: invoice.id,
@@ -459,14 +566,16 @@ export async function POST(req: Request) {
 
     if (result && "error" in result) {
       const statusCode =
-        result.error === "client_not_found"
+        result.error === "member_not_found"
           ? 404
-          : result.error === "user_not_linked"
+          : result.error === "user_not_linked" || result.error === "missing_permission:add_invoice"
             ? 403
             : 400;
+      apiLog("warn", "invoices.create.denied", { method: "POST", apiPath, status: statusCode, error: result.error, authUserId: session.user.authUserId });
       return NextResponse.json({ error: result.error }, { status: statusCode });
     }
 
+    apiLog("info", "invoices.create.success", { method: "POST", apiPath, status: 201, invoiceId: result.id, authUserId: session.user.authUserId });
     return NextResponse.json(result, { status: 201 });
   } catch (e: unknown) {
     const err = e as Error;
@@ -479,6 +588,7 @@ export async function POST(req: Request) {
         { status: 409 },
       );
     }
+    apiLog("error", "invoices.create.error", { method: "POST", apiPath, status: 500, error: err?.message || "Unexpected error" });
     return NextResponse.json(
       { error: err?.message || "Unexpected error" },
       { status: 500 },
