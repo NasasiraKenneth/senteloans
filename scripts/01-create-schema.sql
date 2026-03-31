@@ -360,7 +360,7 @@ CREATE TABLE IF NOT EXISTS senteloans_loan_settlements (
 
     settlement_type VARCHAR(20) NOT NULL, 
     -- internal_topup | external_buyout
-    settlement_status settlement_status VARCHAR(20) DEFAULT 'Pending',
+    settlement_status settlement_status DEFAULT 'Pending',
 
     created_at TIMESTAMPTZ DEFAULT NOW(),
     CONSTRAINT uk_settlement UNIQUE(new_loan_id, settled_loan_id)
@@ -574,6 +574,201 @@ CREATE TABLE IF NOT EXISTS senteloans_member_kyc_docs (
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+CREATE TABLE IF NOT EXISTS senteloans_investments (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    institution_id UUID NOT NULL REFERENCES senteloans_institutions(id) ON DELETE RESTRICT,
+    branch_id UUID NOT NULL REFERENCES senteloans_branches(id) ON DELETE RESTRICT,
+    provider_id UUID REFERENCES senteloans_clients(id) ON DELETE RESTRICT,
+    category VARCHAR(50) NOT NULL CHECK (category IN ('fixed_income', 'project', 'equity', 'partnership')),
+    description TEXT,
+    initial_amount NUMERIC(18,2) NOT NULL CHECK (initial_amount >= 0),
+    current_value NUMERIC(18,2) NOT NULL DEFAULT 0 CHECK (current_value >= 0),
+    expected_percentage NUMERIC(5,2), -- optional %
+    penalty_percentage NUMERIC(5,2), -- optional %
+    expected_returns NUMERIC(18,2) NOT NULL DEFAULT 0 CHECK (expected_returns >= 0), -- optional %
+    risk_level VARCHAR(10) NOT NULL CHECK (risk_level IN ('low', 'medium', 'high')),
+    start_date DATE NOT NULL,
+    maturity_date DATE,
+    status VARCHAR(15) NOT NULL DEFAULT 'pending'
+        CHECK (status IN ('pending', 'active', 'matured', 'closed', 'cancelled')),
+    created_by UUID REFERENCES senteloans_users(id) NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    modified_by UUID REFERENCES senteloans_users(id) NOT NULL,
+    updated_at TIMESTAMPTZ,
+    CONSTRAINT chk_dates CHECK (
+        maturity_date IS NULL OR maturity_date >= start_date
+    )
+);
+
+CREATE TABLE IF NOT EXISTS senteloans_investment_partners (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    investment_id UUID NOT NULL
+        REFERENCES senteloans_investments(id) ON DELETE CASCADE,
+    counterparty_id UUID NOT NULL
+        REFERENCES senteloans_clients(id) ON DELETE CASCADE,
+    role VARCHAR(50), -- e.g. 'lead_partner', 'co_investor'
+    status VARCHAR(10) NOT NULL DEFAULT 'Active',
+    contribution_percentage NUMERIC(5,2)
+        CHECK (contribution_percentage BETWEEN 0 AND 100),
+    contribution_amount NUMERIC(18,2) CHECK (contribution_amount >= 0),
+    ownership_percentage NUMERIC(5,2)
+        CHECK (ownership_percentage BETWEEN 0 AND 100),
+    created_by UUID REFERENCES senteloans_users(id) NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    modified_by UUID REFERENCES senteloans_users(id) NOT NULL,
+    updated_at TIMESTAMPTZ,
+    CONSTRAINT unique_partner UNIQUE (investment_id, counterparty_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_investment_partners_investment_id
+  ON senteloans_investment_partners(investment_id);
+CREATE INDEX IF NOT EXISTS idx_investment_partners_counterparty_id
+  ON senteloans_investment_partners(counterparty_id);
+
+CREATE TABLE IF NOT EXISTS senteloans_investment_reports (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    investment_id UUID NOT NULL
+        REFERENCES senteloans_investments(id) ON DELETE RESTRICT,
+    report_period VARCHAR(15) NOT NULL, -- use month (e.g. march)
+    opening_value NUMERIC(18,2) NOT NULL CHECK (opening_value >= 0),
+    capital_added NUMERIC(18,2) NOT NULL DEFAULT 0 CHECK (capital_added >= 0),
+    income NUMERIC(18,2) NOT NULL DEFAULT 0 CHECK (income >= 0),
+    expenses NUMERIC(18,2) NOT NULL DEFAULT 0 CHECK (expenses >= 0),
+    closing_value NUMERIC(18,2) NOT NULL CHECK (closing_value >= 0),
+    notes TEXT,
+    created_by UUID REFERENCES senteloans_users(id) NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    modified_by UUID REFERENCES senteloans_users(id) NOT NULL,
+    updated_at TIMESTAMPTZ,
+    -- prevent duplicate monthly reports
+    CONSTRAINT unique_investment_period UNIQUE (investment_id, report_period),
+    -- logical constraint
+    CONSTRAINT chk_closing_value CHECK (
+        closing_value = opening_value + capital_added + income - expenses
+    )
+);
+
+CREATE TABLE IF NOT EXISTS senteloans_investment_cashflows (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    investment_id UUID NOT NULL
+        REFERENCES senteloans_investments(id) ON DELETE RESTRICT,
+    transaction_id UUID
+        REFERENCES senteloans_transactions(id) ON DELETE RESTRICT,
+    report_id UUID
+        REFERENCES senteloans_investment_reports(id) ON DELETE SET NULL,
+    type TEXT NOT NULL CHECK (type IN ('inflow', 'outflow')),
+    category TEXT NOT NULL CHECK (
+        category IN ('capital', 'income', 'expense', 'adjustment')
+    ),
+    amount NUMERIC(18,2) NOT NULL CHECK (amount > 0),
+    description TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS senteloans_investment_valuations (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    investment_id UUID NOT NULL
+        REFERENCES senteloans_investments(id) ON DELETE CASCADE,
+    valuation_date DATE NOT NULL,
+    value NUMERIC(18,2) NOT NULL CHECK (value >= 0),
+    notes TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    CONSTRAINT unique_valuation UNIQUE (investment_id, valuation_date)
+);
+
+CREATE TABLE IF NOT EXISTS senteloans_institution_loans (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    institution_id UUID NOT NULL REFERENCES senteloans_institutions(id) ON DELETE RESTRICT,
+    branch_id UUID NOT NULL REFERENCES senteloans_branches(id) ON DELETE RESTRICT,
+    client_id UUID NOT NULL REFERENCES senteloans_clients(id) ON DELETE RESTRICT,
+    loan_product VARCHAR(120),
+    principal_amount DECIMAL(15,2) NOT NULL CHECK (principal_amount > 0),
+    interest_rate DECIMAL(5,2) NOT NULL CHECK (interest_rate >= 0),
+    tenure_months INTEGER NOT NULL CHECK (tenure_months > 0),
+    monthly_payment DECIMAL(15,2),
+    total_amount DECIMAL(15,2),
+    outstanding_balance DECIMAL(15,2) NOT NULL DEFAULT 0,
+    status loan_status_type NOT NULL DEFAULT 'Applied',
+    -- Approved
+    -- Partially Disbursed
+    -- Fully Disbursed
+    loan_type VARCHAR(20) NOT NULL DEFAULT 'normal',
+    purpose TEXT,
+    collateral_description TEXT,
+    application_date DATE NOT NULL,
+    approved_by UUID REFERENCES senteloans_users(id) ON DELETE SET NULL,
+    approved_at TIMESTAMPTZ,
+    rejected_at TIMESTAMPTZ,
+    disbursement_balance DECIMAL(15,2) NOT NULL DEFAULT 0,
+    disbursement_date DATE,
+    maturity_date DATE,
+    next_payment_date DATE,
+    overdue_days INTEGER DEFAULT 0 CHECK (overdue_days >= 0),
+    created_by UUID REFERENCES senteloans_users(id) ON DELETE RESTRICT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    modified_by UUID REFERENCES senteloans_users(id) ON DELETE RESTRICT,
+    updated_at TIMESTAMPTZ
+);
+
+CREATE TABLE IF NOT EXISTS senteloans_institution_loan_repayments (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    loan_id UUID NOT NULL REFERENCES senteloans_institution_loans(id) ON DELETE CASCADE,
+    due_date DATE NOT NULL,
+    amount_paid DECIMAL(15,2) DEFAULT 0 CHECK (amount_paid >= 0),
+    payment_date DATE,
+    status repayment_status DEFAULT 'Pending',
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ
+);
+
+CREATE TABLE IF NOT EXISTS senteloans_investment_funding_sources (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    investment_id UUID NOT NULL
+        REFERENCES senteloans_investments(id) ON DELETE CASCADE,
+    source_type TEXT NOT NULL CHECK (
+        source_type IN ('savings', 'shares', 'reserves', 'loan', 'grant')
+    ),
+    loan_id UUID NULL REFERENCES senteloans_institution_loans(id) ON DELETE CASCADE, -- only if source_type = 'loan'
+    amount NUMERIC(18,2) NOT NULL CHECK (amount > 0),
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Indexes for investments
+CREATE INDEX IF NOT EXISTS idx_investments_institution_branch_status
+  ON senteloans_investments(institution_id, branch_id, status);
+CREATE INDEX IF NOT EXISTS idx_investments_provider_id
+  ON senteloans_investments(provider_id);
+CREATE INDEX IF NOT EXISTS idx_investments_category
+  ON senteloans_investments(category);
+CREATE INDEX IF NOT EXISTS idx_investments_start_date
+  ON senteloans_investments(start_date);
+CREATE INDEX IF NOT EXISTS idx_investments_maturity_date
+  ON senteloans_investments(maturity_date);
+CREATE INDEX IF NOT EXISTS idx_investments_created_by
+  ON senteloans_investments(created_by);
+
+CREATE INDEX IF NOT EXISTS idx_investment_reports_investment_period
+  ON senteloans_investment_reports(investment_id, report_period);
+CREATE INDEX IF NOT EXISTS idx_investment_reports_created_by
+  ON senteloans_investment_reports(created_by);
+
+CREATE INDEX IF NOT EXISTS idx_investment_cashflows_investment_date
+  ON senteloans_investment_cashflows(investment_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_investment_cashflows_report_id
+  ON senteloans_investment_cashflows(report_id);
+CREATE INDEX IF NOT EXISTS idx_investment_cashflows_type_category
+  ON senteloans_investment_cashflows(type, category);
+
+CREATE INDEX IF NOT EXISTS idx_investment_valuations_investment_date
+  ON senteloans_investment_valuations(investment_id, valuation_date DESC);
+
+CREATE INDEX IF NOT EXISTS idx_investment_funding_sources_investment_id
+  ON senteloans_investment_funding_sources(investment_id);
+CREATE INDEX IF NOT EXISTS idx_investment_funding_sources_type
+  ON senteloans_investment_funding_sources(source_type);
+CREATE INDEX IF NOT EXISTS idx_investment_funding_sources_loan_id
+  ON senteloans_investment_funding_sources(loan_id);
 
 -- Indexes for KYC docs
 CREATE INDEX IF NOT EXISTS idx_client_kyc_docs_institution ON senteloans_member_kyc_docs(institution_id);

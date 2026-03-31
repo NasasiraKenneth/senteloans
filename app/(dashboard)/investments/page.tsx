@@ -10,6 +10,7 @@ import { Plus, AlertTriangle, Eye, Edit, FileText, Calendar } from "lucide-react
 import { useToast } from "@/components/ui/toast"
 import { ActionSelect, SelectOption } from "@/components/datatables/actions"
 import { getInitials } from "@/lib/invoices/utils"
+import AddNewInvestment from "./components/add/new"
 
 type InvestmentRow = {
   id: string
@@ -61,6 +62,7 @@ export default function InvestmentsPage() {
   const [error, setError] = useState("")
   const [page, setPage] = useState(0)
   const [rowsPerPage, setRowsPerPage] = useState(10)
+  const [isAddOpen, setIsAddOpen] = useState(false)
 
   const loadInvestments = useCallback(async (queryParams?: object) => {
     setLoading(true)
@@ -144,7 +146,7 @@ export default function InvestmentsPage() {
     },
     {
       key: "client_name",
-      header: "Client Name",
+      header: "Provider Name",
       render: (row) => (
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 bg-linear-to-br from-primary/80 to-primary rounded-full flex items-center justify-center">
@@ -228,16 +230,17 @@ export default function InvestmentsPage() {
   ]
 
   const filterFields: FilterField[] = [
-    { field: "q", label: "Search by investment number or client", type: "text" },
+    { field: "q", label: "Search by investment number or provider", type: "text" },
     {
       field: "investment_type",
       label: "Investment Type",
       type: "select",
       multiple: false,
       options: [
-        { value: "Fixed Deposit", label: "Fixed Deposit" },
-        { value: "Treasury", label: "Treasury" },
-        { value: "Savings Plan", label: "Savings Plan" },
+        { value: "fixed_income", label: "Fixed Income" },
+        { value: "project", label: "Project" },
+        { value: "equity", label: "Equity" },
+        { value: "partnership", label: "Partnership" },
       ],
     },
     {
@@ -269,7 +272,7 @@ export default function InvestmentsPage() {
           <h2 className="text-3xl font-bold">Investments</h2>
           <p className="text-muted-foreground">Track member investments, maturity timelines, and expected returns.</p>
         </div>
-        <Button type="button" disabled title="Create investment flow coming soon">
+        <Button type="button" onClick={() => setIsAddOpen(true)}>
           <Plus className="mr-2 h-4 w-4" />
           New Investment
         </Button>
@@ -327,6 +330,12 @@ export default function InvestmentsPage() {
             setRowsPerPage(parseInt(e.target.value, 10))
           },
         }}
+      />
+
+      <AddNewInvestment
+        isOpen={isAddOpen}
+        onClose={() => setIsAddOpen(false)}
+        onSuccess={() => loadInvestments()}
       />
     </div>
   )
