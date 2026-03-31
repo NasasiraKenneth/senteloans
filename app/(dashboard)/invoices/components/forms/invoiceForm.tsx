@@ -22,6 +22,11 @@ interface Client {
   clientName: string;
 }
 
+interface Member {
+  id: string;
+  memberName: string;
+}
+
 export interface InvoiceItemForm {
   id: string;
   unit: string;
@@ -33,8 +38,10 @@ export interface InvoiceItemForm {
 }
 
 export interface InvoiceFormData {
+  targetType: "member" | "client";
+  memberId: string | null;
   clientId: string | null;
-  clientName: string;
+  customerName: string;
   invoiceNo: string | null;
   invoiceDate: string;
   invoiceType: string;
@@ -87,17 +94,20 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({
   editMode = false,
 }) => {
   const [clients, setClients] = useState<Client[]>([]);
+  const [members, setMembers] = useState<Member[]>([]);
   const [loadingClients, setLoadingClients] = useState(false);
   const [invoicePeriodDays, setInvoicePeriodDays] = useState<number>(30);
 
   const [formData, setFormData] = useState<InvoiceFormData>({
     clientId: null,
-    clientName: "",
+    memberId: null,
+    targetType: "member",
+    customerName: "",
     invoiceNo: null,
     invoiceDate: "",
     dueDate: "",
     invoiceType: "Manual",
-    status: "",
+    status: "draft",
     vatInclusive: true,
     items: [],
     subTotal: 0,
@@ -114,25 +124,45 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({
       try {
         setLoadingClients(true);
 
-        const [clientsRes, settingsRes] = await Promise.all([
+        const [clientsRes, membersRes, settingsRes] = await Promise.all([
           fetch("/api/institution/clients?limit=200", { cache: "no-store" }),
+          fetch("/api/institution/members?limit=200", { cache: "no-store" }),
           fetch("/api/institution/settings", { cache: "no-store" }),
         ]);
 
         if (clientsRes.ok) {
           const data = await clientsRes.json();
-          console.log("Clients API response:", data);
-
           const clientArray = Array.isArray(data)
             ? data
-            : (data?.clients ?? []);
+            : (data?.clients ?? data?.items ?? []);
 
           const mapped: Client[] = clientArray.map((c: any) => ({
-            id: c.id,
-            clientName: c.full_name,
-          }));
+            id: String(c?.id || ""),
+            clientName: String(
+              c?.name ||
+                c?.full_name ||
+                c?.clientName ||
+                c?.client_name ||
+                c?.email ||
+                c?.phone ||
+                c?.id ||
+                "",
+            ),
+          })).filter((c) => c.id);
 
           setClients(mapped);
+        }
+
+        if (membersRes.ok) {
+          const data = await membersRes.json();
+          const memberArray = Array.isArray(data)
+            ? data
+            : (data?.members ?? data?.clients ?? []);
+          const mappedMembers: Member[] = memberArray.map((m: any) => ({
+            id: String(m.id || ""),
+            memberName: String(m.full_name || m.memberName || ""),
+          }));
+          setMembers(mappedMembers);
         }
 
         if (settingsRes.ok) {
@@ -217,13 +247,25 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({
   };
 
   const handleCustomerChange = (idStr: string) => {
+    if (formData.targetType === "member") {
+      const member = members.find((m) => m.id === idStr);
+      if (!member) return;
+      setFormData((prev) => ({
+        ...prev,
+        memberId: member.id,
+        clientId: null,
+        customerName: member.memberName,
+      }));
+      return;
+    }
+
     const client = clients.find((c) => c.id === idStr);
     if (!client) return;
-
     setFormData((prev) => ({
       ...prev,
-      clientId: client.id, // string id
-      clientName: client.clientName, // store selected name
+      clientId: client.id,
+      memberId: null,
+      customerName: client.clientName,
     }));
   };
 
@@ -296,8 +338,11 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({
   const validate = (): boolean => {
     const nextErrors: Record<string, string> = {};
 
-    if (!formData.clientId) {
-      nextErrors.clientId = "Customer is required";
+    if (formData.targetType === "member" && !formData.memberId) {
+      nextErrors.memberId = "Member is required";
+    }
+    if (formData.targetType === "client" && !formData.clientId) {
+      nextErrors.clientId = "Client is required";
     }
 
     if (!formData.invoiceDate) {
@@ -329,23 +374,57 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             <div className="space-y-2">
-              <Label>Customer *</Label>
+              <Label>Invoice For *</Label>
+              <StyledSelect
+                value={formData.targetType}
+                onChange={(value) =>
+                  setFormData((prev) => ({
+                    ...prev,
+                    targetType: value === "client" ? "client" : "member",
+                    memberId: null,
+                    clientId: null,
+                    customerName: "",
+                  }))
+                }
+                placeholder="Select target type"
+                options={[
+                  { value: "member", label: "Member" },
+                  { value: "client", label: "Client" },
+                ]}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label>{formData.targetType === "member" ? "Member" : "Client"} *</Label>
 
               <StyledSelect
-                value={formData.clientId || ""}
+                value={formData.targetType === "member" ? formData.memberId || "" : formData.clientId || ""}
                 onChange={handleCustomerChange}
-                placeholder={loadingClients ? "Loading..." : "Select client"}
-                options={clients.map((client) => ({
-                  value: client.id, // string
-                  label: client.clientName,
-                }))}
+                placeholder={
+                  loadingClients
+                    ? "Loading..."
+                    : formData.targetType === "member"
+                      ? "Select member"
+                      : "Select client"
+                }
+                options={
+                  formData.targetType === "member"
+                    ? members.map((member) => ({
+                        value: member.id,
+                        label: member.memberName,
+                      }))
+                    : clients.map((client) => ({
+                        value: client.id,
+                        label: client.clientName,
+                      }))
+                }
                 searchable // enable search box
               />
 
-              {errors.clientId && (
+              {(errors.clientId || errors.memberId) && (
                 <p className="text-xs text-red-600 flex items-center gap-1">
                   <FaExclamationTriangle className="w-3 h-3" />
-                  {errors.clientId}
+                  {errors.memberId || errors.clientId}
                 </p>
               )}
             </div>

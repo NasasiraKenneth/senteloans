@@ -64,7 +64,7 @@
     "framer-motion": "^12.6.3",
     "geist": "latest",
     "input-otp": "1.4.1",
-    "jspdf": "^3.0.3",
+    "jspdf": "^4.2.1",
     "jspdf-autotable": "^5.0.2",
     "lucide-react": "^0.454.0",
     "moment": "^2.30.1",

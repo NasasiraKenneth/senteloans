@@ -60,11 +60,14 @@ export default function EditInvoice({ isOpen, invoiceId, onClose, onSuccess }: E
             })
 
             setInitialValues({
+            targetType: i.target_type ?? (i.member_id ? "member" : "client"),
+            memberId: i.member_id ?? null,
             clientId: i.client_id ?? null,
-            clientName: i.client_name ?? "",
+            customerName: i.customer_name ?? i.member_name ?? i.client_name ?? "",
             invoiceNo: i.invoice_number ?? null,
             invoiceDate: i.invoice_date ?? "",
             dueDate: i.invoice_due ?? "",
+            invoiceType: i.invoice_type ?? "Manual",
             status: i.status ?? "draft",
             vatInclusive: isVatInclusive,
             items: mappedItems,
@@ -96,6 +99,7 @@ export default function EditInvoice({ isOpen, invoiceId, onClose, onSuccess }: E
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          member_id: data.targetType === "member" ? data.memberId : null,
           client_id: data.clientId,
           invoice_date: data.invoiceDate,
           invoice_due: data.dueDate,
@@ -120,7 +124,7 @@ export default function EditInvoice({ isOpen, invoiceId, onClose, onSuccess }: E
       }
       toast({
         title: "Invoice updated",
-        description: `${data.invoiceNo} ${data.clientName} invoice has been updated successfully.`,
+        description: `${data.invoiceNo} ${data.customerName || "Customer"} invoice has been updated successfully.`,
         variant: "success",
       })
       onSuccess()

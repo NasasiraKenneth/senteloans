@@ -22,6 +22,7 @@ export default function AddNewInvoice({ isOpen, onClose, onSuccess }: AddNewInvo
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          member_id: data.targetType === "member" ? data.memberId : null,
           client_id: data.clientId,
           invoice_date: data.invoiceDate,
           invoice_due: data.dueDate,
@@ -46,8 +47,8 @@ export default function AddNewInvoice({ isOpen, onClose, onSuccess }: AddNewInvo
         throw new Error(body.error || "Failed to create invoice")
       }
       toast({
-        title: "Staff member created",
-        description: `${data.clientName} invoice has been added successfully.`,
+        title: "Invoice created",
+        description: `${data.customerName || "Customer"} invoice has been added successfully.`,
         variant: "success",
       })
       onSuccess()

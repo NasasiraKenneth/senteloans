@@ -39,6 +39,23 @@ const normalizeDate = (value: unknown): string | null => {
   return /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null
 }
 
+const generateInvestmentNumber = async (
+  client: { query: (text: string, params?: unknown[]) => Promise<{ rows: Array<{ investment_number: string }> }> },
+  branchId: string,
+): Promise<string> => {
+  const datePart = new Date().toISOString().slice(0, 10).replaceAll("-", "")
+  for (let i = 0; i < 20; i++) {
+    const randomPart = Math.random().toString(36).slice(2, 6).toUpperCase()
+    const candidate = `INV-${datePart}-${randomPart}`
+    const exists = await client.query(
+      `SELECT investment_number FROM senteloans_investments WHERE branch_id = $1 AND investment_number = $2 LIMIT 1`,
+      [branchId, candidate],
+    )
+    if (exists.rows.length === 0) return candidate
+  }
+  return `INV-${datePart}-${Date.now().toString().slice(-6)}`
+}
+
 export async function GET(req: Request) {
   const apiPath = getApiPath(req)
   try {
@@ -113,8 +130,9 @@ export async function GET(req: Request) {
       }
       if (q) {
         where += ` AND (
-          ('INV-' || UPPER(LEFT(i.id::text, 8))) ILIKE $${idx}
+          i.investment_number ILIKE $${idx}
           OR c.name ILIKE $${idx}
+          OR ip.name ILIKE $${idx}
           OR i.description ILIKE $${idx}
         )`
         params.push(`%${q}%`)
@@ -134,8 +152,10 @@ export async function GET(req: Request) {
       const dataRes = await client.query(
         `SELECT
            i.id,
+           i.investment_number,
            i.provider_id,
-           c.name AS client_name,
+           c.name AS provider_name,
+           ip.name AS investment_name,
            i.category,
            i.risk_level,
            i.initial_amount,
@@ -151,6 +171,7 @@ export async function GET(req: Request) {
            i.created_at
          FROM senteloans_investments i
          LEFT JOIN senteloans_clients c ON c.id = i.provider_id
+         LEFT JOIN senteloans_investment_products ip ON ip.investment_id = i.id
          LEFT JOIN senteloans_users u ON u.id = i.created_by
          WHERE ${where}
          ORDER BY i.created_at DESC
@@ -160,10 +181,10 @@ export async function GET(req: Request) {
 
       const items = dataRes.rows.map((row: any) => ({
         id: row.id,
-        investment_number: `INV-${String(row.id || "").slice(0, 8).toUpperCase()}`,
+        investment_number: String(row.investment_number || ""),
         provider_id: row.provider_id,
-        client_name: row.client_name || "",
-        product_name: row.category || "",
+        provider_name: row.provider_name || "",
+        product_name: row.investment_name || "",
         investment_type: row.category || "",
         risk_level: row.risk_level || "",
         principal_amount: Number(row.initial_amount || 0),
@@ -212,15 +233,22 @@ export async function POST(req: Request) {
     const body = (await req.json().catch(() => ({}))) as Record<string, unknown>
     const providerId = String(body.providerId || body.provider_id || body.clientId || body.client_id || "").trim() || null
     const category = String(body.investmentType || body.category || "").trim()
+    const investmentName = String(body.investmentName || body.investment_name || "").trim()
+    const investmentAddress = String(body.investmentAddress || body.investment_address || "").trim()
     const description = String(body.description || "").trim() || null
     const initialAmount = Number(body.principalAmount ?? body.initial_amount ?? 0)
     const currentValue = Number(body.currentValue ?? body.current_value ?? initialAmount)
     const expectedPercentage = Number(body.expectedPercentagePerAnnum ?? body.expected_percentage ?? 0)
     const expectedReturns = Number(body.expectedReturns ?? body.expected_returns ?? 0)
+    const periodUnitRaw = String(body.periodUnit || body.period_unit || "").trim().toLowerCase()
+    const periodValueRaw = Number(body.periodValue ?? body.period_value ?? 0)
+    const periodInMonthsDirect = body.period_in_months
+    const periodInYearsDirect = body.period_in_years
     const riskLevel = String(body.riskLevel || body.risk_level || "").trim().toLowerCase()
     const startDate = normalizeDate(body.startDate ?? body.start_date)
     const maturityDate = normalizeDate(body.maturityDate ?? body.maturity_date)
     const status = String(body.status || "pending").trim().toLowerCase()
+    const partners = Array.isArray(body.partners) ? (body.partners as Array<Record<string, unknown>>) : []
     const funding = Array.isArray(body.funding) ? (body.funding as Array<Record<string, unknown>>) : []
 
     if (!category) return NextResponse.json({ error: "investment_type_required" }, { status: 400 })
@@ -235,6 +263,48 @@ export async function POST(req: Request) {
     if (Number.isNaN(expectedReturns) || expectedReturns < 0) return NextResponse.json({ error: "invalid_expected_returns" }, { status: 400 })
     if (!["pending", "active", "matured", "closed", "cancelled"].includes(status)) {
       return NextResponse.json({ error: "invalid_status" }, { status: 400 })
+    }
+    if (category === "partnership" && partners.length === 0) {
+      return NextResponse.json({ error: "missing_partners_for_partnership" }, { status: 400 })
+    }
+
+    let periodInMonths: number | null = null
+    let periodInYears: number | null = null
+
+    if (periodUnitRaw) {
+      if (!["months", "years"].includes(periodUnitRaw)) {
+        return NextResponse.json({ error: "invalid_period_unit" }, { status: 400 })
+      }
+      if (Number.isNaN(periodValueRaw) || periodValueRaw <= 0) {
+        return NextResponse.json({ error: "invalid_period_value" }, { status: 400 })
+      }
+      if (periodUnitRaw === "months") {
+        periodInMonths = periodValueRaw
+        periodInYears = null
+      } else {
+        periodInYears = periodValueRaw
+        periodInMonths = null
+      }
+    } else {
+      // Allow direct payload usage too, while enforcing one-side null semantics.
+      const monthsVal = periodInMonthsDirect === null || typeof periodInMonthsDirect === "undefined"
+        ? null
+        : Number(periodInMonthsDirect)
+      const yearsVal = periodInYearsDirect === null || typeof periodInYearsDirect === "undefined"
+        ? null
+        : Number(periodInYearsDirect)
+
+      if (monthsVal !== null && (Number.isNaN(monthsVal) || monthsVal <= 0)) {
+        return NextResponse.json({ error: "invalid_period_in_months" }, { status: 400 })
+      }
+      if (yearsVal !== null && (Number.isNaN(yearsVal) || yearsVal <= 0)) {
+        return NextResponse.json({ error: "invalid_period_in_years" }, { status: 400 })
+      }
+      if (monthsVal !== null && yearsVal !== null) {
+        return NextResponse.json({ error: "period_months_and_years_cannot_both_be_set" }, { status: 400 })
+      }
+      periodInMonths = monthsVal
+      periodInYears = yearsVal
     }
 
     const result = await runWithAuth(session.user.authUserId, async (client) => {
@@ -252,18 +322,25 @@ export async function POST(req: Request) {
 
       await client.query("BEGIN")
       try {
-        const insertRes = await client.query<{ id: string }>(
+        const insertRes = await client.query<{ investment_number: string }>(
+          `SELECT $1::text AS investment_number`,
+          [await generateInvestmentNumber(client as any, actor.branch_id)],
+        )
+        const investmentNumber = String(insertRes.rows[0]?.investment_number || "")
+
+        const createRes = await client.query<{ id: string; investment_number: string }>(
           `INSERT INTO senteloans_investments (
-             institution_id, branch_id, provider_id, category, description, initial_amount, current_value,
-             expected_percentage, expected_returns, risk_level, start_date, maturity_date, status,
+             investment_number, institution_id, branch_id, provider_id, category, description, initial_amount, current_value,
+             expected_percentage, expected_returns, risk_level, start_date, period_in_months, period_in_years, maturity_date, status,
              created_by, modified_by, updated_at
            ) VALUES (
-             $1, $2, $3, $4, $5, $6, $7,
-             $8, $9, $10, $11, $12, $13,
-             $14, $14, NOW()
+             $1, $2, $3, $4, $5, $6, $7, $8,
+             $9, $10, $11, $12, $13, $14, $15, $16,
+             $17, $17, NOW()
            )
-           RETURNING id`,
+           RETURNING id, investment_number`,
           [
+            investmentNumber,
             actor.institution_id,
             actor.branch_id,
             providerId,
@@ -275,13 +352,80 @@ export async function POST(req: Request) {
             expectedReturns,
             riskLevel,
             startDate,
+            periodInMonths,
+            periodInYears,
             maturityDate,
             status,
             actor.id,
           ],
         )
 
-        const investmentId = insertRes.rows[0].id
+        const investmentId = createRes.rows[0].id
+
+        if (investmentName || investmentAddress) {
+          await client.query(
+            `INSERT INTO senteloans_investment_products (
+               investment_id, name, address, created_by, modified_by, updated_at
+             ) VALUES ($1, $2, $3, $4, $4, NOW())`,
+            [investmentId, investmentName || null, investmentAddress || null, actor.id],
+          )
+        }
+
+        if (category === "partnership") {
+          for (const row of partners) {
+            const counterpartyId = String(row.counterpartyId || row.counterparty_id || "").trim()
+            const role = String(row.role || "").trim() || null
+            const partnerStatusRaw = String(row.status || "Active").trim()
+            const partnerStatus = partnerStatusRaw.toLowerCase() === "inactive" ? "Inactive" : "Active"
+            const contributionPercentage = row.contributionPercentage ?? row.contribution_percentage
+            const contributionAmount = row.contributionAmount ?? row.contribution_amount
+            const ownershipPercentage = row.ownershipPercentage ?? row.ownership_percentage
+
+            if (!counterpartyId) continue
+
+            const cpRes = await client.query(
+              `SELECT id FROM senteloans_clients WHERE id = $1 AND institution_id = $2`,
+              [counterpartyId, actor.institution_id],
+            )
+            if (cpRes.rowCount === 0) {
+              await client.query("ROLLBACK")
+              return { error: "invalid_partner_counterparty" as const }
+            }
+
+            const cPct = contributionPercentage === null || typeof contributionPercentage === "undefined"
+              ? null
+              : Number(contributionPercentage)
+            const cAmt = contributionAmount === null || typeof contributionAmount === "undefined"
+              ? null
+              : Number(contributionAmount)
+            const oPct = ownershipPercentage === null || typeof ownershipPercentage === "undefined"
+              ? null
+              : Number(ownershipPercentage)
+
+            if (cPct !== null && (Number.isNaN(cPct) || cPct < 0 || cPct > 100)) {
+              await client.query("ROLLBACK")
+              return { error: "invalid_partner_contribution_percentage" as const }
+            }
+            if (cAmt !== null && (Number.isNaN(cAmt) || cAmt < 0)) {
+              await client.query("ROLLBACK")
+              return { error: "invalid_partner_contribution_amount" as const }
+            }
+            if (oPct !== null && (Number.isNaN(oPct) || oPct < 0 || oPct > 100)) {
+              await client.query("ROLLBACK")
+              return { error: "invalid_partner_ownership_percentage" as const }
+            }
+
+            await client.query(
+              `INSERT INTO senteloans_investment_partners (
+                 investment_id, counterparty_id, role, status,
+                 contribution_percentage, contribution_amount, ownership_percentage,
+                 created_by, modified_by, updated_at
+               )
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8, NOW())`,
+              [investmentId, counterpartyId, role, partnerStatus, cPct, cAmt, oPct, actor.id],
+            )
+          }
+        }
 
         for (const row of funding) {
           const sourceType = String(row.type || row.source_type || "").trim().toLowerCase()
@@ -319,16 +463,22 @@ export async function POST(req: Request) {
             actor.id,
             investmentId,
             JSON.stringify({
+              investment_number: createRes.rows[0].investment_number,
               provider_id: providerId,
               category,
+              investment_name: investmentName || null,
+              investment_address: investmentAddress || null,
               initial_amount: initialAmount,
               current_value: currentValue,
               expected_percentage: expectedPercentage,
               expected_returns: expectedReturns,
               risk_level: riskLevel,
               start_date: startDate,
+              period_in_months: periodInMonths,
+              period_in_years: periodInYears,
               maturity_date: maturityDate,
               status,
+              partners_count: partners.length,
               funding_count: funding.length,
             }),
           ],

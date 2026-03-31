@@ -40,6 +40,7 @@ type InvoiceRow = {
   id: string;
   invoice_number: string;
   client_name: string;
+  target_type?: "member" | "client";
   staff_name: string;
   client_number: string | null;
   invoice_date: string;
@@ -166,15 +167,25 @@ export default function InvoicesPage() {
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [editInvoiceId, setEditInvoiceId] = useState<string | null>(null);
+  const [activeQueryParams, setActiveQueryParams] = useState<Record<string, unknown>>({});
   const { toast } = useToast()
 
-  const onPageChange = (_: unknown, newPage: number) => setPage(newPage);
+  const onPageChange = (_: unknown, newPage: number) => {
+    setPage(newPage);
+    void loadInvoices(activeQueryParams, newPage, rowsPerPage);
+  };
   const onRowsPerPageChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const nextRows = parseInt(e.target.value, 10);
     setPage(0);
-    setRowsPerPage(parseInt(e.target.value, 10));
+    setRowsPerPage(nextRows);
+    void loadInvoices(activeQueryParams, 0, nextRows);
   };
 
-  async function loadInvoices(queryParams?: object) {
+  async function loadInvoices(
+    queryParams?: object,
+    pageOverride?: number,
+    rowsPerPageOverride?: number,
+  ) {
     setLoading(true);
     setError("");
     try {
@@ -202,8 +213,10 @@ export default function InvoicesPage() {
           }
         });
       }
-      params.set("page", "1");
-      params.set("pageSize", "200");
+      const requestPage = typeof pageOverride === "number" ? pageOverride : page;
+      const requestRows = typeof rowsPerPageOverride === "number" ? rowsPerPageOverride : rowsPerPage;
+      params.set("page", String(requestPage + 1));
+      params.set("pageSize", String(requestRows));
 
       const res = await fetch(
         `/api/institution/invoices?${params.toString()}`,
@@ -221,12 +234,15 @@ export default function InvoicesPage() {
   }
 
   useEffect(() => {
-    loadInvoices();
+    void loadInvoices(activeQueryParams, page, rowsPerPage);
   }, []);
 
   const handleQueryParamsChange = useCallback((params: object) => {
-    loadInvoices(params);
-  }, []);
+    const normalized = params as Record<string, unknown>;
+    setActiveQueryParams(normalized);
+    setPage(0);
+    void loadInvoices(normalized, 0, rowsPerPage);
+  }, [rowsPerPage]);
 
   const totalAmount = invoices.reduce(
     (sum, row) => sum + Number(row.total_amount || 0),
@@ -304,7 +320,7 @@ export default function InvoicesPage() {
     },
     {
       key: "client_name",
-      header: "Client Name",
+      header: "Assigned To",
       render: (row) => (
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 bg-linear-to-br from-primary/80 to-primary rounded-full flex items-center justify-center">
@@ -414,7 +430,7 @@ export default function InvoicesPage() {
             value: "view",
             label: "View Details",
             icon: <Eye className="h-4 w-4" />,
-            onClick: () => console.log(row),
+            onClick: () => handleView(row),
           },
           {
             value: "edit",
@@ -452,8 +468,18 @@ export default function InvoicesPage() {
   const filterFields: FilterField[] = [
     {
       field: "search",
-      label: "Search by invoice number or client",
+      label: "Search by invoice number or assigned to",
       type: "text",
+    },
+    {
+      field: "target_type",
+      label: "Invoice Target",
+      type: "select",
+      multiple: false,
+      options: [
+        { value: "member", label: "Member Invoices" },
+        { value: "client", label: "Client Invoices" },
+      ],
     },
     {
       field: "invoice_type",
@@ -478,11 +504,6 @@ export default function InvoicesPage() {
     { value: "overdue", label: "Overdue" },
     { value: "cancelled", label: "Cancelled" },
   ];
-
-  const pagedRows = invoices.slice(
-    page * rowsPerPage,
-    page * rowsPerPage + rowsPerPage,
-  );
 
   return (
     <div className="space-y-6">
@@ -567,7 +588,7 @@ export default function InvoicesPage() {
 
       <DataTable
         title="Invoice Register"
-        rows={pagedRows}
+        rows={invoices}
         columns={columns}
         loading={loading}
         emptyMessage="No invoices found."
@@ -588,7 +609,7 @@ export default function InvoicesPage() {
       <AddNewInvoice
         isOpen={isAddOpen}
         onClose={() => setIsAddOpen(false)}
-        onSuccess={() => loadInvoices()}
+        onSuccess={() => void loadInvoices(activeQueryParams, page, rowsPerPage)}
       />
 
       <EditInvoice
@@ -598,7 +619,7 @@ export default function InvoicesPage() {
           setIsEditOpen(false);
           setEditInvoiceId(null);
         }}
-        onSuccess={() => loadInvoices()}
+        onSuccess={() => void loadInvoices(activeQueryParams, page, rowsPerPage)}
       />
     </div>
   );

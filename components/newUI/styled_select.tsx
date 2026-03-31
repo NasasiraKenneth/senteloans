@@ -23,12 +23,13 @@ export default function StyledSelect({
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   const [search, setSearch] = useState(""); // search term
   const open = Boolean(anchor);
-  const selectedLabel = options.find((o) => o.value === value)?.label;
+  const safeText = (v: unknown) => String(v ?? "");
+  const selectedLabel = safeText(options.find((o) => o.value === value)?.label);
 
   // Filter options if searchable
   const filteredOptions = searchable
     ? options.filter((o) =>
-        o.label.toLowerCase().includes(search.toLowerCase()),
+        safeText(o?.label).toLowerCase().includes(search.toLowerCase()),
       )
     : options;
 
@@ -125,7 +126,7 @@ export default function StyledSelect({
                       </svg>
                     )}
                   </div>
-                  <span className="text-sm text-gray-800">{opt.label}</span>
+                  <span className="text-sm text-gray-800">{safeText(opt?.label)}</span>
                 </div>
               );
             })}

@@ -580,6 +580,7 @@ CREATE TABLE IF NOT EXISTS senteloans_investments (
     institution_id UUID NOT NULL REFERENCES senteloans_institutions(id) ON DELETE RESTRICT,
     branch_id UUID NOT NULL REFERENCES senteloans_branches(id) ON DELETE RESTRICT,
     provider_id UUID REFERENCES senteloans_clients(id) ON DELETE RESTRICT,
+    investment_number VARCHAR(50) NOT NULL,
     category VARCHAR(50) NOT NULL CHECK (category IN ('fixed_income', 'project', 'equity', 'partnership')),
     description TEXT,
     initial_amount NUMERIC(18,2) NOT NULL CHECK (initial_amount >= 0),
@@ -589,16 +590,33 @@ CREATE TABLE IF NOT EXISTS senteloans_investments (
     expected_returns NUMERIC(18,2) NOT NULL DEFAULT 0 CHECK (expected_returns >= 0), -- optional %
     risk_level VARCHAR(10) NOT NULL CHECK (risk_level IN ('low', 'medium', 'high')),
     start_date DATE NOT NULL,
+    period_in_months NUMERIC(18,2),
+    period_in_years NUMERIC(18,2),
     maturity_date DATE,
     status VARCHAR(15) NOT NULL DEFAULT 'pending'
         CHECK (status IN ('pending', 'active', 'matured', 'closed', 'cancelled')),
     created_by UUID REFERENCES senteloans_users(id) NOT NULL,
     created_at TIMESTAMPTZ DEFAULT NOW(),
-    modified_by UUID REFERENCES senteloans_users(id) NOT NULL,
+    modified_by UUID REFERENCES senteloans_users(id),
     updated_at TIMESTAMPTZ,
+    CONSTRAINT uk_investment_number_per_branch UNIQUE (branch_id, investment_number),
     CONSTRAINT chk_dates CHECK (
         maturity_date IS NULL OR maturity_date >= start_date
     )
+);
+
+CREATE TABLE IF NOT EXISTS senteloans_investment_products (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    investment_id UUID NOT NULL
+        REFERENCES senteloans_investments(id) ON DELETE CASCADE,
+    name TEXT, -- Name of the project or investment
+    address TEXT, -- Physical address of the project
+    created_by UUID NOT NULL 
+        REFERENCES senteloans_users(id),
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    modified_by UUID
+        REFERENCES senteloans_users(id),
+    updated_at TIMESTAMPTZ
 );
 
 CREATE TABLE IF NOT EXISTS senteloans_investment_partners (

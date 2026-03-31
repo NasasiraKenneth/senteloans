@@ -34,10 +34,14 @@ export interface NewInvestmentFormData {
   clientId: string
   clientName: string
   investmentType: string
+  investmentName: string
+  investmentAddress: string
   riskLevel: string
   expectedPercentagePerAnnum: number
   principalAmount: number
   expectedReturns: number
+  periodValue: number
+  periodUnit: "months" | "years"
   startDate: string
   maturityDate: string
   status: string
@@ -87,6 +91,11 @@ const PARTNER_ROLE_OPTIONS = [
   { value: "co_investor", label: "Co Investor" },
 ]
 
+const inputClass = (hasError: boolean) =>
+  `w-full px-3 py-2.5 text-sm border rounded-md transition-all duration-200 focus:ring-[1.5px] focus:ring-[#f08c2b] focus:border-transparent focus:outline-none ${
+    hasError ? "border-red-500" : "border-gray-300 hover:border-gray-400"
+  }`
+
 const toYmd = (value: unknown): string => {
   if (!value) return ""
   if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value.trim())) return value.trim()
@@ -113,10 +122,14 @@ export default function NewInvestmentForm({
     clientId: String(initialValues.clientId || ""),
     clientName: String(initialValues.clientName || ""),
     investmentType: String(initialValues.investmentType || ""),
+    investmentName: String(initialValues.investmentName || ""),
+    investmentAddress: String(initialValues.investmentAddress || ""),
     riskLevel: String(initialValues.riskLevel || ""),
     expectedPercentagePerAnnum: Number(initialValues.expectedPercentagePerAnnum || 0),
     principalAmount: Number(initialValues.principalAmount || 0),
     expectedReturns: Number(initialValues.expectedReturns || 0),
+    periodValue: Number(initialValues.periodValue || 0),
+    periodUnit: (initialValues.periodUnit as "months" | "years") || "months",
     startDate: toYmd(initialValues.startDate),
     maturityDate: toYmd(initialValues.maturityDate),
     status: String(initialValues.status || "Pending"),
@@ -138,7 +151,7 @@ export default function NewInvestmentForm({
         setProviders(
           list.map((c: any) => ({
             id: String(c.id || ""),
-            name: String(c.full_name || c.clientName || ""),
+            name: String(c.name || c.full_name || c.clientName || ""),
           })),
         )
       } finally {
@@ -150,6 +163,32 @@ export default function NewInvestmentForm({
       cancelled = true
     }
   }, [])
+
+  useEffect(() => {
+    const startDate = String(formData.startDate || "").trim()
+    const periodValue = Number(formData.periodValue || 0)
+    const periodUnit = formData.periodUnit
+    if (!startDate || !(periodValue > 0)) return
+
+    const base = new Date(`${startDate}T00:00:00`)
+    if (Number.isNaN(base.getTime())) return
+
+    const maturity = new Date(base)
+    if (periodUnit === "years") {
+      maturity.setFullYear(maturity.getFullYear() + periodValue)
+    } else {
+      maturity.setMonth(maturity.getMonth() + periodValue)
+    }
+
+    const nextMaturityDate = toYmd(maturity)
+    if (!nextMaturityDate) return
+    if (nextMaturityDate === formData.maturityDate) return
+
+    setFormData((prev) => ({
+      ...prev,
+      maturityDate: nextMaturityDate,
+    }))
+  }, [formData.startDate, formData.periodValue, formData.periodUnit, formData.maturityDate])
 
   useEffect(() => {
     let cancelled = false
@@ -201,11 +240,15 @@ export default function NewInvestmentForm({
     if (formData.expectedPercentagePerAnnum < 0) nextErrors.expectedPercentagePerAnnum = "Expected percentage cannot be negative"
     if (formData.principalAmount <= 0) nextErrors.principalAmount = "Principal amount must be greater than zero"
     if (formData.expectedReturns < 0) nextErrors.expectedReturns = "Expected returns cannot be negative"
+    if (formData.periodValue <= 0) nextErrors.periodValue = "Period must be greater than zero"
 
     const start = formData.startDate ? new Date(`${formData.startDate}T00:00:00`) : null
     const maturity = formData.maturityDate ? new Date(`${formData.maturityDate}T00:00:00`) : null
     if (start && maturity && maturity < start) {
       nextErrors.maturityDate = "Maturity date cannot be before start date"
+    }
+    if (String(formData.investmentType || "").toLowerCase() === "partnership" && formData.partners.length === 0) {
+      nextErrors.partners = "Add at least one partner for partnership investments"
     }
     for (const row of formData.funding) {
       if (!row.type) nextErrors.funding = "Funding type is required"
@@ -329,6 +372,28 @@ export default function NewInvestmentForm({
             </div>
 
             <div className="space-y-2">
+              <Label>Investment Name</Label>
+              <input
+                type="text"
+                value={formData.investmentName}
+                onChange={(e) => setField("investmentName", e.target.value)}
+                placeholder="Enter investment name"
+                className={inputClass(false)}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label>Investment Address</Label>
+              <input
+                type="text"
+                value={formData.investmentAddress}
+                onChange={(e) => setField("investmentAddress", e.target.value)}
+                placeholder="Enter investment address"
+                className={inputClass(false)}
+              />
+            </div>
+
+            <div className="space-y-2">
               <Label>Risk Level *</Label>
               <StyledSelect
                 value={formData.riskLevel}
@@ -363,7 +428,7 @@ export default function NewInvestmentForm({
                 value={formData.expectedPercentagePerAnnum || ""}
                 onChange={(e) => setField("expectedPercentagePerAnnum", Number(e.target.value || 0))}
                 placeholder="Enter expected percentage per annum"
-                className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
+                className={inputClass(!!errors.expectedPercentagePerAnnum)}
               />
               {errors.expectedPercentagePerAnnum && (
                 <p className="text-xs text-red-600 flex items-center gap-1">
@@ -381,7 +446,7 @@ export default function NewInvestmentForm({
                 value={formData.principalAmount || ""}
                 onChange={(e) => setField("principalAmount", Number(e.target.value || 0))}
                 placeholder="Enter principal amount"
-                className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
+                className={inputClass(!!errors.principalAmount)}
               />
               {errors.principalAmount && (
                 <p className="text-xs text-red-600 flex items-center gap-1">
@@ -399,12 +464,49 @@ export default function NewInvestmentForm({
                 value={formData.expectedReturns || ""}
                 onChange={(e) => setField("expectedReturns", Number(e.target.value || 0))}
                 placeholder="Enter expected returns"
-                className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
+                className={inputClass(!!errors.expectedReturns)}
               />
               {errors.expectedReturns && (
                 <p className="text-xs text-red-600 flex items-center gap-1">
                   <FaExclamationTriangle className="w-3 h-3" />
                   {errors.expectedReturns}
+                </p>
+              )}
+            </div>
+
+            <div className="space-y-2 ">
+              <div className="flex items-center gap-3">
+                <Label>Period</Label>
+                <label className="flex items-center gap-2.5 cursor-pointer min-w-[120px]">
+                    <div className="relative">
+                      <input
+                        type="checkbox"
+                        className="sr-only peer"
+                        checked={formData.periodUnit === "years"}
+                        onChange={(e) => setField("periodUnit", e.target.checked ? "years" : "months")}
+                      />
+                      <div className="w-10 h-5 bg-gray-900 rounded-full peer-checked:bg-[#f08c2b] transition-colors" />
+                      <div className="absolute left-0.5 top-0.5 bg-white w-4 h-4 rounded-full transition-transform peer-checked:translate-x-5 shadow" />
+                    </div>
+                    <span className="text-xs text-muted-foreground">
+                      {formData.periodUnit === "years" ? "Years" : "Months"}
+                    </span>
+                </label>
+              </div>
+              <div>
+                <input
+                  type="number"
+                  min={0}
+                  value={formData.periodValue || ""}
+                  onChange={(e) => setField("periodValue", Number(e.target.value || 0))}
+                  placeholder={`Enter period in ${formData.periodUnit}`}
+                  className={inputClass(!!errors.periodValue)}
+                />
+              </div>
+              {errors.periodValue && (
+                <p className="text-xs text-red-600 flex items-center gap-1">
+                  <FaExclamationTriangle className="w-3 h-3" />
+                  {errors.periodValue}
                 </p>
               )}
             </div>
@@ -447,7 +549,7 @@ export default function NewInvestmentForm({
               onChange={(e) => setField("description", e.target.value)}
               rows={4}
               placeholder="Additional details about this investment"
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
+              className={inputClass(false)}
             />
           </div>
 
@@ -498,7 +600,7 @@ export default function NewInvestmentForm({
                           value={row.contributionPercentage || ""}
                           onChange={(e) => updatePartnerRow(row.id, { contributionPercentage: Number(e.target.value || 0) })}
                           placeholder="0"
-                          className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
+                          className={inputClass(false)}
                         />
                       </div>
 
@@ -511,7 +613,7 @@ export default function NewInvestmentForm({
                           value={row.contributionAmount || ""}
                           onChange={(e) => updatePartnerRow(row.id, { contributionAmount: Number(e.target.value || 0) })}
                           placeholder="0"
-                          className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
+                          className={inputClass(false)}
                         />
                       </div>
 
@@ -524,7 +626,7 @@ export default function NewInvestmentForm({
                           value={row.ownershipPercentage || ""}
                           onChange={(e) => updatePartnerRow(row.id, { ownershipPercentage: Number(e.target.value || 0) })}
                           placeholder="0"
-                          className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-hidden focus-visible:ring-1 focus:ring-ring"
+                          className={inputClass(false)}
                         />
                       </div>
 
@@ -560,6 +662,13 @@ export default function NewInvestmentForm({
                     </div>
                   ))}
                 </div>
+              )}
+
+              {errors.partners && (
+                <p className="text-xs text-red-600 flex items-center gap-1">
+                  <FaExclamationTriangle className="w-3 h-3" />
+                  {errors.partners}
+                </p>
               )}
             </div>
           )}
@@ -597,7 +706,7 @@ export default function NewInvestmentForm({
                         value={row.amount || ""}
                         onChange={(e) => updateFundingRow(row.id, { amount: Number(e.target.value || 0) })}
                         placeholder="Enter amount"
-                        className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
+                        className={inputClass(false)}
                       />
                     </div>
                     {row.type === "loan" && (

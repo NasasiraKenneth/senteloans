@@ -15,6 +15,9 @@ const normalizeDate = (value: unknown): string | null => {
 const round2 = (value: number): number =>
   Math.round((value + Number.EPSILON) * 100) / 100;
 
+const normalizeStatusInput = (value: unknown): string => String(value || "draft").trim().toLowerCase()
+const allowedStatuses = new Set(["draft", "sent", "paid", "overdue", "cancelled"])
+
 type ActorContext = {
   id: string;
   institution_id: string;
@@ -97,9 +100,11 @@ export async function GET(
 
       const res = await client.query(
         `SELECT 
-            i.id, i.institution_id, i.member_id, i.invoice_number, i.invoice_date, i.invoice_due,
+            i.id, i.institution_id, i.member_id, i.client_id, i.invoice_number, i.invoice_date, i.invoice_due,
             i.subtotal, i.vat, i.total_amount, i.inwords, i.invoice_type, i.status,
             i.created_by, i.created_at, i.modified_by, i.updated_at,
+            MAX(m.full_name) AS member_name,
+            MAX(c.name) AS client_name,
 
             COALESCE(
               json_agg(
@@ -118,6 +123,8 @@ export async function GET(
             ) AS items
 
         FROM senteloans_invoices i
+        LEFT JOIN senteloans_members m ON m.id = i.member_id
+        LEFT JOIN senteloans_clients c ON c.id = i.client_id
         LEFT JOIN senteloans_invoice_items p 
           ON i.id = p.invoice_id
 
@@ -133,7 +140,10 @@ export async function GET(
       return {
         invoice: {
           ...invoice,
-          client_id: invoice.member_id,
+          client_id: invoice.client_id,
+          member_id: invoice.member_id,
+          target_type: invoice.member_id ? "member" : "client",
+          customer_name: invoice.member_name || invoice.client_name || "",
         },
       }
     })
@@ -181,13 +191,24 @@ export async function PUT(req: Request,
       unknown
     >;
     const invoiceId = String(id).trim();
+    const memberId = String(body.member_id || "").trim();
     const clientId = String(body.client_id || "").trim();
     const invoiceDate = normalizeDate(body.invoice_date);
     const invoiceDue = normalizeDate(body.invoice_due);
-    const status = String(body.status || "Draft").trim();
+    const status = normalizeStatusInput(body.status);
     const inwords = typeof body.inwords === "string" ? body.inwords.trim() : "";
     const invoiceType =
       typeof body.invoice_type === "string" ? body.invoice_type.trim() : ""
+    if (!allowedStatuses.has(status))
+      return NextResponse.json(
+        { error: "invalid_status" },
+        { status: 400 },
+      );
+    if (invoiceType.length > 10)
+      return NextResponse.json(
+        { error: "invalid_invoice_type" },
+        { status: 400 },
+      );
     const items = Array.isArray(body.items)
       ? (body.items as Array<Record<string, unknown>>)
       : [];
@@ -197,9 +218,9 @@ export async function PUT(req: Request,
         { error: "invoice_id_required" },
         { status: 400 },
       );
-    if (!clientId)
+    if ((memberId ? 1 : 0) + (clientId ? 1 : 0) !== 1)
       return NextResponse.json(
-        { error: "client_id_required" },
+        { error: "exactly_one_of_member_id_or_client_id_required" },
         { status: 400 },
       );
     if (!invoiceDate)
@@ -218,13 +239,14 @@ export async function PUT(req: Request,
         const allowed = await hasPermission(client, actor, "edit_invoice")
         if (!allowed) return { error: "missing_permission:edit_invoice" as const }
         const isSuperAdmin = String(actor.role || "").trim().toLowerCase() === "super_admin"
-        if (!actor.branch_id) return { error: "actor_branch_missing" as const };
+        if (!isSuperAdmin && !actor.branch_id) return { error: "actor_branch_missing" as const };
 
         const existingInvoiceRes = await client.query<{
           id: string;
           invoice_number: string;
+          branch_id: string | null;
         }>(
-          `SELECT id, invoice_number
+          `SELECT id, invoice_number, branch_id
          FROM senteloans_invoices
          WHERE id = $1 AND institution_id = $2
          ${isSuperAdmin ? "" : "AND branch_id = $3"}`,
@@ -233,12 +255,19 @@ export async function PUT(req: Request,
         const existing = existingInvoiceRes.rows[0];
         if (!existing) return { error: "invoice_not_found" as const };
 
-        const clientRes = await client.query<{ id: string }>(
-          `SELECT id FROM senteloans_members WHERE id = $1 AND institution_id = $2`,
-          [clientId, actor.institution_id],
-        );
-        if (clientRes.rows.length === 0)
-          return { error: "client_not_found" as const };
+        if (memberId) {
+          const memberRes = await client.query<{ id: string }>(
+            `SELECT id FROM senteloans_members WHERE id = $1 AND institution_id = $2`,
+            [memberId, actor.institution_id],
+          );
+          if (memberRes.rows.length === 0) return { error: "member_not_found" as const };
+        } else {
+          const extClientRes = await client.query<{ id: string }>(
+            `SELECT id FROM senteloans_clients WHERE id = $1 AND institution_id = $2`,
+            [clientId, actor.institution_id],
+          );
+          if (extClientRes.rows.length === 0) return { error: "client_not_found" as const };
+        }
 
         const normalizedItems = items
           .map((item) => {
@@ -286,21 +315,23 @@ export async function PUT(req: Request,
           await client.query(
             `UPDATE senteloans_invoices
            SET member_id = $1,
-               invoice_date = $2,
-               invoice_due = $3,
-               subtotal = $4,
-               vat = $5,
-               total_amount = $6,
-               inwords = $7,
-              invoice_type = $8,
-               status = $9,
-               modified_by = $10,
+               client_id = $2,
+               invoice_date = $3,
+               invoice_due = $4,
+               subtotal = $5,
+               vat = $6,
+               total_amount = $7,
+               inwords = $8,
+              invoice_type = $9,
+               status = $10,
+               modified_by = $11,
                updated_at = NOW()
-           WHERE id = $11
-             AND institution_id = $12
-             ${isSuperAdmin ? "" : "AND branch_id = $13"}`,
+           WHERE id = $12
+             AND institution_id = $13
+             ${isSuperAdmin ? "" : "AND branch_id = $14"}`,
             [
-              clientId,
+              memberId || null,
+              clientId || null,
               invoiceDate,
               invoiceDue,
               computedSubtotal,
@@ -348,7 +379,8 @@ export async function PUT(req: Request,
               actor.id,
               invoiceId,
               JSON.stringify({
-                member_id: clientId,
+                member_id: memberId || null,
+                client_id: clientId || null,
                 invoice_date: invoiceDate,
                 invoice_due: invoiceDue,
                 status,
@@ -375,7 +407,7 @@ export async function PUT(req: Request,
     if (result && "error" in result) {
       const statusCode =
         result.error === "invoice_not_found" ||
-        result.error === "client_not_found"
+        result.error === "member_not_found" || result.error === "client_not_found"
           ? 404
           : result.error === "user_not_linked" || result.error === "missing_permission:edit_invoice"
             ? 403
@@ -421,14 +453,6 @@ export async function PATCH(
     const nextStatus = String(body.status || "")
       .trim()
       .toLowerCase();
-    const allowedStatuses = new Set([
-      "draft",
-      "sent",
-      "paid",
-      "overdue",
-      "cancelled",
-    ]);
-
     if (!allowedStatuses.has(nextStatus)) {
       return NextResponse.json({ error: "invalid_status" }, { status: 400 });
     }

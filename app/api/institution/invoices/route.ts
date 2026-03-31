@@ -7,7 +7,8 @@ import { apiLog, getApiPath } from "@/lib/api/api-log";
 type InvoiceRow = {
   id: string;
   institution_id: string;
-  member_id: string;
+  member_id: string | null;
+  client_id: string | null;
   branch_id: string;
   invoice_number: string;
   invoice_date: string;
@@ -94,6 +95,9 @@ const normalizeDate = (value: unknown): string | null => {
 const round2 = (value: number): number =>
   Math.round((value + Number.EPSILON) * 100) / 100;
 
+const normalizeStatusInput = (value: unknown): string => String(value || "draft").trim().toLowerCase()
+const allowedStatuses = new Set(["draft", "sent", "paid", "overdue", "cancelled"])
+
 const generateInvoiceNumber = async (
   client: {
     query: (
@@ -137,6 +141,7 @@ export async function GET(req: Request) {
     );
     const status = (url.searchParams.get("status") || "").trim();
     const invoiceType = (url.searchParams.get("invoice_type") || "").trim();
+    const targetType = (url.searchParams.get("target_type") || "").trim().toLowerCase();
     const search = (url.searchParams.get("search") || "").trim();
     const clientId = (url.searchParams.get("client_id") || "").trim();
     const invoiceId = (url.searchParams.get("invoice_id") || "").trim();
@@ -186,8 +191,9 @@ export async function GET(req: Request) {
           params.push(invoiceId);
         }
         if (clientId) {
-          where += ` AND i.member_id = $${idx++}`;
+          where += ` AND (i.member_id = $${idx} OR i.client_id = $${idx})`;
           params.push(clientId);
+          idx++;
         }
         if (status) {
           where += ` AND LOWER(i.status) = LOWER($${idx++})`;
@@ -196,6 +202,11 @@ export async function GET(req: Request) {
         if (invoiceType) {
           where += ` AND LOWER(i.invoice_type) = LOWER($${idx++})`;
           params.push(invoiceType);
+        }
+        if (targetType === "member") {
+          where += ` AND i.member_id IS NOT NULL AND i.client_id IS NULL`;
+        } else if (targetType === "client") {
+          where += ` AND i.client_id IS NOT NULL AND i.member_id IS NULL`;
         }
         if (dateFrom) {
           where += ` AND i.invoice_date >= (($${idx}::timestamp AT TIME ZONE 'Africa/Nairobi')::date)`;
@@ -223,6 +234,7 @@ export async function GET(req: Request) {
           OR i.inwords ILIKE $${idx}
           OR m.full_name ILIKE $${idx}
           OR m.member_number ILIKE $${idx}
+          OR c.name ILIKE $${idx}
         )`;
           params.push(`%${search}%`);
           idx++;
@@ -232,6 +244,7 @@ export async function GET(req: Request) {
           `SELECT COUNT(*)::int AS c
          FROM senteloans_invoices i
          LEFT JOIN senteloans_members m ON m.id = i.member_id
+         LEFT JOIN senteloans_clients c ON c.id = i.client_id
          WHERE ${where}`,
           params,
         );
@@ -241,11 +254,12 @@ export async function GET(req: Request) {
         const dataParams = [...params, pageSize, from];
         const dataRes = await client.query<InvoiceRow>(
           `SELECT
-          i.id, i.institution_id, i.member_id, i.branch_id, i.invoice_number, i.invoice_date, i.invoice_due,
+          i.id, i.institution_id, i.member_id, i.client_id, i.branch_id, i.invoice_number, i.invoice_date, i.invoice_due,
           i.subtotal, i.vat, i.total_amount, i.inwords, i.invoice_type, i.status,
           i.created_by, i.created_at, i.modified_by, i.updated_at
          FROM senteloans_invoices i
          LEFT JOIN senteloans_members m ON m.id = i.member_id
+         LEFT JOIN senteloans_clients c ON c.id = i.client_id
          LEFT JOIN senteloans_users u ON u.id = i.created_by
          WHERE ${where}
          ORDER BY i.created_at DESC
@@ -276,6 +290,18 @@ export async function GET(req: Request) {
               c.id,
               { name: c.full_name, client_number: c.member_number },
             ]),
+          );
+        }
+
+        const externalClientIds = [...new Set(invoices.map((i) => i.client_id).filter(Boolean))];
+        let externalClientMap: Record<string, { name: string }> = {};
+        if (externalClientIds.length > 0) {
+          const extClientsRes = await client.query<{ id: string; name: string }>(
+            `SELECT id, name FROM senteloans_clients WHERE id = ANY($1::uuid[])`,
+            [externalClientIds],
+          );
+          externalClientMap = Object.fromEntries(
+            extClientsRes.rows.map((c) => [c.id, { name: c.name }]),
           );
         }
 
@@ -316,9 +342,12 @@ export async function GET(req: Request) {
         const mapped = invoices.map((row) => ({
           id: row.id,
           institution_id: row.institution_id,
-          client_id: row.member_id,
+          client_id: row.client_id,
           member_id: row.member_id,
-          client_name: clientMap[row.member_id]?.name || "",
+          target_type: row.member_id ? "member" : "client",
+          client_name: row.member_id
+            ? clientMap[row.member_id]?.name || ""
+            : externalClientMap[row.client_id || ""]?.name || "",
           client_number: clientMap[row.member_id]?.client_number || null,
           staff_name: userMap[row.created_by]?.full_name || "",
           invoice_number: row.invoice_number,
@@ -388,10 +417,14 @@ export async function POST(req: Request) {
       string,
       unknown
     >;
+    const memberId = String(body.member_id || "").trim();
     const clientId = String(body.client_id || "").trim();
     const invoiceDate = normalizeDate(body.invoice_date);
     const invoiceDue = normalizeDate(body.invoice_due);
-    const status = String(body.status || "Draft").trim();
+    const status = normalizeStatusInput(body.status);
+    if (!allowedStatuses.has(status)) {
+      return NextResponse.json({ error: "invalid_status" }, { status: 400 });
+    }
     const inwords = typeof body.inwords === "string" ? body.inwords.trim() : "";
     const invoiceType =
       typeof body.invoice_type === "string" ? body.invoice_type.trim() : "";
@@ -399,9 +432,9 @@ export async function POST(req: Request) {
       ? (body.items as Array<Record<string, unknown>>)
       : [];
 
-    if (!clientId)
+    if ((memberId ? 1 : 0) + (clientId ? 1 : 0) !== 1)
       return NextResponse.json(
-        { error: "client_id_required" },
+        { error: "exactly_one_of_member_id_or_client_id_required" },
         { status: 400 },
       );
     if (!invoiceDate)
@@ -426,11 +459,19 @@ export async function POST(req: Request) {
         if (!allowed) return { error: "missing_permission:add_invoice" as const };
         if (!actor.branch_id) return { error: "actor_branch_missing" as const };
 
-        const clientRes = await client.query<{ id: string }>(
-          `SELECT id FROM senteloans_members WHERE id = $1 AND institution_id = $2`,
-          [clientId, actor.institution_id],
-        );
-        if (clientRes.rows.length === 0) return { error: "member_not_found" as const };
+        if (memberId) {
+          const memberRes = await client.query<{ id: string }>(
+            `SELECT id FROM senteloans_members WHERE id = $1 AND institution_id = $2`,
+            [memberId, actor.institution_id],
+          );
+          if (memberRes.rows.length === 0) return { error: "member_not_found" as const };
+        } else {
+          const extClientRes = await client.query<{ id: string }>(
+            `SELECT id FROM senteloans_clients WHERE id = $1 AND institution_id = $2`,
+            [clientId, actor.institution_id],
+          );
+          if (extClientRes.rows.length === 0) return { error: "client_not_found" as const };
+        }
 
         const normalizedItems = items
           .map((item) => {
@@ -485,18 +526,19 @@ export async function POST(req: Request) {
             invoice_number: string;
           }>(
             `INSERT INTO senteloans_invoices (
-            institution_id, branch_id, member_id, invoice_number, invoice_date, invoice_due,
+            institution_id, branch_id, member_id, client_id, invoice_number, invoice_date, invoice_due,
             subtotal, vat, total_amount, inwords, invoice_type, status,
             created_by
           ) VALUES (
-            $1, $2, $3, $4, $5,
-            $6, $7, $8, $9, $10, $11,
-            $12, $13
+            $1, $2, $3, $4, $5, $6,
+            $7, $8, $9, $10, $11, $12,
+            $13, $14
           ) RETURNING id, invoice_number`,
             [
               actor.institution_id,
               actor.branch_id,
-              clientId,
+              memberId || null,
+              clientId || null,
               invoiceNumber,
               invoiceDate,
               invoiceDue,
@@ -539,7 +581,8 @@ export async function POST(req: Request) {
               actor.id,
               invoice.id,
               JSON.stringify({
-                member_id: clientId,
+                member_id: memberId || null,
+                client_id: clientId || null,
                 invoice_number: invoice.invoice_number,
                 invoice_date: invoiceDate,
                 invoice_due: invoiceDue,
@@ -566,7 +609,7 @@ export async function POST(req: Request) {
 
     if (result && "error" in result) {
       const statusCode =
-        result.error === "member_not_found"
+        result.error === "member_not_found" || result.error === "client_not_found"
           ? 404
           : result.error === "user_not_linked" || result.error === "missing_permission:add_invoice"
             ? 403
