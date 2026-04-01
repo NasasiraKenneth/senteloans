@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useState, type ChangeEvent } from "react"
+import { useRouter } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import DataTable, { DataTableColumn } from "@/components/datatables/DataTable"
@@ -75,6 +76,7 @@ const formatStatusLabel = (value: string) =>
     .replace(/\b\w/g, (ch) => ch.toUpperCase())
 
 export default function InvestmentsPage() {
+  const router = useRouter()
   const { toast } = useToast()
   const [rows, setRows] = useState<InvestmentRow[]>([])
   const [totalRows, setTotalRows] = useState(0)
@@ -172,7 +174,7 @@ export default function InvestmentsPage() {
   const maturedCount = useMemo(() => rows.filter((r) => normalizedStatus(r.status) === "matured").length, [rows])
 
   const handleView = (row: InvestmentRow) => {
-    // router.push(`/investments/${row.id}`)
+    router.push(`/investments/${row.id}`)
   }
 
   const handleEdit = (row: InvestmentRow) => {

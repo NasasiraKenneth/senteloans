@@ -681,6 +681,7 @@ CREATE TABLE IF NOT EXISTS senteloans_investment_cashflows (
     ),
     amount NUMERIC(18,2) NOT NULL CHECK (amount > 0),
     description TEXT,
+    date DATE,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
