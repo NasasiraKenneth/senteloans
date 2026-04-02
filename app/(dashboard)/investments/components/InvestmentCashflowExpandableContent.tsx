@@ -1,6 +1,6 @@
 "use client"
 
-import { ArrowDownLeft, ArrowUpRight, Calendar, FileText, Hash } from "lucide-react"
+import { ArrowDownLeft, ArrowUpRight, Calendar, FileText } from "lucide-react"
 
 export type InvestmentCashflowDetail = {
   id: string
@@ -11,7 +11,9 @@ export type InvestmentCashflowDetail = {
   date: string | null
   created_at: string
   transaction_id: string | null
+  transaction_number: string | null
   report_id: string | null
+  report_number: string | null
 }
 
 interface InvestmentCashflowExpandableContentProps {
@@ -38,6 +40,7 @@ export default function InvestmentCashflowExpandableContent({
 }: InvestmentCashflowExpandableContentProps) {
   const isInflow = cashflow.type === "inflow"
   const displayDate = cashflow.date ? formatDate(cashflow.date) : formatDate(cashflow.created_at)
+  const recordedAt = cashflow.created_at ? new Date(cashflow.created_at).toLocaleString("en-UG") : "—"
 
   return (
     <div className="space-y-5 p-5">
@@ -81,24 +84,13 @@ export default function InvestmentCashflowExpandableContent({
       <div>
         <h4 className="mb-3 text-sm font-semibold uppercase tracking-wide text-gray-600">Record details</h4>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          <DetailItem label="Cashflow ID" value={cashflow.id} />
           <DetailItem
-            label="Transaction ID"
-            value={cashflow.transaction_id?.trim() || "—"}
+            label="Transaction Number"
+            value={cashflow.transaction_number?.trim() || "—"}
           />
-          <DetailItem label="Report ID" value={cashflow.report_id?.trim() || "—"} />
+          <DetailItem label="Report Number" value={cashflow.report_number?.trim() || "—"} />
           <DetailItem label="Cashflow date" value={cashflow.date ? formatDate(cashflow.date) : "—"} />
-          <DetailItem label="Recorded at" value={formatDate(cashflow.created_at)} />
-          <div className="rounded-lg border border-gray-200 bg-white px-3 py-2">
-            <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-gray-500">
-              <Hash className="h-3 w-3" />
-              Links
-            </p>
-            <p className="mt-1 text-xs text-gray-600">
-              Transaction and report IDs tie this row to general ledger transactions and monthly investment reports when
-              present.
-            </p>
-          </div>
+          <DetailItem label="Recorded at" value={recordedAt} />
         </div>
       </div>
     </div>

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react"
 import { useParams } from "next/navigation"
 import Link from "next/link"
-import { ArrowLeft, Banknote, Calendar, CheckCircle2, DollarSign, Edit, FileText, Percent, Pencil, Trash2, Users, X, Plus } from "lucide-react"
+import { ArrowLeft, Banknote, Calendar, CheckCircle2, DollarSign, Edit, FileText, Lock, Percent, Pencil, Trash2, Users, X, Plus } from "lucide-react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import DataTable, { DataTableColumn } from "@/components/datatables/DataTable"
@@ -18,6 +18,8 @@ import AddFunding from "../components/funding/add"
 import EditFunding from "../components/funding/edit"
 import type { FundingFormRow } from "../components/forms/fundingForm"
 import InvestmentCashflowExpandableContent from "../components/InvestmentCashflowExpandableContent"
+import AddReport from "../components/report/add"
+import { buildReportPeriod, ReportFormData } from "../components/forms/reportsForm"
 
 type InvestmentDetails = {
   id: string
@@ -57,7 +59,9 @@ type CashflowRow = {
   date: string | null
   created_at: string
   transaction_id: string | null
+  transaction_number: string | null
   report_id: string | null
+  report_number: string | null
 }
 
 const formatCurrency = (v: number) =>
@@ -72,6 +76,7 @@ export default function InvestmentDetailsPage() {
   const { toast } = useToast()
 
   const [loading, setLoading] = useState(true)
+  const [statusSaving, setStatusSaving] = useState(false)
   const [investment, setInvestment] = useState<InvestmentDetails | null>(null)
   const [funding, setFunding] = useState<FundingRow[]>([])
   const [partners, setPartners] = useState<PartnerRow[]>([])
@@ -84,6 +89,11 @@ export default function InvestmentDetailsPage() {
   const [selectedPartner, setSelectedPartner] = useState<PartnerRow | null>(null)
   const [expandedCashflowRowIds, setExpandedCashflowRowIds] = useState<Set<string | number>>(new Set())
   const [recordCashflowOpen, setRecordCashflowOpen] = useState(false)
+  const [addReportOpen, setAddReportOpen] = useState(false)
+  const [partnerPage, setPartnerPage] = useState(0)
+  const [partnerRowsPerPage, setPartnerRowsPerPage] = useState(10)
+  const [cashflowPage, setCashflowPage] = useState(0)
+  const [cashflowRowsPerPage, setCashflowRowsPerPage] = useState(10)
 
   const load = async () => {
     if (!investmentId) return
@@ -138,7 +148,9 @@ export default function InvestmentDetailsPage() {
               date: c.date != null ? String(c.date) : null,
               created_at: String(c.created_at || ""),
               transaction_id: c.transaction_id != null ? String(c.transaction_id) : null,
+              transaction_number: c.transaction_number != null ? String(c.transaction_number) : null,
               report_id: c.report_id != null ? String(c.report_id) : null,
+              report_number: c.report_number != null ? String(c.report_number) : null,
             }))
           : [],
       )
@@ -166,7 +178,9 @@ export default function InvestmentDetailsPage() {
             date: c.date != null ? String(c.date) : null,
             created_at: String(c.created_at || ""),
             transaction_id: c.transaction_id != null ? String(c.transaction_id) : null,
+            transaction_number: c.transaction_number != null ? String(c.transaction_number) : null,
             report_id: c.report_id != null ? String(c.report_id) : null,
+            report_number: c.report_number != null ? String(c.report_number) : null,
           }))
         : [],
     )
@@ -361,16 +375,15 @@ export default function InvestmentDetailsPage() {
     },
     { key: "category", header: "Category", render: (r) => titleCase(r.category) },
     { key: "amount", header: "Amount", render: (r) => formatCurrency(r.amount) },
-    {
-      key: "summary",
-      header: "Summary",
-      render: (r) => (
-        <span className="max-w-[200px] truncate text-sm text-muted-foreground" title={r.description || undefined}>
-          {r.description?.trim() || "—"}
-        </span>
-      ),
-    },
   ]
+  const pagedCashflows = useMemo(
+    () => cashflows.slice(cashflowPage * cashflowRowsPerPage, cashflowPage * cashflowRowsPerPage + cashflowRowsPerPage),
+    [cashflows, cashflowPage, cashflowRowsPerPage],
+  )
+  const pagedPartners = useMemo(
+    () => partners.slice(partnerPage * partnerRowsPerPage, partnerPage * partnerRowsPerPage + partnerRowsPerPage),
+    [partners, partnerPage, partnerRowsPerPage],
+  )
 
   const totalInflows = useMemo(
     () => cashflows.filter((c) => c.type === "inflow").reduce((s, c) => s + Number(c.amount || 0), 0),
@@ -380,18 +393,34 @@ export default function InvestmentDetailsPage() {
     () => cashflows.filter((c) => c.type === "outflow").reduce((s, c) => s + Number(c.amount || 0), 0),
     [cashflows],
   )
-  const totalAdjustments = useMemo(
-    () => cashflows
-      .filter((c) => c.category === "adjustment")
-      .reduce((s, c) => s + Number(c.amount || 0), 0),
-    [cashflows],
-  )
   const totalExpenses = useMemo(
     () => cashflows
       .filter((c) => c.category === "expense")
       .reduce((s, c) => s + Number(c.amount || 0), 0),
     [cashflows],
   )
+  const incomeInflowCashflows = useMemo(
+    () => cashflows.filter((c) => c.category === "income" && c.type === "inflow"),
+    [cashflows],
+  )
+  const totalIncomeCashflows = useMemo(
+    () => incomeInflowCashflows.reduce((s, c) => s + Number(c.amount || 0), 0),
+    [incomeInflowCashflows],
+  )
+  const latestIncomeCashflowDate = useMemo(() => {
+    if (incomeInflowCashflows.length === 0) return null as string | null
+    let best: string | null = null
+    let bestTs = -Infinity
+    for (const c of incomeInflowCashflows) {
+      const raw = c.date?.trim() ? c.date : c.created_at
+      const ts = new Date(raw).getTime()
+      if (Number.isFinite(ts) && ts >= bestTs) {
+        bestTs = ts
+        best = raw
+      }
+    }
+    return best
+  }, [incomeInflowCashflows])
 
   if (!investment && !loading) {
     return (
@@ -404,17 +433,66 @@ export default function InvestmentDetailsPage() {
     )
   }
 
+  const updateInvestmentStatus = async (nextStatus: "active" | "cancelled" | "closed") => {
+    if (!investmentId) return
+    try {
+      setStatusSaving(true)
+      const res = await fetch(`/api/institution/investments/${investmentId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: nextStatus }),
+      })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(body?.error || "Failed to update status")
+      await load()
+      toast({ variant: "success", title: "Status updated", description: `Investment set to ${titleCase(nextStatus)}.` })
+    } catch (e: any) {
+      toast({ variant: "destructive", title: "Update failed", description: e?.message || "Please try again." })
+    } finally {
+      setStatusSaving(false)
+    }
+  }
+
+  const statusLower = String(investment?.status || "").toLowerCase()
+  const showActivateButton = statusLower === "pending"
+  const showCloseButton =
+    !!investment && statusLower !== "pending" && statusLower !== "closed" && statusLower !== "cancelled"
+
   return (
-    <div className="relative max-w-6xl mx-auto space-y-6">
+    <div className="relative">
+      <div className="max-w-6xl mx-auto space-y-6">
       <div className="flex items-center justify-between">
         <Link href="/investments" className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground">
           <ArrowLeft className="h-4 w-4" />
           Back to Investments
         </Link>
-        <Button type="button" variant="outline" onClick={() => toast({ title: "Monthly report", description: "Monthly report feature coming soon." })}>
-          <FileText className="mr-2 h-4 w-4" />
-          Monthly Report
-        </Button>
+        <div className="flex items-center gap-2">
+          {showActivateButton && (
+            <Button type="button" variant="outline" disabled={statusSaving} onClick={() => updateInvestmentStatus("active")}>
+              <CheckCircle2 className="mr-2 h-4 w-4" />
+              Activate
+            </Button>
+          )}
+          {showCloseButton && (
+            <Button type="button" variant="outline" disabled={statusSaving} onClick={() => updateInvestmentStatus("closed")}>
+              <Lock className="mr-2 h-4 w-4" />
+              Close
+            </Button>
+          )}
+          <Button
+            type="button"
+            variant="outline"
+            disabled={statusSaving || statusLower === "cancelled" || statusLower === "closed"}
+            onClick={() => updateInvestmentStatus("cancelled")}
+          >
+            <X className="mr-2 h-4 w-4 text-red-600" />
+            Cancel
+          </Button>
+          <Button type="button" variant="outline" onClick={() => setAddReportOpen(true)}>
+            <FileText className="mr-2 h-4 w-4" />
+            Monthly Report
+          </Button>
+        </div>
       </div>
 
       <div className="relative overflow-hidden rounded-xl border bg-card">
@@ -604,7 +682,24 @@ export default function InvestmentDetailsPage() {
             </div>
           </CardHeader>
           <CardContent>
-            <DataTable columns={partnerColumns} rows={partners} loading={loading} title="Partners" emptyMessage="No partners found" />
+            <DataTable
+              columns={partnerColumns}
+              rows={pagedPartners}
+              loading={loading}
+              title="Partners"
+              emptyMessage="No partners found"
+              pagination={{
+                page: partnerPage,
+                rowsPerPage: partnerRowsPerPage,
+                total: partners.length,
+                onPageChange: (_e, newPage) => setPartnerPage(newPage),
+                onRowsPerPageChange: (e) => {
+                  setPartnerRowsPerPage(parseInt(e.target.value, 10))
+                  setPartnerPage(0)
+                },
+                rowsPerPageOptions: [10, 20, 50],
+              }}
+            />
           </CardContent>
         </Card>
       )}
@@ -618,13 +713,21 @@ export default function InvestmentDetailsPage() {
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <MetricCard icon={<DollarSign className="h-4 w-4 text-green-600" />} label="Total Inflows" value={formatCurrency(totalInflows)} />
             <MetricCard icon={<DollarSign className="h-4 w-4 text-red-600" />} label="Total Outflows" value={formatCurrency(totalOutflows)} />
-            <MetricCard icon={<DollarSign className="h-4 w-4 text-blue-600" />} label="Total Adjustments" value={formatCurrency(totalAdjustments)} />
+            <MetricCard
+              icon={<DollarSign className="h-4 w-4 text-blue-600" />}
+              label={
+                latestIncomeCashflowDate
+                  ? `Total Income (${formatDate(latestIncomeCashflowDate)})`
+                  : "Total Income"
+              }
+              value={formatCurrency(totalIncomeCashflows)}
+            />
             <MetricCard icon={<DollarSign className="h-4 w-4 text-amber-600" />} label="Total Expenses" value={formatCurrency(totalExpenses)} />
           </div>
 
           <DataTable
             columns={cashflowColumns}
-            rows={cashflows}
+            rows={pagedCashflows}
             loading={loading}
             title="Cashflows"
             emptyMessage="No cashflows found"
@@ -640,6 +743,17 @@ export default function InvestmentDetailsPage() {
             expandedRowIds={expandedCashflowRowIds}
             onToggleExpand={toggleCashflowRowExpand}
             onRowClick={(row) => toggleCashflowRowExpand(row.id)}
+            pagination={{
+              page: cashflowPage,
+              rowsPerPage: cashflowRowsPerPage,
+              total: cashflows.length,
+              onPageChange: (_e, newPage) => setCashflowPage(newPage),
+              onRowsPerPageChange: (e) => {
+                setCashflowRowsPerPage(parseInt(e.target.value, 10))
+                setCashflowPage(0)
+              },
+              rowsPerPageOptions: [10, 20, 50],
+            }}
           />
         </CardContent>
       </Card>
@@ -650,12 +764,45 @@ export default function InvestmentDetailsPage() {
           Record Cashflow
         </Button>
       </div>
+      </div>
 
       <RecordCashflow
         isOpen={recordCashflowOpen}
         onClose={() => setRecordCashflowOpen(false)}
         investmentId={investmentId}
-        onSuccess={refetchCashflows}
+        onSuccess={load}
+      />
+      <AddReport
+        isOpen={addReportOpen}
+        onClose={() => setAddReportOpen(false)}
+        investmentId={investmentId}
+        onSubmit={async (form: ReportFormData, selectedCashflowIds: string[]) => {
+          const reportPeriod = buildReportPeriod(form)
+          const res = await fetch(`/api/institution/investments/${investmentId}/reports`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              report_period: reportPeriod,
+              opening_value: Number(form.openingValue || 0),
+              capital_added: Number(form.capitalAdded || 0),
+              income: Number(form.income || 0),
+              expenses: Number(form.expenses || 0),
+              closing_value: Number(form.closingValue || 0),
+              notes: form.notes || null,
+              cashflow_ids: selectedCashflowIds,
+            }),
+          })
+          const body = await res.json().catch(() => ({}))
+          if (!res.ok) {
+            const msg =
+              body?.error === "report_period_exists"
+                ? `A report already exists for ${reportPeriod}.`
+                : body?.error || "Failed to save report"
+            throw new Error(msg)
+          }
+          await load()
+          toast({ title: "Monthly report saved", description: `${reportPeriod} created successfully.` })
+        }}
       />
       <AddPartner
         isOpen={addPartnerOpen}

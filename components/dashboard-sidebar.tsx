@@ -128,6 +128,9 @@ export function DashboardSidebar() {
     if (pathname.startsWith("/loans") || pathname.startsWith("/loan-products")) {
       setExpandedMenus((prev) => (prev.includes("Loans") ? prev : [...prev, "Loans"]))
     }
+    if (pathname.startsWith("/investments") || pathname.startsWith("/investment-reports")) {
+      setExpandedMenus((prev) => (prev.includes("Investments") ? prev : [...prev, "Investments"]))
+    }
   }, [pathname])
 
   const getSections = (): NavSection[] => {
@@ -155,7 +158,15 @@ export function DashboardSidebar() {
       financeItems.push({ name: "Savings", href: "/savings", icon: PiggyBank })
     }
     financeItems.push(
-      { name: "Investments", href: "/investments", icon: TrendingUp },
+      { 
+        name: "Investments", 
+        href: "/investments", 
+        icon: TrendingUp,
+        submenu: [
+          { name: "All Investments", href: "/investments" },
+          { name: "Investment Reports", href: "/investment-reports" },
+        ], 
+      },
       { name: "Transactions", href: "/transactions", icon: ArrowUpDown },
       { name: "Invoices", href: "/invoices", icon: Receipt },
       { name: "Statements", href: "/statements", icon: ScrollText },
@@ -211,7 +222,7 @@ export function DashboardSidebar() {
     if (href === "/users") return pathname.startsWith("/users") || pathname.startsWith("/members")
     if (href === "/staff") return pathname.startsWith("/staff")
     if (href === "/loans") return pathname.startsWith("/loans") || pathname.startsWith("/loan-products")
-    if (href === "/investments") return pathname.startsWith("/investments")
+    if (href === "/investments") return pathname.startsWith("/investments") || pathname.startsWith("/investment-reports")
     if (href === "/invoices") return pathname.startsWith("/invoices")
     if (href === "/statements") return pathname.startsWith("/statements")
     

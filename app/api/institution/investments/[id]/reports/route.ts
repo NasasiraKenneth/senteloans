@@ -1,0 +1,135 @@
+import { NextResponse } from "next/server"
+import { getServerSession } from "next-auth"
+import { authOptions } from "@/lib/auth"
+import { runWithAuth } from "@/lib/db"
+
+type ActorContext = {
+  id: string
+  institution_id: string
+  branch_id: string | null
+  role: string | null
+}
+
+async function resolveActorContext(client: any, authUserId: string): Promise<ActorContext | null> {
+  const actorRes = await client.query(
+    `SELECT
+       u.id,
+       u.institution_id,
+       u.branch_id,
+       CASE
+         WHEN r.name = 'System Admin' THEN 'system_admin'
+         WHEN r.name = 'Super Admin' THEN 'super_admin'
+         WHEN r.name = 'Admin' THEN 'institution_admin'
+         WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
+         ELSE NULL
+       END AS role
+     FROM senteloans_users u
+     LEFT JOIN senteloans_roles r ON r.id = u.role_id
+     WHERE u.supabase_user_id = $1
+     LIMIT 1`,
+    [authUserId],
+  )
+  return actorRes.rows[0] || null
+}
+
+export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params
+  const session = await getServerSession(authOptions)
+  if (!session?.user?.authUserId) return NextResponse.json({ error: "unauthorized" }, { status: 401 })
+  if (session.user.type !== "staff") return NextResponse.json({ error: "not_staff" }, { status: 403 })
+
+  const body = (await req.json().catch(() => ({}))) as Record<string, unknown>
+  const reportPeriod = String(body.report_period || "").trim().toLowerCase()
+  const openingValue = Number(body.opening_value || 0)
+  const capitalAdded = Number(body.capital_added || 0)
+  const income = Number(body.income || 0)
+  const expenses = Number(body.expenses || 0)
+  const closingValue = Number(body.closing_value || 0)
+  const notes = String(body.notes || "").trim() || null
+  const cashflowIds = Array.isArray(body.cashflow_ids) ? body.cashflow_ids.map((v) => String(v || "").trim()).filter(Boolean) : []
+
+  if (!/^[a-z]+-\d{4}$/.test(reportPeriod)) return NextResponse.json({ error: "invalid_report_period" }, { status: 400 })
+  if ([openingValue, capitalAdded, income, expenses, closingValue].some((n) => Number.isNaN(n) || n < 0)) {
+    return NextResponse.json({ error: "invalid_report_values" }, { status: 400 })
+  }
+  const expected = openingValue + capitalAdded + income - expenses
+  if (Math.abs(closingValue - expected) > 0.01) {
+    return NextResponse.json({ error: "invalid_closing_value" }, { status: 400 })
+  }
+
+  return runWithAuth(session.user.authUserId, async (client) => {
+    const actor = await resolveActorContext(client, session.user.authUserId as string)
+    if (!actor?.institution_id) return NextResponse.json({ error: "user_not_linked" }, { status: 403 })
+    const isSuperAdmin = String(actor.role || "").trim().toLowerCase() === "super_admin"
+    if (!isSuperAdmin && !actor.branch_id) return NextResponse.json({ error: "actor_branch_missing" }, { status: 400 })
+
+    await client.query("BEGIN")
+    try {
+      const invRes = await client.query(
+        `SELECT id
+         FROM senteloans_investments
+         WHERE id = $1 AND institution_id = $2
+         ${isSuperAdmin ? "" : "AND branch_id = $3"}
+         LIMIT 1`,
+        isSuperAdmin ? [id, actor.institution_id] : [id, actor.institution_id, actor.branch_id],
+      )
+      if (invRes.rowCount === 0) {
+        await client.query("ROLLBACK")
+        return NextResponse.json({ error: "investment_not_found" }, { status: 404 })
+      }
+
+      const reportNumber = `RPT-${new Date().toISOString().slice(0, 10).replaceAll("-", "")}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`
+      let reportId: string
+      try {
+        const reportRes = await client.query(
+          `INSERT INTO senteloans_investment_reports (
+             investment_id, report_number, report_period, opening_value, capital_added, income, expenses, closing_value,
+             notes, created_by, modified_by, updated_at
+           )
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$10,NOW())
+           RETURNING id`,
+          [id, reportNumber, reportPeriod, openingValue, capitalAdded, income, expenses, closingValue, notes, actor.id],
+        )
+        reportId = String(reportRes.rows[0]?.id || "")
+      } catch (e: any) {
+        if (String(e?.code) === "23505") {
+          await client.query("ROLLBACK")
+          return NextResponse.json({ error: "report_period_exists" }, { status: 409 })
+        }
+        throw e
+      }
+
+      if (cashflowIds.length > 0) {
+        await client.query(
+          `UPDATE senteloans_investment_cashflows
+           SET report_id = $1
+           WHERE investment_id = $2
+             AND id = ANY($3::uuid[])`,
+          [reportId, id, cashflowIds],
+        )
+      }
+
+      await client.query(
+        `INSERT INTO senteloans_investment_valuations (investment_id, valuation_date, value, notes)
+         VALUES ($1, CURRENT_DATE, $2, $3)`,
+        [id, closingValue, `${reportPeriod} report valuation`],
+      )
+
+      await client.query(
+        `UPDATE senteloans_investments
+         SET current_value = $1,
+             modified_by = $2,
+             updated_at = NOW()
+         WHERE id = $3`,
+        [closingValue, actor.id, id],
+      )
+
+      await client.query("COMMIT")
+      return NextResponse.json({ ok: true, id: reportId }, { status: 201 })
+    } catch (e) {
+      await client.query("ROLLBACK")
+      throw e
+    }
+  })
+}
+

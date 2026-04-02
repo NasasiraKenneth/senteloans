@@ -27,7 +27,7 @@ const DIRECTION_OPTIONS = [
   { value: "outflow", label: "Outflow" },
 ]
 
-const CATEGORY_OPTIONS = [
+const CATEGORY_OPTIONS_ALL = [
   { value: "capital", label: "Capital" },
   { value: "income", label: "Income" },
   { value: "expense", label: "Expense" },
@@ -91,6 +91,23 @@ export default function FlowForm({
   errors = {},
 }: FlowFormProps) {
   const transactionModeDisabled = disabled || value.category === "adjustment"
+  const categoryOptions =
+    value.type === "inflow"
+      ? CATEGORY_OPTIONS_ALL.filter((o) => o.value === "income" || o.value === "adjustment")
+      : value.type === "outflow"
+        ? CATEGORY_OPTIONS_ALL.filter((o) => o.value !== "income")
+        : CATEGORY_OPTIONS_ALL
+
+  const handleTypeChange = (nextType: CashflowDirection) => {
+    const nextCategoryOptions =
+      nextType === "inflow"
+        ? CATEGORY_OPTIONS_ALL.filter((o) => o.value === "income" || o.value === "adjustment")
+        : nextType === "outflow"
+          ? CATEGORY_OPTIONS_ALL.filter((o) => o.value !== "income")
+          : CATEGORY_OPTIONS_ALL
+    const allowed = nextCategoryOptions.some((o) => o.value === value.category)
+    onChange({ type: nextType, category: allowed ? value.category : "" })
+  }
 
   return (
     <div className="space-y-3">
@@ -100,7 +117,7 @@ export default function FlowForm({
           <div className={disabled ? "pointer-events-none opacity-70" : ""}>
             <StyledSelect
               value={value.type}
-              onChange={(v) => onChange({ type: v as CashflowDirection })}
+              onChange={(v) => handleTypeChange(v as CashflowDirection)}
               options={DIRECTION_OPTIONS}
               placeholder="Select type"
             />
@@ -113,7 +130,7 @@ export default function FlowForm({
             <StyledSelect
               value={value.category}
               onChange={(v) => onChange({ category: v as CashflowCategory })}
-              options={CATEGORY_OPTIONS}
+              options={categoryOptions}
               placeholder="Select category"
             />
           </div>

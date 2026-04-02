@@ -32,6 +32,9 @@ export default function RecordCashflow({ isOpen, onClose, investmentId, onSucces
 
   const handleSubmit = async () => {
     const v = validateFlowForm(form)
+    if (form.category && form.category !== "adjustment" && !String(form.transactionMode || "").trim()) {
+      v.transactionMode = "Select a transaction mode"
+    }
     if (Object.keys(v).length > 0) {
       setFieldErrors(v)
       return
@@ -47,6 +50,8 @@ export default function RecordCashflow({ isOpen, onClose, investmentId, onSucces
           category: form.category,
           amount: Number(form.amount || 0),
           description: form.description.trim() || null,
+          date: form.date,
+          mode: form.transactionMode || null,
         }),
       })
       const body = await res.json().catch(() => ({}))

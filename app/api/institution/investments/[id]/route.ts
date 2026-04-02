@@ -91,7 +91,17 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
         [id],
       )
 
-      return { investment, partners: partnersRes.rows, funding: fundingRes.rows }
+      const latestValuationRes = await client.query(
+        `SELECT valuation_date, value
+         FROM senteloans_investment_valuations
+         WHERE investment_id = $1
+         ORDER BY valuation_date DESC, created_at DESC
+         LIMIT 1`,
+        [id],
+      )
+      const latestValuation = latestValuationRes.rows[0] || null
+
+      return { investment, partners: partnersRes.rows, funding: fundingRes.rows, latestValuation }
     })
 
     if (result && "error" in result) {
@@ -236,6 +246,59 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
   } catch (e: unknown) {
     const err = e as Error
     apiLog("error", "investments.update.error", { method: "PUT", apiPath, status: 500, error: err?.message || "Unexpected error" })
+    return NextResponse.json({ error: err?.message || "Unexpected error" }, { status: 500 })
+  }
+}
+
+export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const apiPath = getApiPath(req)
+  try {
+    const { id } = await params
+    const session = await getServerSession(authOptions)
+    if (!session?.user?.authUserId) return NextResponse.json({ error: "unauthorized" }, { status: 401 })
+    if (session.user.type !== "staff") return NextResponse.json({ error: "not_staff" }, { status: 403 })
+
+    const body = (await req.json().catch(() => ({}))) as Record<string, unknown>
+    const status = String(body.status || "").trim().toLowerCase()
+    if (!["pending", "active", "matured", "closed", "cancelled"].includes(status)) {
+      return NextResponse.json({ error: "invalid_status" }, { status: 400 })
+    }
+
+    const result = await runWithAuth(session.user.authUserId, async (client) => {
+      const actor = await resolveActorContext(client, session.user.authUserId as string)
+      if (!actor?.institution_id) return { error: "user_not_linked" as const }
+      const isSuperAdmin = String(actor.role || "").trim().toLowerCase() === "super_admin"
+      if (!isSuperAdmin && !actor.branch_id) return { error: "actor_branch_missing" as const }
+
+      const existsRes = await client.query(
+        `SELECT id
+         FROM senteloans_investments
+         WHERE id = $1 AND institution_id = $2
+         ${isSuperAdmin ? "" : "AND branch_id = $3"}
+         LIMIT 1`,
+        isSuperAdmin ? [id, actor.institution_id] : [id, actor.institution_id, actor.branch_id],
+      )
+      if (existsRes.rowCount === 0) return { error: "investment_not_found" as const }
+
+      await client.query(
+        `UPDATE senteloans_investments
+         SET status = $1,
+             modified_by = $2,
+             updated_at = NOW()
+         WHERE id = $3`,
+        [status, actor.id, id],
+      )
+      return { ok: true, id }
+    })
+
+    if (result && "error" in result) {
+      const code = result.error === "investment_not_found" ? 404 : result.error === "actor_branch_missing" ? 400 : 403
+      return NextResponse.json({ error: result.error }, { status: code })
+    }
+    return NextResponse.json(result)
+  } catch (e: unknown) {
+    const err = e as Error
+    apiLog("error", "investments.status.update.error", { method: "PATCH", apiPath, status: 500, error: err?.message || "Unexpected error" })
     return NextResponse.json({ error: err?.message || "Unexpected error" }, { status: 500 })
   }
 }

@@ -436,7 +436,8 @@ CREATE TABLE IF NOT EXISTS senteloans_transactions (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     institution_id UUID NOT NULL REFERENCES senteloans_institutions(id) ON DELETE RESTRICT,
     branch_id UUID NOT NULL REFERENCES senteloans_branches(id) ON DELETE RESTRICT,
-    member_id UUID NOT NULL REFERENCES senteloans_members(id) ON DELETE RESTRICT,
+    member_id UUID REFERENCES senteloans_members(id) ON DELETE RESTRICT,
+    client_id UUID REFERENCES senteloans_clients(id) ON DELETE RESTRICT,
     account_id UUID REFERENCES senteloans_savings_accounts(id) ON DELETE RESTRICT,
     loan_id UUID REFERENCES senteloans_loans(id) ON DELETE RESTRICT,
     transaction_number VARCHAR(50) NOT NULL,
@@ -468,9 +469,7 @@ CREATE TABLE IF NOT EXISTS senteloans_transactions (
       ON DELETE RESTRICT,
 
     CONSTRAINT chk_transactions_reference CHECK (
-        (account_id IS NOT NULL AND loan_id IS NULL) OR
-        (account_id IS NULL AND loan_id IS NOT NULL) OR
-        (account_id IS NOT NULL AND loan_id IS NOT NULL)
+        account_id IS NULL OR loan_id IS NULL OR (account_id IS NOT NULL AND loan_id IS NOT NULL) OR (account_id IS NULL AND loan_id IS NULL)
     )
 );
 
@@ -648,7 +647,8 @@ CREATE TABLE IF NOT EXISTS senteloans_investment_reports (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     investment_id UUID NOT NULL
         REFERENCES senteloans_investments(id) ON DELETE RESTRICT,
-    report_period VARCHAR(15) NOT NULL, -- use month (e.g. march)
+    report_number VARCHAR(50) NOT NULL,
+    report_period VARCHAR(25) NOT NULL, -- use month (e.g. march-2026)
     opening_value NUMERIC(18,2) NOT NULL CHECK (opening_value >= 0),
     capital_added NUMERIC(18,2) NOT NULL DEFAULT 0 CHECK (capital_added >= 0),
     income NUMERIC(18,2) NOT NULL DEFAULT 0 CHECK (income >= 0),
@@ -674,7 +674,7 @@ CREATE TABLE IF NOT EXISTS senteloans_investment_cashflows (
     transaction_id UUID
         REFERENCES senteloans_transactions(id) ON DELETE RESTRICT,
     report_id UUID
-        REFERENCES senteloans_investment_reports(id) ON DELETE SET NULL,
+        REFERENCES senteloans_investment_reports(id) ON DELETE RESTRICT,
     type TEXT NOT NULL CHECK (type IN ('inflow', 'outflow')),
     category TEXT NOT NULL CHECK (
         category IN ('capital', 'income', 'expense', 'adjustment')
