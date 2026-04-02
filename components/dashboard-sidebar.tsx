@@ -125,7 +125,7 @@ export function DashboardSidebar() {
     if (pathname.startsWith("/reports")) {
       setExpandedMenus((prev) => (prev.includes("Reports") ? prev : [...prev, "Reports"]))
     }
-    if (pathname.startsWith("/loans") || pathname.startsWith("/loan-products")) {
+    if (pathname.startsWith("/loans") || pathname.startsWith("/loan-products") || pathname.startsWith("/sacco-loans")) {
       setExpandedMenus((prev) => (prev.includes("Loans") ? prev : [...prev, "Loans"]))
     }
     if (pathname.startsWith("/investments") || pathname.startsWith("/investment-reports")) {
@@ -150,6 +150,7 @@ export function DashboardSidebar() {
         icon: CreditCard,
         submenu: [
           { name: "All Loans", href: "/loans" },
+          { name: "Sacco Loans", href: "/sacco-loans" },
           { name: "Loan Products", href: "/loan-products" },
         ],
       },
@@ -221,7 +222,12 @@ export function DashboardSidebar() {
     if (href === "/dashboard") return pathname === "/dashboard"
     if (href === "/users") return pathname.startsWith("/users") || pathname.startsWith("/members")
     if (href === "/staff") return pathname.startsWith("/staff")
-    if (href === "/loans") return pathname.startsWith("/loans") || pathname.startsWith("/loan-products")
+    if (href === "/loans")
+      return (
+        pathname.startsWith("/loans") ||
+        pathname.startsWith("/loan-products") ||
+        pathname.startsWith("/sacco-loans")
+      )
     if (href === "/investments") return pathname.startsWith("/investments") || pathname.startsWith("/investment-reports")
     if (href === "/invoices") return pathname.startsWith("/invoices")
     if (href === "/statements") return pathname.startsWith("/statements")
