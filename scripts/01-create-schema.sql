@@ -716,7 +716,6 @@ CREATE TABLE IF NOT EXISTS senteloans_institution_loans (
     purpose TEXT,
     collateral_description TEXT,
     application_date DATE NOT NULL,
-    approved_by UUID REFERENCES senteloans_users(id) ON DELETE SET NULL,
     approved_at TIMESTAMPTZ,
     rejected_at TIMESTAMPTZ,
     disbursement_balance DECIMAL(15,2) NOT NULL DEFAULT 0,

@@ -8,6 +8,7 @@ type ActorContext = {
   id: string
   institution_id: string
   branch_id: string | null
+  role_id: string | null
   role: string | null
 }
 
@@ -17,6 +18,7 @@ async function resolveActorContext(client: any, authUserId: string): Promise<Act
        u.id,
        u.institution_id,
        u.branch_id,
+       u.role_id,
        CASE
          WHEN r.name = 'System Admin' THEN 'system_admin'
          WHEN r.name = 'Super Admin' THEN 'super_admin'
@@ -33,6 +35,24 @@ async function resolveActorContext(client: any, authUserId: string): Promise<Act
   return actorRes.rows[0] || null
 }
 
+async function hasPermission(client: any, actor: ActorContext, permission: string): Promise<boolean> {
+  const role = String(actor.role || "").trim().toLowerCase()
+  if (role === "super_admin") return true
+  if (!actor.role_id || !actor.branch_id) return false
+
+  const permRes = await client.query(
+    `SELECT 1
+     FROM senteloans_role_permissions rp
+     JOIN senteloans_permissions p ON p.id = rp.permission_id
+     WHERE rp.role_id = $1
+       AND rp.branch_id = $2
+       AND p.name = $3
+     LIMIT 1`,
+    [actor.role_id, actor.branch_id, permission],
+  )
+  return permRes.rowCount > 0
+}
+
 const VALID_STATUSES = new Set([
   "Applied",
   "Under Review",
@@ -45,6 +65,10 @@ const VALID_STATUSES = new Set([
   "Defaulted",
   "Rejected",
 ])
+
+const VALID_LOAN_TYPES = new Set(["normal", "top_up", "buy_off", "sell_off"])
+
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 export async function GET(req: Request) {
   const apiPath = getApiPath(req)
@@ -179,6 +203,163 @@ export async function GET(req: Request) {
   } catch (e: unknown) {
     const err = e as Error
     apiLog("error", "sacco_loans.list.error", { method: "GET", apiPath, status: 500, error: err?.message || "Unexpected error" })
+    return NextResponse.json({ error: err?.message || "Unexpected error" }, { status: 500 })
+  }
+}
+
+export async function POST(req: Request) {
+  const apiPath = getApiPath(req)
+  try {
+    const session = await getServerSession(authOptions)
+    if (!session?.user?.authUserId) {
+      apiLog("warn", "sacco_loans.create.denied", { method: "POST", apiPath, status: 401, error: "unauthorized" })
+      return NextResponse.json({ error: "unauthorized" }, { status: 401 })
+    }
+    if (session.user.type !== "staff") {
+      apiLog("warn", "sacco_loans.create.denied", { method: "POST", apiPath, status: 403, error: "not_staff" })
+      return NextResponse.json({ error: "not_staff" }, { status: 403 })
+    }
+
+    const body = (await req.json().catch(() => ({}))) as Record<string, unknown>
+    const client_id = String(body.clientId ?? body.client_id ?? "").trim()
+    const loan_product_raw =
+      typeof body.loanProduct === "string"
+        ? body.loanProduct
+        : typeof body.loan_product === "string"
+          ? body.loan_product
+          : ""
+    const loan_product = loan_product_raw.trim() || null
+    const principal_amount = Number(body.principalAmount ?? body.principal_amount)
+    const interest_rate = Number(body.interestRate ?? body.interest_rate)
+    const tenure_months = Math.floor(Number(body.tenureMonths ?? body.tenure_months))
+    const total_raw = Number(body.totalAmount ?? body.total_amount)
+    const total_amount =
+      Number.isFinite(total_raw) && total_raw > 0 ? Math.round((total_raw + Number.EPSILON) * 100) / 100 : null
+    const monthly_raw = Number(body.monthlyPayment ?? body.monthly_payment)
+    const monthly_payment =
+      Number.isFinite(monthly_raw) && monthly_raw > 0 ? Math.round((monthly_raw + Number.EPSILON) * 100) / 100 : null
+    const status_raw = String(body.status ?? "Applied").trim()
+    const status = VALID_STATUSES.has(status_raw) ? status_raw : ""
+    const loan_type_raw = String(body.loanType ?? body.loan_type ?? "normal").trim().toLowerCase()
+    const loan_type = VALID_LOAN_TYPES.has(loan_type_raw) ? loan_type_raw : "normal"
+    const purpose = typeof body.purpose === "string" ? body.purpose.trim() : ""
+    const collateral_raw = body.collateralDescription ?? body.collateral_description
+    const collateral_description =
+      typeof collateral_raw === "string" && collateral_raw.trim() ? collateral_raw.trim() : null
+    const application_date = String(body.applicationDate ?? body.application_date ?? "").trim()
+
+    if (!UUID_REGEX.test(client_id)) {
+      return NextResponse.json({ error: "invalid_client_id" }, { status: 400 })
+    }
+    if (!Number.isFinite(principal_amount) || principal_amount <= 0) {
+      return NextResponse.json({ error: "invalid_principal_amount" }, { status: 400 })
+    }
+    if (!Number.isFinite(interest_rate) || interest_rate < 0) {
+      return NextResponse.json({ error: "invalid_interest_rate" }, { status: 400 })
+    }
+    if (!Number.isFinite(tenure_months) || tenure_months <= 0) {
+      return NextResponse.json({ error: "invalid_tenure_months" }, { status: 400 })
+    }
+    if (!status) {
+      return NextResponse.json({ error: "invalid_status" }, { status: 400 })
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(application_date)) {
+      return NextResponse.json({ error: "invalid_application_date" }, { status: 400 })
+    }
+
+    const result = await runWithAuth(session.user.authUserId, async (client) => {
+      const actor = await resolveActorContext(client, session.user.authUserId as string)
+      if (!actor?.institution_id) return { error: "user_not_linked" as const }
+      const allowed = await hasPermission(client, actor, "create_loan")
+      if (!allowed) return { error: "missing_permission:create_loan" as const }
+
+      const isSuperAdmin = String(actor.role || "").trim().toLowerCase() === "super_admin"
+      if (!isSuperAdmin && !actor.branch_id) return { error: "actor_branch_missing" as const }
+
+      const clientRes = await client.query(
+        `SELECT id, institution_id, branch_id, status
+         FROM senteloans_clients
+         WHERE id = $1 AND institution_id = $2
+         LIMIT 1`,
+        [client_id, actor.institution_id],
+      )
+      const crow = clientRes.rows[0] as { branch_id?: string } | undefined
+      if (!crow) return { error: "client_not_found" as const }
+      const cBranch = String(crow.branch_id || "")
+      if (!isSuperAdmin && cBranch !== String(actor.branch_id)) {
+        return { error: "cross_branch_operation_forbidden" as const }
+      }
+      if (!UUID_REGEX.test(cBranch)) return { error: "client_branch_missing" as const }
+
+      const ins = await client.query(
+        `INSERT INTO senteloans_institution_loans (
+           institution_id, branch_id, client_id,
+           loan_product, principal_amount, interest_rate, tenure_months,
+           monthly_payment, total_amount, outstanding_balance, status,
+           loan_type, purpose, collateral_description, application_date,
+           created_by
+         ) VALUES (
+           $1, $2, $3,
+           $4, $5, $6, $7,
+           $8, $9, $10, $11,
+           $12, $13, $14, $15,
+           $16
+         )
+         RETURNING id`,
+        [
+          actor.institution_id,
+          cBranch,
+          client_id,
+          loan_product,
+          principal_amount,
+          interest_rate,
+          tenure_months,
+          monthly_payment,
+          total_amount,
+          0,
+          status,
+          loan_type,
+          purpose || null,
+          collateral_description,
+          application_date,
+          actor.id,
+        ],
+      )
+      const row = ins.rows[0] as { id?: string } | undefined
+      if (!row?.id) return { error: "insert_failed" as const }
+      return { ok: true as const, id: String(row.id) }
+    })
+
+    if (result && "error" in result) {
+      const err = result.error
+      const statusCode =
+        err === "missing_permission:create_loan" || err === "cross_branch_operation_forbidden" || err === "user_not_linked"
+          ? 403
+          : err === "client_not_found"
+            ? 404
+            : err === "insert_failed"
+              ? 500
+              : 400
+      apiLog("warn", "sacco_loans.create.denied", { method: "POST", apiPath, status: statusCode, error: err })
+      return NextResponse.json({ error: err }, { status: statusCode })
+    }
+
+    apiLog("info", "sacco_loans.create.success", {
+      method: "POST",
+      apiPath,
+      status: 201,
+      loanId: result.id,
+      authUserId: session.user.authUserId,
+    })
+    return NextResponse.json(result, { status: 201 })
+  } catch (e: unknown) {
+    const err = e as Error
+    apiLog("error", "sacco_loans.create.error", {
+      method: "POST",
+      apiPath,
+      status: 500,
+      error: err?.message || "Unexpected error",
+    })
     return NextResponse.json({ error: err?.message || "Unexpected error" }, { status: 500 })
   }
 }

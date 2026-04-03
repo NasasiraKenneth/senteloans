@@ -1,13 +1,17 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useState, type ChangeEvent } from "react"
+import { useRouter } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
 import DataTable, { DataTableColumn } from "@/components/datatables/DataTable"
 import { FilterField } from "@/components/datatables/TableFilter"
 import { Filter } from "@/types"
-import { CreditCard, AlertTriangle, Calendar, Clock } from "lucide-react"
+import { CreditCard, AlertTriangle, Calendar, Clock, Plus, Eye } from "lucide-react"
+import { ActionButtons } from "@/components/datatables/ActionButtons"
 import { useToast } from "@/components/ui/toast"
 import { getInitials } from "@/lib/invoices/utils"
+import AddSaccoLoan from "./components/add/add"
 
 type SaccoLoanRow = {
   id: string
@@ -67,6 +71,7 @@ const loanTypeLabel = (v: string) => {
 }
 
 export default function SaccoLoansPage() {
+  const router = useRouter()
   const { toast } = useToast()
   const [rows, setRows] = useState<SaccoLoanRow[]>([])
   const [totalRows, setTotalRows] = useState(0)
@@ -75,6 +80,7 @@ export default function SaccoLoansPage() {
   const [page, setPage] = useState(0)
   const [rowsPerPage, setRowsPerPage] = useState(10)
   const [activeQueryParams, setActiveQueryParams] = useState<Record<string, unknown>>({})
+  const [addOpen, setAddOpen] = useState(false)
 
   const loadLoans = useCallback(
     async (queryParams?: object, pageOverride?: number, rowsPerPageOverride?: number) => {
@@ -192,6 +198,25 @@ export default function SaccoLoansPage() {
     [],
   )
 
+  const handleViewLoan = useCallback(
+    (row: SaccoLoanRow) => {
+      router.push(`/sacco-loans/${row.id}`)
+    },
+    [router],
+  )
+
+  const tableActions = useMemo(
+    () => [
+      {
+        label: "View",
+        onClick: handleViewLoan,
+        variant: "view" as const,
+        icon: <Eye className="h-4 w-4" />,
+      },
+    ],
+    [handleViewLoan],
+  )
+
   const columns: DataTableColumn<SaccoLoanRow>[] = useMemo(
     () => [
       {
@@ -259,8 +284,13 @@ export default function SaccoLoansPage() {
         header: "Maturity",
         render: (r) => <span className="text-sm text-muted-foreground">{formatDate(r.maturity_date)}</span>,
       },
+      {
+        key: "actions",
+        header: "Actions",
+        render: (row) => <ActionButtons actions={tableActions} row={row} />,
+      },
     ],
-    [],
+    [tableActions],
   )
 
   const totalPrincipal = rows.reduce((s, r) => s + r.principal_amount, 0)
@@ -268,11 +298,17 @@ export default function SaccoLoansPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-3xl font-bold">Sacco loans</h2>
-        <p className="text-muted-foreground">
-          Institution loans linked to clients—principal, tenure, balances, and workflow status.
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-3xl font-bold">Sacco loans</h2>
+          <p className="text-muted-foreground">
+            Institution loans linked to clients—principal, tenure, balances, and workflow status.
+          </p>
+        </div>
+        <Button type="button" onClick={() => setAddOpen(true)}>
+          <Plus className="mr-2 h-4 w-4" />
+          Add Sacco Loan
+        </Button>
       </div>
 
       {error && (
@@ -334,6 +370,11 @@ export default function SaccoLoansPage() {
           onRowsPerPageChange: handleRowsPerPageChange,
           rowsPerPageOptions: [10, 20, 50],
         }}
+      />
+      <AddSaccoLoan
+        isOpen={addOpen}
+        onClose={() => setAddOpen(false)}
+        onCreated={() => void loadLoans(activeQueryParams, page, rowsPerPage)}
       />
     </div>
   )
