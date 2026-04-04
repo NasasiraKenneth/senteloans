@@ -440,6 +440,7 @@ CREATE TABLE IF NOT EXISTS senteloans_transactions (
     client_id UUID REFERENCES senteloans_clients(id) ON DELETE RESTRICT,
     account_id UUID REFERENCES senteloans_savings_accounts(id) ON DELETE RESTRICT,
     loan_id UUID REFERENCES senteloans_loans(id) ON DELETE RESTRICT,
+    sacco_loan_id UUID REFERENCES senteloans_institution_loans(id) ON DELETE RESTRICT,
     transaction_number VARCHAR(50) NOT NULL,
     type transaction_type NOT NULL,
     amount DECIMAL(15,2) NOT NULL CHECK (amount > 0),
@@ -728,6 +729,9 @@ CREATE TABLE IF NOT EXISTS senteloans_institution_loans (
     modified_by UUID REFERENCES senteloans_users(id) ON DELETE RESTRICT,
     updated_at TIMESTAMPTZ
 );
+
+COMMENT ON COLUMN senteloans_institution_loans.disbursement_balance IS 'UGX remaining to disburse to the client; reduced each disbursement until zero when Fully Disbursed.';
+COMMENT ON COLUMN senteloans_institution_loans.disbursement_date IS 'Date of the latest disbursement to the client.';
 
 CREATE TABLE IF NOT EXISTS senteloans_institution_loan_repayments (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),

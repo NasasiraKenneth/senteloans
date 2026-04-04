@@ -57,6 +57,18 @@ const APPROVE_REJECT_FROM = new Set(["Applied", "Under Review", "Reviewed"])
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
+function addCalendarMonthsToIsoDate(isoDate: string, months: number): string | null {
+  const parts = /^(\d{4})-(\d{2})-(\d{2})$/.exec(isoDate)
+  if (!parts) return null
+  const y = Number(parts[1])
+  const mo = Number(parts[2])
+  const d = Number(parts[3])
+  if (!Number.isFinite(months) || months < 0) return null
+  const out = new Date(y, mo - 1 + months, d, 12, 0, 0)
+  const pad = (n: number) => String(n).padStart(2, "0")
+  return `${out.getFullYear()}-${pad(out.getMonth() + 1)}-${pad(out.getDate())}`
+}
+
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const apiPath = getApiPath(req)
   try {
@@ -179,7 +191,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
     const body = (await req.json().catch(() => ({}))) as Record<string, unknown>
     const nextStatus = String(body.status ?? "").trim()
-    if (nextStatus !== "Approved" && nextStatus !== "Rejected") {
+    if (nextStatus !== "Approved" && nextStatus !== "Rejected" && nextStatus !== "Active") {
       return NextResponse.json({ error: "invalid_status" }, { status: 400 })
     }
 
@@ -197,19 +209,79 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       const isSuperAdmin = String(actor.role || "").trim().toLowerCase() === "super_admin"
       if (!isSuperAdmin && !actor.branch_id) return { error: "actor_branch_missing" as const }
 
+      let where = "l.id = $1 AND l.institution_id = $2"
+      const qparams: unknown[] = [id, actor.institution_id]
+      if (!isSuperAdmin) {
+        where += " AND l.branch_id = $3"
+        qparams.push(actor.branch_id)
+      }
+
+      const updateWhere = isSuperAdmin
+        ? "id = $2 AND institution_id = $3"
+        : "id = $2 AND institution_id = $3 AND branch_id = $4"
+      const updateParams = isSuperAdmin
+        ? [actor.id, id, actor.institution_id]
+        : [actor.id, id, actor.institution_id, actor.branch_id]
+
+      if (nextStatus === "Active") {
+        const ok = await hasPermission(client, actor, "disburse_loan")
+        if (!ok) return { error: "missing_permission:disburse_loan" as const }
+
+        const nextPaymentRaw = String(
+          body.next_payment_date ?? body.nextPaymentDate ?? "",
+        ).trim()
+        const maturityRaw = String(body.maturity_date ?? body.maturityDate ?? "").trim()
+        const nextPaymentDate = nextPaymentRaw.slice(0, 10)
+        const maturityDate = maturityRaw.slice(0, 10)
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(nextPaymentDate)) {
+          return { error: "invalid_next_payment_date" as const }
+        }
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(maturityDate)) {
+          return { error: "invalid_maturity_date" as const }
+        }
+
+        const loanRes = await client.query<{ status: string; tenure_months: number }>(
+          `SELECT l.status, l.tenure_months FROM senteloans_institution_loans l WHERE ${where} LIMIT 1`,
+          qparams,
+        )
+        const row = loanRes.rows[0]
+        if (!row) return { error: "not_found" as const }
+        if (String(row.status || "") !== "Fully Disbursed") {
+          return { error: "invalid_status_transition" as const }
+        }
+
+        const tenureMonths = Math.max(0, Math.floor(Number(row.tenure_months ?? 0)))
+        const expectedMaturity = addCalendarMonthsToIsoDate(nextPaymentDate, tenureMonths)
+        if (!expectedMaturity || expectedMaturity !== maturityDate) {
+          return { error: "maturity_date_mismatch" as const }
+        }
+
+        const activeUpdateWhere = isSuperAdmin
+          ? "id = $2 AND institution_id = $3"
+          : "id = $2 AND institution_id = $3 AND branch_id = $6"
+        const activeUpdateParams = isSuperAdmin
+          ? [actor.id, id, actor.institution_id, nextPaymentDate, maturityDate]
+          : [actor.id, id, actor.institution_id, nextPaymentDate, maturityDate, actor.branch_id]
+
+        await client.query(
+          `UPDATE senteloans_institution_loans
+           SET status = 'Active'::loan_status_type,
+               next_payment_date = $4::date,
+               maturity_date = $5::date,
+               modified_by = $1,
+               updated_at = NOW()
+           WHERE ${activeUpdateWhere}`,
+          activeUpdateParams,
+        )
+        return { ok: true as const, status: "Active" as const }
+      }
+
       if (nextStatus === "Approved") {
         const ok = await hasPermission(client, actor, "approve_loan")
         if (!ok) return { error: "missing_permission:approve_loan" as const }
       } else {
         const ok = await hasPermission(client, actor, "reject_loan")
         if (!ok) return { error: "missing_permission:reject_loan" as const }
-      }
-
-      let where = "l.id = $1 AND l.institution_id = $2"
-      const qparams: unknown[] = [id, actor.institution_id]
-      if (!isSuperAdmin) {
-        where += " AND l.branch_id = $3"
-        qparams.push(actor.branch_id)
       }
 
       const loanRes = await client.query<{ status: string }>(
@@ -223,13 +295,6 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       if (!APPROVE_REJECT_FROM.has(current)) {
         return { error: "invalid_status_transition" as const }
       }
-
-      const updateWhere = isSuperAdmin
-        ? "id = $2 AND institution_id = $3"
-        : "id = $2 AND institution_id = $3 AND branch_id = $4"
-      const updateParams = isSuperAdmin
-        ? [actor.id, id, actor.institution_id]
-        : [actor.id, id, actor.institution_id, actor.branch_id]
 
       if (nextStatus === "Approved") {
         await client.query(
@@ -261,7 +326,9 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     if (result && "error" in result) {
       const err = result.error
       const statusCode =
-        err === "missing_permission:approve_loan" || err === "missing_permission:reject_loan"
+        err === "missing_permission:approve_loan" ||
+          err === "missing_permission:reject_loan" ||
+          err === "missing_permission:disburse_loan"
           ? 403
           : err === "user_not_linked" || err === "cross_branch_operation_forbidden"
             ? 403

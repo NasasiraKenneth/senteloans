@@ -297,13 +297,15 @@ export async function POST(req: Request) {
            loan_product, principal_amount, interest_rate, tenure_months,
            monthly_payment, total_amount, outstanding_balance, status,
            loan_type, purpose, collateral_description, application_date,
+           disbursement_balance,
            created_by
          ) VALUES (
            $1, $2, $3,
            $4, $5, $6, $7,
            $8, $9, $10, $11,
            $12, $13, $14, $15,
-           $16
+           $16,
+           $17
          )
          RETURNING id`,
         [
@@ -322,6 +324,7 @@ export async function POST(req: Request) {
           purpose || null,
           collateral_description,
           application_date,
+          principal_amount,
           actor.id,
         ],
       )

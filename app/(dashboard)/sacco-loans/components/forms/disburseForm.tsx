@@ -21,6 +21,8 @@ interface DisburseFormProps {
   onCancel: () => void
   loading?: boolean
   completeDisbursementAmount?: number
+  /** When disbursement_balance is 0, complete disbursement uses principal as the required transaction amount. */
+  principalAmount?: number
   processingFeeAmount?: number
   processingFeePercentage?: number
   settlementOutstandingBalance?: number
@@ -36,6 +38,7 @@ export default function DisburseForm({
   onCancel,
   loading = false,
   completeDisbursementAmount = 0,
+  principalAmount = 0,
   processingFeeAmount = 0,
   processingFeePercentage = 0,
   settlementOutstandingBalance = 0,
@@ -48,8 +51,15 @@ export default function DisburseForm({
     [completeDisbursementAmount],
   )
 
+  /** Complete: disbursable bucket, or principal when bucket is unset (0). Partial: always the live bucket. */
+  const completeCap = useMemo(() => {
+    const d = maxDisbursable
+    const p = Math.max(0, Number(principalAmount || 0))
+    return d > 0 ? d : p
+  }, [maxDisbursable, principalAmount])
+
   const [disbursementType, setDisbursementType] = useState<"complete" | "partial">("complete")
-  const [amountInput, setAmountInput] = useState(String(maxDisbursable))
+  const [amountInput, setAmountInput] = useState(String(completeCap))
   const [balanceInput, setBalanceInput] = useState("")
   const [mode, setMode] = useState(initialMode)
   const [disbursementDate, setDisbursementDate] = useState(initialDate)
@@ -61,9 +71,9 @@ export default function DisburseForm({
 
   useEffect(() => {
     if (disbursementType === "complete") {
-      setAmountInput(String(maxDisbursable))
+      setAmountInput(String(completeCap))
     }
-  }, [disbursementType, maxDisbursable])
+  }, [disbursementType, completeCap])
 
   useEffect(() => {
     setSubmitAttempted(false)
@@ -81,9 +91,13 @@ export default function DisburseForm({
   const completeAmountError =
     !Number.isFinite(amountNumber) || amountNumber <= 0
       ? "Amount must be greater than 0."
-      : amountNumber > maxDisbursable
-        ? `Amount cannot exceed the disbursable balance (UGX ${maxDisbursable.toLocaleString()}).`
-        : ""
+      : completeCap <= 0
+        ? "Nothing to disburse — set disbursement balance or principal on the loan."
+        : amountNumber > completeCap
+          ? `Amount cannot exceed the full disbursement amount (UGX ${completeCap.toLocaleString()}).`
+          : Math.abs(amountNumber - completeCap) > 0.005
+            ? `For complete disbursement, amount must equal UGX ${completeCap.toLocaleString()} (remaining to disburse).`
+            : ""
 
   const partialAmountError =
     !Number.isFinite(amountNumber) || amountNumber <= 0
@@ -142,6 +156,26 @@ export default function DisburseForm({
         <>
           Processing fee ({Number(processingFeePercentage || 0)}%): UGX{" "}
           {Number(processingFeeAmount || 0).toLocaleString()} | Disbursable: UGX {maxDisbursable.toLocaleString()}
+        </>
+      )}
+    </p>
+  )
+
+  const completeHelperLine = (
+    <p className="mt-1 text-xs text-gray-500">
+      {loanType === "top up" || loanType === "buy off" ? (
+        <>
+          Processing fee ({Number(processingFeePercentage || 0)}%): UGX{" "}
+          {Number(processingFeeAmount || 0).toLocaleString()} | Settlement: UGX{" "}
+          {Number(settlementOutstandingBalance || 0).toLocaleString()} | Full disbursement: UGX{" "}
+          {completeCap.toLocaleString()}
+          {maxDisbursable <= 0 && completeCap > 0 ? " (principal; balance was zero)" : ""}
+        </>
+      ) : (
+        <>
+          Processing fee ({Number(processingFeePercentage || 0)}%): UGX{" "}
+          {Number(processingFeeAmount || 0).toLocaleString()} | Full disbursement: UGX {completeCap.toLocaleString()}
+          {maxDisbursable <= 0 && completeCap > 0 ? " (principal; disbursement balance unset)" : ""}
         </>
       )}
     </p>
@@ -224,12 +258,11 @@ export default function DisburseForm({
             className={productStyleInputClass(showCompleteErr)}
             value={amountInput}
             onChange={(e) => setAmountInput(e.target.value)}
-            disabled
           />
           {showCompleteErr ? (
             <p className="mt-1 text-xs text-red-500">{completeAmountError}</p>
           ) : (
-            helperLine
+            completeHelperLine
           )}
         </div>
       ) : (

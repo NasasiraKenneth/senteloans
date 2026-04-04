@@ -16,6 +16,7 @@ import {
   TrendingDown,
   User,
   XCircle,
+  Zap,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -24,6 +25,7 @@ import DataTable, { DataTableColumn } from "@/components/datatables/DataTable"
 import { useToast } from "@/components/ui/toast"
 import AddRecordPayment from "../components/recordPayment/add"
 import Disburse from "../components/disburse/disburse"
+import Activate from "../components/activate/activate"
 
 type SaccoLoanDetail = {
   id: string
@@ -110,6 +112,7 @@ export default function SaccoLoanDetailPage() {
   const [loading, setLoading] = useState(true)
   const [recordPaymentOpen, setRecordPaymentOpen] = useState(false)
   const [disburseLoanOpen, setDisburseLoanOpen] = useState(false)
+  const [activateOpen, setActivateOpen] = useState(false)
   const [statusActionLoading, setStatusActionLoading] = useState(false)
   const [schedPage, setSchedPage] = useState(0)
   const [schedRowsPerPage, setSchedRowsPerPage] = useState(6)
@@ -297,7 +300,7 @@ export default function SaccoLoanDetailPage() {
 
   return (
     <>
-      <div className="max-w-6xl mx-auto space-y-6">
+      <div className="relative max-w-6xl mx-auto space-y-6">
         <div className="flex items-center justify-between gap-4">
           <Link
             href="/sacco-loans"
@@ -306,6 +309,12 @@ export default function SaccoLoanDetailPage() {
             <ArrowLeft className="h-4 w-4" />
             Back to Sacco loans
           </Link>
+          {loan.status === "Fully Disbursed" && (
+            <Button type="button" size="sm" onClick={() => setActivateOpen(true)}>
+              <Zap className="h-4 w-4 mr-2" />
+              Activate
+            </Button>
+          )}
         </div>
 
         <div className="relative overflow-hidden rounded-xl border bg-card">
@@ -588,7 +597,20 @@ export default function SaccoLoanDetailPage() {
         onClose={() => setDisburseLoanOpen(false)}
         loanId={loanId}
         completeDisbursementAmount={Number(loan.disbursement_balance ?? 0)}
+        principalAmount={Number(loan.principal_amount ?? 0)}
         loanType={String(loan.loan_type || "normal").replace(/_/g, " ")}
+        onSuccess={() => void load()}
+      />
+
+      <Activate
+        isOpen={activateOpen}
+        onClose={() => setActivateOpen(false)}
+        loanId={loanId}
+        tenureMonths={loan.tenure_months}
+        initialNextPaymentDate={
+          loan.next_payment_date ? String(loan.next_payment_date).slice(0, 10) : ""
+        }
+        onSuccess={() => void load()}
       />
     </>
   )
