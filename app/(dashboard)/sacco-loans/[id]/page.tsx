@@ -83,6 +83,20 @@ const formatDateTime = (value: string) => {
   return d.toLocaleString("en-UG", { dateStyle: "medium", timeStyle: "short" })
 }
 
+const toDateOnly = (value: unknown): string => {
+  if (value == null) return ""
+  const raw = String(value).trim()
+  if (!raw) return ""
+  const isoMatch = /^(\d{4}-\d{2}-\d{2})/.exec(raw)
+  if (isoMatch) return isoMatch[1]
+  const d = new Date(raw)
+  if (Number.isNaN(d.getTime())) return raw
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, "0")
+  const day = String(d.getDate()).padStart(2, "0")
+  return `${y}-${m}-${day}`
+}
+
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">{children}</span>
 }
@@ -137,9 +151,9 @@ export default function SaccoLoanDetailPage() {
           list.map((r: Record<string, unknown>) => ({
             id: String(r.id || ""),
             loan_id: String(r.loan_id || ""),
-            due_date: r.due_date != null ? String(r.due_date).slice(0, 10) : "",
+            due_date: toDateOnly(r.due_date),
             amount_paid: Number(r.amount_paid ?? 0),
-            payment_date: r.payment_date != null ? String(r.payment_date).slice(0, 10) : null,
+            payment_date: r.payment_date != null ? toDateOnly(r.payment_date) : null,
             status: String(r.status || "Pending"),
             created_at: r.created_at != null ? String(r.created_at) : "",
             updated_at: r.updated_at != null ? String(r.updated_at) : null,
@@ -568,7 +582,7 @@ export default function SaccoLoanDetailPage() {
               Disburse Loan
             </Button>
           )}
-          {(loan.status === "Fully Disbursed" || loan.status === "Active") && (
+          {loan.status === "Active" && (
             <Button
               variant="outline"
               type="button"
@@ -589,6 +603,7 @@ export default function SaccoLoanDetailPage() {
         isOpen={recordPaymentOpen}
         onClose={() => setRecordPaymentOpen(false)}
         loanId={loanId}
+        initialNextPaymentDate={loan.next_payment_date ? String(loan.next_payment_date) : ""}
         onSuccess={() => void load()}
       />
 
@@ -607,6 +622,7 @@ export default function SaccoLoanDetailPage() {
         onClose={() => setActivateOpen(false)}
         loanId={loanId}
         tenureMonths={loan.tenure_months}
+        initialMonthlyPayment={Number(loan.monthly_payment ?? 0)}
         initialNextPaymentDate={
           loan.next_payment_date ? String(loan.next_payment_date).slice(0, 10) : ""
         }

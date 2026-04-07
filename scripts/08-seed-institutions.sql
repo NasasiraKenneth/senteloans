@@ -8,9 +8,9 @@ INSERT INTO senteloans_institutions (
     type,
     registration_number,
     license_number,
+    logo,
     website,
-    status,
-    settings
+    status
 ) VALUES 
 (
     uuid_generate_v4(),
@@ -18,12 +18,9 @@ INSERT INTO senteloans_institutions (
     'MFI',
     'PLAT-REG-000',
     NULL,
+    NULL,
     'https://senteloans.com',
-    'Active',
-    '{
-        "purpose": "platform",
-        "modules": {"savings": false, "loans": false, "shares": false}
-    }'
+    'Active'
 ),
 (
     uuid_generate_v4(),
@@ -31,32 +28,9 @@ INSERT INTO senteloans_institutions (
     'SACCO',
     'SACCO-REG-001-2020',
     'SACCO-LIC-KMP-001',
+    NULL,
     'https://kampalacentralsacco.ug',
-    'Active',
-    '{
-        "currency": "UGX",
-        "share_value": 50000,
-        "minimum_shares": 5,
-        "maximum_shares": 100,
-        "loan_to_share_ratio": 3,
-        "interest_calculation": "reducing_balance",
-        "default_savings_interest": 8.0,
-        "modules": {
-            "savings": true,
-            "loans": true,
-            "shares": true,
-            "mobile_money": true
-        },
-        "business_hours": {
-            "monday": "08:00-17:00",
-            "tuesday": "08:00-17:00",
-            "wednesday": "08:00-17:00",
-            "thursday": "08:00-17:00",
-            "friday": "08:00-17:00",
-            "saturday": "08:00-13:00",
-            "sunday": "closed"
-        }
-    }'
+    'Active'
 ),
 (
     uuid_generate_v4(),
@@ -64,31 +38,9 @@ INSERT INTO senteloans_institutions (
     'Money Lender',
     'ML-REG-002-2021',
     'ML-LIC-UGA-002',
+    NULL,
     'https://quickcashug.com',
-    'Active',
-    '{
-        "currency": "UGX",
-        "collateral_required": true,
-        "maximum_loan_amount": 5000000,
-        "minimum_loan_amount": 100000,
-        "interest_calculation": "flat_rate",
-        "default_interest_rate": 25.0,
-        "modules": {
-            "savings": false,
-            "loans": true,
-            "shares": false,
-            "mobile_money": true
-        },
-        "business_hours": {
-            "monday": "08:00-18:00",
-            "tuesday": "08:00-18:00",
-            "wednesday": "08:00-18:00",
-            "thursday": "08:00-18:00",
-            "friday": "08:00-18:00",
-            "saturday": "08:00-16:00",
-            "sunday": "10:00-14:00"
-        }
-    }'
+    'Active'
 ),
 (
     uuid_generate_v4(),
@@ -96,33 +48,9 @@ INSERT INTO senteloans_institutions (
     'MFI',
     'MFI-REG-003-2019',
     'MFI-LIC-UGA-003',
+    NULL,
     'https://opportunityug.org',
-    'Active',
-    '{
-        "currency": "UGX",
-        "focus_group": "women_entrepreneurs",
-        "maximum_loan_amount": 2000000,
-        "minimum_loan_amount": 50000,
-        "interest_calculation": "reducing_balance",
-        "default_interest_rate": 18.0,
-        "group_lending": true,
-        "modules": {
-            "savings": true,
-            "loans": true,
-            "shares": false,
-            "mobile_money": true,
-            "group_management": true
-        },
-        "business_hours": {
-            "monday": "08:00-17:00",
-            "tuesday": "08:00-17:00",
-            "wednesday": "08:00-17:00",
-            "thursday": "08:00-17:00",
-            "friday": "08:00-17:00",
-            "saturday": "closed",
-            "sunday": "closed"
-        }
-    }'
+    'Active'
 )
 ON CONFLICT (registration_number) DO NOTHING;
 
@@ -211,6 +139,57 @@ BEGIN
     )
     ON CONFLICT (institution_id, branch_code) DO NOTHING;
 END $$;
+
+-- Seed branch-level settings in senteloans_config only (fields from senteloans_config table).
+INSERT INTO senteloans_config (
+    branch_id,
+    loans,
+    shares,
+    savings,
+    mobile_money,
+    auto_invoices,
+    currency,
+    membership_fee,
+    share_value,
+    minimum_shares,
+    maximum_shares,
+    maximum_parallel_loans,
+    loan_overdue_period,
+    loan_overdue_interest,
+    loan_overdue_interest_per,
+    loan_default_period,
+    invoice_overdue_period,
+    savings_overdue_period,
+    membership_overdue_period,
+    membership_overdue_interest,
+    membership_overdue_interest_per
+)
+SELECT
+    b.id AS branch_id,
+    CASE WHEN i.name = 'SenteLoans Platform' THEN 'false' ELSE 'true' END AS loans,
+    CASE WHEN i.type IN ('SACCO', 'MFI') THEN 'true' ELSE 'false' END AS shares,
+    CASE WHEN i.type IN ('SACCO', 'MFI') THEN 'true' ELSE 'false' END AS savings,
+    CASE WHEN i.name = 'SenteLoans Platform' THEN 'false' ELSE 'true' END AS mobile_money,
+    'false' AS auto_invoices,
+    'UGX' AS currency,
+    50000::numeric(18,2) AS membership_fee,
+    CASE WHEN i.type IN ('SACCO', 'MFI') THEN 50000::numeric(18,2) ELSE 0::numeric(18,2) END AS share_value,
+    CASE WHEN i.type IN ('SACCO', 'MFI') THEN 5 ELSE 0 END AS minimum_shares,
+    CASE WHEN i.type IN ('SACCO', 'MFI') THEN 100 ELSE NULL END AS maximum_shares,
+    1 AS maximum_parallel_loans,
+    30 AS loan_overdue_period,
+    10::numeric(18,2) AS loan_overdue_interest,
+    'day' AS loan_overdue_interest_per,
+    90 AS loan_default_period,
+    30 AS invoice_overdue_period,
+    NULL AS savings_overdue_period,
+    30 AS membership_overdue_period,
+    0::numeric(18,2) AS membership_overdue_interest,
+    'day' AS membership_overdue_interest_per
+FROM senteloans_branches b
+JOIN senteloans_institutions i ON i.id = b.institution_id
+WHERE b.branch_code IN ('PLAT-001', 'KCS-001', 'QCU-001', 'OMU-001')
+ON CONFLICT (branch_id) DO NOTHING;
 
 -- Display results for verification
 SELECT 

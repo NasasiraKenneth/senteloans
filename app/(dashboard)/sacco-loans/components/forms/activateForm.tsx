@@ -9,6 +9,7 @@ import ReeveDatePicker, { parseDateOnly, toDateOnlyString } from "@/components/n
 export type ActivateFormData = {
   next_payment_date: string
   maturity_date: string
+  monthly_payment: number
 }
 
 interface ActivateFormProps {
@@ -17,6 +18,7 @@ interface ActivateFormProps {
   loading?: boolean
   tenureMonths: number
   initialNextPaymentDate?: string
+  initialMonthlyPayment?: number
 }
 
 const STATUS_OPTIONS = [{ value: "Active", label: "Active" }]
@@ -47,13 +49,21 @@ export default function ActivateForm({
   loading = false,
   tenureMonths,
   initialNextPaymentDate = "",
+  initialMonthlyPayment = 0,
 }: ActivateFormProps) {
   const [nextPaymentDate, setNextPaymentDate] = useState(initialNextPaymentDate)
+  const [monthlyPayment, setMonthlyPayment] = useState(
+    initialMonthlyPayment > 0 ? String(initialMonthlyPayment) : "",
+  )
   const [submitAttempted, setSubmitAttempted] = useState(false)
 
   useEffect(() => {
     setNextPaymentDate(initialNextPaymentDate)
   }, [initialNextPaymentDate])
+
+  useEffect(() => {
+    setMonthlyPayment(initialMonthlyPayment > 0 ? String(initialMonthlyPayment) : "")
+  }, [initialMonthlyPayment])
 
   const maturityDate = useMemo(
     () => (nextPaymentDate.trim() ? addCalendarMonths(nextPaymentDate.trim(), tenureMonths) : ""),
@@ -62,15 +72,20 @@ export default function ActivateForm({
 
   const parsedNext = parseDateOnly(nextPaymentDate)
   const invalidNext = !nextPaymentDate.trim() || parsedNext === null
+  const monthlyPaymentNumber = Number(monthlyPayment)
+  const invalidMonthlyPayment = !Number.isFinite(monthlyPaymentNumber) || monthlyPaymentNumber <= 0
   const nextError = invalidNext ? "Next payment date is required." : ""
+  const monthlyPaymentError = invalidMonthlyPayment ? "Monthly payment must be greater than 0." : ""
   const showNextErr = submitAttempted && Boolean(nextError)
+  const showMonthlyErr = submitAttempted && Boolean(monthlyPaymentError)
 
   const handleSubmit = async () => {
     setSubmitAttempted(true)
-    if (invalidNext || !maturityDate) return
+    if (invalidNext || invalidMonthlyPayment || !maturityDate) return
     await onSubmit({
       next_payment_date: nextPaymentDate.trim(),
       maturity_date: maturityDate,
+      monthly_payment: monthlyPaymentNumber,
     })
   }
 
@@ -103,6 +118,25 @@ export default function ActivateForm({
           />
         </div>
         {showNextErr ? <p className="mt-1 text-xs text-red-500">{nextError}</p> : null}
+      </div>
+
+      <div>
+        <Label htmlFor="sacco-activate-monthly-payment" className="mb-2 block">
+          Monthly payment (UGX)
+        </Label>
+        <input
+          id="sacco-activate-monthly-payment"
+          type="number"
+          min="0.01"
+          step="0.01"
+          placeholder="0.00"
+          value={monthlyPayment}
+          onChange={(e) => setMonthlyPayment(e.target.value)}
+          className={`w-full px-3 py-2.5 text-sm border rounded-md transition-all duration-200 focus:ring-[1.5px] focus:ring-[#f08c2b] focus:border-transparent focus:outline-none ${
+            showMonthlyErr ? "border-red-500" : "border-gray-300 hover:border-gray-400"
+          }`}
+        />
+        {showMonthlyErr ? <p className="mt-1 text-xs text-red-500">{monthlyPaymentError}</p> : null}
       </div>
 
       <div>

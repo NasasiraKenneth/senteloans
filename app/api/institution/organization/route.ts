@@ -11,8 +11,8 @@ export async function GET() {
 
     const row = await runWithAuth(session.user.authUserId, async (client) => {
       const userRes = await client.query(
-        `SELECT u.institution_id, i.id AS inst_id, i.name, i.type, i.address, i.phone_number, i.email,
-                i.license_number, i.registration_number, i.website, i.established_date
+        `SELECT u.institution_id, i.id AS inst_id, i.name, i.type,
+                i.license_number, i.registration_number, i.website, i.logo
          FROM senteloans_users u
          JOIN senteloans_institutions i ON i.id = u.institution_id
          WHERE u.supabase_user_id = $1`,
@@ -27,13 +27,10 @@ export async function GET() {
       id: row.inst_id,
       name: row.name,
       type: row.type,
-      address: row.address || "",
-      phone_number: row.phone_number || "",
-      email: row.email || "",
       license_number: row.license_number || "",
       registration_number: row.registration_number || "",
       website: row.website || "",
-      established_date: row.established_date || null,
+      logo: row.logo || "",
     })
   } catch (e: unknown) {
     const err = e as Error
@@ -41,12 +38,6 @@ export async function GET() {
   }
 }
 
-function isValidEmail(email: string) {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
-}
-function isValidPhone(phone: string) {
-  return /^[+\d][\d\s-]{6,19}$/.test(phone)
-}
 function isValidUrl(url: string) {
   try {
     new URL(url)
@@ -64,44 +55,22 @@ export async function PUT(req: Request) {
 
     const body = (await req.json()) as Record<string, unknown>
     const {
-      address,
-      phone_number,
-      email,
       license_number,
       registration_number,
       website,
-      established_date,
+      logo,
     } = body || {}
 
-    if (typeof email === "string" && email && !isValidEmail(email)) {
-      return NextResponse.json({ error: "invalid_email" }, { status: 400 })
-    }
-    if (typeof phone_number === "string" && phone_number && !isValidPhone(phone_number)) {
-      return NextResponse.json({ error: "invalid_phone" }, { status: 400 })
-    }
     if (typeof website === "string" && website && !isValidUrl(website)) {
       return NextResponse.json({ error: "invalid_website" }, { status: 400 })
     }
-    if (typeof established_date === "string" && established_date) {
-      const d = new Date(established_date)
-      if (Number.isNaN(d.getTime())) return NextResponse.json({ error: "invalid_date" }, { status: 400 })
+    if (typeof logo === "string" && logo && !isValidUrl(logo)) {
+      return NextResponse.json({ error: "invalid_logo" }, { status: 400 })
     }
 
     const updates: string[] = []
     const values: unknown[] = []
     let i = 1
-    if (address !== undefined) {
-      updates.push(`address = $${i++}`)
-      values.push(address)
-    }
-    if (phone_number !== undefined) {
-      updates.push(`phone_number = $${i++}`)
-      values.push(phone_number)
-    }
-    if (email !== undefined) {
-      updates.push(`email = $${i++}`)
-      values.push(email)
-    }
     if (license_number !== undefined) {
       updates.push(`license_number = $${i++}`)
       values.push(license_number)
@@ -114,9 +83,9 @@ export async function PUT(req: Request) {
       updates.push(`website = $${i++}`)
       values.push(website)
     }
-    if (established_date !== undefined) {
-      updates.push(`established_date = $${i++}`)
-      values.push(established_date)
+    if (logo !== undefined) {
+      updates.push(`logo = $${i++}`)
+      values.push(logo)
     }
     if (updates.length === 0) return NextResponse.json({ error: "no_changes" }, { status: 400 })
 
@@ -133,7 +102,7 @@ export async function PUT(req: Request) {
         values
       )
       const instRes = await client.query(
-        `SELECT id, name, type, address, phone_number, email, license_number, registration_number, website, established_date
+        `SELECT id, name, type, license_number, registration_number, website, logo
          FROM senteloans_institutions WHERE id = $1`,
         [me.institution_id]
       )

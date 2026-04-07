@@ -28,6 +28,14 @@ const readString = (obj: Record<string, unknown>, ...keys: string[]): string | u
   return undefined
 }
 
+const toFlag = (v: unknown, fallback = false): boolean => {
+  if (typeof v === "boolean") return v
+  const s = String(v ?? "").trim().toLowerCase()
+  if (s === "true") return true
+  if (s === "false") return false
+  return fallback
+}
+
 export async function GET(req: Request) {
   const apiPath = getApiPath(req)
   try {
@@ -42,49 +50,64 @@ export async function GET(req: Request) {
     }
 
     const inst = await runWithAuth(session.user.authUserId, async (client) => {
-      const res = await client.query(
-        `SELECT i.id, i.name, i.type, i.settings
+      const profileRes = await client.query(
+        `SELECT u.id AS user_id, u.branch_id, i.id, i.name, i.type, i.logo
          FROM senteloans_users u
          JOIN senteloans_institutions i ON i.id = u.institution_id
-         WHERE u.supabase_user_id = $1`,
-        [session!.user!.authUserId]
+         WHERE u.supabase_user_id = $1
+         LIMIT 1`,
+        [session!.user!.authUserId],
       )
-      return res.rows[0]
+      const profile = profileRes.rows[0]
+      if (!profile) return null
+      if (!profile.branch_id) return { error: "actor_branch_missing" as const }
+
+      const cfgRes = await client.query(
+        `SELECT *
+         FROM senteloans_config
+         WHERE branch_id = $1
+         ORDER BY created_at DESC
+         LIMIT 1`,
+        [profile.branch_id],
+      )
+      const cfg = cfgRes.rows[0] || null
+      return { ...profile, cfg }
     })
 
     if (!inst) {
       apiLog("warn", "institution.settings.not_found", { method: "GET", apiPath, status: 404, authUserId: session.user.authUserId })
       return NextResponse.json({ error: "institution_not_found" }, { status: 404 })
     }
-    const settings = (inst.settings as Record<string, unknown>) || {}
-    const modules = (settings.modules as Record<string, unknown>) || {}
+    if ("error" in inst) {
+      return NextResponse.json({ error: inst.error }, { status: 400 })
+    }
+    const cfg = (inst.cfg as Record<string, unknown>) || {}
 
     const normalized = {
       id: inst.id,
       name: inst.name,
       type: inst.type,
+      logo: inst.logo || null,
       config: {
         modules: {
-          loans: Boolean(readBoolean(modules, "loans") ?? false),
-          shares: Boolean(readBoolean(modules, "shares") ?? false),
-          savings: Boolean(readBoolean(modules, "savings") ?? false),
-          mobile_money: Boolean(readBoolean(modules, "mobile_money", "mobileMoney") ?? false),
+          loans: toFlag(cfg.loans, false),
+          shares: toFlag(cfg.shares, false),
+          savings: toFlag(cfg.savings, false),
+          mobile_money: toFlag(cfg.mobile_money, false),
         },
-        currency: readString(settings, "currency") || "UGX",
-        shareValue: readNumber(settings, "share_value", "shareValue"),
-        minimumShares: readNumber(settings, "minimum_shares", "minimumShares"),
-        maximumShares: readNumber(settings, "maximum_shares", "maximumShares"),
-        clientTerminology: readString(settings, "clientTerminology", "client_terminology") || "Member",
-        membershipFee: readNumber(settings, "membershipFee", "membership_fee") ?? 0,
-        maximumParallelLoans: readNumber(settings, "maximumParallelLoans", "maximum_parallel_loans") ?? 1,
-        loanLatePenalty: readNumber(settings, "loanLatePenalty", "loan_late_penalty") ?? 0,
-        loanLatePenaltyPeriodDays: readNumber(settings, "loanLatePenaltyPeriodDays", "loan_late_penalty_period_days") ?? 30,
-        membershipLatePenalty: readNumber(settings, "membershipLatePenalty", "membership_late_penalty") ?? 0,
-        membershipLatePenaltyPeriodDays: readNumber(settings, "membershipLatePenaltyPeriodDays", "membership_late_penalty_period_days") ?? 30,
-        autoInvoices: readBoolean(settings, "autoInvoices", "auto_invoices") ?? false,
-        invoicePeriodDays: readNumber(settings, "invoicePeriodDays", "invoice_period_days") ?? 30,
-        defaultedAfterDays: readNumber(settings, "defaultedAfterDays", "defaulted_after_days") ?? 90,
-        monthlyOverdueGraceDays: readNumber(settings, "monthlyOverdueGraceDays", "monthly_overdue_grace_days") ?? 0,
+        currency: readString(cfg, "currency") || "UGX",
+        shareValue: readNumber(cfg, "share_value") ?? 0,
+        minimumShares: readNumber(cfg, "minimum_shares") ?? 0,
+        maximumShares: readNumber(cfg, "maximum_shares"),
+        membershipFee: readNumber(cfg, "membership_fee") ?? 0,
+        maximumParallelLoans: readNumber(cfg, "maximum_parallel_loans") ?? 1,
+        loanLatePenalty: readNumber(cfg, "loan_overdue_interest") ?? 0,
+        loanLatePenaltyPeriodDays: readNumber(cfg, "loan_overdue_period") ?? 30,
+        membershipLatePenalty: readNumber(cfg, "membership_overdue_interest") ?? 0,
+        membershipLatePenaltyPeriodDays: readNumber(cfg, "membership_overdue_period") ?? 30,
+        autoInvoices: toFlag(cfg.auto_invoices, false),
+        invoicePeriodDays: readNumber(cfg, "invoice_overdue_period") ?? 30,
+        defaultedAfterDays: readNumber(cfg, "loan_default_period") ?? 90,
       },
     }
     apiLog("info", "institution.settings.success", { method: "GET", apiPath, status: 200, authUserId: session.user.authUserId })
@@ -116,7 +139,6 @@ export async function PUT(req: Request) {
         shareValue?: number
         minimumShares?: number
         maximumShares?: number
-        clientTerminology?: string
         membershipFee?: number
         maximumParallelLoans?: number
         loanLatePenalty?: number
@@ -126,111 +148,182 @@ export async function PUT(req: Request) {
         autoInvoices?: boolean
         invoicePeriodDays?: number
         defaultedAfterDays?: number
-        monthlyOverdueGraceDays?: number
       }
     }
     const payload = body?.config || {}
 
     const result = await runWithAuth(session.user.authUserId, async (client) => {
-      const instRes = await client.query(
-        `SELECT i.id, i.type, i.settings FROM senteloans_users u
-         JOIN senteloans_institutions i ON i.id = u.institution_id WHERE u.supabase_user_id = $1`,
-        [session!.user!.authUserId]
+      const profileRes = await client.query(
+        `SELECT u.id AS user_id, u.branch_id, i.id AS institution_id, i.type
+         FROM senteloans_users u
+         JOIN senteloans_institutions i ON i.id = u.institution_id
+         WHERE u.supabase_user_id = $1
+         LIMIT 1`,
+        [session!.user!.authUserId],
       )
-      const inst = instRes.rows[0]
-      if (!inst) return null
-      const type = inst.type as string
-      const current = (inst.settings as Record<string, unknown>) || {}
-      const modules = {
-        loans: Boolean(payload.modules?.loans ?? (current.modules as Record<string, unknown>)?.loans ?? true),
-        shares: Boolean(payload.modules?.shares ?? (current.modules as Record<string, unknown>)?.shares ?? false),
-        savings: Boolean(payload.modules?.savings ?? (current.modules as Record<string, unknown>)?.savings ?? false),
-        mobile_money: Boolean(payload.modules?.mobile_money ?? (current.modules as Record<string, unknown>)?.mobile_money ?? true),
-      }
-      const isSaccoOrMfi = type === "SACCO" || type === "MFI"
-      if (!isSaccoOrMfi) {
-        modules.shares = false
-        modules.savings = false
-      }
-      const settingsUpdate: Record<string, unknown> = { ...current, modules }
-      if (typeof payload.currency === "string") settingsUpdate.currency = payload.currency
-      if (typeof payload.clientTerminology === "string" && payload.clientTerminology.trim().length > 0)
-        settingsUpdate.clientTerminology = payload.clientTerminology.trim()
-      if (typeof payload.shareValue !== "undefined") settingsUpdate.share_value = Number(payload.shareValue)
-      if (typeof payload.minimumShares !== "undefined") settingsUpdate.minimum_shares = Number(payload.minimumShares)
-      if (typeof payload.maximumShares !== "undefined") settingsUpdate.maximum_shares = Number(payload.maximumShares)
-      if (typeof payload.membershipFee !== "undefined") settingsUpdate.membershipFee = Number(payload.membershipFee)
-      if (typeof payload.maximumParallelLoans !== "undefined") settingsUpdate.maximumParallelLoans = Number(payload.maximumParallelLoans)
-      if (typeof payload.loanLatePenalty !== "undefined") settingsUpdate.loanLatePenalty = Number(payload.loanLatePenalty)
-      if (typeof payload.loanLatePenaltyPeriodDays !== "undefined") settingsUpdate.loanLatePenaltyPeriodDays = Number(payload.loanLatePenaltyPeriodDays)
-      if (typeof payload.membershipLatePenalty !== "undefined") settingsUpdate.membershipLatePenalty = Number(payload.membershipLatePenalty)
-      if (typeof payload.membershipLatePenaltyPeriodDays !== "undefined") settingsUpdate.membershipLatePenaltyPeriodDays = Number(payload.membershipLatePenaltyPeriodDays)
-      if (typeof payload.autoInvoices !== "undefined") settingsUpdate.autoInvoices = Boolean(payload.autoInvoices)
-      if (typeof payload.invoicePeriodDays !== "undefined") settingsUpdate.invoicePeriodDays = Number(payload.invoicePeriodDays)
-      if (typeof payload.defaultedAfterDays !== "undefined") settingsUpdate.defaultedAfterDays = Number(payload.defaultedAfterDays)
-      if (typeof payload.monthlyOverdueGraceDays !== "undefined") settingsUpdate.monthlyOverdueGraceDays = Number(payload.monthlyOverdueGraceDays)
+      const profile = profileRes.rows[0]
+      if (!profile) return null
+      if (!profile.branch_id) return { error: "actor_branch_missing" as const }
 
-      if (isSaccoOrMfi && modules.shares) {
-        const sv = Number(settingsUpdate.share_value)
-        if (!sv || Number.isNaN(sv) || sv <= 0)
-          throw new Error("share_value_required")
-        const min = settingsUpdate.minimum_shares
-        const max = settingsUpdate.maximum_shares
-        if (typeof min === "number" && typeof max === "number" && min > max)
+      const cfgRes = await client.query(
+        `SELECT * FROM senteloans_config WHERE branch_id = $1 ORDER BY created_at DESC LIMIT 1`,
+        [profile.branch_id],
+      )
+      const current = (cfgRes.rows[0] as Record<string, unknown> | undefined) || {}
+
+      const loans = String(payload.modules?.loans ?? toFlag(current.loans, true))
+      const shares = String(payload.modules?.shares ?? toFlag(current.shares, false))
+      const savings = String(payload.modules?.savings ?? toFlag(current.savings, false))
+      const mobileMoney = String(payload.modules?.mobile_money ?? toFlag(current.mobile_money, true))
+      const autoInvoices = String(payload.autoInvoices ?? toFlag(current.auto_invoices, false))
+
+      const isSaccoOrMfi = profile.type === "SACCO" || profile.type === "MFI"
+      const enforcedShares = isSaccoOrMfi ? shares : "false"
+      const enforcedSavings = isSaccoOrMfi ? savings : "false"
+
+      const shareValue = Number(payload.shareValue ?? current.share_value ?? 0)
+      const minimumShares = Number(payload.minimumShares ?? current.minimum_shares ?? 0)
+      const maximumShares =
+        payload.maximumShares === undefined && current.maximum_shares === undefined
+          ? null
+          : Number(payload.maximumShares ?? current.maximum_shares)
+      const membershipFee = Number(payload.membershipFee ?? current.membership_fee ?? 0)
+      const maximumParallelLoans = Number(payload.maximumParallelLoans ?? current.maximum_parallel_loans ?? 1)
+      const loanOverduePeriod = Number(payload.loanLatePenaltyPeriodDays ?? current.loan_overdue_period ?? 30)
+      const loanOverdueInterest = Number(payload.loanLatePenalty ?? current.loan_overdue_interest ?? 0)
+      const loanDefaultPeriod = Number(payload.defaultedAfterDays ?? current.loan_default_period ?? 90)
+      const invoiceOverduePeriod = Number(payload.invoicePeriodDays ?? current.invoice_overdue_period ?? 30)
+      const membershipOverduePeriod = Number(payload.membershipLatePenaltyPeriodDays ?? current.membership_overdue_period ?? 30)
+      const membershipOverdueInterest = Number(payload.membershipLatePenalty ?? current.membership_overdue_interest ?? 0)
+
+      if (enforcedShares === "true") {
+        if (!shareValue || Number.isNaN(shareValue) || shareValue <= 0) throw new Error("share_value_required")
+        if (minimumShares < 0) throw new Error("minimum_shares_invalid")
+        if (typeof maximumShares === "number" && !Number.isNaN(maximumShares) && minimumShares > maximumShares) {
           throw new Error("min_greater_than_max")
+        }
       }
-
-      const loanLatePenaltyPct = Number(settingsUpdate.loanLatePenalty ?? 0)
-      if (!Number.isFinite(loanLatePenaltyPct) || loanLatePenaltyPct < 0 || loanLatePenaltyPct > 100) {
-        throw new Error("loan_late_penalty_percentage_invalid")
-      }
-      const maximumParallelLoans = Number(settingsUpdate.maximumParallelLoans ?? 1)
       if (!Number.isFinite(maximumParallelLoans) || !Number.isInteger(maximumParallelLoans) || maximumParallelLoans < 1) {
         throw new Error("maximum_parallel_loans_invalid")
       }
+      if (!Number.isFinite(loanOverdueInterest) || loanOverdueInterest < 0 || loanOverdueInterest > 100) {
+        throw new Error("loan_late_penalty_percentage_invalid")
+      }
+
+      const params = [
+        profile.branch_id,
+        loans,
+        enforcedShares,
+        enforcedSavings,
+        mobileMoney,
+        autoInvoices,
+        String(payload.currency || current.currency || "UGX"),
+        membershipFee,
+        shareValue,
+        minimumShares,
+        maximumShares,
+        maximumParallelLoans,
+        loanOverduePeriod,
+        loanOverdueInterest,
+        "day",
+        loanDefaultPeriod,
+        invoiceOverduePeriod,
+        Number(current.savings_overdue_period ?? 0) || null,
+        membershipOverduePeriod,
+        membershipOverdueInterest,
+        "day",
+        String(current.mtn_mobile_money_contact ?? "") || null,
+        String(current.airtel_mobile_money_contact ?? "") || null,
+        profile.user_id,
+      ]
 
       await client.query(
-        `UPDATE senteloans_institutions SET settings = $1 WHERE id = $2`,
-        [JSON.stringify(settingsUpdate), inst.id]
+        `INSERT INTO senteloans_config (
+           branch_id, loans, shares, savings, mobile_money, auto_invoices, currency,
+           membership_fee, share_value, minimum_shares, maximum_shares, maximum_parallel_loans,
+           loan_overdue_period, loan_overdue_interest, loan_overdue_interest_per,
+           loan_default_period, invoice_overdue_period, savings_overdue_period,
+           membership_overdue_period, membership_overdue_interest, membership_overdue_interest_per,
+           mtn_mobile_money_contact, airtel_mobile_money_contact, modified_by, updated_at
+         ) VALUES (
+           $1,$2,$3,$4,$5,$6,$7,
+           $8,$9,$10,$11,$12,
+           $13,$14,$15,
+           $16,$17,$18,
+           $19,$20,$21,
+           $22,$23,$24,NOW()
+         )
+         ON CONFLICT (branch_id) DO UPDATE SET
+           loans = EXCLUDED.loans,
+           shares = EXCLUDED.shares,
+           savings = EXCLUDED.savings,
+           mobile_money = EXCLUDED.mobile_money,
+           auto_invoices = EXCLUDED.auto_invoices,
+           currency = EXCLUDED.currency,
+           membership_fee = EXCLUDED.membership_fee,
+           share_value = EXCLUDED.share_value,
+           minimum_shares = EXCLUDED.minimum_shares,
+           maximum_shares = EXCLUDED.maximum_shares,
+           maximum_parallel_loans = EXCLUDED.maximum_parallel_loans,
+           loan_overdue_period = EXCLUDED.loan_overdue_period,
+           loan_overdue_interest = EXCLUDED.loan_overdue_interest,
+           loan_overdue_interest_per = EXCLUDED.loan_overdue_interest_per,
+           loan_default_period = EXCLUDED.loan_default_period,
+           invoice_overdue_period = EXCLUDED.invoice_overdue_period,
+           savings_overdue_period = EXCLUDED.savings_overdue_period,
+           membership_overdue_period = EXCLUDED.membership_overdue_period,
+           membership_overdue_interest = EXCLUDED.membership_overdue_interest,
+           membership_overdue_interest_per = EXCLUDED.membership_overdue_interest_per,
+           mtn_mobile_money_contact = EXCLUDED.mtn_mobile_money_contact,
+           airtel_mobile_money_contact = EXCLUDED.airtel_mobile_money_contact,
+           modified_by = EXCLUDED.modified_by,
+           updated_at = NOW()`,
+        params,
       )
-      const updated = await client.query(
-        `SELECT id, name, type, settings FROM senteloans_institutions WHERE id = $1`,
-        [inst.id]
+
+      const cfgOut = await client.query(
+        `SELECT c.*, i.id AS institution_id, i.type
+         FROM senteloans_config c
+         JOIN senteloans_branches b ON b.id = c.branch_id
+         JOIN senteloans_institutions i ON i.id = b.institution_id
+         WHERE c.branch_id = $1
+         LIMIT 1`,
+        [profile.branch_id],
       )
-      return updated.rows[0]
+      return cfgOut.rows[0]
     })
 
     if (!result) {
       apiLog("warn", "institution.settings.not_found", { method: "PUT", apiPath, status: 404, authUserId: session.user.authUserId })
       return NextResponse.json({ error: "institution_not_found" }, { status: 404 })
     }
-    const s2 = (result.settings as Record<string, unknown>) || {}
-    const m2 = (s2.modules as Record<string, unknown>) || {}
+    if (result && "error" in result) {
+      return NextResponse.json({ error: result.error }, { status: 400 })
+    }
+    const s2 = result as Record<string, unknown>
     const response = {
-      id: result.id,
+      id: result.institution_id,
       type: result.type,
       config: {
         modules: {
-          loans: Boolean(readBoolean(m2, "loans") ?? false),
-          shares: Boolean(readBoolean(m2, "shares") ?? false),
-          savings: Boolean(readBoolean(m2, "savings") ?? false),
-          mobile_money: Boolean(readBoolean(m2, "mobile_money", "mobileMoney") ?? false),
+          loans: toFlag(s2.loans, false),
+          shares: toFlag(s2.shares, false),
+          savings: toFlag(s2.savings, false),
+          mobile_money: toFlag(s2.mobile_money, false),
         },
         currency: readString(s2, "currency") || "UGX",
-        shareValue: readNumber(s2, "share_value", "shareValue"),
-        minimumShares: readNumber(s2, "minimum_shares", "minimumShares"),
-        maximumShares: readNumber(s2, "maximum_shares", "maximumShares"),
-        clientTerminology: readString(s2, "clientTerminology", "client_terminology") || "Member",
-        membershipFee: readNumber(s2, "membershipFee", "membership_fee") ?? 0,
-        maximumParallelLoans: readNumber(s2, "maximumParallelLoans", "maximum_parallel_loans") ?? 1,
-        loanLatePenalty: readNumber(s2, "loanLatePenalty", "loan_late_penalty") ?? 0,
-        loanLatePenaltyPeriodDays: readNumber(s2, "loanLatePenaltyPeriodDays", "loan_late_penalty_period_days") ?? 30,
-        membershipLatePenalty: readNumber(s2, "membershipLatePenalty", "membership_late_penalty") ?? 0,
-        membershipLatePenaltyPeriodDays: readNumber(s2, "membershipLatePenaltyPeriodDays", "membership_late_penalty_period_days") ?? 30,
-        autoInvoices: readBoolean(s2, "autoInvoices", "auto_invoices") ?? false,
-        invoicePeriodDays: readNumber(s2, "invoicePeriodDays", "invoice_period_days") ?? 30,
-        defaultedAfterDays: readNumber(s2, "defaultedAfterDays", "defaulted_after_days") ?? 90,
-        monthlyOverdueGraceDays: readNumber(s2, "monthlyOverdueGraceDays", "monthly_overdue_grace_days") ?? 0,
+        shareValue: readNumber(s2, "share_value") ?? 0,
+        minimumShares: readNumber(s2, "minimum_shares") ?? 0,
+        maximumShares: readNumber(s2, "maximum_shares"),
+        membershipFee: readNumber(s2, "membership_fee") ?? 0,
+        maximumParallelLoans: readNumber(s2, "maximum_parallel_loans") ?? 1,
+        loanLatePenalty: readNumber(s2, "loan_overdue_interest") ?? 0,
+        loanLatePenaltyPeriodDays: readNumber(s2, "loan_overdue_period") ?? 30,
+        membershipLatePenalty: readNumber(s2, "membership_overdue_interest") ?? 0,
+        membershipLatePenaltyPeriodDays: readNumber(s2, "membership_overdue_period") ?? 30,
+        autoInvoices: toFlag(s2.auto_invoices, false),
+        invoicePeriodDays: readNumber(s2, "invoice_overdue_period") ?? 30,
+        defaultedAfterDays: readNumber(s2, "loan_default_period") ?? 90,
       },
     }
     apiLog("info", "institution.settings.success", { method: "PUT", apiPath, status: 200, authUserId: session.user.authUserId })

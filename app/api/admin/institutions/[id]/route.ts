@@ -11,7 +11,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     if (session.user.role !== "system_admin") return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     const result = await runWithoutAuth(async (client) => {
       const res = await client.query(
-        `SELECT id, name, type, status, registration_number, license_number, address, phone_number, email, website, established_date, settings, created_at, updated_at FROM senteloans_institutions WHERE id = $1`,
+        `SELECT id, name, type, status, registration_number, license_number, address, phone_number, email, website, logo, established_date, created_at, updated_at FROM senteloans_institutions WHERE id = $1`,
         [id]
       )
       return res.rows[0] || null
@@ -44,25 +44,13 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     if (typeof body.registrationNumber === "string") update.registration_number = body.registrationNumber
     if (typeof body.licenseNumber === "string") update.license_number = body.licenseNumber
     if (typeof body.website === "string") update.website = body.website
+    if (typeof body.logo === "string") update.logo = body.logo
 
     await runWithoutAuth(async (client) => {
-      let currentSettings: Record<string, unknown> = {}
-      if (Object.keys(update).length === 0 || body.clientTerminology !== undefined || body.contactPerson !== undefined || body.modules !== undefined) {
-        const curRes = await client.query(`SELECT settings FROM senteloans_institutions WHERE id = $1`, [id])
-        currentSettings = (curRes.rows[0]?.settings as Record<string, unknown>) || {}
-      }
-      const newSettings = { ...currentSettings }
-      if (typeof body.clientTerminology === "string") newSettings.clientTerminology = body.clientTerminology
-      if (typeof body.contactPerson === "string") newSettings.contactPerson = body.contactPerson
-      if (body.modules && typeof body.modules === "object") {
-        newSettings.modules = { ...((currentSettings.modules as Record<string, unknown>) || {}), ...(body.modules as Record<string, unknown>) }
-      }
-      if (Object.keys(newSettings).length > 0) update.settings = JSON.stringify(newSettings)
-
       if (Object.keys(update).length === 0) return
       const keys = Object.keys(update)
-      const setClause = keys.map((k, i) => (k === "settings" ? `settings = $${i + 2}::jsonb` : `${k} = $${i + 2}`)).join(", ")
-      const vals = Object.values(update).map((v) => (typeof v === "object" && v !== null && !(v instanceof Date) ? JSON.stringify(v) : v))
+      const setClause = keys.map((k, i) => `${k} = $${i + 2}`).join(", ")
+      const vals = Object.values(update)
       await client.query(`UPDATE senteloans_institutions SET ${setClause} WHERE id = $1`, [id, ...vals])
     })
 

@@ -9,10 +9,17 @@ interface AddRecordPaymentProps {
   isOpen: boolean
   onClose: () => void
   loanId: string
+  initialNextPaymentDate?: string
   onSuccess?: () => void | Promise<void>
 }
 
-export default function AddRecordPayment({ isOpen, onClose, loanId, onSuccess }: AddRecordPaymentProps) {
+export default function AddRecordPayment({
+  isOpen,
+  onClose,
+  loanId,
+  initialNextPaymentDate = "",
+  onSuccess,
+}: AddRecordPaymentProps) {
   const { toast } = useToast()
   const [saving, setSaving] = useState(false)
 
@@ -23,7 +30,12 @@ export default function AddRecordPayment({ isOpen, onClose, loanId, onSuccess }:
       const res = await fetch(`/api/institution/sacco-loans/${loanId}/record-payment`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ amount: data.amount, payment_date: data.payment_date }),
+        body: JSON.stringify({
+          amount: data.amount,
+          payment_date: data.payment_date,
+          payment_mode: data.payment_mode,
+          next_payment_date: data.next_payment_date,
+        }),
       })
       const body = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(typeof body?.error === "string" ? body.error : "Failed to record payment")
@@ -40,7 +52,13 @@ export default function AddRecordPayment({ isOpen, onClose, loanId, onSuccess }:
 
   return (
     <LowModal isOpen={isOpen} onClose={onClose} title="Record payment">
-      <RecordPaymentForm onSubmit={handleSubmit} onCancel={onClose} loading={saving} />
+      <RecordPaymentForm
+        onSubmit={handleSubmit}
+        onCancel={onClose}
+        isOpen={isOpen}
+        loading={saving}
+        initialNextPaymentDate={initialNextPaymentDate}
+      />
     </LowModal>
   )
 }

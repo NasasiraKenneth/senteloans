@@ -1,23 +1,32 @@
 -- Add membership fee tracking
--- The fee amount itself is stored in senteloans_institutions.settings JSONB as "membershipFee"
+-- The fee amount is stored in senteloans_config.membership_fee (branch-level)
 -- Only the amount paid by each member is stored per-member
 
 -- 1. Add membership_fee_paid column to senteloans_members
 ALTER TABLE senteloans_members
   ADD COLUMN IF NOT EXISTS membership_fee_paid DECIMAL(15,2) DEFAULT 0 CHECK (membership_fee_paid >= 0);
 
--- 2. Set membership fee in institution settings (stored as "membershipFee" in JSONB)
-UPDATE senteloans_institutions
-  SET settings = settings || '{"membershipFee": 50000}'::jsonb
-  WHERE name = 'Kampala Central SACCO';
+-- 2. Set membership fee in senteloans_config for each institution's branches
+UPDATE senteloans_config c
+SET membership_fee = 50000
+FROM senteloans_branches b
+JOIN senteloans_institutions i ON i.id = b.institution_id
+WHERE c.branch_id = b.id
+  AND i.name = 'Kampala Central SACCO';
 
-UPDATE senteloans_institutions
-  SET settings = settings || '{"membershipFee": 30000}'::jsonb
-  WHERE name = 'Quick Cash Uganda';
+UPDATE senteloans_config c
+SET membership_fee = 30000
+FROM senteloans_branches b
+JOIN senteloans_institutions i ON i.id = b.institution_id
+WHERE c.branch_id = b.id
+  AND i.name = 'Quick Cash Uganda';
 
-UPDATE senteloans_institutions
-  SET settings = settings || '{"membershipFee": 40000}'::jsonb
-  WHERE name = 'Opportunity Microfinance Uganda';
+UPDATE senteloans_config c
+SET membership_fee = 40000
+FROM senteloans_branches b
+JOIN senteloans_institutions i ON i.id = b.institution_id
+WHERE c.branch_id = b.id
+  AND i.name = 'Opportunity Microfinance Uganda';
 
 -- 3. Seed some payment data for existing demo members
 UPDATE senteloans_members SET membership_fee_paid = 50000 WHERE member_number = 'SL001';

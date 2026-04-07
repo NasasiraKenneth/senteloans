@@ -19,5 +19,11 @@ ALTER TABLE senteloans_transactions
 ALTER TABLE senteloans_transactions
   ADD CONSTRAINT chk_transactions_reference CHECK (
     type::text IN ('Fee Payment', 'Shares Purchase') OR
-    (account_id IS NOT NULL OR loan_id IS NOT NULL)
+    (
+      account_id IS NOT NULL OR
+      loan_id IS NOT NULL OR
+      sacco_loan_id IS NOT NULL OR
+      member_id IS NOT NULL OR
+      client_id IS NOT NULL
+    )
   );

@@ -33,6 +33,20 @@ async function resolveActorContext(client: any, authUserId: string): Promise<Act
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
+function toDateOnly(value: unknown): string {
+  if (value == null) return ""
+  const raw = String(value).trim()
+  if (!raw) return ""
+  const isoMatch = /^(\d{4}-\d{2}-\d{2})/.exec(raw)
+  if (isoMatch) return isoMatch[1]
+  const d = new Date(raw)
+  if (Number.isNaN(d.getTime())) return ""
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, "0")
+  const day = String(d.getDate()).padStart(2, "0")
+  return `${y}-${m}-${day}`
+}
+
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const apiPath = getApiPath(req)
   try {
@@ -84,9 +98,9 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       const repayments = rowsRes.rows.map((row: Record<string, unknown>) => ({
         id: String(row.id || ""),
         loan_id: String(row.loan_id || ""),
-        due_date: row.due_date != null ? String(row.due_date).slice(0, 10) : "",
+        due_date: toDateOnly(row.due_date),
         amount_paid: Number(row.amount_paid ?? 0),
-        payment_date: row.payment_date != null ? String(row.payment_date).slice(0, 10) : null,
+        payment_date: row.payment_date != null ? toDateOnly(row.payment_date) : null,
         status: String(row.status || "Pending"),
         created_at: row.created_at != null ? String(row.created_at) : "",
         updated_at: row.updated_at != null ? String(row.updated_at) : null,

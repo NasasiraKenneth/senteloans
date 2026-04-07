@@ -231,6 +231,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
           body.next_payment_date ?? body.nextPaymentDate ?? "",
         ).trim()
         const maturityRaw = String(body.maturity_date ?? body.maturityDate ?? "").trim()
+        const monthlyPayment = Number(body.monthly_payment ?? body.monthlyPayment)
         const nextPaymentDate = nextPaymentRaw.slice(0, 10)
         const maturityDate = maturityRaw.slice(0, 10)
         if (!/^\d{4}-\d{2}-\d{2}$/.test(nextPaymentDate)) {
@@ -238,6 +239,9 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         }
         if (!/^\d{4}-\d{2}-\d{2}$/.test(maturityDate)) {
           return { error: "invalid_maturity_date" as const }
+        }
+        if (!Number.isFinite(monthlyPayment) || monthlyPayment <= 0) {
+          return { error: "invalid_monthly_payment" as const }
         }
 
         const loanRes = await client.query<{ status: string; tenure_months: number }>(
@@ -258,16 +262,17 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
         const activeUpdateWhere = isSuperAdmin
           ? "id = $2 AND institution_id = $3"
-          : "id = $2 AND institution_id = $3 AND branch_id = $6"
+          : "id = $2 AND institution_id = $3 AND branch_id = $7"
         const activeUpdateParams = isSuperAdmin
-          ? [actor.id, id, actor.institution_id, nextPaymentDate, maturityDate]
-          : [actor.id, id, actor.institution_id, nextPaymentDate, maturityDate, actor.branch_id]
+          ? [actor.id, id, actor.institution_id, nextPaymentDate, maturityDate, monthlyPayment]
+          : [actor.id, id, actor.institution_id, nextPaymentDate, maturityDate, monthlyPayment, actor.branch_id]
 
         await client.query(
           `UPDATE senteloans_institution_loans
            SET status = 'Active'::loan_status_type,
                next_payment_date = $4::date,
                maturity_date = $5::date,
+               monthly_payment = $6,
                modified_by = $1,
                updated_at = NOW()
            WHERE ${activeUpdateWhere}`,

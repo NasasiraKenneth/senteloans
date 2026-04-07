@@ -116,7 +116,13 @@ export async function GET(req: Request) {
         idx++
       }
       if (search) {
-        where += ` AND (t.description ILIKE $${idx} OR t.transaction_number ILIKE $${idx} OR m.full_name ILIKE $${idx} OR m.member_number ILIKE $${idx})`
+        where += ` AND (
+          t.description ILIKE $${idx}
+          OR t.transaction_number ILIKE $${idx}
+          OR m.full_name ILIKE $${idx}
+          OR m.member_number ILIKE $${idx}
+          OR c.name ILIKE $${idx}
+        )`
         params.push(`%${search}%`)
         idx++
       }
@@ -125,6 +131,7 @@ export async function GET(req: Request) {
         `SELECT COUNT(*)::int AS c
          FROM senteloans_transactions t
          LEFT JOIN senteloans_members m ON m.id = t.member_id
+         LEFT JOIN senteloans_clients c ON c.id = t.client_id
          WHERE ${where}`,
         params
       )
@@ -136,6 +143,7 @@ export async function GET(req: Request) {
         `SELECT
            t.id,
            t.member_id,
+           t.client_id,
            t.account_id,
            t.loan_id,
            t.transaction_number,
@@ -146,9 +154,11 @@ export async function GET(req: Request) {
            t.reference_number,
            t.balance_after,
            t.transaction_date,
-           m.full_name AS member_name
+           m.full_name AS member_name,
+           c.name AS client_name
          FROM senteloans_transactions t
          LEFT JOIN senteloans_members m ON m.id = t.member_id
+         LEFT JOIN senteloans_clients c ON c.id = t.client_id
          WHERE ${where}
          ORDER BY t.created_at DESC
          LIMIT $${idx} OFFSET $${idx + 1}`,
@@ -166,7 +176,7 @@ export async function GET(req: Request) {
       const items = data.map((row: Record<string, unknown>) => ({
         id: row.id,
         transaction_number: row.transaction_number,
-        memberName: row.member_name || "",
+        memberName: row.member_name || row.client_name || "",
         description: row.description || "",
         amount: row.amount,
         mode: row.mode,
@@ -190,9 +200,10 @@ export async function GET(req: Request) {
       }
 
       const recentRes = await client.query(
-        `SELECT t.id, t.transaction_number, t.type, t.amount, t.mode, t.balance_after, t.transaction_date, t.account_id, t.member_id, t.description, m.full_name AS member_name
+        `SELECT t.id, t.transaction_number, t.type, t.amount, t.mode, t.balance_after, t.transaction_date, t.account_id, t.member_id, t.client_id, t.description, m.full_name AS member_name, c.name AS client_name
          FROM senteloans_transactions t
          LEFT JOIN senteloans_members m ON m.id = t.member_id
+         LEFT JOIN senteloans_clients c ON c.id = t.client_id
          WHERE ${recentWhereParts.join(" AND ")}
          ORDER BY t.created_at DESC
          LIMIT 10`,
@@ -214,7 +225,7 @@ export async function GET(req: Request) {
         balance: t.balance_after,
         date: t.transaction_date,
         description: t.description || "",
-        memberName: t.member_name || "",
+        memberName: t.member_name || t.client_name || "",
         accountNumber: recentAccountMap[t.account_id as string] || "",
       }))
 

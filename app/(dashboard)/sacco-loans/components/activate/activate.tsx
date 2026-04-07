@@ -11,6 +11,7 @@ interface ActivateProps {
   loanId: string
   tenureMonths: number
   initialNextPaymentDate?: string
+  initialMonthlyPayment?: number
   onSuccess?: () => void | Promise<void>
 }
 
@@ -20,6 +21,7 @@ export default function Activate({
   loanId,
   tenureMonths,
   initialNextPaymentDate = "",
+  initialMonthlyPayment = 0,
   onSuccess,
 }: ActivateProps) {
   const { toast } = useToast()
@@ -36,6 +38,7 @@ export default function Activate({
           status: "Active",
           next_payment_date: data.next_payment_date,
           maturity_date: data.maturity_date,
+          monthly_payment: data.monthly_payment,
         }),
       })
       const body = await res.json().catch(() => ({}))
@@ -61,6 +64,7 @@ export default function Activate({
         loading={loading}
         tenureMonths={tenureMonths}
         initialNextPaymentDate={initialNextPaymentDate}
+        initialMonthlyPayment={initialMonthlyPayment}
       />
     </ReeveModal>
   )

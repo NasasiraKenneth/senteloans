@@ -20,7 +20,7 @@ export async function GET() {
       const row = clientRes.rows[0]
       if (!row) return null
       const instRes = await client.query(
-        `SELECT id, name, type, settings, status FROM senteloans_institutions WHERE id = $1`,
+        `SELECT id, name, type, logo, status FROM senteloans_institutions WHERE id = $1`,
         [row.institution_id]
       )
       const inst = instRes.rows[0]
@@ -66,7 +66,8 @@ export async function GET() {
         name: i.name,
         type: i.type,
         status: i.status,
-        config: i.settings || {},
+        logo: i.logo || null,
+        config: {},
       },
     })
   } catch (e: unknown) {

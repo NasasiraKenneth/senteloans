@@ -212,7 +212,7 @@ export default function TransactionsPage() {
     },
     {
       key: "memberName",
-      header: "Member",
+      header: "Assigned to",
       render: (row) => (
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 bg-linear-to-br from-primary/80 to-primary rounded-full flex items-center justify-center">

@@ -50,7 +50,7 @@ CREATE TABLE IF NOT EXISTS senteloans_institutions (
     registration_number VARCHAR(100) UNIQUE NOT NULL,
     license_number VARCHAR(100),
     website VARCHAR(255),
-    settings JSONB DEFAULT '{}'::jsonb,
+    logo VARCHAR(255),
     status status_type DEFAULT 'Active',
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
@@ -89,6 +89,38 @@ CREATE TABLE IF NOT EXISTS senteloans_branches (
     updated_at TIMESTAMPTZ DEFAULT NOW(),
 
     CONSTRAINT uk_branch_code UNIQUE (institution_id, branch_code)
+);
+
+CREATE TABLE IF NOT EXISTS senteloans_config (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    branch_id UUID NOT NULL
+        REFERENCES senteloans_branches(id) ON DELETE CASCADE,
+    loans VARCHAR(10) NOT NULL DEFAULT 'false',
+    shares VARCHAR(10) NOT NULL DEFAULT 'false',
+    savings VARCHAR(10) NOT NULL DEFAULT 'false',
+    mobile_money VARCHAR(10) NOT NULL DEFAULT 'false',
+    auto_invoices VARCHAR(10) NOT NULL DEFAULT 'false',
+    currency VARCHAR(20) NOT NULL,
+    membership_fee NUMERIC(18,2) NOT NULL CHECK (membership_fee >= 0),
+    share_value NUMERIC(18,2) NOT NULL CHECK (share_value >= 0),
+    minimum_shares INT NOT NULL CHECK (minimum_shares >= 0),
+    maximum_shares INT,
+    maximum_parallel_loans INT,
+    loan_overdue_period INT,
+    loan_overdue_interest NUMERIC(18,2) NOT NULL CHECK (loan_overdue_interest >= 0),
+    loan_overdue_interest_per VARCHAR(20) NOT NULL DEFAULT 'day',
+    loan_default_period INT,
+    invoice_overdue_period INT,
+    savings_overdue_period INT,
+    membership_overdue_period INT,
+    membership_overdue_interest NUMERIC(18,2) NOT NULL CHECK (loan_overdue_interest >= 0),
+    membership_overdue_interest_per VARCHAR(20) NOT NULL DEFAULT 'day',
+    mtn_mobile_money_contact VARCHAR(25),
+    airtel_mobile_money_contact VARCHAR(25),
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    modified_by UUID REFERENCES senteloans_users(id) ON DELETE RESTRICT,
+    updated_at TIMESTAMPTZ,
+    UNIQUE (branch_id)
 );
 
 -- 24-create-roles.sql
@@ -705,7 +737,7 @@ CREATE TABLE IF NOT EXISTS senteloans_institution_loans (
     loan_product VARCHAR(120),
     principal_amount DECIMAL(15,2) NOT NULL CHECK (principal_amount > 0),
     interest_rate DECIMAL(5,2) NOT NULL CHECK (interest_rate >= 0),
-    tenure_months INTEGER NOT NULL CHECK (tenure_months > 0),
+    tenure_months INTEGER NOT NULL CHECK (tenure_months >= 0),
     monthly_payment DECIMAL(15,2),
     total_amount DECIMAL(15,2),
     outstanding_balance DECIMAL(15,2) NOT NULL DEFAULT 0,
@@ -735,11 +767,13 @@ COMMENT ON COLUMN senteloans_institution_loans.disbursement_date IS 'Date of the
 
 CREATE TABLE IF NOT EXISTS senteloans_institution_loan_repayments (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    loan_id UUID NOT NULL REFERENCES senteloans_institution_loans(id) ON DELETE CASCADE,
+    loan_id UUID NOT NULL REFERENCES senteloans_institution_loans(id) ON DELETE RESTRICT,
+    transaction_id UUID
+        REFERENCES senteloans_transactions(id) ON DELETE RESTRICT,
     due_date DATE NOT NULL,
     amount_paid DECIMAL(15,2) DEFAULT 0 CHECK (amount_paid >= 0),
     payment_date DATE,
-    status repayment_status DEFAULT 'Pending',
+    status repayment_status DEFAULT 'Completed',
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ
 );

@@ -19,7 +19,6 @@ interface InstitutionConfig {
   shareValue?: number
   minimumShares?: number
   maximumShares?: number
-  clientTerminology: string
   membershipFee?: number
   maximumParallelLoans?: number
   loanLatePenalty?: number
@@ -29,20 +28,16 @@ interface InstitutionConfig {
   autoInvoices?: boolean
   invoicePeriodDays?: number
   defaultedAfterDays?: number
-  monthlyOverdueGraceDays?: number
 }
 
 interface InstitutionOrg {
   id: string
   name: string
   type: string
-  address: string
-  phone_number: string
-  email: string
   license_number: string
   registration_number: string
   website: string
-  established_date: string | null
+  logo: string
 }
 
 type InstitutionSettingsWorkspace = "general" | "loan" | "penalties" | "shares"
@@ -98,13 +93,10 @@ export default function SettingsPage() {
             id: o.id,
             name: o.name,
             type: o.type,
-            address: o.address || "",
-            phone_number: o.phone_number || "",
-            email: o.email || "",
             license_number: o.license_number || "",
             registration_number: o.registration_number || "",
             website: o.website || "",
-            established_date: o.established_date || null,
+            logo: o.logo || "",
           })
         }
         if (staffRes.ok) {
@@ -269,8 +261,6 @@ export default function SettingsPage() {
     setOrg((prev) => (prev ? { ...prev, [field]: value } as InstitutionOrg : prev))
   }
 
-  const isValidEmail = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
-  const isValidPhone = (phone: string) => /^[+\d][\d\s-]{6,19}$/.test(phone)
   const isValidUrl = (url: string) => {
     try { new URL(url); return true } catch { return false }
   }
@@ -313,24 +303,9 @@ export default function SettingsPage() {
   const handleSaveOrg = async (): Promise<boolean> => {
     if (!org) return false
     // client-side validation
-    if (org.email && !isValidEmail(org.email)) {
-      toast({ title: "Validation", description: "Enter a valid email address", variant: "warning" })
-      return false
-    }
-    if (org.phone_number && !isValidPhone(org.phone_number)) {
-      toast({ title: "Validation", description: "Enter a valid phone number", variant: "warning" })
-      return false
-    }
     if (org.website && !isValidUrl(org.website)) {
       toast({ title: "Validation", description: "Enter a valid website URL (include http/https)", variant: "warning" })
       return false
-    }
-    if (org.established_date) {
-      const d = new Date(org.established_date)
-      if (Number.isNaN(d.getTime())) {
-        toast({ title: "Validation", description: "Established date is invalid", variant: "warning" })
-        return false
-      }
     }
 
     setIsSavingOrg(true)
@@ -339,13 +314,10 @@ export default function SettingsPage() {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          address: org.address,
-          phone_number: org.phone_number,
-          email: org.email,
           license_number: org.license_number,
           registration_number: org.registration_number,
           website: org.website,
-          established_date: org.established_date,
+          logo: org.logo,
         }),
       })
       const data = await res.json()
@@ -603,16 +575,7 @@ export default function SettingsPage() {
                           </SelectContent>
                         </Select>
                       </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="clientTerm">Client Terminology</Label>
-                        <Input
-                          id="clientTerm"
-                          value={config.clientTerminology}
-                          onChange={(e) => setConfigField("clientTerminology", e.target.value)}
-                          disabled={!canEditInstitutionWorkspace("general")}
-                          className={memberInputClass}
-                        />
-                      </div>
+                      <div className="space-y-2" />
                     </div>
                     )}
 
@@ -632,18 +595,6 @@ export default function SettingsPage() {
                             step="1"
                             value={Number(config.maximumParallelLoans ?? 1)}
                             onChange={(e) => setConfigField("maximumParallelLoans", Number.parseInt(e.target.value || "1"))}
-                            disabled={!canEditInstitutionWorkspace("loan")}
-                            className={memberInputClass}
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="monthlyOverdueGraceDays">Monthly Payment Overdue Grace (days)</Label>
-                          <Input
-                            id="monthlyOverdueGraceDays"
-                            type="number"
-                            min={0}
-                            value={Number(config.monthlyOverdueGraceDays ?? 0)}
-                            onChange={(e) => setConfigField("monthlyOverdueGraceDays", Number.parseInt(e.target.value || "0"))}
                             disabled={!canEditInstitutionWorkspace("loan")}
                             className={memberInputClass}
                           />
@@ -927,31 +878,18 @@ export default function SettingsPage() {
                       <Input id="licenseNo" value={org?.license_number || ""} onChange={(e) => setOrgField("license_number", e.target.value)} disabled={!isOrgEditMode} className={memberInputClass} />
                     </div>
 
-                    <div className="space-y-2">
-                      <Label htmlFor="address">Address</Label>
-                      <Input id="address" value={org?.address || ""} onChange={(e) => setOrgField("address", e.target.value)} disabled={!isOrgEditMode} className={memberInputClass} />
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <Label htmlFor="orgPhone">Phone Number</Label>
-                        <Input id="orgPhone" value={org?.phone_number || ""} onChange={(e) => setOrgField("phone_number", e.target.value)} disabled={!isOrgEditMode} className={memberInputClass} />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="orgEmail">Email</Label>
-                        <Input id="orgEmail" type="email" value={org?.email || ""} onChange={(e) => setOrgField("email", e.target.value)} disabled={!isOrgEditMode} className={memberInputClass} />
-                      </div>
-                    </div>
-
                     <div className="grid grid-cols-2 gap-4">
                       <div className="space-y-2">
                         <Label htmlFor="website">Website</Label>
                         <Input id="website" value={org?.website || ""} onChange={(e) => setOrgField("website", e.target.value)} disabled={!isOrgEditMode} placeholder="https://example.com" className={memberInputClass} />
                       </div>
                       <div className="space-y-2">
-                        <Label htmlFor="established">Established Date</Label>
-                        <Input id="established" type="date" value={(org?.established_date ?? "") as string} onChange={(e) => setOrgField("established_date", e.target.value)} disabled={!isOrgEditMode} className={memberInputClass} />
+                        <Label htmlFor="logo">Logo Link</Label>
+                        <Input id="logo" value={org?.logo || ""} onChange={(e) => setOrgField("logo", e.target.value)} disabled={!isOrgEditMode} placeholder="https://example.com/logo.png" className={memberInputClass} />
                       </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2" />
                     </div>
 
                   </CardContent>

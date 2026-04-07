@@ -12,17 +12,10 @@ export async function POST(req: Request) {
     const body = await req.json().catch(() => ({})) as Record<string, unknown>
     const uiType = body.type as string | undefined
     const type = uiType === "sacco" ? "SACCO" : uiType === "mfi" ? "MFI" : uiType === "money-lender" ? "Money Lender" : (body.type as string)
-    const settings = JSON.stringify({
-      clientTerminology: body.clientTerminology || "Client",
-      contactPerson: body.contactPerson ?? null,
-      modules: body.modules || {},
-      features: body.features || {},
-    })
-
     const result = await runWithoutAuth(async (client) => {
       const res = await client.query(
-        `INSERT INTO senteloans_institutions (name, type, address, phone_number, email, website, registration_number, license_number, status, settings)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb) RETURNING id`,
+        `INSERT INTO senteloans_institutions (name, type, address, phone_number, email, website, registration_number, license_number, logo, status)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id`,
         [
           body.name,
           type,
@@ -32,8 +25,8 @@ export async function POST(req: Request) {
           body.website ?? null,
           body.registrationNumber ?? null,
           body.licenseNumber ?? null,
+          body.logo ?? null,
           (body.status as string) || "Active",
-          settings,
         ]
       )
       return { ok: true, id: res.rows[0]?.id }
