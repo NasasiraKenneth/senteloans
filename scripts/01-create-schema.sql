@@ -118,7 +118,8 @@ CREATE TABLE IF NOT EXISTS senteloans_config (
     mtn_mobile_money_contact VARCHAR(25),
     airtel_mobile_money_contact VARCHAR(25),
     created_at TIMESTAMPTZ DEFAULT NOW(),
-    modified_by UUID REFERENCES senteloans_users(id) ON DELETE RESTRICT,
+    -- Added as plain UUID first to avoid forward-reference before senteloans_users exists.
+    modified_by UUID,
     updated_at TIMESTAMPTZ,
     UNIQUE (branch_id)
 );
@@ -172,6 +173,22 @@ CREATE TABLE IF NOT EXISTS senteloans_users (
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Add senteloans_config.modified_by FK after senteloans_users exists.
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'fk_config_modified_by_user'
+    ) THEN
+        ALTER TABLE senteloans_config
+            ADD CONSTRAINT fk_config_modified_by_user
+            FOREIGN KEY (modified_by)
+            REFERENCES senteloans_users(id)
+            ON DELETE RESTRICT;
+    END IF;
+END $$;
 
 -- 4b. CLIENTS DIRECTORY TABLE (Institution-level client organizations/contacts)
 CREATE TABLE IF NOT EXISTS senteloans_clients (
