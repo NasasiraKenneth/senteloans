@@ -106,13 +106,12 @@ export async function GET(req: Request) {
       if (!allowed) return { error: "missing_permission:view_members" as const }
       const actorRole = String(actor.role || "").trim().toLowerCase()
 
-      // Get institution settings to include membership fee
-      const instRes = await client.query(
-        `SELECT settings FROM senteloans_institutions WHERE id = $1`,
-        [actor.institution_id]
+      // Get branch membership fee from senteloans_config
+      const cfgRes = await client.query(
+        `SELECT membership_fee FROM senteloans_config WHERE branch_id = $1 LIMIT 1`,
+        [actor.branch_id]
       )
-      const instSettings = (instRes.rows[0]?.settings as Record<string, unknown>) || {}
-      const membershipFee = typeof instSettings.membershipFee === "number" ? instSettings.membershipFee : 0
+      const membershipFee = Number(cfgRes.rows[0]?.membership_fee ?? 0)
 
       let where = "c.institution_id = $1"
       const params: unknown[] = [actor.institution_id]
@@ -355,13 +354,12 @@ export async function POST(req: Request) {
         const validModes = ["Cash", "Mobile Money", "Bank Transfer", "Cheque", "Card"]
         const txMode = validModes.includes(membershipFeeMode) ? membershipFeeMode : "Cash"
 
-        // Fetch institution membership fee to compute remaining balance
-        const instSettingsRes = await client.query(
-          `SELECT settings FROM senteloans_institutions WHERE id = $1`,
-          [actor.institution_id]
+        // Fetch configured membership fee to compute remaining balance
+        const cfgRes = await client.query(
+          `SELECT membership_fee FROM senteloans_config WHERE branch_id = $1 LIMIT 1`,
+          [actor.branch_id]
         )
-        const instSettingsData = (instSettingsRes.rows[0]?.settings as Record<string, unknown>) || {}
-        const totalMembershipFee = typeof instSettingsData.membershipFee === "number" ? instSettingsData.membershipFee : 0
+        const totalMembershipFee = Number(cfgRes.rows[0]?.membership_fee ?? 0)
 
         // balance_before = remaining before payment, balance_after = remaining after payment
         const balanceBefore = totalMembershipFee

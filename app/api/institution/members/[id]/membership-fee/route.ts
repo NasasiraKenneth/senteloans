@@ -76,18 +76,17 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       if (!allowed) return { error: "missing_permission:view_members" as const }
 
       const memberRes = await client.query(
-        `SELECT id, membership_fee_paid FROM senteloans_members WHERE institution_id = $1 AND id = $2`,
+        `SELECT id, branch_id, membership_fee_paid FROM senteloans_members WHERE institution_id = $1 AND id = $2`,
         [actor.institution_id, memberId]
       )
       const memberRow = memberRes.rows[0]
       if (!memberRow) return { error: "member_not_found" as const }
 
-      const instRes = await client.query(
-        `SELECT settings FROM senteloans_institutions WHERE id = $1`,
-        [actor.institution_id]
+      const cfgRes = await client.query(
+        `SELECT membership_fee FROM senteloans_config WHERE branch_id = $1 LIMIT 1`,
+        [memberRow.branch_id]
       )
-      const settings = (instRes.rows[0]?.settings as Record<string, unknown>) || {}
-      const membershipFee = typeof settings.membershipFee === "number" ? settings.membershipFee : 0
+      const membershipFee = Number(cfgRes.rows[0]?.membership_fee ?? 0)
 
       // Fetch membership fee payment history from transactions
       const txRes = await client.query(
@@ -160,7 +159,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       if (!allowed) return { error: "missing_permission:edit_membership_fee" as const }
 
       const memberRes = await client.query(
-        `SELECT id, institution_id, membership_fee_paid, status FROM senteloans_members WHERE id = $1`,
+        `SELECT id, institution_id, branch_id, membership_fee_paid, status FROM senteloans_members WHERE id = $1`,
         [memberId]
       )
       const memberRow = memberRes.rows[0]
@@ -169,12 +168,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         return { error: "cross_tenant_forbidden" as const }
       }
 
-      const instRes = await client.query(
-        `SELECT settings FROM senteloans_institutions WHERE id = $1`,
-        [actor.institution_id]
+      const cfgRes = await client.query(
+        `SELECT membership_fee FROM senteloans_config WHERE branch_id = $1 LIMIT 1`,
+        [memberRow.branch_id]
       )
-      const settings = (instRes.rows[0]?.settings as Record<string, unknown>) || {}
-      const membershipFee = typeof settings.membershipFee === "number" ? settings.membershipFee : 0
+      const membershipFee = Number(cfgRes.rows[0]?.membership_fee ?? 0)
 
       const currentPaid = Number(memberRow.membership_fee_paid) || 0
       const remaining = membershipFee - currentPaid

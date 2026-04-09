@@ -224,47 +224,13 @@ export default function UsersPage() {
     router.push(`/users/${row.id}/edit`)
   }
 
-  const getTerminology = () => {
-    if (!session?.institution?.config) {
-      return {
-        singular: "Member",
-        plural: "Members",
-        management: "Member Management",
-        description: "Manage SACCO members, track KYC status, and handle registrations.",
-        addButton: "Add Member",
-      }
-    }
-
-    const clientTerm = session.institution.config.clientTerminology || "Member"
-
-    if (clientTerm === "Borrower") {
-      return {
-        singular: "Borrower",
-        plural: "Borrowers",
-        management: "Borrower Management",
-        description: "Manage borrowers, track KYC status, and handle registrations.",
-        addButton: "Add Borrower",
-      }
-    } else if (clientTerm === "Client") {
-      return {
-        singular: "Client",
-        plural: "Clients",
-        management: "Client Management",
-        description: "Manage clients, track KYC status, and handle registrations.",
-        addButton: "Add Client",
-      }
-    }
-
-    return {
-      singular: "Member",
-      plural: "Members",
-      management: "Member Management",
-      description: "Manage SACCO members, track KYC status, and handle registrations.",
-      addButton: "Add Member",
-    }
+  const terminology = {
+    singular: "Member",
+    plural: "Members",
+    management: "Member Management",
+    description: "Manage SACCO members, track KYC status, and handle registrations.",
+    addButton: "Add Member",
   }
-
-  const terminology = getTerminology()
 
   // Table columns configuration
   const columns: DataTableColumn<UiClient>[] = [

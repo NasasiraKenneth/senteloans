@@ -89,13 +89,12 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
         [actor.institution_id, memberId]
       )
 
-      // Fetch institution membership fee setting
-      const instRes = await client.query(
-        `SELECT settings FROM senteloans_institutions WHERE id = $1`,
-        [actor.institution_id]
+      // Fetch branch membership fee from senteloans_config
+      const cfgRes = await client.query(
+        `SELECT membership_fee FROM senteloans_config WHERE branch_id = $1 LIMIT 1`,
+        [actor.branch_id]
       )
-      const instSettings = (instRes.rows[0]?.settings as Record<string, unknown>) || {}
-      const membershipFee = typeof instSettings.membershipFee === "number" ? instSettings.membershipFee : 0
+      const membershipFee = Number(cfgRes.rows[0]?.membership_fee ?? 0)
       const memberRow = memberRes.rows[0]
       if (!memberRow) return null
 
@@ -328,12 +327,11 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       if (updateRes.rowCount === 0) return { error: "not_updated" as const }
 
       if (membershipDelta > 0) {
-        const instRes = await client.query(
-          `SELECT settings FROM senteloans_institutions WHERE id = $1`,
-          [actor.institution_id]
+        const cfgRes = await client.query(
+          `SELECT membership_fee FROM senteloans_config WHERE branch_id = $1 LIMIT 1`,
+          [actor.branch_id]
         )
-        const settings = (instRes.rows[0]?.settings as Record<string, unknown>) || {}
-        const configuredMembershipFee = typeof settings.membershipFee === "number" ? settings.membershipFee : 0
+        const configuredMembershipFee = Number(cfgRes.rows[0]?.membership_fee ?? 0)
         const balanceBefore = Math.max(configuredMembershipFee - currentMembershipPaid, 0)
         const balanceAfter = Math.max(configuredMembershipFee - nextMembershipPaid, 0)
         const transactionNumber = `FEE-${Date.now()}`

@@ -72,7 +72,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       if (!allowed) return { error: "missing_permission:view_members" as const }
 
       const memberRes = await client.query(
-        `SELECT id, institution_id FROM senteloans_members WHERE id = $1`,
+        `SELECT id, institution_id, branch_id FROM senteloans_members WHERE id = $1`,
         [memberId]
       )
       const memberRow = memberRes.rows[0]
@@ -136,26 +136,20 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       if (!memberRow) return { error: "member_not_found" as const }
       if (memberRow.institution_id !== actor.institution_id) return { error: "forbidden" as const }
 
-      const instRes = await client.query(
-        `SELECT settings, type FROM senteloans_institutions WHERE id = $1`,
-        [actor.institution_id]
+      const cfgRes = await client.query(
+        `SELECT shares, share_value, minimum_shares, maximum_shares
+         FROM senteloans_config
+         WHERE branch_id = $1
+         LIMIT 1`,
+        [memberRow.branch_id]
       )
-      const inst = instRes.rows[0]
-      if (!inst) return { error: "institution_not_found" as const }
+      const cfg = cfgRes.rows[0]
+      if (!cfg) return { error: "institution_not_found" as const }
 
-      const settings = (inst.settings as Record<string, unknown>) || {}
-      const mods = settings.modules as Record<string, unknown> | undefined
-      const sharesEnabled = Boolean(mods?.shares)
-      // Support both snake_case and camelCase settings keys
-      const valuePerShareRaw = (settings as { share_value?: number; shareValue?: number }).share_value
-        ?? (settings as { share_value?: number; shareValue?: number }).shareValue
-      const valuePerShare = Number(valuePerShareRaw)
-      const minSharesRaw = (settings as { minimum_shares?: number; minimumShares?: number }).minimum_shares
-        ?? (settings as { minimum_shares?: number; minimumShares?: number }).minimumShares
-      const maxSharesRaw = (settings as { maximum_shares?: number; maximumShares?: number }).maximum_shares
-        ?? (settings as { maximum_shares?: number; maximumShares?: number }).maximumShares
-      const minShares = minSharesRaw != null ? Number(minSharesRaw) : undefined
-      const maxShares = maxSharesRaw != null ? Number(maxSharesRaw) : undefined
+      const sharesEnabled = String(cfg.shares ?? "false").toLowerCase() === "true"
+      const valuePerShare = Number(cfg.share_value ?? 0)
+      const minShares = cfg.minimum_shares != null ? Number(cfg.minimum_shares) : undefined
+      const maxShares = cfg.maximum_shares != null ? Number(cfg.maximum_shares) : undefined
 
       if (!sharesEnabled) return { error: "shares_disabled" as const }
       if (!valuePerShare || Number.isNaN(valuePerShare) || valuePerShare <= 0) {
