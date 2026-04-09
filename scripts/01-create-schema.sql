@@ -23,7 +23,7 @@ DECLARE
         {"name": "payment_mode", "values": ["Cash", "Mobile Money", "Bank Transfer", "Cheque", "Card"]},
         {"name": "transaction_status", "values": ["Pending", "Completed", "Failed", "Reversed"]},
         {"name": "settlement_status", "values": ["Pending", "Completed", "Failed", "Reversed"]},
-        {"name": "repayment_status", "values": ["Pending", "Paid", "Overdue", "Partial"]},
+        {"name": "repayment_status", "values": ["Pending", "Paid", "Completed", "Overdue", "Partial"]},
         {"name": "interest_calculation_method", "values": ["reducing_balance", "flat_rate", "compound"]}
     ]';
 BEGIN
@@ -480,6 +480,39 @@ CREATE TABLE IF NOT EXISTS senteloans_savings_accounts (
       ON DELETE RESTRICT
 );
 
+CREATE TABLE IF NOT EXISTS senteloans_institution_loans (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    institution_id UUID NOT NULL REFERENCES senteloans_institutions(id) ON DELETE RESTRICT,
+    branch_id UUID NOT NULL REFERENCES senteloans_branches(id) ON DELETE RESTRICT,
+    client_id UUID NOT NULL REFERENCES senteloans_clients(id) ON DELETE RESTRICT,
+    loan_product VARCHAR(120),
+    principal_amount DECIMAL(15,2) NOT NULL CHECK (principal_amount > 0),
+    interest_rate DECIMAL(5,2) NOT NULL CHECK (interest_rate >= 0),
+    tenure_months INTEGER NOT NULL CHECK (tenure_months >= 0),
+    monthly_payment DECIMAL(15,2),
+    total_amount DECIMAL(15,2),
+    outstanding_balance DECIMAL(15,2) NOT NULL DEFAULT 0,
+    status loan_status_type NOT NULL DEFAULT 'Applied',
+    -- Approved
+    -- Partially Disbursed
+    -- Fully Disbursed
+    loan_type VARCHAR(20) NOT NULL DEFAULT 'normal',
+    purpose TEXT,
+    collateral_description TEXT,
+    application_date DATE NOT NULL,
+    approved_at TIMESTAMPTZ,
+    rejected_at TIMESTAMPTZ,
+    disbursement_balance DECIMAL(15,2) NOT NULL DEFAULT 0,
+    disbursement_date DATE,
+    maturity_date DATE,
+    next_payment_date DATE,
+    overdue_days INTEGER DEFAULT 0 CHECK (overdue_days >= 0),
+    created_by UUID REFERENCES senteloans_users(id) ON DELETE RESTRICT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    modified_by UUID REFERENCES senteloans_users(id) ON DELETE RESTRICT,
+    updated_at TIMESTAMPTZ
+);
+
 -- 13. TRANSACTIONS TABLE (All financial transactions)
 CREATE TABLE IF NOT EXISTS senteloans_transactions (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -744,39 +777,6 @@ CREATE TABLE IF NOT EXISTS senteloans_investment_valuations (
     notes TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     CONSTRAINT unique_valuation UNIQUE (investment_id, valuation_date)
-);
-
-CREATE TABLE IF NOT EXISTS senteloans_institution_loans (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    institution_id UUID NOT NULL REFERENCES senteloans_institutions(id) ON DELETE RESTRICT,
-    branch_id UUID NOT NULL REFERENCES senteloans_branches(id) ON DELETE RESTRICT,
-    client_id UUID NOT NULL REFERENCES senteloans_clients(id) ON DELETE RESTRICT,
-    loan_product VARCHAR(120),
-    principal_amount DECIMAL(15,2) NOT NULL CHECK (principal_amount > 0),
-    interest_rate DECIMAL(5,2) NOT NULL CHECK (interest_rate >= 0),
-    tenure_months INTEGER NOT NULL CHECK (tenure_months >= 0),
-    monthly_payment DECIMAL(15,2),
-    total_amount DECIMAL(15,2),
-    outstanding_balance DECIMAL(15,2) NOT NULL DEFAULT 0,
-    status loan_status_type NOT NULL DEFAULT 'Applied',
-    -- Approved
-    -- Partially Disbursed
-    -- Fully Disbursed
-    loan_type VARCHAR(20) NOT NULL DEFAULT 'normal',
-    purpose TEXT,
-    collateral_description TEXT,
-    application_date DATE NOT NULL,
-    approved_at TIMESTAMPTZ,
-    rejected_at TIMESTAMPTZ,
-    disbursement_balance DECIMAL(15,2) NOT NULL DEFAULT 0,
-    disbursement_date DATE,
-    maturity_date DATE,
-    next_payment_date DATE,
-    overdue_days INTEGER DEFAULT 0 CHECK (overdue_days >= 0),
-    created_by UUID REFERENCES senteloans_users(id) ON DELETE RESTRICT,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    modified_by UUID REFERENCES senteloans_users(id) ON DELETE RESTRICT,
-    updated_at TIMESTAMPTZ
 );
 
 COMMENT ON COLUMN senteloans_institution_loans.disbursement_balance IS 'UGX remaining to disburse to the client; reduced each disbursement until zero when Fully Disbursed.';
