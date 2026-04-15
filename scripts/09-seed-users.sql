@@ -28,6 +28,7 @@ VALUES
   ('edit_branch_financial_info', 'settings'),
   ('edit_institution_info', 'settings'),
   ('edit_role_permissions', 'settings'),
+  ('view_users', 'users'),
   ('create_user', 'users'),
   ('edit_user', 'users'),
   ('view_members', 'members'),
