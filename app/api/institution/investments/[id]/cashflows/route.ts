@@ -75,7 +75,19 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
        ORDER BY COALESCE(cf.date, cf.created_at::date) DESC NULLS LAST, cf.created_at DESC`,
       [id],
     )
-    return NextResponse.json({ items: cashflowsRes.rows })
+    const previousValRes = await client.query(
+      `SELECT value
+       FROM senteloans_investment_valuations
+       WHERE investment_id = $1
+       ORDER BY valuation_date DESC, created_at DESC
+       LIMIT 1`,
+      [id],
+    )
+    const previousAdjustmentValue = previousValRes.rowCount
+      ? Number(previousValRes.rows[0]?.value || 0)
+      : 0
+
+    return NextResponse.json({ items: cashflowsRes.rows, meta: { previous_adjustment_value: previousAdjustmentValue } })
   })
 }
 
@@ -89,6 +101,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const type = String(body.type || "").trim().toLowerCase()
   const category = String(body.category || "").trim().toLowerCase()
   const amount = Number(body.amount || 0)
+  const currentValue = Number(body.current_value ?? 0)
   const description = String(body.description || "").trim() || null
   const date = String(body.date || "").trim()
   const modeRaw = String(body.mode || "").trim()
@@ -99,10 +112,15 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     return NextResponse.json({ error: "invalid_category" }, { status: 400 })
   }
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return NextResponse.json({ error: "invalid_date" }, { status: 400 })
-  if (Number.isNaN(amount) || amount <= 0) return NextResponse.json({ error: "invalid_amount" }, { status: 400 })
   if (category !== "adjustment" && !mode) return NextResponse.json({ error: "mode_required" }, { status: 400 })
   if (mode && !["Cash", "Mobile Money", "Bank Transfer", "Cheque", "Card"].includes(mode)) {
     return NextResponse.json({ error: "invalid_mode" }, { status: 400 })
+  }
+  if (category !== "adjustment" && (Number.isNaN(amount) || amount <= 0)) {
+    return NextResponse.json({ error: "invalid_amount" }, { status: 400 })
+  }
+  if (category === "adjustment" && (Number.isNaN(currentValue) || currentValue < 0)) {
+    return NextResponse.json({ error: "invalid_current_value" }, { status: 400 })
   }
 
   return runWithAuth(session.user.authUserId, async (client) => {
@@ -136,8 +154,41 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       const txType = type === "inflow" ? "Deposit" : "Withdrawal"
       const txDate = `${date}T00:00:00.000Z`
       const transactionNumber = `INV-CF-${Date.now()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`
+      let effectiveAmount = amount
 
       let transactionId: string | null = null
+      if (category === "adjustment") {
+        const prevValRes = await client.query(
+          `SELECT value
+           FROM senteloans_investment_valuations
+           WHERE investment_id = $1
+           ORDER BY valuation_date DESC, created_at DESC
+           LIMIT 1`,
+          [id],
+        )
+        const previousValue = prevValRes.rowCount ? Number(prevValRes.rows[0]?.value || 0) : 0
+        if (type === "inflow") {
+          if (!(currentValue > previousValue)) {
+            await client.query("ROLLBACK")
+            return NextResponse.json({ error: "adjustment_inflow_requires_higher_current_value" }, { status: 400 })
+          }
+          effectiveAmount = currentValue - previousValue
+        } else {
+          if (!(currentValue < previousValue)) {
+            await client.query("ROLLBACK")
+            return NextResponse.json({ error: "adjustment_outflow_requires_lower_current_value" }, { status: 400 })
+          }
+          effectiveAmount = previousValue - currentValue
+        }
+      }
+      // Safety guard: adjustment difference must always be a positive stored amount.
+      if (category === "adjustment") {
+        effectiveAmount = Math.abs(effectiveAmount)
+        if (!(effectiveAmount > 0)) {
+          await client.query("ROLLBACK")
+          return NextResponse.json({ error: "adjustment_difference_must_be_positive" }, { status: 400 })
+        }
+      }
       if (category !== "adjustment") {
         const txRes = await client.query(
           `INSERT INTO senteloans_transactions (
@@ -152,7 +203,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
             inv.provider_id,
             transactionNumber,
             txType,
-            amount,
+            effectiveAmount,
             mode,
             description || `Investment cashflow (${inv.investment_number || inv.id})`,
             transactionNumber,
@@ -168,7 +219,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
           await client.query(
             `INSERT INTO senteloans_investment_valuations (investment_id, valuation_date, value, notes)
              VALUES ($1, $2::date, $3, $4)`,
-            [id, date, amount, description],
+            [id, date, currentValue, description],
           )
         } catch (e: any) {
           if (String(e?.code) === "23505") {
@@ -183,7 +234,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         `INSERT INTO senteloans_investment_cashflows (investment_id, transaction_id, report_id, type, category, amount, description, date)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
          RETURNING id`,
-        [id, transactionId, null, type, category, amount, description, date],
+        [id, transactionId, null, type, category, effectiveAmount, description, date],
       )
       await client.query("COMMIT")
       return NextResponse.json({ ok: true, id: insertRes.rows[0]?.id, transaction_id: transactionId }, { status: 201 })

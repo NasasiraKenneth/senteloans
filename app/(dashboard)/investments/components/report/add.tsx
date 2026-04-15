@@ -108,6 +108,12 @@ export default function AddReport({ isOpen, onClose, investmentId, onSubmit }: A
     const totalCheckedExpenseOutflows = selected
       .filter((c) => c.category === "expense" && c.type === "outflow")
       .reduce((sum, c) => sum + Number(c.amount || 0), 0)
+    const totalCheckedAdjustmentInflows = selected
+      .filter((c) => c.category === "adjustment" && c.type === "inflow")
+      .reduce((sum, c) => sum + Number(c.amount || 0), 0)
+    const totalCheckedAdjustmentOutflows = selected
+      .filter((c) => c.category === "adjustment" && c.type === "outflow")
+      .reduce((sum, c) => sum + Number(c.amount || 0), 0)
 
     const mismatchCapital = Math.abs(Number(form.capitalAdded || 0) - totalCheckedCapitalOutflows) > 0.01
     const mismatchIncome = Math.abs(Number(form.income || 0) - totalCheckedIncomeInflows) > 0.01
@@ -124,7 +130,10 @@ export default function AddReport({ isOpen, onClose, investmentId, onSubmit }: A
       return
     }
 
-    const v = validateReportForm(form)
+    const v = validateReportForm(form, {
+      adjustmentInflow: totalCheckedAdjustmentInflows,
+      adjustmentOutflow: totalCheckedAdjustmentOutflows,
+    })
     if (Object.keys(v).length > 0) {
       setErrors(v)
       return
@@ -141,7 +150,18 @@ export default function AddReport({ isOpen, onClose, investmentId, onSubmit }: A
   return (
     <ReeveModal isOpen={isOpen} onClose={onClose} title="Monthly Report" className="z-20">
       <div className="p-4 space-y-4 max-h-[min(80vh,36rem)] overflow-y-auto">
-        <ReportsForm value={form} onChange={patchForm} disabled={saving} errors={errors} />
+        <ReportsForm
+          value={form}
+          onChange={patchForm}
+          disabled={saving}
+          errors={errors}
+          adjustmentInflow={cashflows
+            .filter((c) => selectedCashflowIds.includes(c.id) && c.category === "adjustment" && c.type === "inflow")
+            .reduce((sum, c) => sum + Number(c.amount || 0), 0)}
+          adjustmentOutflow={cashflows
+            .filter((c) => selectedCashflowIds.includes(c.id) && c.category === "adjustment" && c.type === "outflow")
+            .reduce((sum, c) => sum + Number(c.amount || 0), 0)}
+        />
         <div className="space-y-2">
           <h4 className="text-sm font-semibold text-gray-700">Cashflows (latest first)</h4>
           {loadingCashflows ? (

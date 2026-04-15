@@ -58,7 +58,10 @@ export function computeClosingValue(data: Pick<ReportFormData, "openingValue" | 
   return Number.isFinite(closing) ? closing : 0
 }
 
-export function validateReportForm(data: ReportFormData): Record<string, string> {
+export function validateReportForm(
+  data: ReportFormData,
+  opts?: { adjustmentInflow?: number; adjustmentOutflow?: number },
+): Record<string, string> {
   const err: Record<string, string> = {}
   if (!String(data.reportMonth || "").trim()) err.reportMonth = "Report month is required"
   const year = Number(data.reportYear || 0)
@@ -69,12 +72,15 @@ export function validateReportForm(data: ReportFormData): Record<string, string>
   const income = Number(data.income || 0)
   const expenses = Number(data.expenses || 0)
   const closing = Number(data.closingValue || 0)
-  const expected = computeClosingValue({
+  const expectedBase = computeClosingValue({
     openingValue: opening,
     capitalAdded: capital,
     income,
     expenses,
   })
+  const adjustmentInflow = Number(opts?.adjustmentInflow || 0)
+  const adjustmentOutflow = Number(opts?.adjustmentOutflow || 0)
+  const expected = expectedBase + adjustmentInflow - adjustmentOutflow
 
   if (Number.isNaN(opening) || opening < 0) err.openingValue = "Opening value must be 0 or greater"
   if (Number.isNaN(capital) || capital < 0) err.capitalAdded = "Capital added must be 0 or greater"
@@ -93,9 +99,19 @@ interface ReportsFormProps {
   onChange: (patch: Partial<ReportFormData>) => void
   disabled?: boolean
   errors?: Partial<Record<keyof ReportFormData | "root", string>>
+  adjustmentInflow?: number
+  adjustmentOutflow?: number
 }
 
-export default function ReportsForm({ value, onChange, disabled = false, errors = {} }: ReportsFormProps) {
+export default function ReportsForm({
+  value,
+  onChange,
+  disabled = false,
+  errors = {},
+  adjustmentInflow = 0,
+  adjustmentOutflow = 0,
+}: ReportsFormProps) {
+  const expectedWithAdjustments = computeClosingValue(value) + Number(adjustmentInflow || 0) - Number(adjustmentOutflow || 0)
   return (
     <div className="space-y-3">
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -202,7 +218,7 @@ export default function ReportsForm({ value, onChange, disabled = false, errors 
           disabled={disabled}
         />
         <p className="text-xs text-muted-foreground">
-          Expected: {computeClosingValue(value).toLocaleString("en-UG", { maximumFractionDigits: 2 })}
+          Expected: {expectedWithAdjustments.toLocaleString("en-UG", { maximumFractionDigits: 2 })}
         </p>
         {errors.closingValue && <p className="text-xs text-red-600">{errors.closingValue}</p>}
       </div>

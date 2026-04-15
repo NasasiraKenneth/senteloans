@@ -52,10 +52,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   if ([openingValue, capitalAdded, income, expenses, closingValue].some((n) => Number.isNaN(n) || n < 0)) {
     return NextResponse.json({ error: "invalid_report_values" }, { status: 400 })
   }
-  const expected = openingValue + capitalAdded + income - expenses
-  if (Math.abs(closingValue - expected) > 0.01) {
-    return NextResponse.json({ error: "invalid_closing_value" }, { status: 400 })
-  }
 
   return runWithAuth(session.user.authUserId, async (client) => {
     const actor = await resolveActorContext(client, session.user.authUserId as string)
@@ -76,6 +72,40 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       if (invRes.rowCount === 0) {
         await client.query("ROLLBACK")
         return NextResponse.json({ error: "investment_not_found" }, { status: 404 })
+      }
+
+      let adjustmentInflow = 0
+      let adjustmentOutflow = 0
+      if (cashflowIds.length > 0) {
+        const selectedCashflowsRes = await client.query(
+          `SELECT id, type, category, amount, report_id
+           FROM senteloans_investment_cashflows
+           WHERE investment_id = $1
+             AND id = ANY($2::uuid[])`,
+          [id, cashflowIds],
+        )
+        if (selectedCashflowsRes.rowCount !== cashflowIds.length) {
+          await client.query("ROLLBACK")
+          return NextResponse.json({ error: "invalid_cashflow_selection" }, { status: 400 })
+        }
+        const alreadyReported = selectedCashflowsRes.rows.some((r) => r.report_id != null)
+        if (alreadyReported) {
+          await client.query("ROLLBACK")
+          return NextResponse.json({ error: "cashflow_already_reported" }, { status: 409 })
+        }
+
+        adjustmentInflow = selectedCashflowsRes.rows
+          .filter((r) => String(r.category) === "adjustment" && String(r.type) === "inflow")
+          .reduce((sum, r) => sum + Number(r.amount || 0), 0)
+        adjustmentOutflow = selectedCashflowsRes.rows
+          .filter((r) => String(r.category) === "adjustment" && String(r.type) === "outflow")
+          .reduce((sum, r) => sum + Number(r.amount || 0), 0)
+      }
+
+      const expected = openingValue + capitalAdded + income - expenses + adjustmentInflow - adjustmentOutflow
+      if (Math.abs(closingValue - expected) > 0.01) {
+        await client.query("ROLLBACK")
+        return NextResponse.json({ error: "invalid_closing_value" }, { status: 400 })
       }
 
       const reportNumber = `RPT-${new Date().toISOString().slice(0, 10).replaceAll("-", "")}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`

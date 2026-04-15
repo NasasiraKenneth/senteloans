@@ -11,6 +11,8 @@ export interface FlowFormData {
   type: CashflowDirection | ""
   category: CashflowCategory | ""
   amount: number
+  previousValue: number
+  currentValue: number
   description: string
   /** Business date (maps to `date` column); empty string if not set */
   date: string
@@ -50,6 +52,8 @@ export function emptyFlowForm(): FlowFormData {
     type: "",
     category: "",
     amount: 0,
+    previousValue: 0,
+    currentValue: 0,
     description: "",
     date: "",
     transactionMode: "",
@@ -67,7 +71,17 @@ export function validateFlowForm(
   if (!data.category) err.category = "Select a category"
   const requireDate = opts?.requireDate !== false
   if (requireDate && !String(data.date || "").trim()) err.date = "Select a cashflow date"
-  if (Number.isNaN(data.amount) || data.amount <= 0) err.amount = "Amount must be greater than zero"
+  if (data.category === "adjustment") {
+    if (Number.isNaN(data.currentValue) || data.currentValue < 0) err.currentValue = "Current value must be zero or greater"
+    if (data.type === "inflow" && !(data.currentValue > data.previousValue)) {
+      err.currentValue = "Current value must be greater than previous value for inflow"
+    }
+    if (data.type === "outflow" && !(data.currentValue < data.previousValue)) {
+      err.currentValue = "Current value must be less than previous value for outflow"
+    }
+  } else if (Number.isNaN(data.amount) || data.amount <= 0) {
+    err.amount = "Amount must be greater than zero"
+  }
   return err
 }
 
@@ -80,6 +94,7 @@ interface FlowFormProps {
   /** Show optional transaction / report UUID fields (schema links). Default true. */
   showReferenceIds?: boolean
   errors?: Partial<Record<keyof FlowFormData | "root", string>>
+  previousAdjustmentValue?: number
 }
 
 export default function FlowForm({
@@ -89,6 +104,7 @@ export default function FlowForm({
   showCashflowDate = true,
   showReferenceIds = true,
   errors = {},
+  previousAdjustmentValue,
 }: FlowFormProps) {
   const transactionModeDisabled = disabled || value.category === "adjustment"
   const categoryOptions =
@@ -108,6 +124,9 @@ export default function FlowForm({
     const allowed = nextCategoryOptions.some((o) => o.value === value.category)
     onChange({ type: nextType, category: allowed ? value.category : "" })
   }
+
+  const isAdjustment = value.category === "adjustment"
+  const previousValue = Number.isFinite(previousAdjustmentValue) ? Number(previousAdjustmentValue) : Number(value.previousValue || 0)
 
   return (
     <div className="space-y-3">
@@ -179,20 +198,49 @@ export default function FlowForm({
         </div>
       )}
 
-      <div className="space-y-1.5">
-        <Label>Amount *</Label>
-        <input
-          type="number"
-          min={0}
-          step="0.01"
-          value={value.amount || ""}
-          onChange={(e) => onChange({ amount: Number(e.target.value || 0) })}
-          placeholder="0"
-          className={inputClass}
-          disabled={disabled}
-        />
-        {errors.amount && <p className="text-xs text-red-600">{errors.amount}</p>}
-      </div>
+      {isAdjustment ? (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="space-y-1.5">
+            <Label>Previous value</Label>
+            <input
+              type="number"
+              step="0.01"
+              value={previousValue}
+              className={inputClass}
+              disabled
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Current value *</Label>
+            <input
+              type="number"
+              min={0}
+              step="0.01"
+              value={value.currentValue || ""}
+              onChange={(e) => onChange({ currentValue: Number(e.target.value || 0), previousValue })}
+              placeholder="0"
+              className={inputClass}
+              disabled={disabled}
+            />
+            {errors.currentValue && <p className="text-xs text-red-600">{errors.currentValue}</p>}
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-1.5">
+          <Label>Amount *</Label>
+          <input
+            type="number"
+            min={0}
+            step="0.01"
+            value={value.amount || ""}
+            onChange={(e) => onChange({ amount: Number(e.target.value || 0) })}
+            placeholder="0"
+            className={inputClass}
+            disabled={disabled}
+          />
+          {errors.amount && <p className="text-xs text-red-600">{errors.amount}</p>}
+        </div>
+      )}
 
       <div className="space-y-1.5">
         <Label>Description</Label>

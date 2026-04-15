@@ -95,6 +95,32 @@ export default function InvestmentDetailsPage() {
   const [cashflowPage, setCashflowPage] = useState(0)
   const [cashflowRowsPerPage, setCashflowRowsPerPage] = useState(10)
 
+  const activePrimaryModalLabel = (() => {
+    if (addReportOpen) return "Monthly Report"
+    if (addFundingOpen) return "Funding"
+    if (recordCashflowOpen) return "Record Cashflow"
+    return null
+  })()
+
+  const tryOpenPrimaryModal = (target: "monthly-report" | "funding" | "record-cashflow") => {
+    if (activePrimaryModalLabel) {
+      const targetLabel =
+        target === "monthly-report" ? "Monthly Report" : target === "funding" ? "Funding" : "Record Cashflow"
+      if (activePrimaryModalLabel !== targetLabel) {
+        toast({
+          variant: "warning",
+          title: "Another modal open",
+          description: `${activePrimaryModalLabel} modal open`,
+        })
+      }
+      return
+    }
+
+    if (target === "monthly-report") setAddReportOpen(true)
+    else if (target === "funding") setAddFundingOpen(true)
+    else setRecordCashflowOpen(true)
+  }
+
   const load = async () => {
     if (!investmentId) return
     setLoading(true)
@@ -488,7 +514,7 @@ export default function InvestmentDetailsPage() {
             <X className="mr-2 h-4 w-4 text-red-600" />
             Cancel
           </Button>
-          <Button type="button" variant="outline" onClick={() => setAddReportOpen(true)}>
+          <Button type="button" variant="outline" onClick={() => tryOpenPrimaryModal("monthly-report")}>
             <FileText className="mr-2 h-4 w-4" />
             Monthly Report
           </Button>
@@ -590,7 +616,7 @@ export default function InvestmentDetailsPage() {
                 </CardTitle>
                 <CardDescription>Review and manage investment funding sources</CardDescription>
               </div>
-                <Button type="button" variant="outline" size="sm" onClick={() => setAddFundingOpen(true)}>
+                <Button type="button" variant="outline" size="sm" onClick={() => tryOpenPrimaryModal("funding")}>
                   <MdFormatListBulletedAdd className="h-4 w-4" />
                 </Button>
             </div>
@@ -759,7 +785,7 @@ export default function InvestmentDetailsPage() {
       </Card>
 
       <div className="flex justify-end pt-4 border-t">
-        <Button type="button" variant="outline" onClick={() => setRecordCashflowOpen(true)}>
+        <Button type="button" variant="outline" onClick={() => tryOpenPrimaryModal("record-cashflow")}>
           <DollarSign className="h-4 w-4 mr-2" />
           Record Cashflow
         </Button>
