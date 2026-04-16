@@ -95,30 +95,61 @@ export default function InvestmentDetailsPage() {
   const [cashflowPage, setCashflowPage] = useState(0)
   const [cashflowRowsPerPage, setCashflowRowsPerPage] = useState(10)
 
-  const activePrimaryModalLabel = (() => {
+  const activeModalLabel = (() => {
     if (addReportOpen) return "Monthly Report"
-    if (addFundingOpen) return "Funding"
     if (recordCashflowOpen) return "Record Cashflow"
+    if (addFundingOpen) return "Add Funding"
+    if (editFundingOpen) return "Edit Funding"
+    if (addPartnerOpen) return "Add Partner"
+    if (editPartnerOpen) return "Edit Partner"
     return null
   })()
 
-  const tryOpenPrimaryModal = (target: "monthly-report" | "funding" | "record-cashflow") => {
-    if (activePrimaryModalLabel) {
-      const targetLabel =
-        target === "monthly-report" ? "Monthly Report" : target === "funding" ? "Funding" : "Record Cashflow"
-      if (activePrimaryModalLabel !== targetLabel) {
+  const tryOpenModal = (
+    target:
+      | "monthly-report"
+      | "record-cashflow"
+      | "add-funding"
+      | "edit-funding"
+      | "add-partner"
+      | "edit-partner",
+    opts?: { funding?: FundingRow | null; partner?: PartnerRow | null },
+  ) => {
+    const targetLabel =
+      target === "monthly-report"
+        ? "Monthly Report"
+        : target === "record-cashflow"
+          ? "Record Cashflow"
+          : target === "add-funding"
+            ? "Add Funding"
+            : target === "edit-funding"
+              ? "Edit Funding"
+              : target === "add-partner"
+                ? "Add Partner"
+                : "Edit Partner"
+
+    if (activeModalLabel) {
+      if (activeModalLabel !== targetLabel) {
         toast({
           variant: "warning",
           title: "Another modal open",
-          description: `${activePrimaryModalLabel} modal open`,
+          description: `${activeModalLabel} modal open`,
         })
       }
       return
     }
 
     if (target === "monthly-report") setAddReportOpen(true)
-    else if (target === "funding") setAddFundingOpen(true)
-    else setRecordCashflowOpen(true)
+    else if (target === "record-cashflow") setRecordCashflowOpen(true)
+    else if (target === "add-funding") setAddFundingOpen(true)
+    else if (target === "edit-funding") {
+      setSelectedFunding(opts?.funding ?? null)
+      setEditFundingOpen(true)
+    } else if (target === "add-partner") setAddPartnerOpen(true)
+    else {
+      setSelectedPartner(opts?.partner ?? null)
+      setEditPartnerOpen(true)
+    }
   }
 
   const load = async () => {
@@ -277,8 +308,7 @@ export default function InvestmentDetailsPage() {
             label: "Edit",
             icon: <Edit className="h-4 w-4" />,
             onClick: () => {
-              setSelectedPartner(row)
-              setEditPartnerOpen(true)
+              tryOpenModal("edit-partner", { partner: row })
             },
           },
           {
@@ -505,16 +535,13 @@ export default function InvestmentDetailsPage() {
               Close
             </Button>
           )}
-          <Button
-            type="button"
-            variant="outline"
-            disabled={statusSaving || statusLower === "cancelled" || statusLower === "closed"}
-            onClick={() => updateInvestmentStatus("cancelled")}
-          >
-            <X className="mr-2 h-4 w-4 text-red-600" />
-            Cancel
-          </Button>
-          <Button type="button" variant="outline" onClick={() => tryOpenPrimaryModal("monthly-report")}>
+          {statusLower === "pending" && (
+            <Button type="button" variant="outline" disabled={statusSaving} onClick={() => updateInvestmentStatus("cancelled")}>
+              <X className="mr-2 h-4 w-4 text-red-600" />
+              Cancel
+            </Button>
+          )}
+          <Button type="button" variant="outline" onClick={() => tryOpenModal("monthly-report")}>
             <FileText className="mr-2 h-4 w-4" />
             Monthly Report
           </Button>
@@ -616,7 +643,7 @@ export default function InvestmentDetailsPage() {
                 </CardTitle>
                 <CardDescription>Review and manage investment funding sources</CardDescription>
               </div>
-                <Button type="button" variant="outline" size="sm" onClick={() => tryOpenPrimaryModal("funding")}>
+                <Button type="button" variant="outline" size="sm" onClick={() => tryOpenModal("add-funding")}>
                   <MdFormatListBulletedAdd className="h-4 w-4" />
                 </Button>
             </div>
@@ -648,8 +675,7 @@ export default function InvestmentDetailsPage() {
                         variant="outline"
                         size="sm"
                         onClick={() => {
-                          setSelectedFunding(row)
-                          setEditFundingOpen(true)
+                          tryOpenModal("edit-funding", { funding: row })
                         }}
                       >
                         <Pencil className="h-4 w-4" />
@@ -696,12 +722,7 @@ export default function InvestmentDetailsPage() {
                 <Users className="h-5 w-5 text-primary" />
                 Partners
               </CardTitle>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => setAddPartnerOpen(true)}
-              >
+              <Button type="button" variant="outline" size="sm" onClick={() => tryOpenModal("add-partner")}>
                 <Plus className="h-4 w-4 mr-2" />
                 Add Partner
               </Button>
@@ -785,7 +806,7 @@ export default function InvestmentDetailsPage() {
       </Card>
 
       <div className="flex justify-end pt-4 border-t">
-        <Button type="button" variant="outline" onClick={() => tryOpenPrimaryModal("record-cashflow")}>
+        <Button type="button" variant="outline" onClick={() => tryOpenModal("record-cashflow")}>
           <DollarSign className="h-4 w-4 mr-2" />
           Record Cashflow
         </Button>

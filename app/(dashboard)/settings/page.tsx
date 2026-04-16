@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useMemo, useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -8,7 +8,28 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
 import { Badge } from "@/components/ui/badge"
-import { Save, User, SettingsIcon, DollarSign, Zap, BellRing, Clock3, ShieldAlert, SlidersHorizontal, Building2, Pencil, X } from "lucide-react"
+import {
+  Save,
+  User,
+  SettingsIcon,
+  DollarSign,
+  Zap,
+  BellRing,
+  Clock3,
+  ShieldAlert,
+  SlidersHorizontal,
+  Building2,
+  Pencil,
+  Search,
+  Smartphone,
+  CreditCard,
+  Mail,
+  Tags,
+  LayoutGrid,
+  Info,
+  ChevronRight,
+  X,
+} from "lucide-react"
 
 import { getSession, updateInstitutionConfig } from "@/lib/session"
 import { useToast } from "@/components/ui/toast"
@@ -25,9 +46,14 @@ interface InstitutionConfig {
   loanLatePenaltyPeriodDays?: number
   membershipLatePenalty?: number
   membershipLatePenaltyPeriodDays?: number
+  membershipLatePenaltyPeriodUnit?: string
+  loanLatePenaltyPeriodUnit?: string
   autoInvoices?: boolean
   invoicePeriodDays?: number
   defaultedAfterDays?: number
+  savingsOverduePeriod?: number
+  mtnMobileMoneyContact?: string
+  airtelMobileMoneyContact?: string
 }
 
 interface InstitutionOrg {
@@ -65,6 +91,8 @@ export default function SettingsPage() {
   const [isOrgEditMode, setIsOrgEditMode] = useState(false)
   const [orgDraftBackup, setOrgDraftBackup] = useState<InstitutionOrg | null>(null)
   const [activeTab, setActiveTab] = useState<"general" | "loan" | "penalties" | "shares" | "organization" | "admin">("general")
+  const [workspaceSearch, setWorkspaceSearch] = useState("")
+  const [workspaceCategory, setWorkspaceCategory] = useState<"All" | "Core" | "Profile">("All")
   const [institutionEditWorkspace, setInstitutionEditWorkspace] = useState<InstitutionSettingsWorkspace | null>(null)
   const [institutionConfigDraftBackup, setInstitutionConfigDraftBackup] = useState<InstitutionConfig | null>(null)
   const memberInputClass =
@@ -152,6 +180,10 @@ export default function SettingsPage() {
       toast({ title: "Validation", description: "Penalty periods must be at least 1 day.", variant: "warning" })
       return false
     }
+    if ((config.savingsOverduePeriod ?? 0) < 1) {
+      toast({ title: "Validation", description: "Savings overdue period must be at least 1 day.", variant: "warning" })
+      return false
+    }
     if ((config.loanLatePenalty ?? 0) < 0 || (config.loanLatePenalty ?? 0) > 100) {
       toast({ title: "Validation", description: "Loan late penalty must be between 0% and 100%.", variant: "warning" })
       return false
@@ -231,6 +263,92 @@ export default function SettingsPage() {
     },
   }
   const isSaccoOrMfi = institution?.type === "SACCO" || institution?.type === "MFI"
+  const workspaceItems: Array<{
+    key: "general" | "loan" | "penalties" | "shares" | "organization" | "admin"
+    title: string
+    subtitle: string
+    category: "Core" | "Profile"
+    icon: any
+    visible?: boolean
+  }> = [
+    { key: "general", title: "General", subtitle: "Currency, modules and membership", category: "Core", icon: SettingsIcon },
+    { key: "loan", title: "Loan Policies", subtitle: "Loan and invoice behavior", category: "Core", icon: SlidersHorizontal },
+    { key: "penalties", title: "Penalty Rules", subtitle: "Late penalties and periods", category: "Core", icon: ShieldAlert },
+    { key: "shares", title: "Shares Workspace", subtitle: "Share limits and value setup", category: "Core", icon: DollarSign, visible: isSaccoOrMfi },
+    { key: "organization", title: "Organization Profile", subtitle: "Legal and contact details", category: "Profile", icon: Building2 },
+    { key: "admin", title: "Institution Admins", subtitle: "Admins and staff directory", category: "Profile", icon: User },
+  ]
+
+  const filteredWorkspaceItems = useMemo(() => {
+    const term = workspaceSearch.trim().toLowerCase()
+    return workspaceItems.filter((item) => {
+      if (item.visible === false) return false
+      if (workspaceCategory !== "All" && item.category !== workspaceCategory) return false
+      if (!term) return true
+      return item.title.toLowerCase().includes(term) || item.subtitle.toLowerCase().includes(term)
+    })
+  }, [workspaceItems, workspaceCategory, workspaceSearch])
+
+  const groupedWorkspaceNav = useMemo(() => {
+    const core = filteredWorkspaceItems.filter((i) => i.category === "Core")
+    const profile = filteredWorkspaceItems.filter((i) => i.category === "Profile")
+    return { core, profile }
+  }, [filteredWorkspaceItems])
+
+  const operationalSnapshot = useMemo(() => {
+    if (!config) return null
+    const mtn = (config.mtnMobileMoneyContact ?? "").trim()
+    const airtel = (config.airtelMobileMoneyContact ?? "").trim()
+    const wallets = (mtn ? 1 : 0) + (airtel ? 1 : 0)
+    const mmOn = config.modules.mobile_money
+    let mmStatus = "Inactive"
+    let mmDetail = "Turn on Mobile Money in General, then add operator numbers."
+    let mmPct = 12
+    if (mmOn) {
+      if (wallets === 2) {
+        mmStatus = "Ready"
+        mmDetail = "MTN + Airtel numbers on file"
+        mmPct = 100
+      } else if (wallets === 1) {
+        mmStatus = "Partial"
+        mmDetail = "Add the second operator number for full coverage"
+        mmPct = 58
+      } else {
+        mmStatus = "Needs setup"
+        mmDetail = "No mobile money numbers saved yet"
+        mmPct = 32
+      }
+    }
+
+    const adminRows = staffMembers.filter((s) => s.role === "institution_admin")
+    const adminsWithEmail = adminRows.filter((s) => s.email && String(s.email).trim()).length
+    const hasWebsite = !!(org?.website && String(org.website).trim())
+    let emailStatus = "Limited"
+    let emailDetail = "Add a website or ensure admins have email on file."
+    let emailPct = 35
+    if (hasWebsite && adminsWithEmail >= 1) {
+      emailStatus = "Healthy"
+      emailDetail = `${adminsWithEmail} admin email(s) · website linked`
+      emailPct = 100
+    } else if (hasWebsite || adminsWithEmail >= 1) {
+      emailStatus = "OK"
+      emailDetail = hasWebsite
+        ? "Website set · complete admin emails for stronger reach"
+        : `${adminsWithEmail} admin email(s) on file · add website in Organization`
+      emailPct = 72
+    }
+
+    const moduleFlags = [
+      config.modules.loans,
+      config.modules.shares,
+      config.modules.savings,
+      config.modules.mobile_money,
+    ]
+    const moduleOn = moduleFlags.filter(Boolean).length
+    const modulePct = Math.round((moduleOn / 4) * 100)
+
+    return { mmStatus, mmDetail, mmPct, emailStatus, emailDetail, emailPct, moduleOn, modulePct }
+  }, [config, org, staffMembers])
 
   useEffect(() => {
     if (!institutionEditWorkspace) return
@@ -355,130 +473,249 @@ export default function SettingsPage() {
 
   return (
     <>
-      <div className="container mx-auto max-w-6xl py-4">
+      <div className="container mx-auto  py-4">
             <div className="space-y-6">
               <div className="rounded-2xl border border-[#111111]/10 bg-white shadow-sm">
-                <div className="p-6 md:p-7 flex flex-wrap items-start justify-between gap-4">
-                  <div>
-                    <p className="text-xs font-semibold tracking-wide text-[#f08c2b] mb-1">INSTITUTION SETTINGS</p>
+                <div className="flex flex-wrap items-start justify-between gap-4 p-6 md:p-7">
+                  <div className="min-w-0 flex-1">
+                    <p className="mb-1 text-xs font-semibold tracking-wide text-[#f08c2b]">INSTITUTION SETTINGS</p>
                     <h1 className="text-3xl font-bold tracking-tight text-[#111111]">Control Center</h1>
-                    <p className="text-muted-foreground mt-1">
+                    <p className="mt-1 text-muted-foreground">
                       Manage policies, automation, and organization profile for your {terminology.type.toLowerCase()}.
                     </p>
                   </div>
-                  <div className="flex flex-wrap gap-2">
-                    <Badge className="bg-[#111111] text-white hover:bg-[#111111]">{institution.type}</Badge>
-                    <Badge className="bg-[#f08c2b]/15 text-[#c06107] border border-[#f08c2b]/25 hover:bg-[#f08c2b]/15">{config.currency}</Badge>
-                    <Badge className="bg-[#111111]/5 text-[#111111] border border-[#111111]/10 hover:bg-[#111111]/5">
-                      {config.modules.shares ? "Shares Enabled" : "Shares Disabled"}
-                    </Badge>
-                  </div>
+                  {operationalSnapshot && (
+                    <div className="flex w-full max-w-full flex-wrap justify-start gap-2 sm:w-auto sm:max-w-[min(100%,28rem)] sm:justify-end">
+                      <div className="w-[calc(50%-0.25rem)] min-w-30 shrink-0 rounded-lg border border-emerald-200/70 bg-linear-to-br from-emerald-50 to-emerald-100/40 p-2 shadow-sm backdrop-blur-sm sm:w-29">
+                        <div className="mb-1.5 flex items-center gap-1.5">
+                          <div className="rounded-md bg-emerald-500 p-1 shadow-sm">
+                            <Smartphone className="h-3 w-3 text-white" />
+                          </div>
+                          <div
+                            className={`h-1.5 w-1.5 shrink-0 rounded-full ${config.modules.mobile_money ? "animate-pulse bg-emerald-500" : "bg-emerald-300"}`}
+                          />
+                          <span className="truncate text-[11px] font-semibold leading-tight text-emerald-900">Mobile money</span>
+                        </div>
+                        <p className="truncate text-[10px] font-medium text-emerald-800">{operationalSnapshot.mmStatus}</p>
+                        <p className="mt-0.5 line-clamp-2 text-[9px] leading-snug text-emerald-700/90">{operationalSnapshot.mmDetail}</p>
+                        <div className="mt-1.5 h-0.5 w-full rounded-full bg-emerald-200/90">
+                          <div
+                            className={`h-0.5 rounded-full ${config.modules.mobile_money ? "bg-emerald-500" : "bg-emerald-400"}`}
+                            style={{ width: `${operationalSnapshot.mmPct}%` }}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="w-[calc(50%-0.25rem)] min-w-30 shrink-0 rounded-lg border border-sky-200/70 bg-linear-to-br from-sky-50 to-sky-100/40 p-2 shadow-sm backdrop-blur-sm sm:w-29">
+                        <div className="mb-1.5 flex items-center gap-1.5">
+                          <div className="rounded-md bg-sky-500 p-1 shadow-sm">
+                            <Mail className="h-3 w-3 text-white" />
+                          </div>
+                          <div
+                            className={`h-1.5 w-1.5 shrink-0 rounded-full ${operationalSnapshot.emailPct >= 72 ? "animate-pulse bg-sky-500" : "bg-sky-300"}`}
+                          />
+                          <span className="truncate text-[11px] font-semibold leading-tight text-sky-900">Email</span>
+                        </div>
+                        <p className="truncate text-[10px] font-medium text-sky-800">{operationalSnapshot.emailStatus}</p>
+                        <p className="mt-0.5 line-clamp-2 text-[9px] leading-snug text-sky-700/90">{operationalSnapshot.emailDetail}</p>
+                        <div className="mt-1.5 h-0.5 w-full rounded-full bg-sky-200/90">
+                          <div
+                            className={`h-0.5 rounded-full bg-sky-500 ${operationalSnapshot.emailPct >= 72 ? "animate-pulse" : ""}`}
+                            style={{ width: `${operationalSnapshot.emailPct}%` }}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="w-[calc(50%-0.25rem)] min-w-30 shrink-0 rounded-lg border border-[#111111]/12 bg-linear-to-br from-[#111111]/5 to-[#111111]/10 p-2 shadow-sm backdrop-blur-sm sm:w-29">
+                        <div className="mb-1.5 flex items-center gap-1.5">
+                          <div className="rounded-md bg-[#111111] p-1 shadow-sm">
+                            <Tags className="h-3 w-3 text-white" />
+                          </div>
+                          <div className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#111111]" />
+                          <span className="truncate text-[11px] font-semibold leading-tight text-[#111111]">Modules</span>
+                        </div>
+                        <p className="text-[10px] font-medium text-[#111111]">
+                          {operationalSnapshot.moduleOn}
+                          <span className="text-[#111111]/55"> / 4</span>
+                        </p>
+                        <p className="mt-0.5 line-clamp-2 text-[9px] leading-snug text-[#111111]/55">Loans · Shares · Savings · MM</p>
+                        <div className="mt-1.5 h-0.5 w-full rounded-full bg-[#111111]/12">
+                          <div className="h-0.5 rounded-full bg-[#f08c2b]" style={{ width: `${operationalSnapshot.modulePct}%` }} />
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
 
               <div className="grid gap-6 lg:grid-cols-12">
                 <aside className="lg:col-span-3">
-                  <div className="rounded-2xl border border-[#111111]/10 bg-white p-3 shadow-sm lg:sticky lg:top-4">
-                    <div className="px-2 pb-3">
-                      <p className="text-xs font-semibold tracking-wide text-[#f08c2b]">WORKSPACE</p>
-                      <p className="text-sm text-muted-foreground mt-1">Select a section to configure</p>
-                    </div>
-                    <div className="space-y-2">
-                      <button
-                        type="button"
-                        onClick={() => setActiveTab("general")}
-                        className={`w-full min-h-14 rounded-xl px-3 text-left transition-all flex items-center gap-2 border ${
-                          activeTab === "general"
-                            ? "bg-[#111111] text-white shadow-sm border-[#111111]"
-                            : "bg-transparent text-[#111111]/75 border-transparent hover:bg-[#f08c2b]/10 hover:text-[#111111] hover:border-[#f08c2b]/25"
-                        }`}
-                      >
-                        <SettingsIcon className="h-4 w-4 shrink-0" />
-                        <span className="flex flex-col">
-                          <span className="text-sm font-semibold">General</span>
-                          <span className={`text-xs ${activeTab === "general" ? "text-white/70" : "text-muted-foreground"}`}>Currency and member setup</span>
-                        </span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setActiveTab("loan")}
-                        className={`w-full min-h-14 rounded-xl px-3 text-left transition-all flex items-center gap-2 border ${
-                          activeTab === "loan"
-                            ? "bg-[#111111] text-white shadow-sm border-[#111111]"
-                            : "bg-transparent text-[#111111]/75 border-transparent hover:bg-[#f08c2b]/10 hover:text-[#111111] hover:border-[#f08c2b]/25"
-                        }`}
-                      >
-                        <SlidersHorizontal className="h-4 w-4 shrink-0" />
-                        <span className="flex flex-col">
-                          <span className="text-sm font-semibold">Loan Policies</span>
-                          <span className={`text-xs ${activeTab === "loan" ? "text-white/70" : "text-muted-foreground"}`}>Processing and default logic</span>
-                        </span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setActiveTab("penalties")}
-                        className={`w-full min-h-14 rounded-xl px-3 text-left transition-all flex items-center gap-2 border ${
-                          activeTab === "penalties"
-                            ? "bg-[#111111] text-white shadow-sm border-[#111111]"
-                            : "bg-transparent text-[#111111]/75 border-transparent hover:bg-[#f08c2b]/10 hover:text-[#111111] hover:border-[#f08c2b]/25"
-                        }`}
-                      >
-                        <ShieldAlert className="h-4 w-4 shrink-0" />
-                        <span className="flex flex-col">
-                          <span className="text-sm font-semibold">Penalty Rules</span>
-                          <span className={`text-xs ${activeTab === "penalties" ? "text-white/70" : "text-muted-foreground"}`}>Loan and membership penalties</span>
-                        </span>
-                      </button>
-                      {isSaccoOrMfi && (
-                        <button
-                          type="button"
-                          onClick={() => setActiveTab("shares")}
-                          className={`w-full min-h-14 rounded-xl px-3 text-left transition-all flex items-center gap-2 border ${
-                            activeTab === "shares"
-                              ? "bg-[#111111] text-white shadow-sm border-[#111111]"
-                              : "bg-transparent text-[#111111]/75 border-transparent hover:bg-[#f08c2b]/10 hover:text-[#111111] hover:border-[#f08c2b]/25"
-                          }`}
+                  <div className="lg:sticky lg:top-4">
+                    <div className="overflow-hidden rounded-2xl border border-[#111111]/10 bg-linear-to-b from-[#f08c2b]/[0.07] via-white to-white shadow-md">
+                      <div className="h-1 bg-linear-to-r from-[#f08c2b] via-[#f08c2b]/70 to-[#111111]/25" />
+                      <div className="space-y-4 p-4">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2.5">
+                              <div className="shrink-0 rounded-xl bg-[#111111] p-2 shadow-sm">
+                                <LayoutGrid className="h-4 w-4 text-white" aria-hidden />
+                              </div>
+                              <div className="min-w-0">
+                                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#c06107]">Workspace</p>
+                                <p className="text-sm font-semibold leading-tight text-[#111111]">Navigate settings</p>
+                              </div>
+                            </div>
+                            <p className="mt-2 pl-11 text-xs leading-snug text-muted-foreground">
+                              Open a section, then use the pencil icon on the panel to edit and save.
+                            </p>
+                          </div>
+                          <Badge
+                            variant="secondary"
+                            className="shrink-0 border border-[#111111]/10 bg-white/80 px-2 py-0.5 text-[10px] font-semibold tabular-nums text-[#111111]"
+                          >
+                            {filteredWorkspaceItems.length}
+                          </Badge>
+                        </div>
+
+                        <div className="relative">
+                          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                          <Input
+                            value={workspaceSearch}
+                            onChange={(e) => setWorkspaceSearch(e.target.value)}
+                            placeholder="Search sections…"
+                            className="h-10 rounded-xl border-[#111111]/12 bg-white/90 pl-9 pr-3 text-sm shadow-sm backdrop-blur-sm transition-shadow focus-visible:ring-[#f08c2b]/30"
+                            aria-label="Search settings sections"
+                          />
+                        </div>
+
+                        <div
+                          className="flex rounded-xl border border-[#111111]/10 bg-[#111111]/4 p-1"
+                          role="tablist"
+                          aria-label="Filter settings by category"
                         >
-                          <DollarSign className="h-4 w-4 shrink-0" />
-                          <span className="flex flex-col">
-                            <span className="text-sm font-semibold">Shares Workspace</span>
-                            <span className={`text-xs ${activeTab === "shares" ? "text-white/70" : "text-muted-foreground"}`}>Share enablement and value</span>
-                          </span>
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => setActiveTab("organization")}
-                        className={`w-full min-h-14 rounded-xl px-3 text-left transition-all flex items-center gap-2 border ${
-                          activeTab === "organization"
-                            ? "bg-[#111111] text-white shadow-sm border-[#111111]"
-                            : "bg-transparent text-[#111111]/75 border-transparent hover:bg-[#f08c2b]/10 hover:text-[#111111] hover:border-[#f08c2b]/25"
-                        }`}
-                      >
-                        <Building2 className="h-4 w-4 shrink-0" />
-                        <span className="flex flex-col">
-                          <span className="text-sm font-semibold">Organization Profile</span>
-                          <span className={`text-xs ${activeTab === "organization" ? "text-white/70" : "text-muted-foreground"}`}>Legal and contact records</span>
-                        </span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setActiveTab("admin")}
-                        className={`w-full min-h-14 rounded-xl px-3 text-left transition-all flex items-center gap-2 border ${
-                          activeTab === "admin"
-                            ? "bg-[#111111] text-white shadow-sm border-[#111111]"
-                            : "bg-transparent text-[#111111]/75 border-transparent hover:bg-[#f08c2b]/10 hover:text-[#111111] hover:border-[#f08c2b]/25"
-                        }`}
-                      >
-                        <User className="h-4 w-4 shrink-0" />
-                        <span className="flex flex-col">
-                          <span className="text-sm font-semibold">Institution Admins</span>
-                          <span className={`text-xs ${activeTab === "admin" ? "text-white/70" : "text-muted-foreground"}`}>Admins and staff directory</span>
-                        </span>
-                      </button>
-                    </div>
-                    <div className="mt-4 rounded-xl border border-[#111111]/10 bg-[#111111]/5 p-3 text-xs text-muted-foreground">
-                      Changes are saved per section. Use panel save actions to commit updates.
+                          {(["All", "Core", "Profile"] as const).map((category) => {
+                            const selected = workspaceCategory === category
+                            return (
+                              <button
+                                key={category}
+                                type="button"
+                                role="tab"
+                                aria-selected={selected}
+                                onClick={() => setWorkspaceCategory(category)}
+                                className={`flex-1 rounded-lg px-2 py-2 text-center text-xs font-semibold transition-all ${
+                                  selected
+                                    ? "bg-white text-[#111111] shadow-sm ring-1 ring-[#111111]/10"
+                                    : "text-[#111111]/55 hover:bg-white/60 hover:text-[#111111]"
+                                }`}
+                              >
+                                {category}
+                              </button>
+                            )
+                          })}
+                        </div>
+
+                        <nav
+                          className="max-h-[min(70vh,32rem)] space-y-5 overflow-y-auto overscroll-contain pr-0.5 [-ms-overflow-style:none] [scrollbar-width:thin] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-[#111111]/20"
+                          aria-label="Settings sections"
+                        >
+                          {filteredWorkspaceItems.length === 0 ? (
+                            <div className="rounded-xl border border-dashed border-[#111111]/20 bg-white/60 px-3 py-8 text-center text-sm text-muted-foreground">
+                              No sections match your search or filter.
+                            </div>
+                          ) : (
+                            <>
+                              {(workspaceCategory === "All" || workspaceCategory === "Core") && groupedWorkspaceNav.core.length > 0 && (
+                                <div className="space-y-1.5">
+                                  <p className="px-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Core configuration</p>
+                                  <div className="space-y-1">
+                                    {groupedWorkspaceNav.core.map((item) => {
+                                      const Icon = item.icon
+                                      const active = activeTab === item.key
+                                      return (
+                                        <button
+                                          key={item.key}
+                                          type="button"
+                                          onClick={() => setActiveTab(item.key)}
+                                          className={`group flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-all ${
+                                            active
+                                              ? "border-[#111111] bg-[#111111] text-white shadow-md ring-1 ring-[#f08c2b]/35"
+                                              : "border-transparent bg-white/50 text-[#111111]/85 hover:border-[#111111]/10 hover:bg-white hover:shadow-sm"
+                                          }`}
+                                        >
+                                          <span
+                                            className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${
+                                              active ? "bg-white/15 text-white" : "bg-[#111111]/8 text-[#111111]"
+                                            }`}
+                                          >
+                                            <Icon className="h-4 w-4" aria-hidden />
+                                          </span>
+                                          <span className="min-w-0 flex-1">
+                                            <span className="block truncate text-sm font-semibold">{item.title}</span>
+                                            <span className={`mt-0.5 block truncate text-[11px] leading-snug ${active ? "text-white/75" : "text-muted-foreground"}`}>
+                                              {item.subtitle}
+                                            </span>
+                                          </span>
+                                          <ChevronRight
+                                            className={`h-4 w-4 shrink-0 transition-transform ${active ? "text-white/80 translate-x-0" : "text-[#111111]/25 group-hover:translate-x-0.5 group-hover:text-[#f08c2b]"}`}
+                                            aria-hidden
+                                          />
+                                        </button>
+                                      )
+                                    })}
+                                  </div>
+                                </div>
+                              )}
+
+                              {(workspaceCategory === "All" || workspaceCategory === "Profile") && groupedWorkspaceNav.profile.length > 0 && (
+                                <div className="space-y-1.5">
+                                  <p className="px-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Organization</p>
+                                  <div className="space-y-1">
+                                    {groupedWorkspaceNav.profile.map((item) => {
+                                      const Icon = item.icon
+                                      const active = activeTab === item.key
+                                      return (
+                                        <button
+                                          key={item.key}
+                                          type="button"
+                                          onClick={() => setActiveTab(item.key)}
+                                          className={`group flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-all ${
+                                            active
+                                              ? "border-[#111111] bg-[#111111] text-white shadow-md ring-1 ring-[#f08c2b]/35"
+                                              : "border-transparent bg-white/50 text-[#111111]/85 hover:border-[#111111]/10 hover:bg-white hover:shadow-sm"
+                                          }`}
+                                        >
+                                          <span
+                                            className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${
+                                              active ? "bg-white/15 text-white" : "bg-[#111111]/8 text-[#111111]"
+                                            }`}
+                                          >
+                                            <Icon className="h-4 w-4" aria-hidden />
+                                          </span>
+                                          <span className="min-w-0 flex-1">
+                                            <span className="block truncate text-sm font-semibold">{item.title}</span>
+                                            <span className={`mt-0.5 block truncate text-[11px] leading-snug ${active ? "text-white/75" : "text-muted-foreground"}`}>
+                                              {item.subtitle}
+                                            </span>
+                                          </span>
+                                          <ChevronRight
+                                            className={`h-4 w-4 shrink-0 transition-transform ${active ? "text-white/80" : "text-[#111111]/25 group-hover:translate-x-0.5 group-hover:text-[#f08c2b]"}`}
+                                            aria-hidden
+                                          />
+                                        </button>
+                                      )
+                                    })}
+                                  </div>
+                                </div>
+                              )}
+                            </>
+                          )}
+                        </nav>
+
+                        <div className="flex gap-2.5 rounded-xl border border-[#111111]/10 bg-[#111111]/4 p-3 text-xs leading-relaxed text-muted-foreground">
+                          <Info className="mt-0.5 h-4 w-4 shrink-0 text-[#f08c2b]" aria-hidden />
+                          <span>Edits apply only after you save from the section panel (pencil icon).</span>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </aside>
@@ -544,7 +781,7 @@ export default function SettingsPage() {
                     </div>
                   </CardHeader>
                   <CardContent className="space-y-4">
-                    {(activeTab === "general" || activeTab === "shares") && (
+                    {activeTab === "general" && (
                     <div className="grid grid-cols-2 gap-4">
                       <div className="space-y-2">
                         <Label>{terminology.name} Name</Label>
@@ -557,7 +794,7 @@ export default function SettingsPage() {
                     </div>
                     )}
 
-                    {(activeTab === "general" || activeTab === "shares") && <Separator />}
+                    {activeTab === "general" && <Separator />}
 
                     {activeTab === "general" && (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -577,6 +814,76 @@ export default function SettingsPage() {
                       </div>
                       <div className="space-y-2" />
                     </div>
+                    )}
+
+                    {activeTab === "general" && (
+                      <div className="rounded-lg border border-[#111111]/10 bg-white p-4 space-y-3">
+                        <div className="flex items-center gap-2 text-sm font-semibold text-[#1f1f1f]">
+                          <SettingsIcon className="h-4 w-4 text-[#f08c2b]" />
+                          Activation Dashboard
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          {[
+                            { id: "moduleLoans", label: "Loans", hint: "Loan origination and repayment features", active: !!config.modules.loans, icon: Zap, type: "module" as const, key: "loans" as const },
+                            { id: "moduleMobileMoney", label: "Mobile Money", hint: "Airtel/MTN payment collection and disbursement", active: !!config.modules.mobile_money, icon: Smartphone, type: "module" as const, key: "mobile_money" as const },
+                            { id: "moduleSavings", label: "Savings", hint: "Savings accounts and savings compliance rules", active: !!config.modules.savings, icon: BellRing, type: "module" as const, key: "savings" as const },
+                            { id: "moduleShares", label: "Shares", hint: "Member shares and share capital controls", active: !!config.modules.shares, icon: DollarSign, type: "module" as const, key: "shares" as const },
+                            { id: "moduleAutoInvoices", label: "Auto Invoices", hint: "Automated invoice generation for due payments", active: !!config.autoInvoices, icon: CreditCard, type: "flag" as const, key: "autoInvoices" as const },
+                          ].map((item) => {
+                            const Icon = item.icon
+                            const disabled = !canEditInstitutionWorkspace("general") || (item.key === "shares" && !isSaccoOrMfi)
+                            return (
+                              <div
+                                key={item.id}
+                                className={`rounded-xl border p-4 transition-all ${
+                                  item.active
+                                    ? "border-[#f08c2b]/40 bg-[#f08c2b]/5"
+                                    : "border-[#111111]/10 bg-white"
+                                }`}
+                              >
+                                <div className="flex items-start justify-between gap-3">
+                                  <div className="flex items-start gap-3">
+                                    <div
+                                      className={`mt-0.5 rounded-lg p-2 ${
+                                        item.active ? "bg-[#f08c2b] text-white" : "bg-[#111111]/10 text-[#111111]"
+                                      }`}
+                                    >
+                                      <Icon className="h-4 w-4" />
+                                    </div>
+                                    <div>
+                                      <p className="text-sm font-semibold text-[#111111]">{item.label}</p>
+                                      <p className="text-xs text-muted-foreground mt-1">{item.hint}</p>
+                                      <p className={`text-xs mt-2 font-medium ${item.active ? "text-emerald-700" : "text-rose-700"}`}>
+                                        {item.active ? "Active" : "Inactive"}
+                                      </p>
+                                    </div>
+                                  </div>
+                                  <label htmlFor={item.id} className="relative inline-flex cursor-pointer">
+                                    <input
+                                      id={item.id}
+                                      type="checkbox"
+                                      className="peer sr-only"
+                                      checked={item.active}
+                                      disabled={disabled}
+                                      onChange={(e) => {
+                                        if (item.type === "module") setModule(item.key, e.target.checked)
+                                        else setConfigField("autoInvoices", e.target.checked)
+                                      }}
+                                    />
+                                    <span className="h-5 w-9 rounded-full bg-gray-300 transition-colors peer-checked:bg-[#f08c2b]" />
+                                    <span className="pointer-events-none absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform peer-checked:translate-x-4" />
+                                  </label>
+                                </div>
+                              </div>
+                            )
+                          })}
+                        </div>
+                        {!isSaccoOrMfi && (
+                          <div className="text-xs text-muted-foreground rounded-lg border border-dashed border-[#111111]/20 px-3 py-2">
+                            Shares is only configurable for SACCO and MFI institutions.
+                          </div>
+                        )}
+                      </div>
                     )}
 
                     {activeTab === "loan" && (
@@ -624,24 +931,21 @@ export default function SettingsPage() {
                           />
                         </div>
                         <div className="space-y-2">
-                          <Label>Auto Invoices</Label>
-                          <div className="flex items-center gap-2">
-                            <label htmlFor="autoInvoices" className="relative inline-flex cursor-pointer">
-                              <input
-                                id="autoInvoices"
-                                type="checkbox"
-                                className="peer sr-only"
-                                checked={!!config.autoInvoices}
-                                disabled={!canEditInstitutionWorkspace("loan")}
-                                onChange={(e) => setConfigField("autoInvoices", e.target.checked)}
-                              />
-                              <span className="h-5 w-9 rounded-full bg-gray-300 transition-colors peer-checked:bg-[#f08c2b]" />
-                              <span className="pointer-events-none absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform peer-checked:translate-x-4" />
-                            </label>
-                            <Label htmlFor="autoInvoices" className="text-sm text-muted-foreground cursor-pointer">
-                              Automatically generate monthly invoices/dues reminders
-                            </Label>
-                          </div>
+                          <Label htmlFor="savingsOverduePeriod">Savings Overdue Period (days)</Label>
+                          <Input
+                            id="savingsOverduePeriod"
+                            type="number"
+                            min={1}
+                            value={Number(config.savingsOverduePeriod ?? 30)}
+                            onChange={(e) => setConfigField("savingsOverduePeriod", Number.parseInt(e.target.value || "30"))}
+                            disabled={!canEditInstitutionWorkspace("loan")}
+                            className={memberInputClass}
+                          />
+                        </div>
+                        <div className="rounded-md border border-[#111111]/10 bg-[#111111]/5 px-3 py-2 md:col-span-2">
+                          <p className="text-xs text-muted-foreground">
+                            Auto invoices are now managed in <span className="font-medium text-[#111111]">General - Activation Dashboard</span>.
+                          </p>
                         </div>
                       </div>
                     </div>
@@ -681,6 +985,23 @@ export default function SettingsPage() {
                           />
                         </div>
                         <div className="space-y-2">
+                          <Label htmlFor="loanLatePenaltyPeriodUnit">Loan Penalty Period Unit</Label>
+                          <Select
+                            disabled={!canEditInstitutionWorkspace("penalties")}
+                            value={config.loanLatePenaltyPeriodUnit || "day"}
+                            onValueChange={(value) => setConfigField("loanLatePenaltyPeriodUnit", value)}
+                          >
+                            <SelectTrigger className={memberSelectClass}>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="day">Day</SelectItem>
+                              <SelectItem value="week">Week</SelectItem>
+                              <SelectItem value="month">Month</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-2">
                           <Label htmlFor="membershipLatePenalty">Membership Late Penalty ({config.currency})</Label>
                           <Input
                             id="membershipLatePenalty"
@@ -704,6 +1025,23 @@ export default function SettingsPage() {
                             className={memberInputClass}
                           />
                         </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="membershipLatePenaltyPeriodUnit">Membership Penalty Period Unit</Label>
+                          <Select
+                            disabled={!canEditInstitutionWorkspace("penalties")}
+                            value={config.membershipLatePenaltyPeriodUnit || "day"}
+                            onValueChange={(value) => setConfigField("membershipLatePenaltyPeriodUnit", value)}
+                          >
+                            <SelectTrigger className={memberSelectClass}>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="day">Day</SelectItem>
+                              <SelectItem value="week">Week</SelectItem>
+                              <SelectItem value="month">Month</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
                       </div>
                       <div className="flex items-start gap-2 text-xs text-muted-foreground">
                         <BellRing className="h-3.5 w-3.5 mt-0.5" />
@@ -714,26 +1052,9 @@ export default function SettingsPage() {
                     </div>
                     )}
 
-                    {(activeTab === "shares" && isSaccoOrMfi) && (
-                      <div className="space-y-2">
-                        <Label>Enable Shares</Label>
-                        <div className="flex items-center gap-2">
-                          <label htmlFor="enableShares" className="relative inline-flex cursor-pointer">
-                            <input
-                              id="enableShares"
-                              type="checkbox"
-                              className="peer sr-only"
-                              checked={!!config.modules.shares}
-                              disabled={!canEditInstitutionWorkspace("shares")}
-                              onChange={(e) => setModule("shares", e.target.checked)}
-                            />
-                            <span className="h-5 w-9 rounded-full bg-gray-300 transition-colors peer-checked:bg-[#f08c2b]" />
-                            <span className="pointer-events-none absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform peer-checked:translate-x-4" />
-                          </label>
-                          <Label htmlFor="enableShares" className="text-sm text-muted-foreground cursor-pointer">
-                            Allow members to hold shares (SACCO/MFI only)
-                          </Label>
-                        </div>
+                    {(activeTab === "shares" && isSaccoOrMfi && !config.modules.shares) && (
+                      <div className="rounded-lg border border-dashed border-[#111111]/20 bg-[#111111]/5 p-4 text-sm text-muted-foreground">
+                        Shares module is currently disabled. Enable it in <strong>General - Module Access</strong> to configure share limits and values.
                       </div>
                     )}
 
@@ -752,6 +1073,21 @@ export default function SettingsPage() {
                             />
                           </div>
                           <div className="space-y-2">
+                            <Label htmlFor="maxShares">Maximum Number of Shares</Label>
+                            <Input
+                              id="maxShares"
+                              type="number"
+                              min={0}
+                              value={Number(config.maximumShares ?? 0)}
+                              onChange={(e) => setConfigField("maximumShares", Number.parseInt(e.target.value || "0"))}
+                              disabled={!canEditInstitutionWorkspace("shares")}
+                              className={memberInputClass}
+                            />
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="space-y-2">
                             <Label htmlFor="shareAmount">Value per Share ({config.currency})</Label>
                             <Input
                               id="shareAmount"
@@ -761,6 +1097,12 @@ export default function SettingsPage() {
                               disabled={!canEditInstitutionWorkspace("shares")}
                               className={memberInputClass}
                             />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="sharesHint">Shares Config Hint</Label>
+                            <div id="sharesHint" className="h-10 px-3 rounded-md border border-[#111111]/10 bg-[#111111]/5 text-sm flex items-center text-muted-foreground">
+                              Max shares can be left as 0 if you do not cap purchases.
+                            </div>
                           </div>
                         </div>
 
@@ -799,6 +1141,39 @@ export default function SettingsPage() {
                         </div>
                       </div>
                     </div>
+                    )}
+
+                    {activeTab === "general" && (
+                      <div className="rounded-lg border border-[#111111]/10 bg-white p-4 space-y-3">
+                        <div className="flex items-center gap-2 text-sm font-semibold text-[#1f1f1f]">
+                          <Zap className="h-4 w-4 text-[#f08c2b]" />
+                          Mobile Money Contacts
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div className="space-y-2">
+                            <Label htmlFor="mtnMobileMoneyContact">MTN Mobile Money Contact</Label>
+                            <Input
+                              id="mtnMobileMoneyContact"
+                              value={config.mtnMobileMoneyContact || ""}
+                              onChange={(e) => setConfigField("mtnMobileMoneyContact", e.target.value)}
+                              disabled={!canEditInstitutionWorkspace("general")}
+                              className={memberInputClass}
+                              placeholder="e.g. +2567XXXXXXXX"
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="airtelMobileMoneyContact">Airtel Money Contact</Label>
+                            <Input
+                              id="airtelMobileMoneyContact"
+                              value={config.airtelMobileMoneyContact || ""}
+                              onChange={(e) => setConfigField("airtelMobileMoneyContact", e.target.value)}
+                              disabled={!canEditInstitutionWorkspace("general")}
+                              className={memberInputClass}
+                              placeholder="e.g. +2567XXXXXXXX"
+                            />
+                          </div>
+                        </div>
+                      </div>
                     )}
                   </CardContent>
                 </Card>

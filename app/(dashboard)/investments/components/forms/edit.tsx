@@ -130,6 +130,8 @@ export default function EditInvestmentForm({
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [editingPartnerRows, setEditingPartnerRows] = useState<Record<string, boolean>>({})
   const [editingFundingRows, setEditingFundingRows] = useState<Record<string, boolean>>({})
+  const [savingFundingRows, setSavingFundingRows] = useState<Record<string, boolean>>({})
+  const [savingPartnerRows, setSavingPartnerRows] = useState<Record<string, boolean>>({})
   const [formData, setFormData] = useState<EditInvestmentFormData>({
     clientId: String(initialValues.clientId || ""),
     clientName: String(initialValues.clientName || ""),
@@ -324,6 +326,8 @@ export default function EditInvestmentForm({
     const row = formData.funding.find((r) => r.id === id)
     if (!row) return
     try {
+      if (savingFundingRows[id]) return
+      setSavingFundingRows((prev) => ({ ...prev, [id]: true }))
       const response = await onSaveFundingRow(row)
       if (response?.id && response.id !== id) {
         setFormData((prev) => ({
@@ -333,7 +337,8 @@ export default function EditInvestmentForm({
         setEditingFundingRows((prev) => {
           const next = { ...prev }
           delete next[id]
-          next[String(response.id)] = true
+          // Newly added row should behave like existing rows: start in view mode.
+          next[String(response.id)] = false
           return next
         })
       }
@@ -346,6 +351,12 @@ export default function EditInvestmentForm({
         title: "Failed to save funding",
         description: e?.message || "Please try again.",
       })
+    } finally {
+      setSavingFundingRows((prev) => {
+        const next = { ...prev }
+        delete next[id]
+        return next
+      })
     }
   }
 
@@ -353,6 +364,11 @@ export default function EditInvestmentForm({
     try {
       if (onDeleteFundingRow) await onDeleteFundingRow(id)
       setFormData((prev) => ({ ...prev, funding: prev.funding.filter((row) => row.id !== id) }))
+      setSavingFundingRows((prev) => {
+        const next = { ...prev }
+        delete next[id]
+        return next
+      })
     } catch (e: any) {
       toast({
         variant: "destructive",
@@ -387,6 +403,8 @@ export default function EditInvestmentForm({
     const row = formData.partners.find((r) => r.id === id)
     if (!row) return
     try {
+      if (savingPartnerRows[id]) return
+      setSavingPartnerRows((prev) => ({ ...prev, [id]: true }))
       const response = await onSavePartnerRow(row)
       if (response?.id && response.id !== id) {
         setFormData((prev) => ({
@@ -396,7 +414,8 @@ export default function EditInvestmentForm({
         setEditingPartnerRows((prev) => {
           const next = { ...prev }
           delete next[id]
-          next[String(response.id)] = true
+          // Newly added row should behave like existing rows: start in view mode.
+          next[String(response.id)] = false
           return next
         })
       }
@@ -409,6 +428,12 @@ export default function EditInvestmentForm({
         title: "Failed to save partner",
         description: e?.message || "Please try again.",
       })
+    } finally {
+      setSavingPartnerRows((prev) => {
+        const next = { ...prev }
+        delete next[id]
+        return next
+      })
     }
   }
 
@@ -416,6 +441,11 @@ export default function EditInvestmentForm({
     try {
       if (onDeletePartnerRow) await onDeletePartnerRow(id)
       setFormData((prev) => ({ ...prev, partners: prev.partners.filter((row) => row.id !== id) }))
+      setSavingPartnerRows((prev) => {
+        const next = { ...prev }
+        delete next[id]
+        return next
+      })
     } catch (e: any) {
       toast({
         variant: "destructive",
@@ -769,9 +799,12 @@ export default function EditInvestmentForm({
                           <button
                             type="button"
                             onClick={() => void savePartnerRow(row.id)}
-                            className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-emerald-200 text-emerald-600 hover:bg-emerald-50 transition-colors"
+                            className={`inline-flex h-10 w-10 items-center justify-center rounded-md border border-emerald-200 text-emerald-600 transition-colors ${
+                              savingPartnerRows[row.id] ? "opacity-60 cursor-not-allowed" : "hover:bg-emerald-50"
+                            }`}
                             aria-label="Save partner row"
                             title="Save"
+                            disabled={!!savingPartnerRows[row.id]}
                           >
                             <FaCheck className="h-3.5 w-3.5" />
                           </button>
@@ -876,9 +909,12 @@ export default function EditInvestmentForm({
                         <button
                           type="button"
                           onClick={() => void saveFundingRow(row.id)}
-                          className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-emerald-200 text-emerald-600 hover:bg-emerald-50 transition-colors"
+                          className={`inline-flex h-10 w-10 items-center justify-center rounded-md border border-emerald-200 text-emerald-600 transition-colors ${
+                            savingFundingRows[row.id] ? "opacity-60 cursor-not-allowed" : "hover:bg-emerald-50"
+                          }`}
                           aria-label="Save funding row"
                           title="Save"
+                          disabled={!!savingFundingRows[row.id]}
                         >
                           <FaCheck className="h-3.5 w-3.5" />
                         </button>

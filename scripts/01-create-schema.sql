@@ -113,7 +113,7 @@ CREATE TABLE IF NOT EXISTS senteloans_config (
     invoice_overdue_period INT,
     savings_overdue_period INT,
     membership_overdue_period INT,
-    membership_overdue_interest NUMERIC(18,2) NOT NULL CHECK (loan_overdue_interest >= 0),
+    membership_overdue_interest NUMERIC(18,2) NOT NULL CHECK (membership_overdue_interest >= 0),
     membership_overdue_interest_per VARCHAR(20) NOT NULL DEFAULT 'day',
     mtn_mobile_money_contact VARCHAR(25),
     airtel_mobile_money_contact VARCHAR(25),

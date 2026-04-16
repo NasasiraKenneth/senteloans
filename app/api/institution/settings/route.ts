@@ -105,9 +105,14 @@ export async function GET(req: Request) {
         loanLatePenaltyPeriodDays: readNumber(cfg, "loan_overdue_period") ?? 30,
         membershipLatePenalty: readNumber(cfg, "membership_overdue_interest") ?? 0,
         membershipLatePenaltyPeriodDays: readNumber(cfg, "membership_overdue_period") ?? 30,
+        membershipLatePenaltyPeriodUnit: readString(cfg, "membership_overdue_interest_per") || "day",
+        loanLatePenaltyPeriodUnit: readString(cfg, "loan_overdue_interest_per") || "day",
         autoInvoices: toFlag(cfg.auto_invoices, false),
         invoicePeriodDays: readNumber(cfg, "invoice_overdue_period") ?? 30,
         defaultedAfterDays: readNumber(cfg, "loan_default_period") ?? 90,
+        savingsOverduePeriod: readNumber(cfg, "savings_overdue_period") ?? 30,
+        mtnMobileMoneyContact: readString(cfg, "mtn_mobile_money_contact") || "",
+        airtelMobileMoneyContact: readString(cfg, "airtel_mobile_money_contact") || "",
       },
     }
     apiLog("info", "institution.settings.success", { method: "GET", apiPath, status: 200, authUserId: session.user.authUserId })
@@ -145,9 +150,14 @@ export async function PUT(req: Request) {
         loanLatePenaltyPeriodDays?: number
         membershipLatePenalty?: number
         membershipLatePenaltyPeriodDays?: number
+        membershipLatePenaltyPeriodUnit?: string
+        loanLatePenaltyPeriodUnit?: string
         autoInvoices?: boolean
         invoicePeriodDays?: number
         defaultedAfterDays?: number
+        savingsOverduePeriod?: number
+        mtnMobileMoneyContact?: string
+        airtelMobileMoneyContact?: string
       }
     }
     const payload = body?.config || {}
@@ -191,10 +201,21 @@ export async function PUT(req: Request) {
       const maximumParallelLoans = Number(payload.maximumParallelLoans ?? current.maximum_parallel_loans ?? 1)
       const loanOverduePeriod = Number(payload.loanLatePenaltyPeriodDays ?? current.loan_overdue_period ?? 30)
       const loanOverdueInterest = Number(payload.loanLatePenalty ?? current.loan_overdue_interest ?? 0)
+      const loanOverdueInterestPer = String(payload.loanLatePenaltyPeriodUnit ?? current.loan_overdue_interest_per ?? "day")
       const loanDefaultPeriod = Number(payload.defaultedAfterDays ?? current.loan_default_period ?? 90)
       const invoiceOverduePeriod = Number(payload.invoicePeriodDays ?? current.invoice_overdue_period ?? 30)
+      const savingsOverduePeriod = Number(payload.savingsOverduePeriod ?? current.savings_overdue_period ?? 30)
       const membershipOverduePeriod = Number(payload.membershipLatePenaltyPeriodDays ?? current.membership_overdue_period ?? 30)
       const membershipOverdueInterest = Number(payload.membershipLatePenalty ?? current.membership_overdue_interest ?? 0)
+      const membershipOverdueInterestPer = String(payload.membershipLatePenaltyPeriodUnit ?? current.membership_overdue_interest_per ?? "day")
+      const mtnMobileMoneyContact =
+        typeof payload.mtnMobileMoneyContact === "string"
+          ? payload.mtnMobileMoneyContact.trim() || null
+          : String(current.mtn_mobile_money_contact ?? "") || null
+      const airtelMobileMoneyContact =
+        typeof payload.airtelMobileMoneyContact === "string"
+          ? payload.airtelMobileMoneyContact.trim() || null
+          : String(current.airtel_mobile_money_contact ?? "") || null
 
       if (enforcedShares === "true") {
         if (!shareValue || Number.isNaN(shareValue) || shareValue <= 0) throw new Error("share_value_required")
@@ -209,6 +230,9 @@ export async function PUT(req: Request) {
       if (!Number.isFinite(loanOverdueInterest) || loanOverdueInterest < 0 || loanOverdueInterest > 100) {
         throw new Error("loan_late_penalty_percentage_invalid")
       }
+      if (!Number.isFinite(loanOverduePeriod) || loanOverduePeriod < 1) throw new Error("loan_late_penalty_period_invalid")
+      if (!Number.isFinite(membershipOverduePeriod) || membershipOverduePeriod < 1) throw new Error("membership_late_penalty_period_invalid")
+      if (!Number.isFinite(savingsOverduePeriod) || savingsOverduePeriod < 1) throw new Error("savings_overdue_period_invalid")
 
       const params = [
         profile.branch_id,
@@ -225,15 +249,15 @@ export async function PUT(req: Request) {
         maximumParallelLoans,
         loanOverduePeriod,
         loanOverdueInterest,
-        "day",
+        loanOverdueInterestPer,
         loanDefaultPeriod,
         invoiceOverduePeriod,
-        Number(current.savings_overdue_period ?? 0) || null,
+        savingsOverduePeriod,
         membershipOverduePeriod,
         membershipOverdueInterest,
-        "day",
-        String(current.mtn_mobile_money_contact ?? "") || null,
-        String(current.airtel_mobile_money_contact ?? "") || null,
+        membershipOverdueInterestPer,
+        mtnMobileMoneyContact,
+        airtelMobileMoneyContact,
         profile.user_id,
       ]
 
@@ -321,9 +345,14 @@ export async function PUT(req: Request) {
         loanLatePenaltyPeriodDays: readNumber(s2, "loan_overdue_period") ?? 30,
         membershipLatePenalty: readNumber(s2, "membership_overdue_interest") ?? 0,
         membershipLatePenaltyPeriodDays: readNumber(s2, "membership_overdue_period") ?? 30,
+        membershipLatePenaltyPeriodUnit: readString(s2, "membership_overdue_interest_per") || "day",
+        loanLatePenaltyPeriodUnit: readString(s2, "loan_overdue_interest_per") || "day",
         autoInvoices: toFlag(s2.auto_invoices, false),
         invoicePeriodDays: readNumber(s2, "invoice_overdue_period") ?? 30,
         defaultedAfterDays: readNumber(s2, "loan_default_period") ?? 90,
+        savingsOverduePeriod: readNumber(s2, "savings_overdue_period") ?? 30,
+        mtnMobileMoneyContact: readString(s2, "mtn_mobile_money_contact") || "",
+        airtelMobileMoneyContact: readString(s2, "airtel_mobile_money_contact") || "",
       },
     }
     apiLog("info", "institution.settings.success", { method: "PUT", apiPath, status: 200, authUserId: session.user.authUserId })
@@ -334,14 +363,20 @@ export async function PUT(req: Request) {
       err.message === "share_value_required" ||
       err.message === "min_greater_than_max" ||
       err.message === "loan_late_penalty_percentage_invalid" ||
-      err.message === "maximum_parallel_loans_invalid"
+      err.message === "maximum_parallel_loans_invalid" ||
+      err.message === "loan_late_penalty_period_invalid" ||
+      err.message === "membership_late_penalty_period_invalid" ||
+      err.message === "savings_overdue_period_invalid"
     )
       apiLog("warn", "institution.settings.invalid", { method: "PUT", apiPath, status: 400, error: err.message })
     if (
       err.message === "share_value_required" ||
       err.message === "min_greater_than_max" ||
       err.message === "loan_late_penalty_percentage_invalid" ||
-      err.message === "maximum_parallel_loans_invalid"
+      err.message === "maximum_parallel_loans_invalid" ||
+      err.message === "loan_late_penalty_period_invalid" ||
+      err.message === "membership_late_penalty_period_invalid" ||
+      err.message === "savings_overdue_period_invalid"
     )
       return NextResponse.json({ error: err.message }, { status: 400 })
     apiLog("error", "institution.settings.error", { method: "PUT", apiPath, status: 500, error: err?.message || "Unexpected error" })

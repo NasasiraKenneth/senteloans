@@ -257,24 +257,26 @@ export default function InvestmentsPage() {
       key: "actions",
       header: "Actions",
       render: (row) => {
-        return <ActionButtons actions={actions} row={row} />
+        const rowActions = [
+          {
+            label: "View",
+            onClick: handleView,
+            variant: "view",
+            icon: <Eye className="h-4 w-4" />,
+          },
+          ...(normalizedStatus(row.status) === "pending"
+            ? [
+                {
+                  label: "Edit",
+                  onClick: handleEdit,
+                  variant: "primary",
+                  icon: <Edit className="h-4 w-4" />,
+                },
+              ]
+            : []),
+        ]
+        return <ActionButtons actions={rowActions} row={row} />
       },
-    },
-  ]
-
-  // Table actions configuration
-  const actions = [
-    {
-      label: "View",
-      onClick: handleView,
-      variant: "view",
-      icon: <Eye className="h-4 w-4" />,
-    },
-    {
-      label: "Edit",
-      onClick: handleEdit,
-      variant: "primary",
-      icon: <Edit className="h-4 w-4" />,
     },
   ]
 
