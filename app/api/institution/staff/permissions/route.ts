@@ -71,11 +71,17 @@ export async function GET(req: Request) {
       if (!actor) return null
       const role = String(actor.role || "").trim().toLowerCase()
 
-      const [viewUsers, createUser, editUser] = await Promise.all([
+      const [viewUsers, createUser, editUser, hasEditRolePerm] = await Promise.all([
         hasPermission(client, actor, "view_users"),
         hasPermission(client, actor, "create_user"),
         hasPermission(client, actor, "edit_user"),
+        hasPermission(client, actor, "edit_role_permissions"),
       ])
+      const editRolePermissions =
+        role === "super_admin" ||
+        role === "system_admin" ||
+        role === "institution_admin" ||
+        hasEditRolePerm
 
       const branches =
         role === "super_admin"
@@ -94,6 +100,7 @@ export async function GET(req: Request) {
         viewUsers,
         createUser,
         editUser,
+        editRolePermissions,
         isSuperAdmin: role === "super_admin",
         branches,
       }

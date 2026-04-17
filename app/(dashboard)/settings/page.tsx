@@ -1,11 +1,13 @@
 "use client"
 
-import { useMemo, useState, useEffect } from "react"
+import { useMemo, useRef, useState, useEffect, type ChangeEvent } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import StyledSelect from "@/components/newUI/styled_select"
 import { Separator } from "@/components/ui/separator"
 import { Badge } from "@/components/ui/badge"
 import {
@@ -25,14 +27,18 @@ import {
   CreditCard,
   Mail,
   Tags,
+  Image as ImageIcon,
+  Upload,
   LayoutGrid,
   Info,
   ChevronRight,
   X,
+  Shield,
 } from "lucide-react"
 
 import { getSession, updateInstitutionConfig } from "@/lib/session"
 import { useToast } from "@/components/ui/toast"
+import { upload } from "@vercel/blob/client"
 
 interface InstitutionConfig {
   modules: { loans: boolean; shares: boolean; savings: boolean; mobile_money: boolean }
@@ -66,6 +72,18 @@ interface InstitutionOrg {
   logo: string
 }
 
+/** Current staff branch (`senteloans_branches`): name, address, phone, email, established_date */
+interface BranchProfile {
+  id: string
+  name: string
+  address: string
+  phone_number: string
+  email: string
+  established_date: string
+  branch_code: string
+  status: string
+}
+
 type InstitutionSettingsWorkspace = "general" | "loan" | "penalties" | "shares"
 
 interface StaffMember {
@@ -78,6 +96,16 @@ interface StaffMember {
   joined_at: string | null
 }
 
+type RolePermissionsRow = { id: string; name: string; description: string | null }
+type RolePermissionCatalogRow = { id: string; name: string; module: string }
+type RolePermissionsPayload = {
+  branch: { id: string; name: string }
+  roles: RolePermissionsRow[]
+  permissions: RolePermissionCatalogRow[]
+  rolePermissionIds: Record<string, string[]>
+  actorIsSuperAdmin?: boolean
+}
+
 export default function SettingsPage() {
   const { toast } = useToast()
   const [session, setSession] = useState<any>(null)
@@ -88,13 +116,28 @@ export default function SettingsPage() {
   const [isSavingInstitution, setIsSavingInstitution] = useState(false)
   const [isSavingOrg, setIsSavingOrg] = useState(false)
   const [org, setOrg] = useState<InstitutionOrg | null>(null)
+  const [branchProfile, setBranchProfile] = useState<BranchProfile | null>(null)
+  const [branchProfileDraftBackup, setBranchProfileDraftBackup] = useState<BranchProfile | null>(null)
+  /** Branch snapshot when opening the dedicated Organization Profile tab editor */
+  const [branchProfileOrgTabBackup, setBranchProfileOrgTabBackup] = useState<BranchProfile | null>(null)
   const [isOrgEditMode, setIsOrgEditMode] = useState(false)
   const [orgDraftBackup, setOrgDraftBackup] = useState<InstitutionOrg | null>(null)
-  const [activeTab, setActiveTab] = useState<"general" | "loan" | "penalties" | "shares" | "organization" | "admin">("general")
+  const [activeTab, setActiveTab] = useState<
+    "general" | "loan" | "penalties" | "shares" | "organization" | "admin" | "permissions"
+  >("general")
+  // TODO(permissions): Gate this workspace with `edit_role_permissions` (or equivalent) again once RBAC is finalized.
+  const [rolePermPayload, setRolePermPayload] = useState<RolePermissionsPayload | null>(null)
+  const [rolePermLoading, setRolePermLoading] = useState(false)
+  const [selectedRoleId, setSelectedRoleId] = useState("")
+  const [draftRolePermissionIds, setDraftRolePermissionIds] = useState<string[]>([])
+  const [isSavingRolePermissions, setIsSavingRolePermissions] = useState(false)
+  const selectedRoleIdRef = useRef("")
   const [workspaceSearch, setWorkspaceSearch] = useState("")
   const [workspaceCategory, setWorkspaceCategory] = useState<"All" | "Core" | "Profile">("All")
   const [institutionEditWorkspace, setInstitutionEditWorkspace] = useState<InstitutionSettingsWorkspace | null>(null)
   const [institutionConfigDraftBackup, setInstitutionConfigDraftBackup] = useState<InstitutionConfig | null>(null)
+  const generalLogoInputRef = useRef<HTMLInputElement | null>(null)
+  const [isLogoUploading, setIsLogoUploading] = useState(false)
   const memberInputClass =
     "h-10 rounded-md border-gray-300 text-sm transition-all duration-200 hover:border-gray-400 focus-visible:ring-[1.5px] focus-visible:ring-[#f08c2b] focus-visible:border-transparent"
   const memberSelectClass =
@@ -105,10 +148,11 @@ export default function SettingsPage() {
     setSession(sessionData)
     ;(async () => {
       try {
-        const [instRes, orgRes, staffRes] = await Promise.all([
+        const [instRes, orgRes, staffRes, branchRes] = await Promise.all([
           fetch("/api/institution/settings", { cache: "no-store" }),
           fetch("/api/institution/organization", { cache: "no-store" }),
           fetch("/api/institution/staff?limit=200", { cache: "no-store" }),
+          fetch("/api/institution/branch", { cache: "no-store" }),
         ])
         if (instRes.ok) {
           const inst = await instRes.json()
@@ -131,11 +175,72 @@ export default function SettingsPage() {
           const staffData = await staffRes.json()
           setStaffMembers(Array.isArray(staffData?.staff) ? staffData.staff : [])
         }
+        if (branchRes.ok) {
+          const b = await branchRes.json()
+          if (b?.id) {
+            setBranchProfile({
+              id: String(b.id),
+              name: String(b.name || ""),
+              address: String(b.address || ""),
+              phone_number: String(b.phone_number || ""),
+              email: String(b.email || ""),
+              established_date: typeof b.established_date === "string" ? b.established_date : "",
+              branch_code: String(b.branch_code || ""),
+              status: String(b.status || ""),
+            })
+          }
+        }
       } catch (_) {
         // swallow
       }
     })()
   }, [])
+
+  useEffect(() => {
+    selectedRoleIdRef.current = selectedRoleId
+  }, [selectedRoleId])
+
+  useEffect(() => {
+    if (activeTab !== "permissions") return
+
+    let cancelled = false
+    ;(async () => {
+      setRolePermLoading(true)
+      try {
+        const res = await fetch("/api/institution/role-permissions", { cache: "no-store" })
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}))
+          if (!cancelled) {
+            toast({
+              title: "Unable to load roles",
+              description: typeof body?.error === "string" ? body.error : "Request failed",
+              variant: "destructive",
+            })
+          }
+          return
+        }
+        const data = (await res.json()) as RolePermissionsPayload
+        if (cancelled) return
+        setRolePermPayload(data)
+        const roles = data.roles || []
+        const preferred = selectedRoleIdRef.current
+        const nextId = roles.some((r) => r.id === preferred) ? preferred : roles[0]?.id || ""
+        setSelectedRoleId(nextId)
+        setDraftRolePermissionIds([...(data.rolePermissionIds[nextId] || [])])
+      } catch (e: unknown) {
+        if (!cancelled) {
+          const message = e instanceof Error ? e.message : "Request failed"
+          toast({ title: "Unable to load roles", description: message, variant: "destructive" })
+        }
+      } finally {
+        if (!cancelled) setRolePermLoading(false)
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [activeTab, toast])
 
   const setConfigField = (field: keyof InstitutionConfig, value: any) => {
     setConfig((prev) => (prev ? { ...prev, [field]: value } : prev))
@@ -236,7 +341,10 @@ export default function SettingsPage() {
   }
 
   const terminology = getInstitutionTerminology()
-  const tabMeta: Record<"general" | "loan" | "penalties" | "shares" | "organization" | "admin", { title: string; subtitle: string }> = {
+  const tabMeta: Record<
+    "general" | "loan" | "penalties" | "shares" | "organization" | "admin" | "permissions",
+    { title: string; subtitle: string }
+  > = {
     general: {
       title: "General Configuration",
       subtitle: "Core institution preferences and member defaults.",
@@ -261,10 +369,14 @@ export default function SettingsPage() {
       title: "Institution Admins",
       subtitle: "View institution administrators and staff directory.",
     },
+    permissions: {
+      title: "Roles & Permissions",
+      subtitle: "Choose a branch role and assign capabilities for your location.",
+    },
   }
   const isSaccoOrMfi = institution?.type === "SACCO" || institution?.type === "MFI"
   const workspaceItems: Array<{
-    key: "general" | "loan" | "penalties" | "shares" | "organization" | "admin"
+    key: "general" | "loan" | "penalties" | "shares" | "organization" | "admin" | "permissions"
     title: string
     subtitle: string
     category: "Core" | "Profile"
@@ -275,8 +387,16 @@ export default function SettingsPage() {
     { key: "loan", title: "Loan Policies", subtitle: "Loan and invoice behavior", category: "Core", icon: SlidersHorizontal },
     { key: "penalties", title: "Penalty Rules", subtitle: "Late penalties and periods", category: "Core", icon: ShieldAlert },
     { key: "shares", title: "Shares Workspace", subtitle: "Share limits and value setup", category: "Core", icon: DollarSign, visible: isSaccoOrMfi },
-    { key: "organization", title: "Organization Profile", subtitle: "Legal and contact details", category: "Profile", icon: Building2 },
+    { key: "organization", title: "Organization Profile", subtitle: "Legal and contact details", category: "Profile", icon: Building2, visible: false },
     { key: "admin", title: "Institution Admins", subtitle: "Admins and staff directory", category: "Profile", icon: User },
+    {
+      key: "permissions",
+      title: "Roles & Permissions",
+      subtitle: "Branch access, roles, and permission catalog",
+      category: "Core",
+      icon: Shield,
+      // TODO(permissions): Set `visible: canEditRolePermissions` again when RBAC gates this tab.
+    },
   ]
 
   const filteredWorkspaceItems = useMemo(() => {
@@ -350,6 +470,25 @@ export default function SettingsPage() {
     return { mmStatus, mmDetail, mmPct, emailStatus, emailDetail, emailPct, moduleOn, modulePct }
   }, [config, org, staffMembers])
 
+  const rolePermissionsByModule = useMemo(() => {
+    if (!rolePermPayload?.permissions?.length) return [] as Array<[string, RolePermissionCatalogRow[]]>
+    const map = new Map<string, RolePermissionCatalogRow[]>()
+    for (const p of rolePermPayload.permissions) {
+      const mod = (p.module || "other").trim() || "other"
+      if (!map.has(mod)) map.set(mod, [])
+      map.get(mod)!.push(p)
+    }
+    return Array.from(map.entries()).sort(([a], [b]) => a.localeCompare(b))
+  }, [rolePermPayload])
+
+  const rolePermDirty = useMemo(() => {
+    if (!rolePermPayload || !selectedRoleId) return false
+    const saved = [...(rolePermPayload.rolePermissionIds[selectedRoleId] || [])].sort()
+    const draft = [...draftRolePermissionIds].sort()
+    if (saved.length !== draft.length) return true
+    return saved.some((id, i) => id !== draft[i])
+  }, [rolePermPayload, selectedRoleId, draftRolePermissionIds])
+
   useEffect(() => {
     if (!institutionEditWorkspace) return
     const activeWorkspace =
@@ -379,6 +518,36 @@ export default function SettingsPage() {
     setOrg((prev) => (prev ? { ...prev, [field]: value } as InstitutionOrg : prev))
   }
 
+  const handleGeneralLogoFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+    if (!file.type.startsWith("image/")) {
+      toast({ title: "Invalid file", description: "Please select an image file.", variant: "warning" })
+      return
+    }
+    if (!institution?.id) {
+      toast({ title: "Missing institution", description: "Cannot upload logo without institution context.", variant: "destructive" })
+      return
+    }
+    try {
+      setIsLogoUploading(true)
+      const name = `institution-logos/${institution.id}/logo-${Date.now()}-${file.name}`
+      const blobResult = await upload(name, file, {
+        handleUploadUrl: "/api/vercel_blob/upload",
+        access: "public",
+        contentType: file.type,
+      })
+      if (!blobResult?.url) throw new Error("Upload completed but no URL was returned")
+      setOrgField("logo", blobResult.url)
+      toast({ title: "Logo uploaded", description: "Logo uploaded to Blob. Save General to persist in database.", variant: "success" })
+    } catch (e: any) {
+      toast({ title: "Upload failed", description: e?.message || "Failed to upload logo", variant: "destructive" })
+    } finally {
+      setIsLogoUploading(false)
+      event.target.value = ""
+    }
+  }
+
   const isValidUrl = (url: string) => {
     try { new URL(url); return true } catch { return false }
   }
@@ -390,6 +559,52 @@ export default function SettingsPage() {
       .slice(0, 2)
       .toUpperCase() || "NA"
   const formatRole = (role: string | null | undefined) => (role || "staff").replaceAll("_", " ").replace(/\b\w/g, (c) => c.toUpperCase())
+
+  const formatPermissionLabel = (name: string) =>
+    name.replaceAll("_", " ").replace(/\b\w/g, (c) => String(c).toUpperCase())
+
+  const selectedRoleForPerms = rolePermPayload?.roles?.find((r) => r.id === selectedRoleId)
+  const isAdminBranchRole = selectedRoleForPerms?.name === "Admin"
+  const actorIsSuperForPerms = !!rolePermPayload?.actorIsSuperAdmin
+
+  const isPermissionLockedForRole = (perm: RolePermissionCatalogRow) =>
+    perm.name === "edit_role_permissions" && isAdminBranchRole && !actorIsSuperForPerms
+
+  const handleToggleRolePermission = (perm: RolePermissionCatalogRow) => {
+    if (isPermissionLockedForRole(perm)) return
+    const pid = perm.id
+    setDraftRolePermissionIds((prev) => (prev.includes(pid) ? prev.filter((x) => x !== pid) : [...prev, pid]))
+  }
+
+  const handleRolePermissionRoleChange = (id: string) => {
+    setSelectedRoleId(id)
+    setDraftRolePermissionIds([...(rolePermPayload?.rolePermissionIds[id] || [])])
+  }
+
+  const handleSaveRolePermissions = async () => {
+    if (!selectedRoleId || rolePermLoading || isSavingRolePermissions) return
+    setIsSavingRolePermissions(true)
+    try {
+      const res = await fetch("/api/institution/role-permissions", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ roleId: selectedRoleId, permissionIds: draftRolePermissionIds }),
+      })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(typeof body?.error === "string" ? body.error : "Save failed")
+      const nextIds = Array.isArray(body.permissionIds) ? (body.permissionIds as string[]) : draftRolePermissionIds
+      setRolePermPayload((prev) =>
+        prev ? { ...prev, rolePermissionIds: { ...prev.rolePermissionIds, [selectedRoleId]: nextIds } } : prev,
+      )
+      setDraftRolePermissionIds(nextIds)
+      toast({ title: "Saved", description: "Role permissions updated for this branch.", variant: "success" })
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : "Save failed"
+      toast({ title: "Error", description: message, variant: "destructive" })
+    } finally {
+      setIsSavingRolePermissions(false)
+    }
+  }
 
   const getActiveInstitutionWorkspace = (): InstitutionSettingsWorkspace | null => {
     if (activeTab === "general" || activeTab === "loan" || activeTab === "penalties" || activeTab === "shares") return activeTab
@@ -403,20 +618,78 @@ export default function SettingsPage() {
     const workspace = getActiveInstitutionWorkspace()
     if (!workspace) return
     setInstitutionConfigDraftBackup(cloneConfig(config))
+    if (branchProfile) setBranchProfileDraftBackup(JSON.parse(JSON.stringify(branchProfile)) as BranchProfile)
     setInstitutionEditWorkspace(workspace)
   }
 
   const handleCancelInstitutionEdit = () => {
     if (institutionConfigDraftBackup) setConfig(cloneConfig(institutionConfigDraftBackup))
+    if (branchProfileDraftBackup) {
+      setBranchProfile(JSON.parse(JSON.stringify(branchProfileDraftBackup)) as BranchProfile)
+      setBranchProfileDraftBackup(null)
+    }
     setInstitutionEditWorkspace(null)
   }
 
   const handleSaveInstitutionEdit = async () => {
-    const ok = await handleSaveInstitution()
-    if (ok) setInstitutionEditWorkspace(null)
+    let ok = await handleSaveInstitution()
+    if (ok && activeTab === "general") {
+      if (org) ok = await handleSaveOrg()
+      if (ok && branchProfile) ok = await handleSaveBranch()
+    }
+    if (ok) {
+      setInstitutionEditWorkspace(null)
+      setBranchProfileDraftBackup(null)
+    }
   }
 
   const cloneOrg = (value: InstitutionOrg): InstitutionOrg => JSON.parse(JSON.stringify(value))
+
+  const setBranchField = (field: keyof BranchProfile, value: string) => {
+    setBranchProfile((prev) => (prev ? { ...prev, [field]: value } : prev))
+  }
+
+  const handleSaveBranch = async (): Promise<boolean> => {
+    if (!branchProfile) return true
+    if (!branchProfile.name.trim()) {
+      toast({ title: "Validation", description: "Branch name is required.", variant: "warning" })
+      return false
+    }
+    if (branchProfile.email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(branchProfile.email.trim())) {
+      toast({ title: "Validation", description: "Enter a valid branch email address.", variant: "warning" })
+      return false
+    }
+    try {
+      const res = await fetch("/api/institution/branch", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: branchProfile.name.trim(),
+          address: branchProfile.address.trim(),
+          phone_number: branchProfile.phone_number.trim(),
+          email: branchProfile.email.trim(),
+          established_date: branchProfile.established_date.trim() || null,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || "Failed to save branch profile")
+      setBranchProfile({
+        id: String(data.id),
+        name: String(data.name || ""),
+        address: String(data.address || ""),
+        phone_number: String(data.phone_number || ""),
+        email: String(data.email || ""),
+        established_date: typeof data.established_date === "string" ? data.established_date : "",
+        branch_code: String(data.branch_code || ""),
+        status: String(data.status || ""),
+      })
+      return true
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : "Failed to save branch profile"
+      toast({ title: "Error", description: message, variant: "destructive" })
+      return false
+    }
+  }
 
   const handleSaveOrg = async (): Promise<boolean> => {
     if (!org) return false
@@ -458,17 +731,26 @@ export default function SettingsPage() {
   const handleStartOrgEdit = () => {
     if (!org) return
     setOrgDraftBackup(cloneOrg(org))
+    if (branchProfile) setBranchProfileOrgTabBackup(JSON.parse(JSON.stringify(branchProfile)) as BranchProfile)
     setIsOrgEditMode(true)
   }
 
   const handleCancelOrgEdit = () => {
     if (orgDraftBackup) setOrg(cloneOrg(orgDraftBackup))
+    if (branchProfileOrgTabBackup) {
+      setBranchProfile(JSON.parse(JSON.stringify(branchProfileOrgTabBackup)) as BranchProfile)
+      setBranchProfileOrgTabBackup(null)
+    }
     setIsOrgEditMode(false)
   }
 
   const handleSaveOrgEdit = async () => {
-    const ok = await handleSaveOrg()
-    if (ok) setIsOrgEditMode(false)
+    let ok = await handleSaveOrg()
+    if (ok && branchProfile) ok = await handleSaveBranch()
+    if (ok) {
+      setIsOrgEditMode(false)
+      setBranchProfileOrgTabBackup(null)
+    }
   }
 
   return (
@@ -781,39 +1063,197 @@ export default function SettingsPage() {
                     </div>
                   </CardHeader>
                   <CardContent className="space-y-4">
-                    {activeTab === "general" && (
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <Label>{terminology.name} Name</Label>
-                        <Input value={institution.name} readOnly className={memberInputClass} />
+                    {activeTab === "general" && institution && (
+                      <div className="rounded-lg border border-[#111111]/10 bg-white p-4 space-y-3">
+                        <div className="flex items-center gap-2 text-sm font-semibold text-[#1f1f1f]">
+                          <Building2 className="h-4 w-4 text-[#f08c2b]" />
+                          Organization Profile
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div className="space-y-2">
+                            <Label>{terminology.name} Name</Label>
+                            <Input value={institution.name} readOnly className={memberInputClass} />
+                          </div>
+                          <div className="space-y-2">
+                            <Label>Institution Type</Label>
+                            <Input value={institution.type} readOnly className={memberInputClass} />
+                          </div>
+                          <div className="space-y-2 md:col-span-2">
+                            <Label htmlFor="currency">Preferred Currency</Label>
+                            <Select disabled={!canEditInstitutionWorkspace("general")} value={config.currency} onValueChange={(value) => setConfigField("currency", value)}>
+                              <SelectTrigger id="currency" className={memberSelectClass}>
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="UGX">Ugandan Shilling (UGX)</SelectItem>
+                                <SelectItem value="USD">US Dollar (USD)</SelectItem>
+                                <SelectItem value="KES">Kenyan Shilling (KES)</SelectItem>
+                                <SelectItem value="TZS">Tanzanian Shilling (TZS)</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          {org && (
+                          <>
+                          <div className="md:col-span-2 pt-1">
+                            <Separator className="my-3" />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="generalRegNo">Registration Number</Label>
+                            <Input
+                              id="generalRegNo"
+                              value={org.registration_number || ""}
+                              onChange={(e) => setOrgField("registration_number", e.target.value)}
+                              disabled={!canEditInstitutionWorkspace("general")}
+                              className={memberInputClass}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="generalLicenseNo">License Number</Label>
+                            <Input
+                              id="generalLicenseNo"
+                              value={org.license_number || ""}
+                              onChange={(e) => setOrgField("license_number", e.target.value)}
+                              disabled={!canEditInstitutionWorkspace("general")}
+                              className={memberInputClass}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="generalWebsite">Website</Label>
+                            <Input
+                              id="generalWebsite"
+                              value={org.website || ""}
+                              onChange={(e) => setOrgField("website", e.target.value)}
+                              disabled={!canEditInstitutionWorkspace("general")}
+                              placeholder="https://example.com"
+                              className={memberInputClass}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label>Logo</Label>
+                            <div className="rounded-xl border border-[#111111]/10 bg-[#111111]/3 p-3">
+                              <div className="flex items-center gap-3">
+                                <div className="h-14 w-14 shrink-0 overflow-hidden rounded-lg border border-[#111111]/10 bg-white flex items-center justify-center">
+                                  {org.logo ? (
+                                    // eslint-disable-next-line @next/next/no-img-element
+                                    <img src={org.logo} alt="Organization logo preview" className="h-full w-full object-cover" />
+                                  ) : (
+                                    <ImageIcon className="h-5 w-5 text-muted-foreground" />
+                                  )}
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                  <p className="text-sm font-medium text-[#111111]">Organization logo</p>
+                                  <p className="text-xs text-muted-foreground truncate">
+                                    {isLogoUploading
+                                      ? "Uploading image to Vercel Blob..."
+                                      : org.logo
+                                        ? "Image selected and ready to save."
+                                        : "No logo selected."}
+                                  </p>
+                                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      variant="outline"
+                                      onClick={() => generalLogoInputRef.current?.click()}
+                                      disabled={!canEditInstitutionWorkspace("general") || isLogoUploading}
+                                      className="h-8"
+                                    >
+                                      <Upload className="h-3.5 w-3.5 mr-1.5" />
+                                      {isLogoUploading ? "Uploading..." : org.logo ? "Change image" : "Choose image"}
+                                    </Button>
+                                    {org.logo && (
+                                      <Button
+                                        type="button"
+                                        size="sm"
+                                        variant="ghost"
+                                        onClick={() => setOrgField("logo", "")}
+                                        disabled={!canEditInstitutionWorkspace("general") || isLogoUploading}
+                                        className="h-8 text-rose-700 hover:text-rose-800"
+                                      >
+                                        Remove
+                                      </Button>
+                                    )}
+                                  </div>
+                                  <input
+                                    ref={generalLogoInputRef}
+                                    type="file"
+                                    accept="image/*"
+                                    className="hidden"
+                                    onChange={handleGeneralLogoFileChange}
+                                    disabled={!canEditInstitutionWorkspace("general") || isLogoUploading}
+                                  />
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                          </>
+                          )}
+                          {branchProfile && (
+                            <>
+                              <div className="md:col-span-2 pt-1">
+                                <Separator className="my-3" />
+                              </div>
+                              <div className="space-y-2 md:col-span-2">
+                                <Label htmlFor="branchName">Branch name</Label>
+                                <Input
+                                  id="branchName"
+                                  value={branchProfile.name}
+                                  onChange={(e) => setBranchField("name", e.target.value)}
+                                  disabled={!canEditInstitutionWorkspace("general")}
+                                  className={memberInputClass}
+                                />
+                              </div>
+                              <div className="space-y-2">
+                                <Label htmlFor="branchEstablished">Established date</Label>
+                                <Input
+                                  id="branchEstablished"
+                                  type="date"
+                                  value={branchProfile.established_date}
+                                  onChange={(e) => setBranchField("established_date", e.target.value)}
+                                  disabled={!canEditInstitutionWorkspace("general")}
+                                  className={memberInputClass}
+                                />
+                              </div>
+                              <div className="space-y-2">
+                                <Label htmlFor="branchCode">Branch code</Label>
+                                <Input id="branchCode" value={branchProfile.branch_code} readOnly className={memberInputClass} />
+                              </div>
+                              <div className="space-y-2 md:col-span-2">
+                                <Label htmlFor="branchAddress">Address</Label>
+                                <Textarea
+                                  id="branchAddress"
+                                  rows={3}
+                                  value={branchProfile.address}
+                                  onChange={(e) => setBranchField("address", e.target.value)}
+                                  disabled={!canEditInstitutionWorkspace("general")}
+                                  className={`${memberInputClass} min-h-[88px] resize-y`}
+                                />
+                              </div>
+                              <div className="space-y-2">
+                                <Label htmlFor="branchPhone">Phone</Label>
+                                <Input
+                                  id="branchPhone"
+                                  value={branchProfile.phone_number}
+                                  onChange={(e) => setBranchField("phone_number", e.target.value)}
+                                  disabled={!canEditInstitutionWorkspace("general")}
+                                  className={memberInputClass}
+                                />
+                              </div>
+                              <div className="space-y-2">
+                                <Label htmlFor="branchEmail">Email</Label>
+                                <Input
+                                  id="branchEmail"
+                                  type="email"
+                                  value={branchProfile.email}
+                                  onChange={(e) => setBranchField("email", e.target.value)}
+                                  disabled={!canEditInstitutionWorkspace("general")}
+                                  className={memberInputClass}
+                                />
+                              </div>
+                            </>
+                          )}
+                        </div>
                       </div>
-                      <div className="space-y-2">
-                        <Label>Institution Type</Label>
-                        <Input value={institution.type} readOnly className={memberInputClass} />
-                      </div>
-                    </div>
-                    )}
-
-                    {activeTab === "general" && <Separator />}
-
-                    {activeTab === "general" && (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <Label htmlFor="currency">Preferred Currency</Label>
-                        <Select disabled={!canEditInstitutionWorkspace("general")} value={config.currency} onValueChange={(value) => setConfigField("currency", value)}>
-                          <SelectTrigger className={memberSelectClass}>
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="UGX">Ugandan Shilling (UGX)</SelectItem>
-                            <SelectItem value="USD">US Dollar (USD)</SelectItem>
-                            <SelectItem value="KES">Kenyan Shilling (KES)</SelectItem>
-                            <SelectItem value="TZS">Tanzanian Shilling (TZS)</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div className="space-y-2" />
-                    </div>
                     )}
 
                     {activeTab === "general" && (
@@ -1189,7 +1629,7 @@ export default function SettingsPage() {
                           <User className="h-5 w-5" />
                           {terminology.name} Profile
                         </CardTitle>
-                        <CardDescription>Update your institution's official details</CardDescription>
+                        <CardDescription>Institution legal details and your branch contact (name, address, phone, email, established date).</CardDescription>
                       </div>
                       <div className={`flex items-center gap-2 transition-opacity ${isOrgEditMode ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}>
                         {isOrgEditMode ? (
@@ -1244,6 +1684,8 @@ export default function SettingsPage() {
                       </div>
                     </div>
 
+                    <Separator />
+
                     <div className="space-y-2">
                       <Label htmlFor="regNo">Registration Number</Label>
                       <Input id="regNo" value={org?.registration_number || ""} onChange={(e) => setOrgField("registration_number", e.target.value)} disabled={!isOrgEditMode} className={memberInputClass} />
@@ -1263,9 +1705,71 @@ export default function SettingsPage() {
                         <Input id="logo" value={org?.logo || ""} onChange={(e) => setOrgField("logo", e.target.value)} disabled={!isOrgEditMode} placeholder="https://example.com/logo.png" className={memberInputClass} />
                       </div>
                     </div>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-2" />
-                    </div>
+
+                    {branchProfile && (
+                      <>
+                        <Separator />
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div className="space-y-2 md:col-span-2">
+                            <Label htmlFor="orgTabBranchName">Branch name</Label>
+                            <Input
+                              id="orgTabBranchName"
+                              value={branchProfile.name}
+                              onChange={(e) => setBranchField("name", e.target.value)}
+                              disabled={!isOrgEditMode}
+                              className={memberInputClass}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="orgTabBranchEstablished">Established date</Label>
+                            <Input
+                              id="orgTabBranchEstablished"
+                              type="date"
+                              value={branchProfile.established_date}
+                              onChange={(e) => setBranchField("established_date", e.target.value)}
+                              disabled={!isOrgEditMode}
+                              className={memberInputClass}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="orgTabBranchCode">Branch code</Label>
+                            <Input id="orgTabBranchCode" value={branchProfile.branch_code} readOnly className={memberInputClass} />
+                          </div>
+                          <div className="space-y-2 md:col-span-2">
+                            <Label htmlFor="orgTabBranchAddress">Address</Label>
+                            <Textarea
+                              id="orgTabBranchAddress"
+                              rows={3}
+                              value={branchProfile.address}
+                              onChange={(e) => setBranchField("address", e.target.value)}
+                              disabled={!isOrgEditMode}
+                              className={`${memberInputClass} min-h-[88px] resize-y`}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="orgTabBranchPhone">Phone</Label>
+                            <Input
+                              id="orgTabBranchPhone"
+                              value={branchProfile.phone_number}
+                              onChange={(e) => setBranchField("phone_number", e.target.value)}
+                              disabled={!isOrgEditMode}
+                              className={memberInputClass}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="orgTabBranchEmail">Email</Label>
+                            <Input
+                              id="orgTabBranchEmail"
+                              type="email"
+                              value={branchProfile.email}
+                              onChange={(e) => setBranchField("email", e.target.value)}
+                              disabled={!isOrgEditMode}
+                              className={memberInputClass}
+                            />
+                          </div>
+                        </div>
+                      </>
+                    )}
 
                   </CardContent>
                 </Card>
@@ -1334,6 +1838,124 @@ export default function SettingsPage() {
                     <div className="pt-1 text-xs text-muted-foreground">
                       Directory updates automatically when staff are added or updated.
                     </div>
+                  </CardContent>
+                </Card>
+                )}
+
+                {activeTab === "permissions" && (
+                <Card className="border-[#1f1f1f]/10 shadow-md rounded-2xl">
+                  <CardHeader>
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div>
+                        <CardTitle className="flex items-center gap-2">
+                          <Shield className="h-5 w-5 text-[#f08c2b]" />
+                          Roles & Permissions
+                        </CardTitle>
+                        <CardDescription>
+                          {rolePermPayload?.branch?.name
+                            ? `Applies to branch “${rolePermPayload.branch.name}” only.`
+                            : "Applies to your branch only."}{" "}
+                          <span className="text-amber-900/90">
+                            (Permission checks are temporarily off; we will lock this down again in a later pass.)
+                          </span>
+                        </CardDescription>
+                      </div>
+                      <Button
+                        type="button"
+                        className="bg-[#f08c2b] hover:bg-[#c06107] text-white shrink-0"
+                        disabled={!rolePermDirty || rolePermLoading || isSavingRolePermissions || !selectedRoleId}
+                        onClick={() => void handleSaveRolePermissions()}
+                      >
+                        {isSavingRolePermissions ? "Saving…" : "Save role"}
+                      </Button>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="space-y-5">
+                    {rolePermLoading && (
+                      <p className="text-sm text-muted-foreground">Loading roles and permissions…</p>
+                    )}
+                    {!rolePermLoading && rolePermPayload && rolePermPayload.roles.length === 0 && (
+                      <p className="text-sm text-muted-foreground">No editable roles were returned for your institution.</p>
+                    )}
+                    {!rolePermLoading && rolePermPayload && rolePermPayload.roles.length > 0 && (
+                      <>
+                        <div className="space-y-2 max-w-md">
+                          <Label>Role</Label>
+                          <StyledSelect
+                            value={selectedRoleId}
+                            onChange={handleRolePermissionRoleChange}
+                            placeholder="Select a role"
+                            options={rolePermPayload.roles.map((r) => ({ value: r.id, label: r.name }))}
+                            searchable
+                          />
+                          {selectedRoleForPerms?.description && (
+                            <p className="text-xs text-muted-foreground">{selectedRoleForPerms.description}</p>
+                          )}
+                        </div>
+                        {isAdminBranchRole && !actorIsSuperForPerms && (
+                          <p className="text-xs text-muted-foreground rounded-lg border border-[#111111]/10 bg-[#111111]/4 px-3 py-2">
+                            The Admin role always keeps “Edit role permissions” enabled so branch settings stay manageable.
+                          </p>
+                        )}
+                        <div className="max-h-[60vh] overflow-y-auto space-y-6 pr-1">
+                          {rolePermissionsByModule.map(([module, perms]) => (
+                            <div key={module} className="space-y-2">
+                              <p className="text-xs font-semibold uppercase tracking-wide text-[#f08c2b]">{module}</p>
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                {perms.map((p) => {
+                                  const locked = isPermissionLockedForRole(p)
+                                  const checked = draftRolePermissionIds.includes(p.id)
+                                  const disabled = locked || rolePermLoading
+                                  return (
+                                    <button
+                                      key={p.id}
+                                      type="button"
+                                      role="checkbox"
+                                      aria-checked={checked}
+                                      aria-disabled={disabled}
+                                      disabled={disabled}
+                                      onClick={() => handleToggleRolePermission(p)}
+                                      className={`flex w-full items-start gap-3 rounded-lg border border-[#111111]/10 bg-white px-3 py-2.5 text-left text-sm transition-colors ${
+                                        disabled
+                                          ? "cursor-not-allowed opacity-80"
+                                          : "cursor-pointer hover:border-[#f08c2b]/40 focus-visible:outline-none focus-visible:ring-[1.5px] focus-visible:ring-[#f08c2b] focus-visible:ring-offset-1"
+                                      }`}
+                                    >
+                                      <span
+                                        className={`relative mt-0.5 flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-md border-2 transition-all ${
+                                          checked
+                                            ? "border-[#f08c2b] bg-[#f08c2b]"
+                                            : "border-gray-400 bg-white" + (disabled ? "" : " hover:border-gray-600")
+                                        }`}
+                                      >
+                                        {checked && (
+                                          <svg
+                                            className="h-3 w-3 text-white"
+                                            fill="none"
+                                            viewBox="0 0 24 24"
+                                            stroke="currentColor"
+                                            strokeWidth={3}
+                                            aria-hidden
+                                          >
+                                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                                          </svg>
+                                        )}
+                                      </span>
+                                      <span className="min-w-0">
+                                        <span className="font-medium text-[#111111]">{formatPermissionLabel(p.name)}</span>
+                                        <span className="block text-[11px] text-muted-foreground truncate" title={p.name}>
+                                          {p.name}
+                                        </span>
+                                      </span>
+                                    </button>
+                                  )
+                                })}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </>
+                    )}
                   </CardContent>
                 </Card>
                 )}

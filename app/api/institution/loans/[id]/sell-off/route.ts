@@ -73,10 +73,14 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     }
 
     const body = (await req.json().catch(() => ({}))) as Record<string, unknown>
-    const externalLenderName = String(body.external_lender_name || "").trim()
+    const externalLenderId = String(body.external_lender_id || "").trim()
     const amount = Number(body.amount)
-    if (!externalLenderName) {
-      return NextResponse.json({ error: "external_lender_name_required" }, { status: 400 })
+    const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+    if (!externalLenderId) {
+      return NextResponse.json({ error: "external_lender_id_required" }, { status: 400 })
+    }
+    if (!uuidRe.test(externalLenderId)) {
+      return NextResponse.json({ error: "invalid_external_lender_id" }, { status: 400 })
     }
     if (!Number.isFinite(amount) || amount <= 0) {
       return NextResponse.json({ error: "invalid_amount" }, { status: 400 })
@@ -115,6 +119,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         return { error: "amount_mismatch_with_outstanding_balance" as const }
       }
 
+      const extRes = await client.query(
+        `SELECT id FROM senteloans_clients WHERE id = $1 AND institution_id = $2 AND branch_id = $3`,
+        [externalLenderId, loan.institution_id, loan.branch_id]
+      )
+      if (!extRes.rows[0]) return { error: "external_lender_not_found" as const }
+
       await client.query(
         `UPDATE senteloans_loans
          SET status = 'Closed', outstanding_balance = 0, updated_at = NOW()
@@ -124,10 +134,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
       await client.query(
         `INSERT INTO senteloans_loan_settlements
-          (institution_id, branch_id, disbursement_id, new_loan_id, settled_loan_id, external_lender_name, settlement_amount, settlement_type)
+          (institution_id, branch_id, disbursement_id, new_loan_id, settled_loan_id, external_lender_id, settlement_amount, settlement_type)
          VALUES
           ($1, $2, NULL, NULL, $3, $4, $5, 'external sell off')`,
-        [loan.institution_id, loan.branch_id, id, externalLenderName, roundedProvided]
+        [loan.institution_id, loan.branch_id, id, externalLenderId, roundedProvided]
       )
 
       await client.query(
@@ -144,7 +154,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
             status: "Closed",
             settlement_type: "external sell off",
             settlement_amount: roundedProvided,
-            external_lender_name: externalLenderName,
+            external_lender_id: externalLenderId,
           }),
         ]
       )
@@ -155,7 +165,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     if ("error" in result) {
       const errorCode = typeof result.error === "string" ? result.error : "unknown_error"
       const status =
-        errorCode === "not_found" ? 404 :
+        errorCode === "not_found" || errorCode === "external_lender_not_found" ? 404 :
         errorCode.startsWith("missing_permission:") ||
         errorCode === "cross_tenant_operation_forbidden" ||
         errorCode === "cross_branch_operation_forbidden" ||

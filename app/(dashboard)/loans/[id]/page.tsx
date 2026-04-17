@@ -44,6 +44,7 @@ export default function LoanDetailsPage() {
       settlementStatus?: string | null
       settlementAmount?: number
       settledApplicationId?: string | null
+      externalLenderId?: string | null
       externalLenderName?: string | null
     } | null
     disbursementPreview?: {
@@ -109,6 +110,7 @@ export default function LoanDetailsPage() {
                   settlementStatus: l.settlement.settlement_status || null,
                   settlementAmount: Number(l.settlement.settlement_amount || 0),
                   settledApplicationId: l.settlement.settled_application_id || null,
+                  externalLenderId: l.settlement.external_lender_id || null,
                   externalLenderName: l.settlement.external_lender_name || null,
                 }
               : null,
@@ -190,6 +192,7 @@ export default function LoanDetailsPage() {
                     settlementStatus: l.settlement.settlement_status || null,
                     settlementAmount: Number(l.settlement.settlement_amount || 0),
                     settledApplicationId: l.settlement.settled_application_id || null,
+                    externalLenderId: l.settlement.external_lender_id || null,
                     externalLenderName: l.settlement.external_lender_name || null,
                   }
                 : null,
@@ -907,7 +910,9 @@ export default function LoanDetailsPage() {
             <SellOff
               isOpen={sellOffOpen}
               onClose={() => setSellOffOpen(false)}
+              loanId={loan.id}
               outstandingBalance={Number(loan.outstandingBalance || 0)}
+              onSuccess={refetchLoanAndRepayments}
             />
 
             {/* Action Buttons */}

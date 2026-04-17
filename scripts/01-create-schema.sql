@@ -75,14 +75,12 @@ CREATE TABLE IF NOT EXISTS senteloans_branches (
     REFERENCES senteloans_branch_types(id) ON DELETE SET NULL,
 
     branch_code VARCHAR(50),
+    -- Branch outlet identity and contact (per physical / logical location)
     name VARCHAR(255) NOT NULL,
-
     address TEXT,
     phone_number VARCHAR(20),
     email VARCHAR(255),
-
     status status_type DEFAULT 'Active',
-
     established_date DATE,
 
     created_at TIMESTAMPTZ DEFAULT NOW(),
@@ -403,7 +401,7 @@ CREATE TABLE IF NOT EXISTS senteloans_loan_settlements (
     settled_loan_id UUID
     REFERENCES senteloans_loans(id) ON DELETE SET NULL,
 
-    external_lender_name VARCHAR(255),
+    external_lender_id UUID REFERENCES senteloans_clients(id) ON DELETE RESTRICT,
 
     settlement_amount DECIMAL(15,2) NOT NULL CHECK (settlement_amount > 0),
 

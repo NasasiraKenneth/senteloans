@@ -8,6 +8,10 @@ const readNumber = (obj: Record<string, unknown>, ...keys: string[]): number | u
   for (const key of keys) {
     const value = obj[key]
     if (typeof value === "number" && Number.isFinite(value)) return value
+    if (typeof value === "string" && value.trim().length > 0) {
+      const parsed = Number(value)
+      if (Number.isFinite(parsed)) return parsed
+    }
   }
   return undefined
 }

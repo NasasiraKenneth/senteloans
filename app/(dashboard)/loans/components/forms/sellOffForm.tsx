@@ -1,11 +1,12 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
+import StyledSelect from "@/components/newUI/styled_select"
 
 export type SellOffFormData = {
-  external_lender_name: string
+  external_lender_id: string
   amount: number
 }
 
@@ -22,15 +23,42 @@ export default function SellOffForm({
   loading = false,
   outstandingBalance = 0,
 }: SellOffFormProps) {
-  const [externalLenderName, setExternalLenderName] = useState("")
+  const [externalLenderId, setExternalLenderId] = useState("")
   const [amount, setAmount] = useState(String(Math.max(0, Number(outstandingBalance || 0))))
+  const [lenderClients, setLenderClients] = useState<{ id: string; name: string }[]>([])
 
   useEffect(() => {
     setAmount(String(Math.max(0, Number(outstandingBalance || 0))))
   }, [outstandingBalance])
 
+  useEffect(() => {
+    let stop = false
+    ;(async () => {
+      try {
+        const res = await fetch("/api/institution/clients?limit=200", { cache: "no-store" })
+        const data = await res.json().catch(() => ({}))
+        if (!res.ok) throw new Error(data?.error || "Failed to load clients")
+        const rows = Array.isArray(data?.clients) ? data.clients : []
+        if (!stop)
+          setLenderClients(
+            rows.map((c: { id?: string; name?: string }) => ({ id: String(c.id || ""), name: String(c.name || "").trim() })).filter((c: { id: string }) => Boolean(c.id))
+          )
+      } catch {
+        if (!stop) setLenderClients([])
+      }
+    })()
+    return () => {
+      stop = true
+    }
+  }, [])
+
+  const lenderOptions = useMemo(
+    () => lenderClients.map((c) => ({ value: String(c.id), label: c.name || "Client" })),
+    [lenderClients]
+  )
+
   const amountNumber = Number(amount)
-  const invalidName = !externalLenderName.trim()
+  const invalidLender = !String(externalLenderId || "").trim()
   const invalidAmount = !Number.isFinite(amountNumber) || amountNumber <= 0
 
   const productStyleInputClass = (hasError = false) =>
@@ -39,9 +67,9 @@ export default function SellOffForm({
     }`
 
   const handleSubmit = async () => {
-    if (invalidName || invalidAmount) return
+    if (invalidLender || invalidAmount) return
     await onSubmit({
-      external_lender_name: externalLenderName.trim(),
+      external_lender_id: String(externalLenderId).trim(),
       amount: amountNumber,
     })
   }
@@ -50,15 +78,14 @@ export default function SellOffForm({
     <div className="space-y-4 p-4">
       <div>
         <Label htmlFor="selloff-lender" className="mb-2 block">
-          External Lender Name
+          Select external lender
         </Label>
-        <input
-          id="selloff-lender"
-          type="text"
-          placeholder="e.g. ABC Finance"
-          className={productStyleInputClass(invalidName && externalLenderName.length > 0)}
-          value={externalLenderName}
-          onChange={(e) => setExternalLenderName(e.target.value)}
+        <StyledSelect
+          value={externalLenderId}
+          onChange={setExternalLenderId}
+          placeholder={lenderOptions.length ? "Choose client (external lender)" : "No clients loaded"}
+          options={lenderOptions}
+          searchable
         />
       </div>
 
@@ -86,7 +113,7 @@ export default function SellOffForm({
         <Button variant="outline" onClick={onCancel} disabled={loading}>
           Cancel
         </Button>
-        <Button onClick={handleSubmit} disabled={loading || invalidName || invalidAmount}>
+        <Button onClick={handleSubmit} disabled={loading || invalidLender || invalidAmount}>
           {loading ? "Saving..." : "Submit Sell Off"}
         </Button>
       </div>

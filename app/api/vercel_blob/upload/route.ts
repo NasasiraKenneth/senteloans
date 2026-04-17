@@ -31,14 +31,13 @@ export async function POST(request: NextRequest) {
     const jsonResponse = await handleUpload({
       body,
       request,
-      onBeforeGenerateToken: async (_pathname: string) => {
+      onBeforeGenerateToken: async (pathname: string) => {
+        const normalizedPath = String(pathname || "").replace(/^\/+/, "")
+        const isInstitutionLogoUpload = normalizedPath.startsWith("institution-logos/")
         return {
-          allowedContentTypes: [
-            "image/jpeg",
-            "image/png",
-            "image/webp",
-            "application/pdf",
-          ],
+          allowedContentTypes: isInstitutionLogoUpload
+            ? ["image/jpeg", "image/png", "image/webp", "image/gif"]
+            : ["image/jpeg", "image/png", "image/webp", "application/pdf"],
           addRandomSuffix: true,
           // callbackUrl is automatically computed by Vercel in production.
           // In local dev, onUploadCompleted won't fire (Vercel can't reach localhost)

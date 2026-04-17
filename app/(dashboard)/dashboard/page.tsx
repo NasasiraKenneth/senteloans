@@ -103,27 +103,13 @@ export default function DashboardPage() {
   return (
     <>
           <div className="space-y-6">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center">
               <div>
                 <h2 className="text-3xl font-bold text-balance">Welcome to {institutionName}</h2>
                 <p className="text-muted-foreground text-pretty">
                   Manage your financial institution operations efficiently with real-time insights and streamlined
                   processes.
                 </p>
-              </div>
-              <div className="flex items-center space-x-3">
-                <Link href="/users/new">
-                  <Button variant="outline">
-                    <Plus className="h-4 w-4 mr-2" />
-                    Add {clientTerminology.slice(0, -1)}
-                  </Button>
-                </Link>
-                <Link href="/loans/new">
-                  <Button>
-                    <Plus className="h-4 w-4 mr-2" />
-                    New Loan
-                  </Button>
-                </Link>
               </div>
             </div>
 

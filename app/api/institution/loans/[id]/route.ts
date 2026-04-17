@@ -165,7 +165,8 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
            s.id,
            s.new_loan_id,
            s.settled_loan_id,
-           s.external_lender_name,
+           s.external_lender_id,
+           c.name AS external_lender_name,
            s.settlement_amount,
            s.settlement_type,
            s.settlement_status,
@@ -173,7 +174,8 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
            l.application_id AS settled_application_id
          FROM senteloans_loan_settlements s
          LEFT JOIN senteloans_loans l ON l.id = s.settled_loan_id
-         WHERE s.new_loan_id = $1
+         LEFT JOIN senteloans_clients c ON c.id = s.external_lender_id
+         WHERE s.new_loan_id = $1 OR (s.settled_loan_id = $1 AND s.new_loan_id IS NULL)
          ORDER BY s.created_at DESC
          LIMIT 1`,
         [loan.id]
@@ -264,6 +266,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
                 new_loan_id: settlement.new_loan_id,
                 settled_loan_id: settlement.settled_loan_id,
                 settled_application_id: settlement.settled_application_id || null,
+                external_lender_id: settlement.external_lender_id || null,
                 external_lender_name: settlement.external_lender_name || null,
                 settlement_amount: Number(settlement.settlement_amount || 0),
                 settlement_type: settlement.settlement_type || null,

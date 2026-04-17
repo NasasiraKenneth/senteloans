@@ -14,7 +14,7 @@ export type LoanFormData = {
   loan_type: "normal" | "top up" | "buy off"
   top_up_loan_id?: string
   external_outstanding_balance?: number
-  external_lender_name?: string
+  external_lender_id?: string
   principal_amount: number
   tenure_months: number
   purpose: string
@@ -35,13 +35,14 @@ export default function LoanForm({ onSubmit, loading = false }: LoanFormProps) {
   const [guarantorOptions, setGuarantorOptions] = useState<any[]>([])
   const [topUpLoans, setTopUpLoans] = useState<any[]>([])
   const [loadingTopUpLoans, setLoadingTopUpLoans] = useState(false)
+  const [lenderClients, setLenderClients] = useState<{ id: string; name: string }[]>([])
   const [form, setForm] = useState({
     member_id: "",
     loan_product_id: "",
     loan_type: "normal" as LoanFormData["loan_type"],
     top_up_loan_id: "",
     external_outstanding_balance: "",
-    external_lender_name: "",
+    external_lender_id: "",
     principal_amount: "",
     tenure_months: "",
     purpose: "",
@@ -90,6 +91,15 @@ export default function LoanForm({ onSubmit, loading = false }: LoanFormProps) {
       })),
     [topUpLoans]
   )
+  const externalLenderSelectOptions = useMemo(
+    () => lenderClients.map((c) => ({ value: String(c.id), label: c.name || "Client" })),
+    [lenderClients]
+  )
+  const selectedExternalLenderName = useMemo(() => {
+    const id = String(form.external_lender_id || "").trim()
+    if (!id) return ""
+    return lenderClients.find((c) => String(c.id) === id)?.name?.trim() || ""
+  }, [lenderClients, form.external_lender_id])
   const requiredGuarantorCount = useMemo(
     () => Math.max(Number(selectedProduct?.guarantors_required || 0), 0),
     [selectedProduct]
@@ -216,6 +226,27 @@ export default function LoanForm({ onSubmit, loading = false }: LoanFormProps) {
     }
   }, [])
 
+  useEffect(() => {
+    let stop = false
+    ;(async () => {
+      try {
+        const res = await fetch("/api/institution/clients?limit=200", { cache: "no-store" })
+        const data = await res.json().catch(() => ({}))
+        if (!res.ok) throw new Error(data?.error || "Failed to load clients")
+        const rows = Array.isArray(data?.clients) ? data.clients : []
+        if (!stop)
+          setLenderClients(
+            rows.map((c: { id?: string; name?: string }) => ({ id: String(c.id || ""), name: String(c.name || "").trim() })).filter((c: { id: string }) => Boolean(c.id))
+          )
+      } catch {
+        if (!stop) setLenderClients([])
+      }
+    })()
+    return () => {
+      stop = true
+    }
+  }, [])
+
   const getUniqueGuarantors = () => {
     const guarantorIds = form.guarantors.filter(Boolean)
     return Array.from(new Set(guarantorIds)).filter((id) => id !== form.member_id)
@@ -236,7 +267,7 @@ export default function LoanForm({ onSubmit, loading = false }: LoanFormProps) {
     const principal = Number(form.principal_amount)
     const tenure = Number(form.tenure_months)
     const externalOutstandingBalance = Number(form.external_outstanding_balance)
-    const externalLenderName = String(form.external_lender_name || "").trim()
+    const externalLenderId = String(form.external_lender_id || "").trim()
     const uniqueGuarantors = getUniqueGuarantors()
 
     if (!form.member_id) {
@@ -255,8 +286,8 @@ export default function LoanForm({ onSubmit, loading = false }: LoanFormProps) {
       toast({ variant: "warning", title: "Enter outstanding balance", description: "Please provide the external loan outstanding balance." })
       return false
     }
-    if (form.loan_type === "buy off" && !externalLenderName) {
-      toast({ variant: "warning", title: "Enter lender name", description: "Please provide the external lender name." })
+    if (form.loan_type === "buy off" && !externalLenderId) {
+      toast({ variant: "warning", title: "Select external lender", description: "Please choose the external lender from your client list." })
       return false
     }
     if (!Number.isFinite(principal) || principal <= 0) {
@@ -322,7 +353,7 @@ export default function LoanForm({ onSubmit, loading = false }: LoanFormProps) {
     const principal = Number(form.principal_amount)
     const tenure = Number(form.tenure_months)
     const externalOutstandingBalance = Number(form.external_outstanding_balance)
-    const externalLenderName = String(form.external_lender_name || "").trim()
+    const externalLenderId = String(form.external_lender_id || "").trim()
     const uniqueGuarantors = getUniqueGuarantors()
 
     if (targetStep === 0 && !form.member_id) {
@@ -341,8 +372,8 @@ export default function LoanForm({ onSubmit, loading = false }: LoanFormProps) {
       toast({ variant: "warning", title: "Enter outstanding balance", description: "Please provide the external loan outstanding balance." })
       return false
     }
-    if (targetStep === 1 && form.loan_type === "buy off" && !externalLenderName) {
-      toast({ variant: "warning", title: "Enter lender name", description: "Please provide the external lender name." })
+    if (targetStep === 1 && form.loan_type === "buy off" && !externalLenderId) {
+      toast({ variant: "warning", title: "Select external lender", description: "Please choose the external lender from your client list." })
       return false
     }
     if (targetStep === 2) {
@@ -432,8 +463,7 @@ export default function LoanForm({ onSubmit, loading = false }: LoanFormProps) {
       top_up_loan_id: form.loan_type === "top up" ? form.top_up_loan_id : undefined,
       external_outstanding_balance:
         form.loan_type === "buy off" ? Number(form.external_outstanding_balance || 0) : undefined,
-      external_lender_name:
-        form.loan_type === "buy off" ? String(form.external_lender_name || "").trim() : undefined,
+      external_lender_id: form.loan_type === "buy off" ? String(form.external_lender_id || "").trim() : undefined,
       principal_amount: principal,
       tenure_months: tenure,
       purpose: form.purpose.trim(),
@@ -568,7 +598,7 @@ export default function LoanForm({ onSubmit, loading = false }: LoanFormProps) {
                       loan_type: value as LoanFormData["loan_type"],
                       top_up_loan_id: value === "top up" ? prev.top_up_loan_id : "",
                       external_outstanding_balance: value === "buy off" ? prev.external_outstanding_balance : "",
-                      external_lender_name: value === "buy off" ? prev.external_lender_name : "",
+                      external_lender_id: value === "buy off" ? prev.external_lender_id : "",
                     }))
                   }
                   placeholder="Choose loan type"
@@ -602,13 +632,13 @@ export default function LoanForm({ onSubmit, loading = false }: LoanFormProps) {
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label className="flex items-center gap-2"><CreditCard className="h-4 w-4 text-[#de4925]" /> External Lender Name</Label>
-                    <input
-                      type="text"
-                      placeholder="e.g. ABC Finance Ltd"
-                      className={productStyleInputClass()}
-                      value={form.external_lender_name}
-                      onChange={(e) => setForm((prev) => ({ ...prev, external_lender_name: e.target.value }))}
+                    <Label className="flex items-center gap-2"><CreditCard className="h-4 w-4 text-[#de4925]" /> Select external lender</Label>
+                    <StyledSelect
+                      value={form.external_lender_id}
+                      onChange={(value) => setForm((prev) => ({ ...prev, external_lender_id: value }))}
+                      placeholder={externalLenderSelectOptions.length ? "Choose client (external lender)" : "No clients loaded — check view_clients permission"}
+                      options={externalLenderSelectOptions}
+                      searchable
                     />
                   </div>
                 </div>
@@ -722,7 +752,7 @@ export default function LoanForm({ onSubmit, loading = false }: LoanFormProps) {
                         UGX {Number(form.external_outstanding_balance || 0).toLocaleString()}
                       </p>
                       <p className="mt-1 text-xs text-orange-100">
-                        Lender: <span className="font-semibold text-[#f7b267]">{form.external_lender_name?.trim() || "-"}</span>
+                        Lender: <span className="font-semibold text-[#f7b267]">{selectedExternalLenderName || "-"}</span>
                       </p>
                     </div>
                   )}
@@ -853,7 +883,7 @@ export default function LoanForm({ onSubmit, loading = false }: LoanFormProps) {
                   </div>
                 ) : form.loan_type === "buy off" ? (
                   <div className="mt-2 grid grid-cols-1 gap-2 text-sm text-gray-700 md:grid-cols-2">
-                    <p className="wrap-break-word">External Lender: <span className="font-semibold">{form.external_lender_name?.trim() || "-"}</span></p>
+                    <p className="wrap-break-word">External Lender: <span className="font-semibold">{selectedExternalLenderName || "-"}</span></p>
                     <p className="wrap-break-word">External Outstanding Balance: <span className="font-semibold">UGX {Number(form.external_outstanding_balance || 0).toLocaleString()}</span></p>
                   </div>
                 ) : (

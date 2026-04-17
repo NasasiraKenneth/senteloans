@@ -270,7 +270,8 @@ export async function POST(req: Request) {
           : "normal"
     const top_up_loan_id = String(body.top_up_loan_id || "").trim()
     const external_outstanding_balance = Number(body.external_outstanding_balance)
-    const external_lender_name = typeof body.external_lender_name === "string" ? body.external_lender_name.trim() : ""
+    const external_lender_id = typeof body.external_lender_id === "string" ? body.external_lender_id.trim() : ""
+    const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
     const purpose = typeof body.purpose === "string" ? body.purpose.trim() : ""
     const collateral_description = typeof body.collateral_description === "string" ? body.collateral_description.trim() : null
     const guarantors = Array.isArray(body.guarantors) ? body.guarantors as Array<{ member_id?: string; client_id?: string; amount?: number }> : []
@@ -289,7 +290,9 @@ export async function POST(req: Request) {
     if (loan_type === "top up" && !top_up_loan_id) return NextResponse.json({ error: "top_up_loan_id_required" }, { status: 400 })
     if (loan_type === "buy off" && (!Number.isFinite(external_outstanding_balance) || external_outstanding_balance <= 0))
       return NextResponse.json({ error: "invalid_external_outstanding_balance" }, { status: 400 })
-    if (loan_type === "buy off" && !external_lender_name) return NextResponse.json({ error: "external_lender_name_required" }, { status: 400 })
+    if (loan_type === "buy off" && !external_lender_id) return NextResponse.json({ error: "external_lender_id_required" }, { status: 400 })
+    if (loan_type === "buy off" && !uuidRe.test(external_lender_id))
+      return NextResponse.json({ error: "invalid_external_lender_id" }, { status: 400 })
     if (!purpose) return NextResponse.json({ error: "purpose_required" }, { status: 400 })
 
     const result = await runWithAuth(session.user.authUserId, async (client) => {
@@ -328,6 +331,13 @@ export async function POST(req: Request) {
         if (topUpLoan.branch_id !== actor.branch_id) return { error: "cross_branch_operation_forbidden" as const }
         if (String(topUpLoan.member_id) !== String(member_id)) return { error: "top_up_loan_member_mismatch" as const }
         if (["Rejected", "Closed"].includes(String(topUpLoan.status || ""))) return { error: "top_up_loan_not_eligible" as const }
+      }
+      if (loan_type === "buy off") {
+        const extRes = await client.query(
+          `SELECT id FROM senteloans_clients WHERE id = $1 AND institution_id = $2 AND branch_id = $3`,
+          [external_lender_id, actor.institution_id, actor.branch_id]
+        )
+        if (!extRes.rows[0]) return { error: "external_lender_not_found" as const }
       }
       if (Number(product.minimum_amount) > 0 && principal_amount < Number(product.minimum_amount)) return { error: "below_min_amount" as const }
       if (Number(product.maximum_amount) > 0 && principal_amount > Number(product.maximum_amount)) return { error: "above_max_amount" as const }
@@ -376,8 +386,8 @@ export async function POST(req: Request) {
       if (loan_type === "top up") {
         await client.query(
           `INSERT INTO senteloans_loan_settlements
-            (institution_id, branch_id, new_loan_id, settled_loan_id, settlement_amount, settlement_type, settlement_status)
-           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+            (institution_id, branch_id, new_loan_id, settled_loan_id, external_lender_id, settlement_amount, settlement_type, settlement_status)
+           VALUES ($1, $2, $3, $4, NULL, $5, $6, $7)`,
           [
             actor.institution_id,
             actor.branch_id,
@@ -393,14 +403,14 @@ export async function POST(req: Request) {
       if (loan_type === "buy off") {
         await client.query(
           `INSERT INTO senteloans_loan_settlements
-            (institution_id, branch_id, new_loan_id, settled_loan_id, external_lender_name, settlement_amount, settlement_type, settlement_status)
+            (institution_id, branch_id, new_loan_id, settled_loan_id, external_lender_id, settlement_amount, settlement_type, settlement_status)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
           [
             actor.institution_id,
             actor.branch_id,
             loanRow.id,
             null,
-            external_lender_name,
+            external_lender_id,
             external_outstanding_balance,
             "external_buyout",
             "Pending",
@@ -434,7 +444,16 @@ export async function POST(req: Request) {
           actor.branch_id,
           actor.id,
           loanRow.id,
-          JSON.stringify({ application_id, member_id, principal_amount, loan_type, purpose, top_up_loan_id, external_outstanding_balance, external_lender_name }),
+          JSON.stringify({
+            application_id,
+            member_id,
+            principal_amount,
+            loan_type,
+            purpose,
+            top_up_loan_id,
+            external_outstanding_balance,
+            external_lender_id: loan_type === "buy off" ? external_lender_id : undefined,
+          }),
         ]
       )
 
@@ -473,7 +492,12 @@ export async function POST(req: Request) {
         result.error === "missing_permission:create_loan" ? 403 :
         result.error === "cross_tenant_operation_forbidden" || result.error === "cross_branch_operation_forbidden" ? 403 :
         result.error === "user_not_linked" ? 403 :
-        result.error === "member_not_found" || result.error === "loan_product_not_found" || result.error === "top_up_loan_not_found" ? 404 : 400
+        result.error === "member_not_found" ||
+        result.error === "loan_product_not_found" ||
+        result.error === "top_up_loan_not_found" ||
+        result.error === "external_lender_not_found"
+          ? 404
+          : 400
       apiLog("warn", "loans.create.denied", { method: "POST", apiPath, status, error: result.error, authUserId: session.user.authUserId })
       return NextResponse.json({ error: result.error }, { status })
     }
