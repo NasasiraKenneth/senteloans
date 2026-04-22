@@ -95,7 +95,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       }
 
       let repRes = await client.query(
-        `SELECT id, installment_number, due_date, total_amount, amount_paid, status
+        `SELECT id, installment_number, due_date, total_amount, penalty_amount, amount_due, amount_paid, status
          FROM senteloans_loan_repayments WHERE loan_id = $1 AND status != 'Paid' ORDER BY installment_number ASC`,
         [loanId]
       )
@@ -104,6 +104,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         installment_number: number
         due_date: string
         total_amount: string
+        penalty_amount: string
+        amount_due: string
         amount_paid: string
         status: string
       }>
@@ -128,10 +130,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
             })
             for (const row of schedule) {
               await client.query(
-                `INSERT INTO senteloans_loan_repayments (loan_id, installment_number, due_date, principal_amount, interest_amount, status)
-                 VALUES ($1, $2, $3, $4, $5, 'Pending')
+                `INSERT INTO senteloans_loan_repayments (loan_id, installment_number, due_date, principal_amount, interest_amount, amount_due, status)
+                 VALUES ($1, $2, $3, $4, $5, $6, 'Pending')
                  ON CONFLICT (loan_id, installment_number) DO NOTHING`,
-                [loanId, row.installmentNumber, row.dueDate, row.principalAmount, row.interestAmount]
+                [loanId, row.installmentNumber, row.dueDate, row.principalAmount, row.interestAmount, row.totalAmount]
               )
             }
             const currentOutstanding = Number(loan.outstanding_balance || 0)
@@ -150,7 +152,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
               }
             }
             repRes = await client.query(
-              `SELECT id, installment_number, due_date, total_amount, amount_paid, status
+              `SELECT id, installment_number, due_date, total_amount, penalty_amount, amount_due, amount_paid, status
                FROM senteloans_loan_repayments WHERE loan_id = $1 AND status != 'Paid' ORDER BY installment_number ASC`,
               [loanId]
             )
@@ -168,16 +170,20 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       let remaining = amount
       for (const row of rows) {
         if (remaining <= 0) break
-        const total = Number(row.total_amount || 0)
+        const total = Number(row.amount_due || 0)
         const paid = Number(row.amount_paid || 0)
         const due = total - paid
         const apply = Math.min(remaining, due)
         if (apply <= 0) continue
         const newPaid = paid + apply
-        const newStatus = newPaid >= total ? "Paid" : "Partial"
+        const baseTotal = Number(row.total_amount || 0) + Number(row.penalty_amount || 0)
+        const newAmountDue = Math.max(0, baseTotal - newPaid)
+        const newStatus = newAmountDue <= 0 ? "Paid" : "Partial"
         await client.query(
-          `UPDATE senteloans_loan_repayments SET amount_paid = $1, payment_date = $2, status = $3, updated_at = NOW() WHERE id = $4`,
-          [newPaid, payment_date, newStatus, row.id]
+          `UPDATE senteloans_loan_repayments
+           SET amount_paid = $1, amount_due = $2, payment_date = $3, status = $4, updated_at = NOW()
+           WHERE id = $5`,
+          [newPaid, newAmountDue, payment_date, newStatus, row.id]
         )
         remaining -= apply
       }

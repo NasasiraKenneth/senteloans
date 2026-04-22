@@ -332,6 +332,38 @@ export async function POST(req: Request) {
         if (String(topUpLoan.member_id) !== String(member_id)) return { error: "top_up_loan_member_mismatch" as const }
         if (["Rejected", "Closed"].includes(String(topUpLoan.status || ""))) return { error: "top_up_loan_not_eligible" as const }
       }
+      if (loan_type === "normal" || loan_type === "buy off") {
+        const cfgRes = await client.query(
+          `SELECT maximum_parallel_loans
+           FROM senteloans_config
+           WHERE branch_id = $1
+           ORDER BY created_at DESC
+           LIMIT 1`,
+          [actor.branch_id]
+        )
+        const maxParallel = Number(cfgRes.rows[0]?.maximum_parallel_loans ?? 0)
+        // Explicitly allow unlimited when maximum_parallel_loans is NULL or <= 0.
+        if (Number.isFinite(maxParallel) && maxParallel > 0) {
+          const activeParallelRes = await client.query(
+            `SELECT COUNT(*)::int AS c
+             FROM senteloans_loans
+             WHERE institution_id = $1
+               AND branch_id = $2
+               AND member_id = $3
+               AND loan_type IN ('normal', 'buy off')
+               AND status NOT IN ('Closed', 'Rejected')`,
+            [actor.institution_id, actor.branch_id, member_id]
+          )
+          const activeParallelCount = Number(activeParallelRes.rows[0]?.c ?? 0)
+          if (activeParallelCount >= maxParallel) {
+            return {
+              error: "parallel_loans_limit_reached" as const,
+              maximum_parallel_loans: maxParallel,
+              current_parallel_loans: activeParallelCount,
+            }
+          }
+        }
+      }
       if (loan_type === "buy off") {
         const extRes = await client.query(
           `SELECT id FROM senteloans_clients WHERE id = $1 AND institution_id = $2 AND branch_id = $3`,

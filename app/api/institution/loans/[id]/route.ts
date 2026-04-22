@@ -604,10 +604,10 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
           const firstDueDateStr = schedule[0]?.dueDate ?? null
           for (const row of schedule) {
             await client.query(
-              `INSERT INTO senteloans_loan_repayments (loan_id, installment_number, due_date, principal_amount, interest_amount, status)
-               VALUES ($1, $2, $3, $4, $5, 'Pending')
+              `INSERT INTO senteloans_loan_repayments (loan_id, installment_number, due_date, principal_amount, interest_amount, amount_due, status)
+               VALUES ($1, $2, $3, $4, $5, $6, 'Pending')
                ON CONFLICT (loan_id, installment_number) DO NOTHING`,
-              [id, row.installmentNumber, row.dueDate, row.principalAmount, row.interestAmount]
+              [id, row.installmentNumber, row.dueDate, row.principalAmount, row.interestAmount, row.totalAmount]
             )
           }
           if (firstDueDateStr) {
