@@ -3,10 +3,9 @@
 import React, {useEffect, useMemo, useState} from 'react'
 import TablePagination from '@mui/material/TablePagination'
 import {motion, AnimatePresence} from 'framer-motion'
-import {Filter, SearchTerm} from "@/types";
+import {Filter} from "@/types";
 import {FilterField} from "@/components/datatables/TableFilter";
 import {Icon, TabularFilters} from "@/components/datatables/index";
-import Tooltip from "@mui/material/Tooltip";
 import TableFilters from "@/components/datatables/TableFilters";
 import {convertDate} from "@/app/lib/utils";
 
@@ -46,6 +45,7 @@ export interface DataTableProps<Row> {
     expandedRowIds?: Set<string | number>
     onToggleExpand?: (rowId: string | number) => void
     pagination?: DataTablePaginationConfig
+    exportButtons?: React.ReactNode
     className?: string
 }
 
@@ -65,6 +65,7 @@ export default function DataTable<Row>({
                                            expandedRowIds,
                                            onToggleExpand,
                                            pagination,
+                                           exportButtons,
                                            className,
                                        }: DataTableProps<Row>) {
 
@@ -152,12 +153,6 @@ export default function DataTable<Row>({
         setQueryParameters(params);
     }
 
-    const buttonVariants = {
-        rest: {scale: 1},
-        hover: {scale: 1.05, boxShadow: "0 4px 12px rgba(0,0,0,0.1)", transition: {duration: 0.2}},
-        tap: {scale: 0.98}
-    };
-
     const headerCells = useMemo(() => (
         <tr>
             {hasDetail && (
@@ -206,61 +201,7 @@ export default function DataTable<Row>({
                                 </span>
                             </div>
 
-                            <div className="flex space-x-3">
-                                {[
-                                    {
-                                        icon: "ImFilePdf",
-                                        color: "red",
-                                        className: "border border-[#77a5d2] bg-[#D3D3D3] hover:bg-[#5e8fc1]",
-                                        label: "PDF",
-                                        tooltip: "Export as PDF",
-                                        provider: "mi",
-                                        size: 16
-                                    },
-                                    {
-                                        icon: "RiFileExcel2Line",
-                                        color: "green",
-                                        className: "border border-[#282f40] bg-[#D3D3D3] hover:bg-[#1a202e]",
-                                        label: "Excel",
-                                        tooltip: "Export as Spreadsheet",
-                                        provider: "ri",
-                                        size: 16
-                                    }
-                                ].map((btn, idx) => (
-                                    <Tooltip
-                                        key={idx}
-                                        title={btn.tooltip}
-                                        placement="top"
-                                        arrow
-                                        enterDelay={300}
-                                        slotProps={{
-                                            tooltip: {
-                                                sx: {
-                                                    bgcolor: "white",
-                                                    color: "#282f40",
-                                                    fontSize: "0.75rem",
-                                                    padding: "6px 10px",
-                                                    boxShadow: "0 4px 20px rgba(0,0,0,0.15)",
-                                                    borderRadius: "8px",
-                                                },
-                                            },
-                                            arrow: {sx: {color: "white"}}
-                                        }}
-                                    >
-                                        <motion.button
-                                            variants={buttonVariants}
-                                            initial="rest"
-                                            whileHover="hover"
-                                            whileTap="tap"
-                                            className={`flex items-center gap-2 px-4 py-2 ${btn.className} text-white rounded-lg shadow-md text-sm font-medium`}
-                                        >
-                                            <Icon provider={btn.provider as any} iconName={btn.icon} color={btn.color}
-                                                  size={btn.size}/>
-                                            {btn.label && <span className={`text-[${btn.color}]`}>{btn.label}</span>}
-                                        </motion.button>
-                                    </Tooltip>
-                                ))}
-                            </div>
+                            {exportButtons ? <div className="flex space-x-3">{exportButtons}</div> : null}
 
                         </div>
                     </motion.div>

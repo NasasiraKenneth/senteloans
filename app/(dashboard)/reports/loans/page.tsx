@@ -3,19 +3,24 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 
-import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import StyledSelect from "@/components/newUI/styled_select"
+import StyledMultiSelect from "@/components/newUI/styled_multi_select"
 import RangeDatePicker, { type DateRangeValue } from "@/components/newUI/range_date_picker"
+import TooltipButton from "@/components/newUI/tooltip_button"
 import { Badge } from "@/components/ui/badge"
-import { Download, FileText, Filter, Loader2, RefreshCw } from "lucide-react"
+import { Filter, Loader2, RefreshCw } from "lucide-react"
+import { BsFileEarmarkPdf } from "react-icons/bs"
+import { BsFiletypePdf } from "react-icons/bs"
 import { RiFileExcel2Line } from "react-icons/ri"
 import { RiResetLeftFill } from "react-icons/ri"
 import { useToast } from "@/components/ui/toast"
 import { getSession } from "@/lib/session"
+import DataTable, { type DataTableColumn } from "@/components/datatables/DataTable"
+import { exportLoanReportsExcel } from "./components/excel-export"
+import { exportLoanReportsPdf } from "./components/pdf-export"
+import { exportLoanSummaryPdf } from "./components/summaryPdf"
 
 const PAGE_SIZE = 100
 
@@ -96,84 +101,6 @@ type LoanReportSummary = {
   pipeline: number
 }
 
-function escapeCsvCell(v: string): string {
-  if (v.includes('"') || v.includes(",") || v.includes("\n")) return `"${v.replace(/"/g, '""')}"`
-  return v
-}
-
-function downloadCsv(rows: LoanReportRow[], filename: string) {
-  const maxDisbursedByCols = Math.max(0, ...rows.map((r) => Array.isArray(r.disbursed_by) ? r.disbursed_by.length : 0))
-  const maxGuarantorCols = Math.max(0, ...rows.map((r) => Array.isArray(r.guarantors) ? r.guarantors.length : 0))
-  const headers = [
-    "Application ID",
-    "Member",
-    "Member No",
-    "Product",
-    "Loan type",
-    "Reviewed at",
-    "Reviewed by",
-    "Approved at",
-    "Disbursed at",
-    "Approved by",
-    "Created by",
-    ...Array.from({ length: maxDisbursedByCols }).map((_, idx) => `Disbursed by ${idx + 1}`),
-    ...Array.from({ length: maxGuarantorCols }).map((_, idx) => `Guarantor ${idx + 1}`),
-    "Principal (UGX)",
-    "Outstanding (UGX)",
-    "Rate %",
-    "Tenure (mo)",
-    "Total amount paid (UGX)",
-    "Total interest (UGX)",
-    "Penalties collected (UGX)",
-    "Avg late pay days",
-    "Total early payments",
-    "Overdue",
-    "Status",
-    "Applied",
-    "Next due",
-  ]
-  const lines = [
-    headers.join(","),
-    ...rows.map((r) =>
-      [
-        escapeCsvCell(String(r.application_id || "")),
-        escapeCsvCell(String(r.memberName || "")),
-        escapeCsvCell(String(r.memberNumber || "")),
-        escapeCsvCell(String(r.productName || "")),
-        escapeCsvCell(String(r.loan_type || "")),
-        escapeCsvCell(String(r.reviewed_at || "").slice(0, 10)),
-        escapeCsvCell(String(r.reviewed_by_name || "")),
-        escapeCsvCell(String(r.approved_at || "").slice(0, 10)),
-        escapeCsvCell(String(r.disbursed_at || "").slice(0, 10)),
-        escapeCsvCell(String(r.approved_by_name || "")),
-        escapeCsvCell(String(r.created_by_name || "")),
-        ...Array.from({ length: maxDisbursedByCols }).map((_, idx) => escapeCsvCell(String(r.disbursed_by?.[idx] || ""))),
-        ...Array.from({ length: maxGuarantorCols }).map((_, idx) => escapeCsvCell(String(r.guarantors?.[idx] || ""))),
-        String(Number(r.principal_amount || 0)),
-        String(Number(r.outstanding_balance || 0)),
-        String(Number(r.interest_rate || 0)),
-        String(Number(r.tenure_months || 0)),
-        String(Number(r.total_amount_paid || 0)),
-        String(Number(r.total_interest || 0)),
-        String(Number(r.penalties_collected || 0)),
-        String(Number(r.late_pay_days_avg || 0)),
-        String(Number(r.early_payments || 0)),
-        escapeCsvCell(r.overdue ? "Yes" : "No"),
-        escapeCsvCell(String(r.status || "")),
-        escapeCsvCell(String(r.application_date || "").slice(0, 10)),
-        escapeCsvCell(String(r.next_payment_date || "").slice(0, 10)),
-      ].join(",")
-    ),
-  ]
-  const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement("a")
-  a.href = url
-  a.download = filename
-  a.click()
-  URL.revokeObjectURL(url)
-}
-
 function statusBadgeVariant(status: string): "default" | "secondary" | "destructive" | "outline" {
   if (status === "Defaulted") return "destructive"
   if (status === "Rejected") return "destructive"
@@ -181,6 +108,33 @@ function statusBadgeVariant(status: string): "default" | "secondary" | "destruct
   if (ACTIVE_LIKE.has(status)) return "default"
   if (status === "Approved") return "outline"
   return "secondary"
+}
+
+function statusPillClass(status: string): string {
+  switch (status) {
+    case "Applied":
+      return "bg-amber-100 text-amber-700 border border-amber-200"
+    case "Under Review":
+      return "bg-violet-70 text-violet-400 border border-violet-130"
+    case "Reviewed":
+      return "bg-violet-100 text-violet-700 border border-violet-200"
+    case "Approved":
+      return "bg-green-100 text-green-700 border border-green-200"
+    case "Partially Disbursed":
+      return "bg-blue-70 text-blue-400 border border-blue-130"
+    case "Fully Disbursed":
+      return "bg-blue-100 text-blue-700 border border-blue-200"
+    case "Active":
+      return "bg-cyan-100 text-cyan-700 border border-cyan-200"
+    case "Rejected":
+      return "bg-rose-100 text-rose-700 border border-rose-200"
+    case "Defaulted":
+      return "bg-red-100 text-red-700 border border-red-200"
+    case "Closed":
+      return "bg-slate-100 text-slate-700 border border-slate-200"
+    default:
+      return "bg-gray-100 text-gray-700 border border-gray-200"
+  }
 }
 
 export default function LoanReportsPage() {
@@ -209,11 +163,12 @@ export default function LoanReportsPage() {
   const [statusFilter, setStatusFilter] = useState<string>("all")
   const [loanTypeFilter, setLoanTypeFilter] = useState<string>("all")
   const [productId, setProductId] = useState<string>("all")
-  const [branchId, setBranchId] = useState<string>("all")
+  const [branchIds, setBranchIds] = useState<string[]>([])
   const [applicationRange, setApplicationRange] = useState<DateRangeValue>({ start: "", end: "" })
   const [reviewedRange, setReviewedRange] = useState<DateRangeValue>({ start: "", end: "" })
   const [approvedRange, setApprovedRange] = useState<DateRangeValue>({ start: "", end: "" })
   const [disbursedRange, setDisbursedRange] = useState<DateRangeValue>({ start: "", end: "" })
+  const [summaryCreatedRange, setSummaryCreatedRange] = useState<DateRangeValue>({ start: "", end: "" })
 
   const statusSelectOptions = useMemo(
     () => [{ value: "all", label: "All statuses" }, ...LOAN_STATUSES.map((s) => ({ value: s, label: s }))],
@@ -234,14 +189,12 @@ export default function LoanReportsPage() {
     () => [{ value: "all", label: "All products" }, ...products.map((p) => ({ value: p.id, label: p.product_name }))],
     [products]
   )
-  const branchSelectOptions = useMemo(
-    () => [
-      { value: "all", label: "All branches" },
-      ...branches.map((b) => ({
+  const branchMultiOptions = useMemo(
+    () =>
+      branches.map((b) => ({
         value: b.id,
         label: b.branch_code ? `${b.name} (${b.branch_code})` : b.name,
       })),
-    ],
     [branches]
   )
 
@@ -291,7 +244,7 @@ export default function LoanReportsPage() {
     if (statusFilter !== "all") p.set("status", statusFilter)
     if (loanTypeFilter !== "all") p.set("loan_type", loanTypeFilter)
     if (productId !== "all") p.set("product_id", productId)
-    if (isSuperAdmin && branchId !== "all") p.set("branches", branchId)
+    if (isSuperAdmin && branchIds.length > 0) p.set("branches", branchIds.join(","))
     if (applicationRange.start.trim()) p.set("applicationDateStart", applicationRange.start.trim())
     if (applicationRange.end.trim()) p.set("applicationDateEnd", applicationRange.end.trim())
     if (reviewedRange.start.trim()) p.set("reviewedDateStart", reviewedRange.start.trim())
@@ -306,7 +259,7 @@ export default function LoanReportsPage() {
     loanTypeFilter,
     productId,
     isSuperAdmin,
-    branchId,
+    branchIds,
     applicationRange.start,
     applicationRange.end,
     reviewedRange.start,
@@ -409,11 +362,172 @@ export default function LoanReportsPage() {
     () => Math.max(0, ...items.map((r) => (Array.isArray(r.guarantors) ? r.guarantors.length : 0))),
     [items]
   )
+  const loanColumns = useMemo<DataTableColumn<LoanReportRow>[]>(() => {
+    const base: DataTableColumn<LoanReportRow>[] = [
+      {
+        key: "application",
+        header: "Application",
+        render: (loan) => (
+          <Link href={`/loans/${loan.id}`} className="text-primary hover:underline">
+            {loan.application_id}
+          </Link>
+        ),
+      },
+      {
+        key: "member",
+        header: "Member",
+        render: (loan) => (
+          <div>
+            <div className="font-medium">{loan.memberName || "—"}</div>
+            <div className="text-xs text-muted-foreground">{loan.memberNumber || ""}</div>
+          </div>
+        ),
+      },
+      { key: "product", header: "Product", render: (loan) => loan.productName || "—" },
+      { key: "type", header: "Type", render: (loan) => loan.loan_type || "normal" },
+      { key: "principal", header: "Principal", render: (loan) => `UGX ${Number(loan.principal_amount || 0).toLocaleString()}` },
+      { key: "outstanding", header: "Outstanding", render: (loan) => `UGX ${Number(loan.outstanding_balance || 0).toLocaleString()}` },
+      { key: "rate", header: "Interest rate %", render: (loan) => `${Number(loan.interest_rate || 0)}%` },
+      {
+        key: "status",
+        header: "Status",
+        render: (loan) => (
+          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusPillClass(String(loan.status))}`}>
+            {loan.status}
+          </span>
+        ),
+      },
+      { key: "reviewedAt", header: "Reviewed at", render: (loan) => (loan.reviewed_at ? String(loan.reviewed_at).slice(0, 10) : "—") },
+      { key: "reviewedBy", header: "Reviewed by", render: (loan) => loan.reviewed_by_name || "—" },
+      { key: "approvedAt", header: "Approved at", render: (loan) => (loan.approved_at ? String(loan.approved_at).slice(0, 10) : "—") },
+      { key: "disbursedAt", header: "Disbursed at", render: (loan) => (loan.disbursed_at ? String(loan.disbursed_at).slice(0, 10) : "—") },
+      { key: "approvedBy", header: "Approved by", render: (loan) => loan.approved_by_name || "—" },
+      { key: "createdBy", header: "Created by", render: (loan) => loan.created_by_name || "—" },
+    ]
 
-  const handleExportCsv = () => {
-    const stamp = new Date().toISOString().slice(0, 10)
-    downloadCsv(items, `loan-portfolio-report-${stamp}.csv`)
-    toast({ variant: "success", title: "Export started", description: `${items.length} row(s) in CSV.` })
+    const disbursedByColumns = Array.from({ length: maxDisbursedByCols }).map((_, idx) => ({
+      key: `disbursedBy${idx + 1}`,
+      header: `Disbursed by ${idx + 1}`,
+      render: (loan: LoanReportRow) => loan.disbursed_by?.[idx] || "—",
+    }))
+    const guarantorColumns = Array.from({ length: maxGuarantorCols }).map((_, idx) => ({
+      key: `guarantor${idx + 1}`,
+      header: `Guarantor ${idx + 1}`,
+      render: (loan: LoanReportRow) => loan.guarantors?.[idx] || "—",
+    }))
+
+    const metrics: DataTableColumn<LoanReportRow>[] = [
+      { key: "amountPaid", header: "Amount paid", render: (loan) => `UGX ${Number(loan.total_amount_paid || 0).toLocaleString()}` },
+      { key: "interest", header: "Interest", render: (loan) => `UGX ${Number(loan.total_interest || 0).toLocaleString()}` },
+      { key: "penalties", header: "Penalties", render: (loan) => `UGX ${Number(loan.penalties_collected || 0).toLocaleString()}` },
+      { key: "avgLateDays", header: "Avg late days", render: (loan) => Number(loan.late_pay_days_avg || 0).toLocaleString() },
+      { key: "earlyPays", header: "Early pays", render: (loan) => Number(loan.early_payments || 0).toLocaleString() },
+      {
+        key: "overdue",
+        header: "Overdue",
+        render: (loan) => (loan.overdue ? <Badge variant="destructive">Overdue</Badge> : <Badge variant="secondary">No</Badge>),
+      },
+      { key: "applied", header: "Applied", render: (loan) => (loan.application_date ? String(loan.application_date).slice(0, 10) : "—") },
+      { key: "nextDue", header: "Next due", render: (loan) => (loan.next_payment_date ? String(loan.next_payment_date).slice(0, 10) : "—") },
+    ]
+
+    return [...base, ...disbursedByColumns, ...guarantorColumns, ...metrics]
+  }, [maxDisbursedByCols, maxGuarantorCols])
+
+  const handleExportExcel = async () => {
+    try {
+      const exportedRows = await exportLoanReportsExcel({
+        items,
+        isSuperAdmin,
+        branchIds,
+        branches,
+        statusFilter,
+        loanTypeFilter,
+        productId,
+        products,
+        applicationRange,
+        reviewedRange,
+        approvedRange,
+        disbursedRange,
+        buildQuery,
+      })
+      if (exportedRows <= 0) {
+        toast({ variant: "warning", title: "No data exported", description: "No rows found for selected branches." })
+        return
+      }
+      toast({ variant: "success", title: "Export started", description: `${exportedRows} row(s) in XLSX.` })
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Failed to export XLSX"
+      toast({ variant: "destructive", title: "Export failed", description: msg })
+    }
+  }
+
+  const handleExportPdf = async () => {
+    try {
+      const exportedRows = await exportLoanReportsPdf({
+        items,
+        isSuperAdmin,
+        branchIds,
+        branches,
+        statusFilter,
+        loanTypeFilter,
+        productId,
+        products,
+        applicationRange,
+        reviewedRange,
+        approvedRange,
+        disbursedRange,
+        buildQuery,
+      })
+      if (exportedRows <= 0) {
+        toast({ variant: "warning", title: "No data exported", description: "No rows found for selected branches." })
+        return
+      }
+      toast({ variant: "success", title: "Export started", description: `${exportedRows} row(s) in PDF.` })
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Failed to export PDF"
+      toast({ variant: "destructive", title: "Export failed", description: msg })
+    }
+  }
+
+  const handleSummaryPdf = async () => {
+    try {
+      const summaryQuery = new URLSearchParams()
+      summaryQuery.set("pageSize", "5000")
+      if (summaryCreatedRange.start.trim()) summaryQuery.set("applicationDateStart", summaryCreatedRange.start.trim())
+      if (summaryCreatedRange.end.trim()) summaryQuery.set("applicationDateEnd", summaryCreatedRange.end.trim())
+      if (isSuperAdmin && branchIds.length > 0) summaryQuery.set("branches", branchIds.join(","))
+
+      const summaryRes = await fetch(`/api/institution/reports/loans?${summaryQuery.toString()}`, { cache: "no-store" })
+      const summaryData = await summaryRes.json().catch(() => ({}))
+      if (!summaryRes.ok) {
+        throw new Error(summaryData?.error || `Request failed (${summaryRes.status})`)
+      }
+      const summaryItems = Array.isArray(summaryData.items) ? (summaryData.items as LoanReportRow[]) : []
+
+      const exportedRows = await exportLoanSummaryPdf({
+        items: summaryItems,
+        isSuperAdmin,
+        branchIds,
+        branches,
+        buildQuery: () => {
+          const p = new URLSearchParams()
+          p.set("pageSize", "5000")
+          if (summaryCreatedRange.start.trim()) p.set("applicationDateStart", summaryCreatedRange.start.trim())
+          if (summaryCreatedRange.end.trim()) p.set("applicationDateEnd", summaryCreatedRange.end.trim())
+          if (isSuperAdmin && branchIds.length > 0) p.set("branches", branchIds.join(","))
+          return p
+        },
+      })
+      if (exportedRows <= 0) {
+        toast({ variant: "warning", title: "No data exported", description: "No rows found for selected branches." })
+        return
+      }
+      toast({ variant: "success", title: "Summary export started", description: `${exportedRows} row(s) summarized in PDF.` })
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Failed to export summary PDF"
+      toast({ variant: "destructive", title: "Summary export failed", description: msg })
+    }
   }
 
   const handleApplyFilters = () => {
@@ -424,7 +538,7 @@ export default function LoanReportsPage() {
     setStatusFilter("all")
     setLoanTypeFilter("all")
     setProductId("all")
-    setBranchId("all")
+    setBranchIds([])
     setApplicationRange({ start: "", end: "" })
     setReviewedRange({ start: "", end: "" })
     setApprovedRange({ start: "", end: "" })
@@ -437,7 +551,7 @@ export default function LoanReportsPage() {
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-foreground">Loan reports</h1>
         <p className="text-muted-foreground">
-          Branch-scoped portfolio view (same data as Loans). Filters call the loans API; export uses the rows shown.
+          Analyze loan performance across branches, products, statuses, and timelines, then export detailed or executive reports.
         </p>
       </div>
 
@@ -448,19 +562,19 @@ export default function LoanReportsPage() {
         </div>
       ) : (
         <>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 mb-8">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 mb-8">
             <Card>
               <CardHeader className="pb-2">
-                <CardTitle className="text-xs font-medium text-muted-foreground">Loans (loaded)</CardTitle>
+                <CardTitle className="text-xs font-medium text-muted-foreground">Total loans</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">{items.length}</div>
+                <div className="text-2xl font-bold">{totalFromApi}</div>
                 <p className="text-xs text-muted-foreground mt-1">Total matching filters: {totalFromApi}</p>
               </CardContent>
             </Card>
             <Card>
               <CardHeader className="pb-2">
-                <CardTitle className="text-xs font-medium text-muted-foreground">Principal (booked)</CardTitle>
+                <CardTitle className="text-xs font-medium text-muted-foreground">Total disbursed</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="text-xl font-bold tabular-nums">UGX {Math.round(summary.principal_booked).toLocaleString()}</div>
@@ -468,19 +582,10 @@ export default function LoanReportsPage() {
             </Card>
             <Card>
               <CardHeader className="pb-2">
-                <CardTitle className="text-xs font-medium text-muted-foreground">Outstanding</CardTitle>
+                <CardTitle className="text-xs font-medium text-muted-foreground">Total outstanding balance</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="text-xl font-bold tabular-nums">UGX {Math.round(summary.outstanding).toLocaleString()}</div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-xs font-medium text-muted-foreground">Total amount paid</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-xl font-bold tabular-nums text-green-700">UGX {Math.round(summary.total_amount_paid).toLocaleString()}</div>
-                <p className="text-xs text-muted-foreground mt-1">Across filtered loans</p>
               </CardContent>
             </Card>
             <Card>
@@ -489,55 +594,6 @@ export default function LoanReportsPage() {
               </CardHeader>
               <CardContent>
                 <div className="text-xl font-bold tabular-nums">UGX {Math.round(summary.total_interest).toLocaleString()}</div>
-                <p className="text-xs text-muted-foreground mt-1">Scheduled interest total</p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-xs font-medium text-muted-foreground">Penalties / overdue</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-sm">
-                  <span className="font-semibold">UGX {Math.round(summary.total_penalties_collected).toLocaleString()}</span>{" "}
-                  <span className="text-muted-foreground">penalties collected</span>
-                </div>
-                <div className="text-sm mt-1">
-                  <span className="font-semibold text-amber-700">{summary.overdue}</span>{" "}
-                  <span className="text-muted-foreground">overdue loans</span>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 mb-6">
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-xs font-medium text-muted-foreground">Avg late pay days</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{summary.avg_late_pay_days.toLocaleString()}</div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-xs font-medium text-muted-foreground">Total early payments</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold text-green-700">{summary.total_early_payments.toLocaleString()}</div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-xs font-medium text-muted-foreground">Pipeline / defaulted</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-sm">
-                  <span className="font-semibold">{summary.pipeline}</span>{" "}
-                  <span className="text-muted-foreground">applied…reviewed</span>
-                </div>
-                <div className="text-sm mt-1">
-                  <span className="font-semibold text-red-700">{summary.defaulted}</span>{" "}
-                  <span className="text-muted-foreground">defaulted</span>
-                </div>
               </CardContent>
             </Card>
           </div>
@@ -548,10 +604,22 @@ export default function LoanReportsPage() {
                 <Filter className="h-5 w-5" />
                 Filters &amp; export
               </CardTitle>
-              <CardDescription>Query parameters match the main loans list API (branch rules apply).</CardDescription>
+              <CardDescription>Use filters to refine results, then export the current report view in your preferred format.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="flex flex-row flex-wrap items-end gap-2">
+                {isSuperAdmin && (
+                  <div className="space-y-2 w-auto min-w-[300px]">
+                    <Label>Branch</Label>
+                    <StyledMultiSelect
+                      value={branchIds}
+                      onChange={setBranchIds}
+                      placeholder="All branches"
+                      options={branchMultiOptions}
+                      searchable
+                    />
+                  </div>
+                )}
                 <div className="space-y-2 w-auto min-w-[300px]">
                   <Label>Status</Label>
                   <StyledSelect
@@ -581,18 +649,6 @@ export default function LoanReportsPage() {
                     searchable
                   />
                 </div>
-                {isSuperAdmin && (
-                  <div className="space-y-2 w-auto min-w-[300px]">
-                    <Label>Branch</Label>
-                    <StyledSelect
-                      value={branchId}
-                      onChange={setBranchId}
-                      placeholder="All branches"
-                      options={branchSelectOptions}
-                      searchable
-                    />
-                  </div>
-                )}
                 <div className="space-y-2 w-auto min-w-[300px]">
                   <Label>Application date range</Label>
                   <RangeDatePicker
@@ -627,174 +683,72 @@ export default function LoanReportsPage() {
                 </div>
               </div>
               <div className="flex flex-wrap gap-2">
-                <Button type="button" onClick={handleApplyFilters} disabled={loading}>
-                  {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-                  Apply filters
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="icon"
+                <TooltipButton
+                  tooltip="Apply filters"
+                  onClick={handleApplyFilters}
+                  disabled={loading}
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-input bg-background hover:bg-accent hover:text-accent-foreground transition-colors"
+                >
+                  {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Filter className="h-4 w-4" />}
+                </TooltipButton>
+                <TooltipButton
+                  tooltip="Reset filters"
                   onClick={handleReset}
                   disabled={loading}
-                  aria-label="Reset filters"
-                  title="Reset filters"
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-input bg-background hover:bg-accent hover:text-accent-foreground transition-colors"
                 >
                   <RiResetLeftFill className="h-4 w-4" />
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="icon"
+                </TooltipButton>
+                <TooltipButton
+                  tooltip="Refresh"
                   onClick={() => loadLoans()}
                   disabled={loading}
-                  aria-label="Refresh"
-                  title="Refresh"
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-input bg-background hover:bg-accent hover:text-accent-foreground transition-colors"
                 >
                   <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="icon"
-                  onClick={handleExportCsv}
+                </TooltipButton>
+                <TooltipButton
+                  tooltip="Export XLS"
+                  onClick={() => void handleExportExcel()}
                   disabled={loading || items.length === 0}
-                  className="text-green-600 border-green-200 hover:bg-green-50 hover:text-green-700 transition-colors"
-                  aria-label="Export CSV"
-                  title="Export CSV"
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-green-200 bg-background text-green-600 hover:bg-green-50 hover:text-green-700 transition-colors"
                 >
                   <RiFileExcel2Line className="h-4 w-4" />
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="icon"
-                  disabled
-                  className="text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700 transition-colors"
-                  aria-label="Export PDF"
-                  title="Export PDF"
+                </TooltipButton>
+                <TooltipButton
+                  tooltip="Export PDF"
+                  onClick={() => void handleExportPdf()}
+                  disabled={loading || items.length === 0}
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-red-200 bg-background text-red-600 hover:bg-red-50 hover:text-red-700 transition-colors"
                 >
-                  <FileText className="h-4 w-4" />
-                </Button>
+                  <BsFileEarmarkPdf className="h-4 w-4" />
+                </TooltipButton>
+                <div className="min-w-[260px]">
+                  <RangeDatePicker
+                    value={summaryCreatedRange}
+                    onChange={setSummaryCreatedRange}
+                    placeholder="Summary created-at range"
+                  />
+                </div>
+                <TooltipButton
+                  tooltip="Summary PDF"
+                  onClick={() => void handleSummaryPdf()}
+                  disabled={loading}
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-red-200 bg-background text-red-600 hover:bg-red-50 hover:text-red-700 transition-colors"
+                >
+                  <BsFiletypePdf className="h-4 w-4" />
+                </TooltipButton>
               </div>
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Loan portfolio detail</CardTitle>
-              <CardDescription>Click application ID to open the loan.</CardDescription>
-            </CardHeader>
-            <CardContent className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Application</TableHead>
-                    <TableHead>Member</TableHead>
-                    <TableHead>Product</TableHead>
-                    <TableHead>Type</TableHead>
-                    <TableHead className="text-right">Principal</TableHead>
-                    <TableHead className="text-right">Outstanding</TableHead>
-                    <TableHead className="text-right">Rate</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Reviewed at</TableHead>
-                    <TableHead>Reviewed by</TableHead>
-                    <TableHead>Approved at</TableHead>
-                    <TableHead>Disbursed at</TableHead>
-                    <TableHead>Approved by</TableHead>
-                    <TableHead>Created by</TableHead>
-                    {Array.from({ length: maxDisbursedByCols }).map((_, idx) => (
-                      <TableHead key={`disb-by-head-${idx}`}>{`Disbursed by ${idx + 1}`}</TableHead>
-                    ))}
-                    {Array.from({ length: maxGuarantorCols }).map((_, idx) => (
-                      <TableHead key={`guar-head-${idx}`}>{`Guarantor ${idx + 1}`}</TableHead>
-                    ))}
-                    <TableHead className="text-right">Amount paid</TableHead>
-                    <TableHead className="text-right">Interest</TableHead>
-                    <TableHead className="text-right">Penalties</TableHead>
-                    <TableHead className="text-right">Avg late days</TableHead>
-                    <TableHead className="text-right">Early pays</TableHead>
-                    <TableHead>Overdue</TableHead>
-                    <TableHead>Applied</TableHead>
-                    <TableHead>Next due</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {items.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={24 + maxDisbursedByCols + maxGuarantorCols} className="text-center text-muted-foreground py-10">
-                        No loans match the current filters.
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    items.map((loan) => (
-                      <TableRow key={loan.id}>
-                        <TableCell className="font-medium">
-                          <Link href={`/loans/${loan.id}`} className="text-primary hover:underline">
-                            {loan.application_id}
-                          </Link>
-                        </TableCell>
-                        <TableCell>
-                          <div className="font-medium">{loan.memberName || "—"}</div>
-                          <div className="text-xs text-muted-foreground">{loan.memberNumber || ""}</div>
-                        </TableCell>
-                        <TableCell className="max-w-[180px] truncate" title={loan.productName}>
-                          {loan.productName || "—"}
-                        </TableCell>
-                        <TableCell className="capitalize">{loan.loan_type || "normal"}</TableCell>
-                        <TableCell className="text-right tabular-nums">
-                          UGX {Number(loan.principal_amount || 0).toLocaleString()}
-                        </TableCell>
-                        <TableCell className="text-right tabular-nums">
-                          UGX {Number(loan.outstanding_balance || 0).toLocaleString()}
-                        </TableCell>
-                        <TableCell className="text-right tabular-nums">{Number(loan.interest_rate || 0)}%</TableCell>
-                        <TableCell>
-                          <Badge variant={statusBadgeVariant(String(loan.status))}>{loan.status}</Badge>
-                        </TableCell>
-                        <TableCell className="text-sm whitespace-nowrap">
-                          {loan.reviewed_at ? String(loan.reviewed_at).slice(0, 10) : "—"}
-                        </TableCell>
-                        <TableCell className="text-sm whitespace-nowrap">{loan.reviewed_by_name || "—"}</TableCell>
-                        <TableCell className="text-sm whitespace-nowrap">
-                          {loan.approved_at ? String(loan.approved_at).slice(0, 10) : "—"}
-                        </TableCell>
-                        <TableCell className="text-sm whitespace-nowrap">
-                          {loan.disbursed_at ? String(loan.disbursed_at).slice(0, 10) : "—"}
-                        </TableCell>
-                        <TableCell className="text-sm whitespace-nowrap">{loan.approved_by_name || "—"}</TableCell>
-                        <TableCell className="text-sm whitespace-nowrap">{loan.created_by_name || "—"}</TableCell>
-                        {Array.from({ length: maxDisbursedByCols }).map((_, idx) => (
-                          <TableCell key={`${loan.id}-disb-${idx}`} className="text-sm whitespace-nowrap">
-                            {loan.disbursed_by?.[idx] || "—"}
-                          </TableCell>
-                        ))}
-                        {Array.from({ length: maxGuarantorCols }).map((_, idx) => (
-                          <TableCell key={`${loan.id}-guar-${idx}`} className="text-sm whitespace-nowrap">
-                            {loan.guarantors?.[idx] || "—"}
-                          </TableCell>
-                        ))}
-                        <TableCell className="text-right tabular-nums">UGX {Number(loan.total_amount_paid || 0).toLocaleString()}</TableCell>
-                        <TableCell className="text-right tabular-nums">UGX {Number(loan.total_interest || 0).toLocaleString()}</TableCell>
-                        <TableCell className="text-right tabular-nums">UGX {Number(loan.penalties_collected || 0).toLocaleString()}</TableCell>
-                        <TableCell className="text-right tabular-nums">{Number(loan.late_pay_days_avg || 0).toLocaleString()}</TableCell>
-                        <TableCell className="text-right tabular-nums">{Number(loan.early_payments || 0).toLocaleString()}</TableCell>
-                        <TableCell>
-                          {loan.overdue ? <Badge variant="destructive">Overdue</Badge> : <Badge variant="secondary">No</Badge>}
-                        </TableCell>
-                        <TableCell className="text-sm whitespace-nowrap">
-                          {loan.application_date ? String(loan.application_date).slice(0, 10) : "—"}
-                        </TableCell>
-                        <TableCell className="text-sm whitespace-nowrap">
-                          {loan.next_payment_date ? String(loan.next_payment_date).slice(0, 10) : "—"}
-                        </TableCell>
-                      </TableRow>
-                    ))
-                  )}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
+          <DataTable
+            title="Loan portfolio detail"
+            columns={loanColumns}
+            rows={items}
+            loading={loading}
+            emptyMessage="No loans match the current filters."
+          />
         </>
       )}
     </>
