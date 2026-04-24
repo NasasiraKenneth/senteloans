@@ -151,7 +151,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     if (periodInMonths !== null && (Number.isNaN(periodInMonths) || periodInMonths <= 0)) return NextResponse.json({ error: "invalid_period_in_months" }, { status: 400 })
     if (periodInYears !== null && (Number.isNaN(periodInYears) || periodInYears <= 0)) return NextResponse.json({ error: "invalid_period_in_years" }, { status: 400 })
     if (periodInMonths !== null && periodInYears !== null) return NextResponse.json({ error: "period_months_and_years_cannot_both_be_set" }, { status: 400 })
-    if (!["pending", "active", "matured", "closed", "cancelled"].includes(status)) return NextResponse.json({ error: "invalid_status" }, { status: 400 })
+    if (!["pending", "approved", "active", "matured", "closed", "cancelled"].includes(status)) return NextResponse.json({ error: "invalid_status" }, { status: 400 })
 
     const result = await runWithAuth(session.user.authUserId, async (client) => {
       const actor = await resolveActorContext(client, session.user.authUserId as string)
@@ -260,7 +260,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
     const body = (await req.json().catch(() => ({}))) as Record<string, unknown>
     const status = String(body.status || "").trim().toLowerCase()
-    if (!["pending", "active", "matured", "closed", "cancelled"].includes(status)) {
+    if (!["pending", "approved", "active", "matured", "closed", "cancelled"].includes(status)) {
       return NextResponse.json({ error: "invalid_status" }, { status: 400 })
     }
 

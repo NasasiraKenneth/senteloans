@@ -44,6 +44,8 @@ const formatDate = (value: string | null) => {
 
 const statusClass = (status: string) => {
   switch (String(status || "").trim().toLowerCase()) {
+    case "approved":
+      return "bg-indigo-100 text-indigo-700 border border-indigo-200"
     case "active":
       return "bg-emerald-100 text-emerald-700 border border-emerald-200"
     case "matured":
@@ -320,6 +322,7 @@ export default function InvestmentsPage() {
   const filters: Filter[] = [
     { label: "All", value: "" },
     { label: "Pending", value: "Pending" },
+    { label: "Approved", value: "Approved" },
     { label: "Active", value: "Active" },
     { label: "Matured", value: "Matured" },
     { label: "Closed", value: "Closed" },

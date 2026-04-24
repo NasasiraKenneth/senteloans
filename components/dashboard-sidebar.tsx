@@ -170,7 +170,6 @@ export function DashboardSidebar() {
       },
       { name: "Transactions", href: "/transactions", icon: ArrowUpDown },
       { name: "Invoices", href: "/invoices", icon: Receipt },
-      { name: "Statements", href: "/statements", icon: ScrollText },
     )
 
     // Reports submenu
@@ -230,7 +229,7 @@ export function DashboardSidebar() {
       )
     if (href === "/investments") return pathname.startsWith("/investments") || pathname.startsWith("/investment-reports")
     if (href === "/invoices") return pathname.startsWith("/invoices")
-    if (href === "/statements") return pathname.startsWith("/statements")
+    if (href === "/reports/statements") return pathname.startsWith("/reports/statements")
     
     return pathname.startsWith(href)
   }

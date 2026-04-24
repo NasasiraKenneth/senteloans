@@ -19,7 +19,7 @@ DECLARE
         {"name": "kyc_status_type", "values": ["Pending", "Verified", "Rejected"]},
         {"name": "loan_status_type", "values": ["Applied", "Under Review", "Reviewed", "Approved", "Partially Disbursed", "Fully Disbursed", "Active", "Closed", "Defaulted", "Rejected"]},
         {"name": "account_type", "values": ["Voluntary", "Fixed", "Shares", "Current"]},
-        {"name": "transaction_type", "values": ["Deposit", "Withdrawal", "Transfer", "Loan Disbursement", "Loan Repayment", "Interest Payment", "Fee Payment", "Shares Purchase"]},
+        {"name": "transaction_type", "values": ["Deposit", "Withdrawal", "Transfer", "Loan Disbursement", "Loan Repayment", "Interest Payment", "Fee Payment", "Shares Purchase","Shares Dividend","Investment Deposit","Investment Withdrawal"]},
         {"name": "payment_mode", "values": ["Cash", "Mobile Money", "Bank Transfer", "Cheque", "Card"]},
         {"name": "transaction_status", "values": ["Pending", "Completed", "Failed", "Reversed"]},
         {"name": "settlement_status", "values": ["Pending", "Completed", "Failed", "Reversed"]},
@@ -677,7 +677,7 @@ CREATE TABLE IF NOT EXISTS senteloans_investments (
     period_in_years NUMERIC(18,2),
     maturity_date DATE,
     status VARCHAR(15) NOT NULL DEFAULT 'pending'
-        CHECK (status IN ('pending', 'active', 'matured', 'closed', 'cancelled')),
+        CHECK (status IN ('pending', 'approved', 'active', 'matured', 'closed', 'cancelled')),
     created_by UUID REFERENCES senteloans_users(id) NOT NULL,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     modified_by UUID REFERENCES senteloans_users(id),

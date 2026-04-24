@@ -12,6 +12,8 @@ import { useToast } from "@/components/ui/toast"
 import AddPartner from "../components/partners/add"
 import RecordCashflow from "../components/cashFlows/add"
 import EditPartner from "../components/partners/edit"
+import ActivateInvestment from "../components/activate/activate"
+import type { ActivateFormData } from "../components/forms/activateForm"
 import type { PartnerFormRow } from "../components/forms/partnersForm"
 import { MdFormatListBulletedAdd } from "react-icons/md"
 import AddFunding from "../components/funding/add"
@@ -37,6 +39,8 @@ type InvestmentDetails = {
   status: string
   investment_name: string | null
   investment_address: string | null
+  period_in_months: number | null
+  period_in_years: number | null
 }
 
 type FundingRow = { id: string; source_type: string; loan_id?: string | null; amount: number }
@@ -69,6 +73,19 @@ const formatCurrency = (v: number) =>
 
 const formatDate = (v?: string | null) => (v ? new Date(v).toLocaleDateString("en-UG") : "—")
 const titleCase = (v: string) => String(v || "").replaceAll("_", " ").replace(/\b\w/g, (c) => c.toUpperCase())
+const toDateOnly = (value?: string | null) => {
+  if (!value) return ""
+  const raw = String(value).trim()
+  if (!raw) return ""
+  const ymd = raw.includes("T") ? raw.split("T")[0] : raw
+  if (/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return ymd
+  const parsed = new Date(raw)
+  if (Number.isNaN(parsed.getTime())) return ""
+  const y = parsed.getFullYear()
+  const m = String(parsed.getMonth() + 1).padStart(2, "0")
+  const d = String(parsed.getDate()).padStart(2, "0")
+  return `${y}-${m}-${d}`
+}
 
 export default function InvestmentDetailsPage() {
   const params = useParams()
@@ -89,6 +106,7 @@ export default function InvestmentDetailsPage() {
   const [selectedPartner, setSelectedPartner] = useState<PartnerRow | null>(null)
   const [expandedCashflowRowIds, setExpandedCashflowRowIds] = useState<Set<string | number>>(new Set())
   const [recordCashflowOpen, setRecordCashflowOpen] = useState(false)
+  const [activateOpen, setActivateOpen] = useState(false)
   const [addReportOpen, setAddReportOpen] = useState(false)
   const [partnerPage, setPartnerPage] = useState(0)
   const [partnerRowsPerPage, setPartnerRowsPerPage] = useState(10)
@@ -97,6 +115,7 @@ export default function InvestmentDetailsPage() {
 
   const activeModalLabel = (() => {
     if (addReportOpen) return "Monthly Report"
+    if (activateOpen) return "Activate Investment"
     if (recordCashflowOpen) return "Record Cashflow"
     if (addFundingOpen) return "Add Funding"
     if (editFundingOpen) return "Edit Funding"
@@ -105,10 +124,12 @@ export default function InvestmentDetailsPage() {
     return null
   })()
 
+
   const tryOpenModal = (
     target:
       | "monthly-report"
       | "record-cashflow"
+      | "activate"
       | "add-funding"
       | "edit-funding"
       | "add-partner"
@@ -120,6 +141,8 @@ export default function InvestmentDetailsPage() {
         ? "Monthly Report"
         : target === "record-cashflow"
           ? "Record Cashflow"
+          : target === "activate"
+            ? "Activate Investment"
           : target === "add-funding"
             ? "Add Funding"
             : target === "edit-funding"
@@ -141,6 +164,7 @@ export default function InvestmentDetailsPage() {
 
     if (target === "monthly-report") setAddReportOpen(true)
     else if (target === "record-cashflow") setRecordCashflowOpen(true)
+    else if (target === "activate") setActivateOpen(true)
     else if (target === "add-funding") setAddFundingOpen(true)
     else if (target === "edit-funding") {
       setSelectedFunding(opts?.funding ?? null)
@@ -179,6 +203,8 @@ export default function InvestmentDetailsPage() {
         status: String(i.status || "pending"),
         investment_name: i.investment_name ? String(i.investment_name) : null,
         investment_address: i.investment_address ? String(i.investment_address) : null,
+        period_in_months: i.period_in_months != null ? Number(i.period_in_months) : null,
+        period_in_years: i.period_in_years != null ? Number(i.period_in_years) : null,
       })
       setFunding(Array.isArray(detailBody.funding) ? detailBody.funding.map((f: any) => ({ ...f, amount: Number(f.amount || 0) })) : [])
       setPartners(
@@ -489,7 +515,7 @@ export default function InvestmentDetailsPage() {
     )
   }
 
-  const updateInvestmentStatus = async (nextStatus: "active" | "cancelled" | "closed") => {
+  const updateInvestmentStatus = async (nextStatus: "approved" | "active" | "cancelled" | "closed") => {
     if (!investmentId) return
     try {
       setStatusSaving(true)
@@ -510,9 +536,24 @@ export default function InvestmentDetailsPage() {
   }
 
   const statusLower = String(investment?.status || "").toLowerCase()
-  const showActivateButton = statusLower === "pending"
+  const showApproveButton = statusLower === "pending"
+  const showActivateButton = statusLower === "approved"
+  const showCancelButton = statusLower === "pending" || statusLower === "approved"
   const showCloseButton =
-    !!investment && statusLower !== "pending" && statusLower !== "closed" && statusLower !== "cancelled"
+    !!investment && statusLower !== "pending" && statusLower !== "approved" && statusLower !== "closed" && statusLower !== "cancelled"
+  const activateInitialValues = useMemo<ActivateFormData>(() => {
+    const periodInYears = Number(investment?.period_in_years || 0)
+    const periodInMonths = Number(investment?.period_in_months || 0)
+    return {
+      principalAmount: Number(investment?.initial_amount || 0),
+      transactionMode: "",
+      periodUnit: periodInYears > 0 ? "years" : "months",
+      periodValue: periodInYears > 0 ? periodInYears : Math.max(1, periodInMonths || 1),
+      startDate: toDateOnly(investment?.start_date),
+      endDate: toDateOnly(investment?.maturity_date),
+      description: "",
+    }
+  }, [investment])
 
   return (
     <div className="relative">
@@ -523,8 +564,14 @@ export default function InvestmentDetailsPage() {
           Back to Investments
         </Link>
         <div className="flex items-center gap-2">
+          {showApproveButton && (
+            <Button type="button" variant="outline" disabled={statusSaving} onClick={() => updateInvestmentStatus("approved")}>
+              <CheckCircle2 className="mr-2 h-4 w-4" />
+              Approve
+            </Button>
+          )}
           {showActivateButton && (
-            <Button type="button" variant="outline" disabled={statusSaving} onClick={() => updateInvestmentStatus("active")}>
+            <Button type="button" variant="outline" disabled={statusSaving} onClick={() => tryOpenModal("activate")}>
               <CheckCircle2 className="mr-2 h-4 w-4" />
               Activate
             </Button>
@@ -535,7 +582,7 @@ export default function InvestmentDetailsPage() {
               Close
             </Button>
           )}
-          {statusLower === "pending" && (
+          {showCancelButton && (
             <Button type="button" variant="outline" disabled={statusSaving} onClick={() => updateInvestmentStatus("cancelled")}>
               <X className="mr-2 h-4 w-4 text-red-600" />
               Cancel
@@ -715,40 +762,114 @@ export default function InvestmentDetailsPage() {
       </div>
 
       {String(investment?.category || "").toLowerCase() === "partnership" && (
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <CardTitle className="flex items-center gap-2">
-                <Users className="h-5 w-5 text-primary" />
-                Partners
-              </CardTitle>
-              <Button type="button" variant="outline" size="sm" onClick={() => tryOpenModal("add-partner")}>
-                <Plus className="h-4 w-4 mr-2" />
-                Add Partner
-              </Button>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <DataTable
-              columns={partnerColumns}
-              rows={pagedPartners}
-              loading={loading}
-              title="Partners"
-              emptyMessage="No partners found"
-              pagination={{
-                page: partnerPage,
-                rowsPerPage: partnerRowsPerPage,
-                total: partners.length,
-                onPageChange: (_e, newPage) => setPartnerPage(newPage),
-                onRowsPerPageChange: (e) => {
-                  setPartnerRowsPerPage(parseInt(e.target.value, 10))
-                  setPartnerPage(0)
+        <div className="relative">
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <CardTitle className="flex items-center gap-2">
+                  <Users className="h-5 w-5 text-primary" />
+                  Partners
+                </CardTitle>
+                <Button type="button" variant="outline" size="sm" onClick={() => tryOpenModal("add-partner")}>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add Partner
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <DataTable
+                columns={partnerColumns}
+                rows={pagedPartners}
+                loading={loading}
+                title="Partners"
+                emptyMessage="No partners found"
+                pagination={{
+                  page: partnerPage,
+                  rowsPerPage: partnerRowsPerPage,
+                  total: partners.length,
+                  onPageChange: (_e, newPage) => setPartnerPage(newPage),
+                  onRowsPerPageChange: (e) => {
+                    setPartnerRowsPerPage(parseInt(e.target.value, 10))
+                    setPartnerPage(0)
+                  },
+                  rowsPerPageOptions: [10, 20, 50],
+                }}
+              />
+            </CardContent>
+          </Card>
+          <AddPartner
+            isOpen={addPartnerOpen}
+            onClose={() => setAddPartnerOpen(false)}
+            onSuccess={async (row: PartnerFormRow) => {
+              const res = await fetch(`/api/institution/investments/${investmentId}/partners`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  counterpartyId: row.counterpartyId,
+                  role: row.role || null,
+                  status: row.status,
+                  contributionPercentage: Number(row.contributionPercentage || 0),
+                  contributionAmount: Number(row.contributionAmount || 0),
+                  ownershipPercentage: Number(row.ownershipPercentage || 0),
+                }),
+              })
+              const body = await res.json().catch(() => ({}))
+              if (!res.ok) {
+                toast({
+                  variant: "destructive",
+                  title: "Failed to add partner",
+                  description: body?.error || "Please try again.",
+                })
+                throw new Error(body?.error || "Failed to add partner")
+              }
+
+              setPartners((prev) => [
+                {
+                  id: String(body?.id || row.id),
+                  counterparty_id: row.counterpartyId,
+                  counterparty_name: row.counterpartyName || row.counterpartyId,
+                  role: row.role,
+                  status: row.status,
+                  contribution_percentage: Number(row.contributionPercentage || 0),
+                  contribution_amount: Number(row.contributionAmount || 0),
+                  ownership_percentage: Number(row.ownershipPercentage || 0),
                 },
-                rowsPerPageOptions: [10, 20, 50],
-              }}
-            />
-          </CardContent>
-        </Card>
+                ...prev,
+              ])
+              toast({
+                title: "Partner added",
+                description: `${row.counterpartyName || row.counterpartyId} added successfully.`,
+              })
+            }}
+          />
+          <EditPartner
+            isOpen={editPartnerOpen}
+            investmentId={investmentId}
+            partner={selectedPartner}
+            onClose={() => {
+              setEditPartnerOpen(false)
+              setSelectedPartner(null)
+            }}
+            onSuccess={(next) => {
+              setPartners((prev) =>
+                prev.map((p) =>
+                  p.id === next.id
+                    ? {
+                        ...p,
+                        counterparty_id: next.counterparty_id || null,
+                        counterparty_name: next.counterparty_name || p.counterparty_name,
+                        role: next.role,
+                        status: next.status,
+                        contribution_percentage: Number(next.contribution_percentage || 0),
+                        contribution_amount: Number(next.contribution_amount || 0),
+                        ownership_percentage: Number(next.ownership_percentage || 0),
+                      }
+                    : p,
+                ),
+              )
+            }}
+          />
+        </div>
       )}
 
       <Card>
@@ -819,6 +940,13 @@ export default function InvestmentDetailsPage() {
         investmentId={investmentId}
         onSuccess={load}
       />
+      <ActivateInvestment
+        isOpen={activateOpen}
+        onClose={() => setActivateOpen(false)}
+        investmentId={investmentId}
+        initialValues={activateInitialValues}
+        onSuccess={load}
+      />
       <AddReport
         isOpen={addReportOpen}
         onClose={() => setAddReportOpen(false)}
@@ -849,78 +977,6 @@ export default function InvestmentDetailsPage() {
           }
           await load()
           toast({ title: "Monthly report saved", description: `${reportPeriod} created successfully.` })
-        }}
-      />
-      <AddPartner
-        isOpen={addPartnerOpen}
-        onClose={() => setAddPartnerOpen(false)}
-        onSuccess={async (row: PartnerFormRow) => {
-          const res = await fetch(`/api/institution/investments/${investmentId}/partners`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              counterpartyId: row.counterpartyId,
-              role: row.role || null,
-              status: row.status,
-              contributionPercentage: Number(row.contributionPercentage || 0),
-              contributionAmount: Number(row.contributionAmount || 0),
-              ownershipPercentage: Number(row.ownershipPercentage || 0),
-            }),
-          })
-          const body = await res.json().catch(() => ({}))
-          if (!res.ok) {
-            toast({
-              variant: "destructive",
-              title: "Failed to add partner",
-              description: body?.error || "Please try again.",
-            })
-            throw new Error(body?.error || "Failed to add partner")
-          }
-
-          setPartners((prev) => [
-            {
-              id: String(body?.id || row.id),
-              counterparty_id: row.counterpartyId,
-              counterparty_name: row.counterpartyName || row.counterpartyId,
-              role: row.role,
-              status: row.status,
-              contribution_percentage: Number(row.contributionPercentage || 0),
-              contribution_amount: Number(row.contributionAmount || 0),
-              ownership_percentage: Number(row.ownershipPercentage || 0),
-            },
-            ...prev,
-          ])
-          toast({
-            title: "Partner added",
-            description: `${row.counterpartyName || row.counterpartyId} added successfully.`,
-          })
-        }}
-      />
-      <EditPartner
-        isOpen={editPartnerOpen}
-        investmentId={investmentId}
-        partner={selectedPartner}
-        onClose={() => {
-          setEditPartnerOpen(false)
-          setSelectedPartner(null)
-        }}
-        onSuccess={(next) => {
-          setPartners((prev) =>
-            prev.map((p) =>
-              p.id === next.id
-                ? {
-                    ...p,
-                    counterparty_id: next.counterparty_id || null,
-                    counterparty_name: next.counterparty_name || p.counterparty_name,
-                    role: next.role,
-                    status: next.status,
-                    contribution_percentage: Number(next.contribution_percentage || 0),
-                    contribution_amount: Number(next.contribution_amount || 0),
-                    ownership_percentage: Number(next.ownership_percentage || 0),
-                  }
-                : p,
-            ),
-          )
         }}
       />
       <AddFunding

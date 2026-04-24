@@ -261,7 +261,7 @@ export async function POST(req: Request) {
     if (Number.isNaN(currentValue) || currentValue < 0) return NextResponse.json({ error: "invalid_current_value" }, { status: 400 })
     if (Number.isNaN(expectedPercentage)) return NextResponse.json({ error: "invalid_expected_percentage" }, { status: 400 })
     if (Number.isNaN(expectedReturns) || expectedReturns < 0) return NextResponse.json({ error: "invalid_expected_returns" }, { status: 400 })
-    if (!["pending", "active", "matured", "closed", "cancelled"].includes(status)) {
+    if (!["pending", "approved", "active", "matured", "closed", "cancelled"].includes(status)) {
       return NextResponse.json({ error: "invalid_status" }, { status: 400 })
     }
     if (category === "partnership" && partners.length === 0) {
