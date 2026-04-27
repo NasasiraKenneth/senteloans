@@ -31,7 +31,6 @@ export async function exportStatementsExcel({ items, statementType, assignedTo =
     "Type",
     "Assigned to",
     "Assigned No",
-    "Account",
     "Mode",
     "Debit",
     "Credit",
@@ -39,13 +38,13 @@ export async function exportStatementsExcel({ items, statementType, assignedTo =
     "Reference",
     "Description",
   ]
+  if (assignedTo !== "clients") headers.splice(5, 0, "Account")
   const rows = items.map((r) => [
     String(r.transaction_date || "").slice(0, 10),
     String(r.transaction_number || ""),
     String(r.type || ""),
     String(assignedTo === "clients" ? r.client_name || "" : r.member_name || ""),
     String(assignedTo === "clients" ? "" : r.member_number || ""),
-    String(r.account_number || ""),
     String(r.mode || ""),
     Number(r.debit || 0),
     Number(r.credit || 0),
@@ -53,6 +52,11 @@ export async function exportStatementsExcel({ items, statementType, assignedTo =
     String(r.reference_number || ""),
     String(r.description || ""),
   ])
+  if (assignedTo !== "clients") {
+    rows.forEach((row, index) => {
+      row.splice(5, 0, String(items[index]?.account_number || ""))
+    })
+  }
   const stamp = new Date().toISOString().slice(0, 10)
   await exportExcelWorkbook({
     filename: `${assignedTo}-statement-${statementType || "full"}-${stamp}.xlsx`,

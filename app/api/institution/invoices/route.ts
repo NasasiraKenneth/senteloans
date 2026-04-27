@@ -573,8 +573,8 @@ export async function POST(req: Request) {
           await client.query("COMMIT");
           await client.query(
             `INSERT INTO senteloans_audit_logs
-              (institution_id, branch_id, user_id, table_name, operation, record_id, new_values)
-             VALUES ($1, $2, $3, 'senteloans_invoices', 'INSERT', $4, $5)`,
+              (institution_id, branch_id, user_id, table_name, category, operation, record_id, new_values)
+             VALUES ($1, $2, $3, 'senteloans_invoices', 'invoices', 'INSERT', $4, $5)`,
             [
               actor.institution_id,
               actor.branch_id,

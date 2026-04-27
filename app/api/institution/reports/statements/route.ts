@@ -59,8 +59,11 @@ export async function GET(req: Request) {
     const pageSize = Math.min(Math.max(parseInt(url.searchParams.get("pageSize") || "500", 10), 1), 5000)
     const memberId = (url.searchParams.get("member_id") || "").trim()
     const clientId = (url.searchParams.get("client_id") || "").trim()
+    const memberIdsRaw = (url.searchParams.get("member_ids") || "").trim()
+    const clientIdsRaw = (url.searchParams.get("client_ids") || "").trim()
+    const memberIds = memberIdsRaw ? memberIdsRaw.split(",").map((v) => v.trim()).filter(Boolean) : []
+    const clientIds = clientIdsRaw ? clientIdsRaw.split(",").map((v) => v.trim()).filter(Boolean) : []
     const assignedTo = (url.searchParams.get("assigned_to") || "members").trim().toLowerCase()
-    const search = (url.searchParams.get("search") || "").trim()
     const statementType = (url.searchParams.get("statement_type") || "full").trim().toLowerCase()
     const dateStart = (url.searchParams.get("dateStart") || "").trim()
     const dateEnd = (url.searchParams.get("dateEnd") || "").trim()
@@ -96,15 +99,16 @@ export async function GET(req: Request) {
       if (memberId) {
         where += ` AND t.member_id = $${idx++}`
         params.push(memberId)
+      } else if (memberIds.length > 0) {
+        where += ` AND t.member_id = ANY($${idx++}::uuid[])`
+        params.push(memberIds)
       }
       if (clientId) {
         where += ` AND t.client_id = $${idx++}`
         params.push(clientId)
-      }
-      if (search) {
-        where += ` AND (m.full_name ILIKE $${idx} OR m.member_number ILIKE $${idx} OR c.name ILIKE $${idx})`
-        params.push(`%${search}%`)
-        idx++
+      } else if (clientIds.length > 0) {
+        where += ` AND t.client_id = ANY($${idx++}::uuid[])`
+        params.push(clientIds)
       }
       if (dateStart) {
         where += ` AND t.transaction_date >= (($${idx++}::timestamp AT TIME ZONE 'Africa/Nairobi')::date)`
@@ -125,6 +129,8 @@ export async function GET(req: Request) {
         where += ` AND t.loan_id IS NOT NULL`
       } else if (statementType === "shares") {
         where += ` AND t.type = 'Shares Purchase'`
+      } else if (statementType === "membership_fee") {
+        where += ` AND (t.type = 'Fee Payment' AND t.description ILIKE '%membership%')`
       }
 
       params.push(pageSize)

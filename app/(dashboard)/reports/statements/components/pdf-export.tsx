@@ -24,23 +24,26 @@ type ExportStatementsPdfParams = {
 
 export async function exportStatementsPdf({ items, statementType, assignedTo = "members" }: ExportStatementsPdfParams): Promise<number> {
   const stamp = new Date().toISOString().slice(0, 10)
+  const columns = [
+    { key: "transaction_date", header: "Date" },
+    { key: "transaction_number", header: "Transaction #" },
+    { key: "type", header: "Type" },
+    { key: "assigned_to", header: "Assigned to" },
+    { key: "assigned_no", header: "Assigned No" },
+    { key: "mode", header: "Mode" },
+    { key: "debit", header: "Debit" },
+    { key: "credit", header: "Credit" },
+    { key: "balance_after", header: "Balance" },
+  ]
+  if (assignedTo !== "clients") {
+    columns.splice(5, 0, { key: "account_number", header: "Account" })
+  }
   await exportPdfTables({
     filename: `${assignedTo}-statement-${statementType || "full"}-${stamp}.pdf`,
     sections: [
       {
         title: `${assignedTo === "clients" ? "Client" : "Member"} Statement`,
-        columns: [
-          { key: "transaction_date", header: "Date" },
-          { key: "transaction_number", header: "Transaction #" },
-          { key: "type", header: "Type" },
-          { key: "assigned_to", header: "Assigned to" },
-          { key: "assigned_no", header: "Assigned No" },
-          { key: "account_number", header: "Account" },
-          { key: "mode", header: "Mode" },
-          { key: "debit", header: "Debit" },
-          { key: "credit", header: "Credit" },
-          { key: "balance_after", header: "Balance" },
-        ],
+        columns,
         rows: items.map((r) => ({
           transaction_date: String(r.transaction_date || "").slice(0, 10),
           transaction_number: String(r.transaction_number || ""),

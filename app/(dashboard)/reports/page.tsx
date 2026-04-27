@@ -3,7 +3,7 @@
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Download, TrendingUp, Users, CreditCard, PiggyBank, AlertTriangle, FileText } from "lucide-react"
+import { TrendingUp, Users, CreditCard, PiggyBank, AlertTriangle, FileText, ScrollText } from "lucide-react"
 
 const performanceMetrics = [
   { label: "Portfolio Growth", value: "+12.5%", description: "vs previous period" },
@@ -168,8 +168,8 @@ export default function ReportsPage() {
                 <span className="text-sm">Statements</span>
               </Button>
               <Button variant="outline" className="h-20 flex-col bg-transparent">
-                <Download className="h-6 w-6 mb-2" />
-                <span className="text-sm">Transactions</span>
+                <ScrollText className="h-6 w-6 mb-2" />
+                <span className="text-sm">Sacco Loan Reports</span>
               </Button>
             </div>
           </CardContent>

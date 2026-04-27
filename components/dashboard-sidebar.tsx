@@ -182,7 +182,7 @@ export function DashboardSidebar() {
     }
     reportsSubmenu.push(
       { name: "Statements", href: "/reports/statements" },
-      { name: "Transactions", href: "/reports/transactions" },
+      { name: "Sacco Loan Reports", href: "/reports/sacco-loans" },
     )
 
     return [

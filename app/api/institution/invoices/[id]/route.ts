@@ -371,8 +371,8 @@ export async function PUT(req: Request,
           await client.query("COMMIT");
           await client.query(
             `INSERT INTO senteloans_audit_logs
-              (institution_id, branch_id, user_id, table_name, operation, record_id, new_values)
-             VALUES ($1, $2, $3, 'senteloans_invoices', 'UPDATE', $4, $5)`,
+              (institution_id, branch_id, user_id, table_name, category, operation, record_id, new_values)
+             VALUES ($1, $2, $3, 'senteloans_invoices', 'invoices', 'UPDATE', $4, $5)`,
             [
               actor.institution_id,
               existing.branch_id ?? actor.branch_id,
@@ -480,9 +480,9 @@ export async function PATCH(
       const invoiceBranchId = updateRes.rows[0]?.branch_id || actor.branch_id
       await client.query(
         `INSERT INTO senteloans_audit_logs
-          (institution_id, branch_id, user_id, table_name, operation, record_id, new_values)
+          (institution_id, branch_id, user_id, table_name, category, operation, record_id, new_values)
          VALUES
-          ($1, $2, $3, 'senteloans_invoices', 'UPDATE', $4, $5)`,
+          ($1, $2, $3, 'senteloans_invoices', 'invoices', 'UPDATE', $4, $5)`,
         [
           actor.institution_id,
           invoiceBranchId,

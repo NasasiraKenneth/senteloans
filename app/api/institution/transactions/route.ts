@@ -321,7 +321,7 @@ export async function POST(req: Request) {
       if (!txRow) return { error: "insert_failed" as const }
 
       await client.query(
-        `INSERT INTO senteloans_audit_logs (institution_id, user_id, table_name, operation, record_id, new_values) VALUES ($1, $2, 'senteloans_transactions', 'INSERT', $3, $4)`,
+        `INSERT INTO senteloans_audit_logs (institution_id, user_id, table_name, category, operation, record_id, new_values) VALUES ($1, $2, 'senteloans_transactions', 'transactions', 'INSERT', $3, $4)`,
         [actor.institution_id, actor.id, txRow.id, JSON.stringify({ transaction_number, type, amount, member_id, account_id })]
       )
 

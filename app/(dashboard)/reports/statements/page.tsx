@@ -7,7 +7,7 @@ import StyledSelect from "@/components/newUI/styled_select"
 import StyledMultiSelect from "@/components/newUI/styled_multi_select"
 import RangeDatePicker, { type DateRangeValue } from "@/components/newUI/range_date_picker"
 import TooltipButton from "@/components/newUI/tooltip_button"
-import { Filter, Loader2, RefreshCw } from "lucide-react"
+import { Filter, RefreshCw } from "lucide-react"
 import { RiFileExcel2Line, RiResetLeftFill } from "react-icons/ri"
 import { BsFileEarmarkPdf, BsFiletypePdf } from "react-icons/bs"
 import { useToast } from "@/components/ui/toast"
@@ -48,10 +48,18 @@ type StatementSummary = {
 type MemberOption = { id: string; label: string }
 type ClientOption = { id: string; label: string }
 
-const STATEMENT_TYPES = [
+const CLIENT_STATEMENT_TYPES = [
   { value: "full", label: "Full statement" },
   { value: "sacco_loans", label: "Sacco loan statement" },
   { value: "investment", label: "Investment statement" },
+]
+
+const MEMBER_STATEMENT_TYPES = [
+  { value: "full", label: "Full statement" },
+  { value: "savings", label: "Savings statement" },
+  { value: "loans", label: "Loan statement" },
+  { value: "shares", label: "Shares statement" },
+  { value: "membership_fee", label: "Membership fee statement" },
 ]
 
 export default function StatementsPage() {
@@ -71,8 +79,8 @@ export default function StatementsPage() {
 
   const [statementType, setStatementType] = useState("full")
   const [assignedTo, setAssignedTo] = useState<"members" | "clients">("members")
-  const [memberId, setMemberId] = useState("all")
-  const [clientId, setClientId] = useState("all")
+  const [memberIds, setMemberIds] = useState<string[]>([])
+  const [clientIds, setClientIds] = useState<string[]>([])
   const [branchIds, setBranchIds] = useState<string[]>([])
   const [dateRange, setDateRange] = useState<DateRangeValue>({ start: "", end: "" })
   const [summaryDateRange, setSummaryDateRange] = useState<DateRangeValue>({ start: "", end: "" })
@@ -80,13 +88,11 @@ export default function StatementsPage() {
   const assigneeModeInitialized = useRef(false)
 
   const branchOptions = useMemo(() => branches.map((b) => ({ value: b.id, label: b.name })), [branches])
-  const memberSelectOptions = useMemo(
-    () => [{ value: "all", label: "All members" }, ...members.map((m) => ({ value: m.id, label: m.label }))],
-    [members]
-  )
-  const clientSelectOptions = useMemo(
-    () => [{ value: "all", label: "All clients" }, ...clients.map((c) => ({ value: c.id, label: c.label }))],
-    [clients]
+  const memberSelectOptions = useMemo(() => members.map((m) => ({ value: m.id, label: m.label })), [members])
+  const clientSelectOptions = useMemo(() => clients.map((c) => ({ value: c.id, label: c.label })), [clients])
+  const statementTypeOptions = useMemo(
+    () => (assignedTo === "clients" ? CLIENT_STATEMENT_TYPES : MEMBER_STATEMENT_TYPES),
+    [assignedTo]
   )
 
   const loadBranches = useCallback(async () => {
@@ -142,13 +148,13 @@ export default function StatementsPage() {
     p.set("pageSize", "5000")
     p.set("statement_type", statementType)
     p.set("assigned_to", assignedTo)
-    if (assignedTo === "members" && memberId !== "all") p.set("member_id", memberId)
-    if (assignedTo === "clients" && clientId !== "all") p.set("client_id", clientId)
+    if (assignedTo === "members" && memberIds.length > 0) p.set("member_ids", memberIds.join(","))
+    if (assignedTo === "clients" && clientIds.length > 0) p.set("client_ids", clientIds.join(","))
     if (dateRange.start.trim()) p.set("dateStart", dateRange.start.trim())
     if (dateRange.end.trim()) p.set("dateEnd", dateRange.end.trim())
     if (isSuperAdmin && branchIds.length > 0) p.set("branches", branchIds.join(","))
     return p
-  }, [statementType, assignedTo, memberId, clientId, dateRange.start, dateRange.end, isSuperAdmin, branchIds])
+  }, [statementType, assignedTo, memberIds, clientIds, dateRange.start, dateRange.end, isSuperAdmin, branchIds])
 
   const loadReport = useCallback(async () => {
     setLoading(true)
@@ -165,10 +171,9 @@ export default function StatementsPage() {
         return assignedTo === "clients" ? (hasClient || hasClientName) : hasMember && !hasClient
       })
       setItems(scopedItems)
-      const s = (data.summary || {}) as Partial<StatementSummary>
       setSummary({
-        opening_balance: Number(s.opening_balance ?? 0),
-        closing_balance: Number(s.closing_balance ?? 0),
+        opening_balance: scopedItems.length > 0 ? Number(scopedItems[scopedItems.length - 1].balance_before || 0) : 0,
+        closing_balance: scopedItems.length > 0 ? Number(scopedItems[0].balance_after || 0) : 0,
         total_debit: scopedItems.reduce((sum, row) => sum + Number(row.debit || 0), 0),
         total_credit: scopedItems.reduce((sum, row) => sum + Number(row.credit || 0), 0),
       })
@@ -200,8 +205,8 @@ export default function StatementsPage() {
   const handleReset = () => {
     setStatementType("full")
     setAssignedTo("members")
-    setMemberId("all")
-    setClientId("all")
+    setMemberIds([])
+    setClientIds([])
     setBranchIds([])
     setDateRange({ start: "", end: "" })
     setSummaryDateRange({ start: "", end: "" })
@@ -214,9 +219,15 @@ export default function StatementsPage() {
   }, [resetVersion, loadReport])
 
   useEffect(() => {
-    if (assignedTo === "members") setClientId("all")
-    if (assignedTo === "clients") setMemberId("all")
+    if (assignedTo === "members") setClientIds([])
+    if (assignedTo === "clients") setMemberIds([])
   }, [assignedTo])
+
+  useEffect(() => {
+    if (!statementTypeOptions.some((opt) => opt.value === statementType)) {
+      setStatementType("full")
+    }
+  }, [statementTypeOptions, statementType])
 
   useEffect(() => {
     if (!assigneeModeInitialized.current) {
@@ -225,6 +236,11 @@ export default function StatementsPage() {
     }
     void loadReport()
   }, [assignedTo, loadReport])
+
+  useEffect(() => {
+    if (!assigneeModeInitialized.current) return
+    void loadReport()
+  }, [statementType, memberIds, clientIds, branchIds, dateRange.start, dateRange.end, loadReport])
 
   const handleExportExcel = async () => {
     const rows = await exportStatementsExcel({ items, statementType, assignedTo })
@@ -244,8 +260,8 @@ export default function StatementsPage() {
       summaryQuery.set("pageSize", "5000")
       summaryQuery.set("statement_type", statementType)
       summaryQuery.set("assigned_to", assignedTo)
-      if (assignedTo === "members" && memberId !== "all") summaryQuery.set("member_id", memberId)
-      if (assignedTo === "clients" && clientId !== "all") summaryQuery.set("client_id", clientId)
+      if (assignedTo === "members" && memberIds.length > 0) summaryQuery.set("member_ids", memberIds.join(","))
+      if (assignedTo === "clients" && clientIds.length > 0) summaryQuery.set("client_ids", clientIds.join(","))
       if (summaryDateRange.start.trim()) summaryQuery.set("dateStart", summaryDateRange.start.trim())
       if (summaryDateRange.end.trim()) summaryQuery.set("dateEnd", summaryDateRange.end.trim())
       if (isSuperAdmin && branchIds.length > 0) summaryQuery.set("branches", branchIds.join(","))
@@ -314,19 +330,27 @@ export default function StatementsPage() {
               <CardDescription>Refine statement scope by assignee, type, dates, and branch before exporting.</CardDescription>
             </div>
             <div className="space-y-2 min-w-[220px]">
-              <Label>Assigned to</Label>
-              <div className="inline-flex rounded-md border border-input bg-background p-1">
+              <div className="relative inline-grid grid-cols-2 rounded-full border border-[#f08c2b]/30 bg-[#f08c2b]/10 p-1 min-w-[220px]">
+                <div
+                  className={`absolute top-1 bottom-1 w-[calc(50%-0.25rem)] rounded-full bg-[#f08c2b] shadow-sm transition-transform duration-200 ${
+                    assignedTo === "clients" ? "translate-x-[calc(100%+0.25rem)]" : "translate-x-0"
+                  }`}
+                />
                 <button
                   type="button"
                   onClick={() => setAssignedTo("members")}
-                  className={`px-3 py-1.5 text-sm rounded ${assignedTo === "members" ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                  className={`relative z-10 px-3 py-1.5 text-sm rounded-full transition-colors ${
+                    assignedTo === "members" ? "text-white font-medium" : "text-[#a85a16] hover:text-[#8f4b12]"
+                  }`}
                 >
                   Members
                 </button>
                 <button
                   type="button"
                   onClick={() => setAssignedTo("clients")}
-                  className={`px-3 py-1.5 text-sm rounded ${assignedTo === "clients" ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                  className={`relative z-10 px-3 py-1.5 text-sm rounded-full transition-colors ${
+                    assignedTo === "clients" ? "text-white font-medium" : "text-[#a85a16] hover:text-[#8f4b12]"
+                  }`}
                 >
                   Clients
                 </button>
@@ -344,17 +368,17 @@ export default function StatementsPage() {
             )}
             <div className="space-y-2 w-auto min-w-[300px]">
               <Label>Statement type</Label>
-              <StyledSelect value={statementType} onChange={setStatementType} placeholder="Statement type" options={STATEMENT_TYPES} />
+              <StyledSelect value={statementType} onChange={setStatementType} placeholder="Statement type" options={statementTypeOptions} />
             </div>
             {assignedTo === "members" ? (
               <div className="space-y-2 w-auto min-w-[300px]">
-                <Label>Member</Label>
-                <StyledSelect value={memberId} onChange={setMemberId} placeholder="All members" options={memberSelectOptions} searchable />
+                <Label>Members</Label>
+                <StyledMultiSelect value={memberIds} onChange={setMemberIds} placeholder="All members" options={memberSelectOptions} searchable />
               </div>
             ) : (
               <div className="space-y-2 w-auto min-w-[300px]">
-                <Label>Client</Label>
-                <StyledSelect value={clientId} onChange={setClientId} placeholder="All clients" options={clientSelectOptions} searchable />
+                <Label>Clients</Label>
+                <StyledMultiSelect value={clientIds} onChange={setClientIds} placeholder="All clients" options={clientSelectOptions} searchable />
               </div>
             )}
             <div className="space-y-2 w-auto min-w-[300px]">
@@ -363,7 +387,6 @@ export default function StatementsPage() {
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
-            <TooltipButton tooltip="Apply filters" onClick={() => void loadReport()} disabled={loading} className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-input bg-background hover:bg-accent hover:text-accent-foreground transition-colors">{loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Filter className="h-4 w-4" />}</TooltipButton>
             <TooltipButton tooltip="Reset filters" onClick={handleReset} disabled={loading} className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-input bg-background hover:bg-accent hover:text-accent-foreground transition-colors"><RiResetLeftFill className="h-4 w-4" /></TooltipButton>
             <TooltipButton tooltip="Refresh" onClick={() => void loadReport()} disabled={loading} className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-input bg-background hover:bg-accent hover:text-accent-foreground transition-colors"><RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /></TooltipButton>
             <TooltipButton tooltip="Export XLS" onClick={() => void handleExportExcel()} disabled={loading || items.length === 0} className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-green-200 bg-background text-green-600 hover:bg-green-50 hover:text-green-700 transition-colors"><RiFileExcel2Line className="h-4 w-4" /></TooltipButton>

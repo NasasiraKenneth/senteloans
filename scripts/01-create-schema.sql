@@ -599,6 +599,7 @@ CREATE TABLE IF NOT EXISTS senteloans_audit_logs (
     branch_id UUID NOT NULL REFERENCES senteloans_branches(id) ON DELETE RESTRICT,
     user_id UUID NOT NULL REFERENCES senteloans_users(id) ON DELETE RESTRICT,
     table_name VARCHAR(100) NOT NULL,
+    category VARCHAR(100) NOT NULL,
     operation VARCHAR(20) NOT NULL CHECK (operation IN ('INSERT', 'UPDATE', 'DELETE')),
     record_id UUID NOT NULL,
     old_values JSONB,

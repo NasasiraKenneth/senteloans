@@ -443,8 +443,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       )
 
       await client.query(
-        `INSERT INTO senteloans_audit_logs (institution_id, user_id, table_name, operation, record_id, new_values)
-         VALUES ($1, $2, 'senteloans_members', 'UPDATE', $3, $4)`,
+        `INSERT INTO senteloans_audit_logs (institution_id, user_id, table_name, category, operation, record_id, new_values)
+         VALUES ($1, $2, 'senteloans_members', 'members', 'UPDATE', $3, $4)`,
         [actor.institution_id, actor.id, memberId, JSON.stringify({
           action: "opening_balances",
           savingsBalance: hasSavings ? savingsBalance : null,

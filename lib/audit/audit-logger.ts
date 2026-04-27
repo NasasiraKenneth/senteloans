@@ -3,6 +3,7 @@ import { runWithoutAuth } from "@/lib/db"
 
 export interface AuditLogEntry {
   table_name: string
+  category?: string
   operation: "INSERT" | "UPDATE" | "DELETE"
   record_id: string
   old_values?: Record<string, unknown>
@@ -14,13 +15,31 @@ export interface AuditLogEntry {
   timestamp?: Date
 }
 
+function deriveCategory(tableName: string): string {
+  const normalized = String(tableName || "")
+    .trim()
+    .toLowerCase()
+    .replace(/^senteloans_/, "")
+
+  if (!normalized) return "system"
+  if (normalized.startsWith("loan_") || normalized.startsWith("loans")) return "loans"
+  if (normalized.startsWith("sacco_loan")) return "sacco loans"
+  if (normalized.startsWith("investment")) return "investments"
+  if (normalized.startsWith("invoice")) return "invoices"
+  if (normalized.startsWith("transaction")) return "transactions"
+  if (normalized.startsWith("member")) return "members"
+  if (normalized.startsWith("staff") || normalized.startsWith("user")) return "staff"
+  return normalized.replace(/_/g, " ")
+}
+
 async function runInsert(client: PoolClient, entry: AuditLogEntry): Promise<void> {
   await client.query(
     `INSERT INTO senteloans_audit_logs (
-      table_name, operation, record_id, old_values, new_values, user_id, institution_id, ip_address, user_agent
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+      table_name, category, operation, record_id, old_values, new_values, user_id, institution_id, ip_address, user_agent
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
     [
       entry.table_name,
+      entry.category || deriveCategory(entry.table_name),
       entry.operation,
       entry.record_id,
       entry.old_values ? JSON.stringify(entry.old_values) : null,

@@ -420,8 +420,8 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
             eligibilityUpdatesApplied = true
             await client.query(
               `INSERT INTO senteloans_audit_logs
-                (institution_id, branch_id, user_id, table_name, operation, record_id, new_values)
-               VALUES ($1, $2, $3, 'senteloans_loan_eligibility_reviews', 'UPDATE', $4, $5)`,
+                (institution_id, branch_id, user_id, table_name, category, operation, record_id, new_values)
+               VALUES ($1, $2, $3, 'senteloans_loan_eligibility_reviews', 'loans', 'UPDATE', $4, $5)`,
               [
                 actor.institution_id,
                 loan.branch_id,
@@ -679,7 +679,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       }
 
       await client.query(
-        `INSERT INTO senteloans_audit_logs (institution_id, branch_id, user_id, table_name, operation, record_id, new_values) VALUES ($1, $2, $3, 'senteloans_loans', 'UPDATE', $4, $5)`,
+        `INSERT INTO senteloans_audit_logs (institution_id, branch_id, user_id, table_name, category, operation, record_id, new_values) VALUES ($1, $2, $3, 'senteloans_loans', 'loans', 'UPDATE', $4, $5)`,
         [actor.institution_id, loan.branch_id, actor.id, id, JSON.stringify(updates)]
       )
 
