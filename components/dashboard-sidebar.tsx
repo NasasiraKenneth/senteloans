@@ -183,6 +183,8 @@ export function DashboardSidebar() {
     reportsSubmenu.push(
       { name: "Statements", href: "/reports/statements" },
       { name: "Sacco Loan Reports", href: "/reports/sacco-loans" },
+      { name: "Invoice Reports", href: "/reports/invoices" },
+      { name: "Staff Audit Reports", href: "/reports/staff-audit" },
     )
 
     return [

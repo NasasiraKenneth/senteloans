@@ -13,6 +13,7 @@ import DataTable from "@/components/datatables/DataTable"
 import { DataTableColumn } from "@/components/datatables/DataTable"
 import { FilterField } from "@/components/datatables/TableFilter"
 import { ActionButtons } from "@/components/datatables/ActionButtons"
+import { withBranchFilterFirst } from "@/lib/filters/branch-first-filter"
 import { Filter } from "@/types"
 import { useToast } from "@/components/ui/toast"
 import AddNewLoan from "./components/add/newLoan"
@@ -423,17 +424,10 @@ export default function LoansPage() {
       },
     ]
 
-    if (loanPermissions.isSuperAdmin) {
-      fields.splice(2, 0, {
-        field: "branches",
-        label: "Branches",
-        options: loanPermissions.branches,
-        multiple: true,
-        type: "select",
-      })
-    }
-
-    return fields
+    return withBranchFilterFirst(fields, {
+      isSuperAdmin: loanPermissions.isSuperAdmin,
+      branchOptions: loanPermissions.branches,
+    })
   }, [loanPermissions.isSuperAdmin, loanPermissions.branches, products])
 
   // Tabular filter options

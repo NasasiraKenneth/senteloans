@@ -4,6 +4,8 @@ import { authOptions } from "@/lib/auth"
 import { runWithAuth } from "@/lib/db"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
 import { calculateCompleteDisbursementAmount } from "@/lib/loans/calculations"
+import { auditLogger } from "@/lib/audit/audit-logger"
+import { makePrefixedNumber } from "@/lib/ids/prefixed-number"
 
 type ActorContext = {
   id: string
@@ -135,30 +137,62 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       const nowDate = new Date().toISOString().slice(0, 10)
       const notes = "Partial disbursement to settle previous loan"
 
-      const txNumber = `LD-${Date.now()}`
-      const txRes = await client.query(
-        `INSERT INTO senteloans_transactions
-          (institution_id, branch_id, member_id, account_id, loan_id, transaction_number, type, amount, mode, description, reference_number, balance_before, balance_after, processed_by, transaction_date, status)
-         VALUES
-          ($1, $2, $3, NULL, $4, $5, 'Loan Disbursement', $6, 'Bank Transfer', $7, $8, $9, $10, $11, $12, 'Completed')
-         RETURNING id`,
-        [
-          actor.institution_id,
-          loan.branch_id,
-          loan.member_id,
-          id,
-          txNumber,
-          settlementAmount,
-          notes,
-          txNumber,
-          settlementAmount,
-          0,
-          actor.id,
-          nowDate,
-        ]
-      )
+      let txRes: { rows: Array<{ id: string }> } | null = null
+      let txNumber = ""
+      for (let i = 0; i < 8; i++) {
+        txNumber = makePrefixedNumber("LD")
+        try {
+          txRes = await client.query(
+            `INSERT INTO senteloans_transactions
+              (institution_id, branch_id, member_id, account_id, loan_id, transaction_number, type, amount, mode, description, reference_number, balance_before, balance_after, processed_by, transaction_date, status)
+             VALUES
+              ($1, $2, $3, NULL, $4, $5, 'Loan Disbursement', $6, 'Bank Transfer', $7, $8, $9, $10, $11, $12, 'Completed')
+             RETURNING id`,
+            [
+              actor.institution_id,
+              loan.branch_id,
+              loan.member_id,
+              id,
+              txNumber,
+              settlementAmount,
+              notes,
+              txNumber,
+              settlementAmount,
+              0,
+              actor.id,
+              nowDate,
+            ]
+          )
+          break
+        } catch (e: any) {
+          if (String(e?.code) === "23505") continue
+          throw e
+        }
+      }
+      if (!txRes) return { error: "settlement_transaction_number_generation_failed" as const }
       const transactionId = String(txRes.rows[0]?.id || "")
       if (!transactionId) return { error: "settlement_transaction_create_failed" as const }
+      await auditLogger.logInsert(
+        "senteloans_transactions",
+        transactionId,
+        {
+          member_id: loan.member_id,
+          loan_id: id,
+          transaction_number: txNumber,
+          type: "Loan Disbursement",
+          amount: settlementAmount,
+          mode: "Bank Transfer",
+          description: notes,
+          balance_before: settlementAmount,
+          balance_after: 0,
+          transaction_date: nowDate,
+          status: "Completed",
+        },
+        actor.institution_id,
+        actor.id,
+        undefined,
+        client
+      )
 
       const disbRes = await client.query(
         `INSERT INTO senteloans_loan_disbursements
@@ -179,6 +213,22 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       )
       const disbursementId = String(disbRes.rows[0]?.id || "")
       if (!disbursementId) return { error: "settlement_disbursement_create_failed" as const }
+      await auditLogger.logInsert(
+        "senteloans_loan_disbursements",
+        disbursementId,
+        {
+          loan_id: id,
+          disbursement_type: "partial loan disburse",
+          transaction_id: transactionId,
+          amount: settlementAmount,
+          disbursement_date: nowDate,
+          notes,
+        },
+        actor.institution_id,
+        actor.id,
+        undefined,
+        client
+      )
 
       await client.query(
         `UPDATE senteloans_loan_settlements
@@ -195,6 +245,20 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
              updated_at = NOW()
          WHERE id = $3`,
         [nowDate, remainingMemberDisbursement, id]
+      )
+      await auditLogger.logUpdate(
+        "senteloans_loans",
+        id,
+        { status: "Approved" },
+        {
+          status: "Partially Disbursed",
+          disbursement_date: nowDate,
+          disbursement_balance: remainingMemberDisbursement,
+        },
+        actor.institution_id,
+        actor.id,
+        undefined,
+        client
       )
 
       await client.query(

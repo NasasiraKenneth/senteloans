@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { runWithAuth } from "@/lib/db"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
+import { auditLogger } from "@/lib/audit/audit-logger"
 
 type ActorContext = {
   id: string
@@ -207,7 +208,25 @@ export async function POST(req: Request) {
           actor.id,
         ]
       )
-      return { client: insertRes.rows[0] }
+      const inserted = insertRes.rows[0]
+      if (inserted?.id) {
+        await auditLogger.logInsert(
+          "senteloans_clients",
+          inserted.id,
+          {
+            name: inserted.name,
+            status: inserted.status,
+            email: inserted.email,
+            address: inserted.address,
+            phone: inserted.phone,
+          },
+          actor.institution_id,
+          actor.id,
+          undefined,
+          client
+        )
+      }
+      return { client: inserted }
     })
 
     if (result && "error" in result) {

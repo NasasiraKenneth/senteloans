@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { runWithAuth } from "@/lib/db"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
+import { auditLogger } from "@/lib/audit/audit-logger"
 
 type ActorContext = {
   id: string
@@ -131,14 +132,42 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
          WHERE id = $1`,
         [id]
       )
+      await auditLogger.logUpdate(
+        "senteloans_loans",
+        id,
+        { status: currentStatus, outstanding_balance: roundedOutstanding },
+        { status: "Closed", outstanding_balance: 0 },
+        loan.institution_id,
+        actor.id,
+        undefined,
+        client
+      )
 
-      await client.query(
+      const settlementInsertRes = await client.query(
         `INSERT INTO senteloans_loan_settlements
           (institution_id, branch_id, disbursement_id, new_loan_id, settled_loan_id, external_lender_id, settlement_amount, settlement_type)
          VALUES
-          ($1, $2, NULL, NULL, $3, $4, $5, 'external sell off')`,
+          ($1, $2, NULL, NULL, $3, $4, $5, 'external sell off')
+         RETURNING id`,
         [loan.institution_id, loan.branch_id, id, externalLenderId, roundedProvided]
       )
+      const settlementId = String(settlementInsertRes.rows[0]?.id || "")
+      if (settlementId) {
+        await auditLogger.logInsert(
+          "senteloans_loan_settlements",
+          settlementId,
+          {
+            settled_loan_id: id,
+            external_lender_id: externalLenderId,
+            settlement_amount: roundedProvided,
+            settlement_type: "external sell off",
+          },
+          loan.institution_id,
+          actor.id,
+          undefined,
+          client
+        )
+      }
 
       await client.query(
         `INSERT INTO senteloans_audit_logs

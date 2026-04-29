@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { runWithAuth } from "@/lib/db"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
+import { auditLogger } from "@/lib/audit/audit-logger"
 
 type ActorContext = {
   id: string
@@ -325,6 +326,22 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         [memberId, actor.institution_id, ...vals]
       )
       if (updateRes.rowCount === 0) return { error: "not_updated" as const }
+      await auditLogger.logUpdate(
+        "senteloans_members",
+        memberId,
+        {
+          kyc_status: targetMember.kyc_status,
+          membership_fee_paid: currentMembershipPaid,
+        },
+        {
+          ...updates,
+          membership_fee_paid: nextMembershipPaid,
+        },
+        actor.institution_id,
+        actor.id,
+        undefined,
+        client
+      )
 
       if (membershipDelta > 0) {
         const cfgRes = await client.query(
@@ -342,10 +359,11 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
           ? body.membershipFeeDescription.trim()
           : "Membership fee payment update"
 
-        await client.query(
+        const txRes = await client.query(
           `INSERT INTO senteloans_transactions
             (institution_id, member_id, account_id, loan_id, transaction_number, type, amount, mode, description, reference_number, balance_before, balance_after, processed_by, transaction_date, status)
-           VALUES ($1, $2, NULL, NULL, $3, 'Fee Payment', $4, $5, $6, '', $7, $8, $9, $10, 'Completed')`,
+           VALUES ($1, $2, NULL, NULL, $3, 'Fee Payment', $4, $5, $6, '', $7, $8, $9, $10, 'Completed')
+           RETURNING id`,
           [
             actor.institution_id,
             memberId,
@@ -359,6 +377,29 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
             new Date().toISOString(),
           ]
         )
+        const txId = txRes.rows[0]?.id
+        if (txId) {
+          await auditLogger.logInsert(
+            "senteloans_transactions",
+            txId,
+            {
+              member_id: memberId,
+              transaction_number: transactionNumber,
+              type: "Fee Payment",
+              amount: membershipDelta,
+              mode,
+              description,
+              balance_before: balanceBefore,
+              balance_after: balanceAfter,
+              processed_by: actor.id,
+              status: "Completed",
+            },
+            actor.institution_id,
+            actor.id,
+            undefined,
+            client
+          )
+        }
       }
 
       return { ok: true, id: updateRes.rows[0].id }

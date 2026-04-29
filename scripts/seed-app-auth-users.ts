@@ -17,6 +17,28 @@ import { hash } from "bcryptjs"
 
 const DEFAULT_PASSWORD = process.env.SEED_DEFAULT_PASSWORD || "changeme"
 
+function normalizeUsernameBase(email: string): string {
+  const local = String(email || "").split("@")[0] || "user"
+  const cleaned = local.toLowerCase().replace(/[^a-z0-9._-]/g, "")
+  return cleaned || "user"
+}
+
+async function getUniqueUsername(client: any, email: string): Promise<string> {
+  const base = normalizeUsernameBase(email)
+  let candidate = base
+  let suffix = 1
+
+  while (true) {
+    const exists = await client.query(
+      `SELECT 1 FROM app_auth_users WHERE username = $1 LIMIT 1`,
+      [candidate]
+    )
+    if (exists.rowCount === 0) return candidate
+    candidate = `${base}${suffix}`
+    suffix += 1
+  }
+}
+
 async function main() {
   const url = process.env.DATABASE_URL
   if (!url) {
@@ -34,9 +56,13 @@ async function main() {
     )
     for (const row of usersRes.rows) {
       const authId = crypto.randomUUID()
+      const username = await getUniqueUsername(client, row.email)
       await client.query(
-        `INSERT INTO app_auth_users (id, email, password_hash) VALUES ($1, $2, $3) ON CONFLICT (email) DO NOTHING`,
-        [authId, row.email, passwordHash]
+        `INSERT INTO app_auth_users (id, email, password_hash, username)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (email) DO UPDATE
+         SET username = COALESCE(app_auth_users.username, EXCLUDED.username)`,
+        [authId, row.email, passwordHash, username]
       )
       const existing = await client.query(
         `SELECT id FROM app_auth_users WHERE email = $1`,

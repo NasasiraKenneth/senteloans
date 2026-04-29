@@ -13,6 +13,7 @@ import DataTable from "@/components/datatables/DataTable"
 import { DataTableColumn } from "@/components/datatables/DataTable"
 import { FilterField } from "@/components/datatables/TableFilter"
 import { ActionButtons } from "@/components/datatables/ActionButtons"
+import { withBranchFilterFirst } from "@/lib/filters/branch-first-filter"
 import AddNewStaff from "./components/add/addNewStaff"
 import EditStaff from "./components/edit/editStaff"
 import { useToast } from "@/components/ui/toast"
@@ -22,6 +23,7 @@ type StaffMember = {
   full_name: string
   email: string
   phone_number: string | null
+  branch_name?: string | null
   role: string
   status: string
   joined_at: string | null
@@ -84,9 +86,12 @@ export default function StaffPage() {
     editUser: false,
     isSuperAdmin: false,
     branches: [] as Array<{ value: string; label: string }>,
+    currentBranch: null as { id: string; name: string } | null,
   })
   const [page, setPage] = useState(0)
   const [rowsPerPage, setRowsPerPage] = useState(10)
+  const [activeFilters, setActiveFilters] = useState<Record<string, string>>({})
+  const [exporting, setExporting] = useState<"excel" | "pdf" | null>(null)
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [editStaffId, setEditStaffId] = useState<string | null>(null);
@@ -157,6 +162,7 @@ export default function StaffPage() {
           editUser?: boolean
           isSuperAdmin?: boolean
           branches?: Array<{ id: string; name: string }>
+          currentBranch?: { id: string; name: string } | null
         }
       }
       setStaffPermissions({
@@ -165,6 +171,7 @@ export default function StaffPage() {
         editUser: !!data.permissions?.editUser,
         isSuperAdmin: !!data.permissions?.isSuperAdmin,
         branches: (data.permissions?.branches || []).map((b) => ({ value: b.id, label: b.name })),
+        currentBranch: data.permissions?.currentBranch || null,
       })
     } catch {
       // keep defaults
@@ -192,7 +199,12 @@ export default function StaffPage() {
   }, [])
 
   const handleQueryParamsChange = useCallback((params: object) => {
-    loadStaff(params)
+    const normalized: Record<string, string> = {}
+    Object.entries(params || {}).forEach(([k, v]) => {
+      if (v !== undefined && v !== null && String(v).trim() !== "") normalized[k] = String(v)
+    })
+    setActiveFilters(normalized)
+    loadStaff(normalized)
   }, [])
 
   const handleEdit = (row: StaffMember) => {
@@ -305,6 +317,62 @@ export default function StaffPage() {
     },
   ]
 
+  const buildExportQuery = () => {
+    const params = new URLSearchParams()
+    Object.entries(activeFilters).forEach(([k, v]) => {
+      if (!v) return
+      params.set(k, v)
+    })
+    return params
+  }
+
+  const downloadExport = async (format: "excel" | "pdf") => {
+    const q = buildExportQuery()
+    q.set("format", format)
+    setExporting(format)
+    try {
+      const res = await fetch(`/api/institution/staff/export?${q.toString()}`, { method: "GET" })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        throw new Error(body?.error || `Failed to download ${format.toUpperCase()}`)
+      }
+      const blob = await res.blob()
+      const disposition = res.headers.get("content-disposition") || ""
+      const match = disposition.match(/filename="?([^"]+)"?/)
+      const filename = match?.[1] || `staff-report-${new Date().toISOString().slice(0, 10)}.${format === "excel" ? "xlsx" : "pdf"}`
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+      toast({
+        variant: "success",
+        title: `${format === "excel" ? "Excel" : "PDF"} downloaded`,
+        description: `Successfully downloaded staff ${format.toUpperCase()} report.`,
+      })
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : `Failed to download ${format.toUpperCase()}`
+      toast({
+        variant: "destructive",
+        title: `${format === "excel" ? "Excel" : "PDF"} download failed`,
+        description: msg,
+      })
+    } finally {
+      setExporting(null)
+    }
+  }
+
+  const handleExportExcel = async () => {
+    await downloadExport("excel")
+  }
+
+  const handleExportPdf = async () => {
+    await downloadExport("pdf")
+  }
+
   // Filter configuration
   const filterFields: FilterField[] = useMemo(() => {
     const fields: FilterField[] = [
@@ -333,17 +401,10 @@ export default function StaffPage() {
       },
     ]
 
-    if (staffPermissions.isSuperAdmin) {
-      fields.splice(2, 0, {
-        field: "branches",
-        label: "Branches",
-        options: staffPermissions.branches,
-        multiple: true,
-        type: "select",
-      })
-    }
-
-    return fields
+    return withBranchFilterFirst(fields, {
+      isSuperAdmin: staffPermissions.isSuperAdmin,
+      branchOptions: staffPermissions.branches,
+    })
   }, [staffPermissions.isSuperAdmin, staffPermissions.branches, roleOptions])
 
   return (
@@ -439,6 +500,12 @@ export default function StaffPage() {
           rows={staff.slice(page * rowsPerPage, (page + 1) * rowsPerPage)}
           loading={loading}
           title="Staff Members"
+          exportActions={{
+            onExcel: () => void handleExportExcel(),
+            onPdf: () => void handleExportPdf(),
+            excelDisabled: loading || staff.length === 0 || exporting !== null,
+            pdfDisabled: loading || staff.length === 0 || exporting !== null,
+          }}
           filterFields={filterFields}
           onQueryParamsChange={handleQueryParamsChange}
           emptyMessage="No staff members found"

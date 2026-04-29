@@ -96,6 +96,19 @@ export async function GET(req: Request) {
             ).rows
           : []
 
+      const currentBranch =
+        actor.branch_id
+          ? (
+              await client.query(
+                `SELECT id, name
+                 FROM senteloans_branches
+                 WHERE id = $1
+                 LIMIT 1`,
+                [actor.branch_id]
+              )
+            ).rows[0] || null
+          : null
+
       return {
         viewUsers,
         createUser,
@@ -103,6 +116,7 @@ export async function GET(req: Request) {
         editRolePermissions,
         isSuperAdmin: role === "super_admin",
         branches,
+        currentBranch,
       }
     })
 

@@ -3,7 +3,7 @@
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { TrendingUp, Users, CreditCard, PiggyBank, AlertTriangle, FileText, ScrollText } from "lucide-react"
+import { TrendingUp, Users, CreditCard, PiggyBank, AlertTriangle, FileText, ScrollText, UserCog, Receipt } from "lucide-react"
 
 const performanceMetrics = [
   { label: "Portfolio Growth", value: "+12.5%", description: "vs previous period" },
@@ -150,7 +150,7 @@ export default function ReportsPage() {
             <CardDescription>Navigate to specific report sections using the sidebar menu</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
               <Button variant="outline" className="h-20 flex-col bg-transparent">
                 <CreditCard className="h-6 w-6 mb-2" />
                 <span className="text-sm">Loan Reports</span>
@@ -170,6 +170,14 @@ export default function ReportsPage() {
               <Button variant="outline" className="h-20 flex-col bg-transparent">
                 <ScrollText className="h-6 w-6 mb-2" />
                 <span className="text-sm">Sacco Loan Reports</span>
+              </Button>
+              <Button variant="outline" className="h-20 flex-col bg-transparent">
+                <Receipt className="h-6 w-6 mb-2" />
+                <span className="text-sm">Invoice Reports</span>
+              </Button>
+              <Button variant="outline" className="h-20 flex-col bg-transparent">
+                <UserCog className="h-6 w-6 mb-2" />
+                <span className="text-sm">Staff Audit Reports</span>
               </Button>
             </div>
           </CardContent>

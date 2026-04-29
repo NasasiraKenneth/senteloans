@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { runWithAuth } from "@/lib/db"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
+import { auditLogger } from "@/lib/audit/audit-logger"
 
 type ActorContext = {
   id: string
@@ -205,12 +206,38 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         `UPDATE senteloans_members SET membership_fee_paid = $1 WHERE id = $2`,
         [newPaid, memberId]
       )
+      await auditLogger.logUpdate(
+        "senteloans_members",
+        memberId,
+        { membership_fee_paid: currentPaid },
+        { membership_fee_paid: newPaid },
+        actor.institution_id,
+        actor.id,
+        undefined,
+        client
+      )
 
-      // Audit log
-      await client.query(
-        `INSERT INTO senteloans_audit_logs (institution_id, user_id, table_name, category, operation, record_id, new_values)
-         VALUES ($1, $2, 'senteloans_transactions', 'transactions', 'INSERT', $3, $4)`,
-        [actor.institution_id, actor.id, txRow.id, JSON.stringify({ transaction_number: transactionNumber, type: "Fee Payment", amount, member_id: memberId })]
+      await auditLogger.logInsert(
+        "senteloans_transactions",
+        txRow.id,
+        {
+          member_id: memberId,
+          transaction_number: transactionNumber,
+          type: "Fee Payment",
+          amount,
+          mode,
+          description,
+          reference_number: referenceNumber,
+          balance_before: balanceBefore,
+          balance_after: balanceAfter,
+          processed_by: actor.id,
+          transaction_date: txDate,
+          status: "Completed",
+        },
+        actor.institution_id,
+        actor.id,
+        undefined,
+        client
       )
 
       return {

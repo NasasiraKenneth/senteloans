@@ -7,6 +7,7 @@ import { NotificationTemplates } from "@/lib/notifications/notification-types"
 import { auditLogger } from "@/lib/audit/audit-logger"
 import { calculateLoanTerms } from "@/lib/loans/calculations"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
+import { makePrefixedNumber } from "@/lib/ids/prefixed-number"
 
 type ActorContext = {
   id: string
@@ -277,7 +278,7 @@ export async function POST(req: Request) {
     const guarantors = Array.isArray(body.guarantors) ? body.guarantors as Array<{ member_id?: string; client_id?: string; amount?: number }> : []
     const guarantor_ids = Array.isArray(body.guarantor_ids) ? (body.guarantor_ids as string[]) : []
     const guarantor_member_ids = Array.isArray(body.guarantor_member_ids) ? (body.guarantor_member_ids as string[]) : []
-    const inputGuarantors =
+    const inputGuarantors: Array<{ member_id: string; amount?: number }> =
       guarantors.length > 0
         ? guarantors.map((g) => ({ member_id: String(g.member_id || g.client_id || "").trim(), amount: g.amount }))
         : [...guarantor_member_ids, ...guarantor_ids].map((id) => ({ member_id: id }))
@@ -394,32 +395,62 @@ export async function POST(req: Request) {
       )
       const monthly_payment = terms.monthlyPayment
       const total_amount = terms.totalAmount
-      const application_id = `LN-${Date.now()}`
       const today = new Date().toISOString().slice(0, 10)
 
-      const loanRes = await client.query(
-        `INSERT INTO senteloans_loans (institution_id, branch_id, member_id, loan_product_id, application_id, principal_amount, interest_rate, tenure_months, monthly_payment, total_amount, status, loan_type, purpose, collateral_description, application_date, created_by)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'Applied', $11, $12, $13, $14, $15) RETURNING id, application_id`,
-        [actor.institution_id, actor.branch_id, member_id, loan_product_id, application_id, principal_amount, annualRate, tenure_months, monthly_payment, total_amount, loan_type, purpose, collateral_description, today, actor.id]
-      )
-      const loanRow = loanRes.rows[0]
+      let loanRow: { id: string; application_id: string } | null = null
+      let application_id = ""
+      for (let i = 0; i < 8; i++) {
+        application_id = makePrefixedNumber("LN")
+        try {
+          const loanRes = await client.query(
+            `INSERT INTO senteloans_loans (institution_id, branch_id, member_id, loan_product_id, application_id, principal_amount, interest_rate, tenure_months, monthly_payment, total_amount, status, loan_type, purpose, collateral_description, application_date, created_by)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'Applied', $11, $12, $13, $14, $15) RETURNING id, application_id`,
+            [actor.institution_id, actor.branch_id, member_id, loan_product_id, application_id, principal_amount, annualRate, tenure_months, monthly_payment, total_amount, loan_type, purpose, collateral_description, today, actor.id]
+          )
+          loanRow = loanRes.rows[0] || null
+          break
+        } catch (e: any) {
+          if (String(e?.code) === "23505") continue
+          throw e
+        }
+      }
       if (!loanRow) return { error: "insert_failed" as const }
 
       if (uniqGuars.length > 0) {
         const per = Math.round((principal_amount / uniqGuars.length) * 100) / 100
         for (const g of uniqGuars) {
-          await client.query(
-            `INSERT INTO senteloans_loan_guarantors (loan_id, guarantor_member_id, guaranteed_amount, status) VALUES ($1, $2, $3, 'Active')`,
-            [loanRow.id, g.member_id, Number.isFinite(g.amount) && g.amount! >= 0 ? g.amount! : per]
+          const guaranteedAmount = Number.isFinite(g.amount) && g.amount! >= 0 ? g.amount! : per
+          const guarantorInsertRes = await client.query(
+            `INSERT INTO senteloans_loan_guarantors (loan_id, guarantor_member_id, guaranteed_amount, status)
+             VALUES ($1, $2, $3, 'Active')
+             RETURNING id`,
+            [loanRow.id, g.member_id, guaranteedAmount]
+          )
+          const guarantorId = guarantorInsertRes.rows[0]?.id
+          if (!guarantorId) continue
+          await auditLogger.logInsert(
+            "senteloans_loan_guarantors",
+            guarantorId,
+            {
+              loan_id: loanRow.id,
+              guarantor_member_id: g.member_id,
+              guaranteed_amount: guaranteedAmount,
+              status: "Active",
+            },
+            actor.institution_id,
+            actor.id,
+            undefined,
+            client
           )
         }
       }
 
       if (loan_type === "top up") {
-        await client.query(
+        const settlementRes = await client.query(
           `INSERT INTO senteloans_loan_settlements
             (institution_id, branch_id, new_loan_id, settled_loan_id, external_lender_id, settlement_amount, settlement_type, settlement_status)
-           VALUES ($1, $2, $3, $4, NULL, $5, $6, $7)`,
+           VALUES ($1, $2, $3, $4, NULL, $5, $6, $7)
+           RETURNING id`,
           [
             actor.institution_id,
             actor.branch_id,
@@ -430,13 +461,32 @@ export async function POST(req: Request) {
             "Pending",
           ]
         )
+        const settlementId = settlementRes.rows[0]?.id
+        if (settlementId) {
+          await auditLogger.logInsert(
+            "senteloans_loan_settlements",
+            settlementId,
+            {
+              new_loan_id: loanRow.id,
+              settled_loan_id: topUpLoan.id,
+              settlement_amount: Number(topUpLoan.outstanding_balance || 0),
+              settlement_type: "internal_topup",
+              settlement_status: "Pending",
+            },
+            actor.institution_id,
+            actor.id,
+            undefined,
+            client
+          )
+        }
       }
 
       if (loan_type === "buy off") {
-        await client.query(
+        const settlementRes = await client.query(
           `INSERT INTO senteloans_loan_settlements
             (institution_id, branch_id, new_loan_id, settled_loan_id, external_lender_id, settlement_amount, settlement_type, settlement_status)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+           RETURNING id`,
           [
             actor.institution_id,
             actor.branch_id,
@@ -448,6 +498,25 @@ export async function POST(req: Request) {
             "Pending",
           ]
         )
+        const settlementId = settlementRes.rows[0]?.id
+        if (settlementId) {
+          await auditLogger.logInsert(
+            "senteloans_loan_settlements",
+            settlementId,
+            {
+              new_loan_id: loanRow.id,
+              settled_loan_id: null,
+              external_lender_id,
+              settlement_amount: external_outstanding_balance,
+              settlement_type: "external_buyout",
+              settlement_status: "Pending",
+            },
+            actor.institution_id,
+            actor.id,
+            undefined,
+            client
+          )
+        }
       }
 
       const eligibilityRes = await client.query(
@@ -460,12 +529,29 @@ export async function POST(req: Request) {
         for (const er of eligibilityRes.rows) {
           const eligibility = String(er.eligibility || "").trim()
           if (!eligibility) continue
-          await client.query(
+          const eligibilityInsertRes = await client.query(
             `INSERT INTO senteloans_loan_eligibility_reviews (loan_id, eligibility, is_eligible)
              VALUES ($1, $2, FALSE)
-             ON CONFLICT (loan_id, eligibility) DO NOTHING`,
+             ON CONFLICT (loan_id, eligibility) DO NOTHING
+             RETURNING id`,
             [loanRow.id, eligibility]
           )
+          const eligibilityReviewId = eligibilityInsertRes.rows[0]?.id
+          if (eligibilityReviewId) {
+            await auditLogger.logInsert(
+              "senteloans_loan_eligibility_reviews",
+              eligibilityReviewId,
+              {
+                loan_id: loanRow.id,
+                eligibility,
+                is_eligible: false,
+              },
+              actor.institution_id,
+              actor.id,
+              undefined,
+              client
+            )
+          }
         }
       }
 

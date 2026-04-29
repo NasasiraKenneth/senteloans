@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth"
 import { runWithAuth } from "@/lib/db"
 import { addMonthsDateOnly, buildRepaymentSchedule } from "@/lib/loans/calculations"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
+import { auditLogger } from "@/lib/audit/audit-logger"
 
 type ActorContext = {
   id: string
@@ -303,12 +304,37 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         )
 
         const savTxNumber = `OB-SAV-${Date.now()}`
-        await client.query(
+        const savingsTxRes = await client.query(
           `INSERT INTO senteloans_transactions
             (institution_id, member_id, account_id, loan_id, transaction_number, type, amount, mode, description, reference_number, balance_before, balance_after, processed_by, transaction_date, status)
-           VALUES ($1, $2, $3, NULL, $4, 'Opening Balance', $5, 'Cash', $6, '', $7, $8, $9, $10, 'Completed')`,
+           VALUES ($1, $2, $3, NULL, $4, 'Opening Balance', $5, 'Cash', $6, '', $7, $8, $9, $10, 'Completed')
+           RETURNING id`,
           [actor.institution_id, memberId, accountId, savTxNumber, savingsBalance, "Opening savings balance from previous system", balanceBefore, savingsBalance, actor.id, txDate]
         )
+        const savingsTxId = savingsTxRes.rows[0]?.id
+        if (savingsTxId) {
+          await auditLogger.logInsert(
+            "senteloans_transactions",
+            savingsTxId,
+            {
+              member_id: memberId,
+              account_id: accountId,
+              transaction_number: savTxNumber,
+              type: "Opening Balance",
+              amount: savingsBalance,
+              mode: "Cash",
+              description: "Opening savings balance from previous system",
+              balance_before: balanceBefore,
+              balance_after: savingsBalance,
+              processed_by: actor.id,
+              status: "Completed",
+            },
+            actor.institution_id,
+            actor.id,
+            undefined,
+            client
+          )
+        }
 
         results.savingsUpdated = true
       }
@@ -426,12 +452,37 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         )
         const amountAlreadyPaid = round2(Math.max(0, totalPayable - Number(loanOutstandingBalance || 0)))
         const loanTxNumber = `OB-LN-${Date.now()}`
-        await client.query(
+        const loanTxRes = await client.query(
           `INSERT INTO senteloans_transactions
             (institution_id, member_id, account_id, loan_id, transaction_number, type, amount, mode, description, reference_number, balance_before, balance_after, processed_by, transaction_date, status)
-           VALUES ($1, $2, NULL, $3, $4, 'Loan Repayment', $5, 'Cash', $6, $4, $7, $8, $9, $10, 'Completed')`,
+           VALUES ($1, $2, NULL, $3, $4, 'Loan Repayment', $5, 'Cash', $6, $4, $7, $8, $9, $10, 'Completed')
+           RETURNING id`,
           [actor.institution_id, memberId, loanRow.id, loanTxNumber, amountAlreadyPaid, "Migrated repayments from previous system", totalPayable, loanOutstandingBalance, actor.id, txDate]
         )
+        const loanTxId = loanTxRes.rows[0]?.id
+        if (loanTxId) {
+          await auditLogger.logInsert(
+            "senteloans_transactions",
+            loanTxId,
+            {
+              member_id: memberId,
+              loan_id: loanRow.id,
+              transaction_number: loanTxNumber,
+              type: "Loan Repayment",
+              amount: amountAlreadyPaid,
+              mode: "Cash",
+              description: "Migrated repayments from previous system",
+              balance_before: totalPayable,
+              balance_after: loanOutstandingBalance,
+              processed_by: actor.id,
+              status: "Completed",
+            },
+            actor.institution_id,
+            actor.id,
+            undefined,
+            client
+          )
+        }
 
         results.loanCreated = true
         results.loanId = loanRow.id
@@ -441,11 +492,22 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         `UPDATE senteloans_members SET opening_balance_recorded = TRUE WHERE id = $1`,
         [memberId]
       )
+      await auditLogger.logUpdate(
+        "senteloans_members",
+        memberId,
+        { opening_balance_recorded: false },
+        { opening_balance_recorded: true },
+        actor.institution_id,
+        actor.id,
+        undefined,
+        client
+      )
 
-      await client.query(
-        `INSERT INTO senteloans_audit_logs (institution_id, user_id, table_name, category, operation, record_id, new_values)
-         VALUES ($1, $2, 'senteloans_members', 'members', 'UPDATE', $3, $4)`,
-        [actor.institution_id, actor.id, memberId, JSON.stringify({
+      await auditLogger.logUpdate(
+        "senteloans_members",
+        memberId,
+        {},
+        {
           action: "opening_balances",
           savingsBalance: hasSavings ? savingsBalance : null,
           loanPrincipalAmount: hasLoan ? (loanPrincipalAmount ?? loanOutstandingBalance) : null,
@@ -453,7 +515,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
           loanOriginalTenure: hasLoan ? (loanOriginalTenure ?? loanTenureMonths) : null,
           loanRemainingTenure: hasLoan ? loanTenureMonths : null,
           loanLastPaymentDate: hasLoan ? loanLastPaymentDate : null,
-        })]
+        },
+        actor.institution_id,
+        actor.id,
+        undefined,
+        client
       )
 
       return { ok: true, ...results }

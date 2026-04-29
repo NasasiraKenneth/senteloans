@@ -106,7 +106,7 @@ export async function GET(req: Request) {
       if (!allowed) return { error: "missing_permission:view_members" as const }
       const actorRole = String(actor.role || "").trim().toLowerCase()
 
-      // Get branch membership fee from senteloans_config
+      // Keep a branch-local membership fee for UI compatibility.
       const cfgRes = await client.query(
         `SELECT membership_fee FROM senteloans_config WHERE branch_id = $1 LIMIT 1`,
         [actor.branch_id]
@@ -116,6 +116,11 @@ export async function GET(req: Request) {
       let where = "c.institution_id = $1"
       const params: unknown[] = [actor.institution_id]
       let idx = 2
+      if (actorRole !== "super_admin") {
+        where += ` AND c.branch_id = $${idx}`
+        params.push(actor.branch_id)
+        idx++
+      }
       if (search) {
         where += ` AND (c.full_name ILIKE $${idx} OR c.member_number ILIKE $${idx} OR c.phone_number ILIKE $${idx} OR c.email ILIKE $${idx})`
         params.push(`%${search}%`)
@@ -137,22 +142,33 @@ export async function GET(req: Request) {
         idx++
       }
       if (membershipPaymentStatus === "fully_paid") {
-        if (membershipFee > 0) {
-          where += ` AND COALESCE(c.membership_fee_paid, 0) >= $${idx}`
-          params.push(membershipFee)
-          idx++
-        } else {
-          where += ` AND COALESCE(c.membership_fee_paid, 0) > 0`
-        }
+        where += ` AND (
+          EXISTS (
+            SELECT 1
+            FROM senteloans_config cfg
+            WHERE cfg.branch_id = c.branch_id
+              AND COALESCE(cfg.membership_fee, 0) > 0
+              AND COALESCE(c.membership_fee_paid, 0) >= cfg.membership_fee
+          )
+          OR (
+            NOT EXISTS (
+              SELECT 1
+              FROM senteloans_config cfg2
+              WHERE cfg2.branch_id = c.branch_id
+                AND COALESCE(cfg2.membership_fee, 0) > 0
+            )
+            AND COALESCE(c.membership_fee_paid, 0) > 0
+          )
+        )`
       } else if (membershipPaymentStatus === "partial") {
-        if (membershipFee > 0) {
-          where += ` AND COALESCE(c.membership_fee_paid, 0) > 0 AND COALESCE(c.membership_fee_paid, 0) < $${idx}`
-          params.push(membershipFee)
-          idx++
-        } else {
-          // When membership fee is not configured, partial cannot be determined reliably.
-          where += ` AND 1 = 0`
-        }
+        where += ` AND EXISTS (
+          SELECT 1
+          FROM senteloans_config cfg
+          WHERE cfg.branch_id = c.branch_id
+            AND COALESCE(cfg.membership_fee, 0) > 0
+            AND COALESCE(c.membership_fee_paid, 0) > 0
+            AND COALESCE(c.membership_fee_paid, 0) < cfg.membership_fee
+        )`
       }
       if (kycApprovedAtStart) {
         where += ` AND c.kyc_approved_at >= ($${idx}::timestamp AT TIME ZONE 'Africa/Nairobi')`
@@ -346,6 +362,32 @@ export async function POST(req: Request) {
       )
       const data = insertRes.rows[0]
       if (!data) return { error: "create_failed_no_record" as const }
+      await auditLogger.logInsert(
+        "senteloans_members",
+        data.id,
+        {
+          member_number: data.member_number,
+          full_name: String(body.fullName).trim(),
+          phone_number: phone,
+          national_id: String(body.nationalId).trim(),
+          date_of_birth: body.dateOfBirth,
+          gender: body.gender,
+          member_type: body.memberType,
+          email: typeof body.email === "string" ? body.email.trim() || null : null,
+          marital_status: typeof body.maritalStatus === "string" ? body.maritalStatus : null,
+          district: typeof body.district === "string" ? body.district : null,
+          village: typeof body.village === "string" ? body.village : null,
+          occupation: typeof body.occupation === "string" ? body.occupation : null,
+          monthly_income: monthlyIncome,
+          monthly_savings: monthlySavings,
+          join_date: joinDate,
+          membership_fee_paid: membershipFeePaid,
+        },
+        actor.institution_id,
+        actor.id,
+        undefined,
+        client
+      )
 
       // Create a Fee Payment transaction if membership fee was paid
       if (membershipFeePaid > 0) {
@@ -365,12 +407,37 @@ export async function POST(req: Request) {
         const balanceBefore = totalMembershipFee
         const balanceAfter = totalMembershipFee - membershipFeePaid
 
-        await client.query(
+        const txRes = await client.query(
           `INSERT INTO senteloans_transactions
             (institution_id, member_id, account_id, loan_id, transaction_number, type, amount, mode, description, reference_number, balance_before, balance_after, processed_by, transaction_date, status)
-           VALUES ($1, $2, NULL, NULL, $3, 'Fee Payment', $4, $5, $6, '', $7, $8, $9, $10, 'Completed')`,
+           VALUES ($1, $2, NULL, NULL, $3, 'Fee Payment', $4, $5, $6, '', $7, $8, $9, $10, 'Completed')
+           RETURNING id`,
           [actor.institution_id, data.id, txNumber, membershipFeePaid, txMode, "Membership fee payment on registration", balanceBefore, balanceAfter, actor.id, txDate]
         )
+        const txId = txRes.rows[0]?.id
+        if (txId) {
+          await auditLogger.logInsert(
+            "senteloans_transactions",
+            txId,
+            {
+              member_id: data.id,
+              transaction_number: txNumber,
+              type: "Fee Payment",
+              amount: membershipFeePaid,
+              mode: txMode,
+              description: "Membership fee payment on registration",
+              balance_before: balanceBefore,
+              balance_after: balanceAfter,
+              processed_by: actor.id,
+              transaction_date: txDate,
+              status: "Completed",
+            },
+            actor.institution_id,
+            actor.id,
+            undefined,
+            client
+          )
+        }
       }
 
       let savingsAccountData: { account_number: string; account_type: string } | null = null

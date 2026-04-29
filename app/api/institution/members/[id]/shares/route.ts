@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { runWithAuth } from "@/lib/db"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
+import { auditLogger } from "@/lib/audit/audit-logger"
 
 type ActorContext = {
   id: string
@@ -184,6 +185,22 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
           [memberId, numberOfShares, valuePerShare, purchaseDate]
         )
         const row = insRes.rows[0]
+        if (row?.id) {
+          await auditLogger.logInsert(
+            "senteloans_member_shares",
+            row.id,
+            {
+              member_id: memberId,
+              number_of_shares: numberOfShares,
+              share_value: valuePerShare,
+              purchase_date: purchaseDate,
+            },
+            actor.institution_id,
+            actor.id,
+            undefined,
+            client
+          )
+        }
 
         // Use Shares Purchase when enum exists, fallback to Deposit to avoid runtime enum errors.
         const enumRes = await client.query(
@@ -214,10 +231,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
           }
         }
 
-        await client.query(
+        const txRes = await client.query(
           `INSERT INTO senteloans_transactions
             (institution_id, member_id, account_id, loan_id, transaction_number, type, amount, mode, description, reference_number, balance_before, balance_after, processed_by, transaction_date, status)
-           VALUES ($1, $2, $3, NULL, $4, $5, $6, $7, $8, $4, $9, $10, $11, $12, 'Completed')`,
+           VALUES ($1, $2, $3, NULL, $4, $5, $6, $7, $8, $4, $9, $10, $11, $12, 'Completed')
+           RETURNING id`,
           [
             actor.institution_id,
             memberId,
@@ -233,6 +251,29 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
             new Date().toISOString(),
           ]
         )
+        const txId = txRes.rows[0]?.id
+        if (txId) {
+          await auditLogger.logInsert(
+            "senteloans_transactions",
+            txId,
+            {
+              member_id: memberId,
+              transaction_number: txNumber,
+              type: txType,
+              amount: purchaseValue,
+              mode,
+              description,
+              balance_before: balanceBefore,
+              balance_after: balanceAfter,
+              processed_by: actor.id,
+              status: "Completed",
+            },
+            actor.institution_id,
+            actor.id,
+            undefined,
+            client
+          )
+        }
 
         await client.query("COMMIT")
         return { ok: true, id: row?.id, transaction_number: txNumber }

@@ -148,12 +148,14 @@ export async function GET(req: Request) {
               u.full_name,
               u.email,
               u.phone_number,
+              b.name AS branch_name,
               app_role.app_role AS role,
               u.status,
               u.joined_at,
               u.last_login,
               u.created_at
            FROM senteloans_users u
+           LEFT JOIN senteloans_branches b ON b.id = u.branch_id
            LEFT JOIN LATERAL (
              SELECT CASE
                WHEN r.name = 'System Admin' THEN 'system_admin'

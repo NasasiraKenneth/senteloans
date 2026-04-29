@@ -12,9 +12,11 @@ import { getSession } from "@/lib/session"
 import DataTable from "@/components/datatables/DataTable"
 import { DataTableColumn } from "@/components/datatables/DataTable"
 import { FilterField } from "@/components/datatables/TableFilter"
+import { withBranchFilterFirst } from "@/lib/filters/branch-first-filter"
 import { ActionButtons } from "@/components/datatables/ActionButtons"
 import { Filter } from "@/types"
 import { useToast } from "@/components/ui/toast"
+import { downloadMembersExport } from "./export/export"
 
 type UiClient = {
   id: string
@@ -76,6 +78,8 @@ export default function UsersPage() {
   const [membershipFee, setMembershipFee] = useState(0)
   const [page, setPage] = useState(0)
   const [rowsPerPage, setRowsPerPage] = useState(10)
+  const [activeFilters, setActiveFilters] = useState<Record<string, string>>({})
+  const [exporting, setExporting] = useState<"excel" | "pdf" | null>(null)
   const permissionToastShown = useRef(false)
   const [memberPermissions, setMemberPermissions] = useState({
     viewMembers: false,
@@ -91,7 +95,7 @@ export default function UsersPage() {
     setRowsPerPage(parseInt(e.target.value, 10))
   }
 
-  async function loadClients(queryParams?: object) {
+  async function loadMembers(queryParams?: object) {
     setLoading(true)
     try {
       const params = new URLSearchParams()
@@ -108,14 +112,14 @@ export default function UsersPage() {
           }
         })
       }
-      params.set("limit", "100")
+      params.set("limit", "1000")
       const res = await fetch(`/api/institution/members?${params.toString()}`, { cache: "no-store" })
       if (!res.ok) {
         const body = await res.json().catch(() => ({}))
         if (res.status === 403 && body?.error === "missing_permission:view_members") {
           throw new Error("missing_permission:view_members")
         }
-        throw new Error(body.error || "Failed to load clients")
+        throw new Error(body.error || "Failed to load members")
       }
       const data = (await res.json()) as {
         members: Array<{
@@ -156,7 +160,7 @@ export default function UsersPage() {
       setUsers(mapped)
       permissionToastShown.current = false
     } catch (e: any) {
-      const message = e?.message || "Failed to load clients"
+      const message = e?.message || "Failed to load members"
       setUsers([])
 
       if (message === "missing_permission:view_members") {
@@ -209,11 +213,22 @@ export default function UsersPage() {
     const sessionData = getSession()
     setSession(sessionData)
     loadMemberPermissions()
-    loadClients()
+    loadMembers()
   }, [])
 
   const handleQueryParamsChange = useCallback((params: object) => {
-    loadClients(params)
+    const normalized: Record<string, string> = {}
+    Object.entries(params || {}).forEach(([k, v]) => {
+      if (v && typeof v === "object" && "start" in (v as Record<string, unknown>) && "end" in (v as Record<string, unknown>)) {
+        const range = v as { start?: string; end?: string }
+        if (range.start) normalized[`${k}Start`] = range.start
+        if (range.end) normalized[`${k}End`] = range.end
+        return
+      }
+      if (v !== undefined && v !== null && String(v).trim() !== "") normalized[k] = String(v)
+    })
+    setActiveFilters(normalized)
+    loadMembers(params)
   }, [])
 
   const handleView = (row: UiClient) => {
@@ -445,6 +460,47 @@ export default function UsersPage() {
     },
   ]
 
+  const downloadExport = async (format: "excel" | "pdf") => {
+    if (!memberPermissions.viewMembers) {
+      toast({
+        variant: "warning",
+        title: "Access denied",
+        description: "You do not have permission to export members.",
+      })
+      return
+    }
+    setExporting(format)
+    try {
+      await downloadMembersExport(activeFilters, format)
+      toast({
+        variant: "success",
+        title: `${format === "excel" ? "Excel" : "PDF"} downloaded`,
+        description: `Successfully downloaded ${terminology.plural.toLowerCase()} ${format.toUpperCase()} report.`,
+      })
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : `Failed to download ${format.toUpperCase()}`
+      const denied =
+        msg === "missing_permission:view_members" ||
+        msg.toLowerCase().includes("permission") ||
+        msg.toLowerCase().includes("forbidden")
+      if (denied) {
+        toast({
+          variant: "warning",
+          title: "Access denied",
+          description: "You do not have permission to export members.",
+        })
+        return
+      }
+      toast({
+        variant: "destructive",
+        title: `${format === "excel" ? "Excel" : "PDF"} download failed`,
+        description: msg,
+      })
+    } finally {
+      setExporting(null)
+    }
+  }
+
   // Filter configuration — field names match the API query params: search, status, kyc
   const filterFields: FilterField[] = useMemo(() => {
     const fields: FilterField[] = [
@@ -491,17 +547,10 @@ export default function UsersPage() {
     },
     ]
 
-    if (memberPermissions.isSuperAdmin) {
-      fields.splice(4, 0, {
-        field: "branches",
-        label: "Branches",
-        options: memberPermissions.branches,
-        multiple: true,
-        type: "select",
-      })
-    }
-
-    return fields
+    return withBranchFilterFirst(fields, {
+      isSuperAdmin: memberPermissions.isSuperAdmin,
+      branchOptions: memberPermissions.branches,
+    })
   }, [memberPermissions.isSuperAdmin, memberPermissions.branches])
 
   // Tabular filter options
@@ -600,6 +649,12 @@ export default function UsersPage() {
           rows={users.slice(page * rowsPerPage, (page + 1) * rowsPerPage)}
           loading={loading}
           title={terminology.plural}
+          exportActions={{
+            onExcel: () => void downloadExport("excel"),
+            onPdf: () => void downloadExport("pdf"),
+            excelDisabled: loading || users.length === 0 || exporting !== null || !memberPermissions.viewMembers,
+            pdfDisabled: loading || users.length === 0 || exporting !== null || !memberPermissions.viewMembers,
+          }}
           tabularFilters={filters}
           tabularFilterField="status"
           filterFields={filterFields}

@@ -9,8 +9,10 @@ import DataTable, { DataTableColumn } from "@/components/datatables/DataTable"
 import { FilterField } from "@/components/datatables/TableFilter"
 import { ActionButtons } from "@/components/datatables/ActionButtons"
 import { useToast } from "@/components/ui/toast"
+import { withBranchFilterFirst } from "@/lib/filters/branch-first-filter"
 import AddNewClient from "./components/add/addNewClient"
 import EditClient from "./components/edit/editClient"
+import { downloadClientsExport } from "./export/export"
 
 type ClientRecord = {
   id: string
@@ -48,6 +50,8 @@ export default function ClientsPage() {
   const [isAddOpen, setIsAddOpen] = useState(false)
   const [isEditOpen, setIsEditOpen] = useState(false)
   const [editingClientId, setEditingClientId] = useState<string | null>(null)
+  const [activeFilters, setActiveFilters] = useState<Record<string, string>>({})
+  const [exporting, setExporting] = useState<"excel" | "pdf" | null>(null)
   const permissionToastShown = useRef(false)
 
   const [clientPermissions, setClientPermissions] = useState({
@@ -90,7 +94,7 @@ export default function ClientsPage() {
           if (value !== undefined && value !== null && value !== "") params.set(key, String(value))
         })
       }
-      params.set("limit", "200")
+      params.set("limit", "1000")
 
       const res = await fetch(`/api/institution/clients?${params.toString()}`, { cache: "no-store" })
       const body = await res.json().catch(() => ({}))
@@ -132,8 +136,50 @@ export default function ClientsPage() {
   }, [])
 
   const handleQueryParamsChange = useCallback((params: object) => {
+    const normalized: Record<string, string> = {}
+    Object.entries(params || {}).forEach(([k, v]) => {
+      if (v !== undefined && v !== null && String(v).trim() !== "") normalized[k] = String(v)
+    })
+    setActiveFilters(normalized)
     loadClients(params)
   }, [])
+
+  const downloadExport = async (format: "excel" | "pdf") => {
+    if (!clientPermissions.viewClients) {
+      toast({
+        variant: "warning",
+        title: "Access denied",
+        description: "You do not have permission to export clients.",
+      })
+      return
+    }
+    setExporting(format)
+    try {
+      await downloadClientsExport(activeFilters, format)
+      toast({
+        variant: "success",
+        title: `${format === "excel" ? "Excel" : "PDF"} downloaded`,
+        description: `Successfully downloaded clients ${format.toUpperCase()} report.`,
+      })
+    } catch (e: any) {
+      const message = String(e?.message || "")
+      if (message === "missing_permission:view_clients") {
+        toast({
+          variant: "warning",
+          title: "Access denied",
+          description: "You do not have permission to export clients.",
+        })
+      } else {
+        toast({
+          variant: "destructive",
+          title: `Download ${format.toUpperCase()} failed`,
+          description: message || `Failed to download ${format.toUpperCase()}.`,
+        })
+      }
+    } finally {
+      setExporting(null)
+    }
+  }
 
   const columns: DataTableColumn<ClientRecord>[] = [
     {
@@ -220,16 +266,10 @@ export default function ClientsPage() {
         type: "select",
       },
     ]
-    if (clientPermissions.isSuperAdmin) {
-      fields.splice(1, 0, {
-        field: "branches",
-        label: "Branches",
-        options: clientPermissions.branches,
-        multiple: true,
-        type: "select",
-      })
-    }
-    return fields
+    return withBranchFilterFirst(fields, {
+      isSuperAdmin: clientPermissions.isSuperAdmin,
+      branchOptions: clientPermissions.branches,
+    })
   }, [clientPermissions.isSuperAdmin, clientPermissions.branches])
 
   return (
@@ -276,6 +316,12 @@ export default function ClientsPage() {
         rows={clients.slice(page * rowsPerPage, (page + 1) * rowsPerPage)}
         loading={loading}
         title="Clients"
+        exportActions={{
+          onExcel: () => void downloadExport("excel"),
+          onPdf: () => void downloadExport("pdf"),
+          excelDisabled: loading || clients.length === 0 || exporting !== null || !clientPermissions.viewClients,
+          pdfDisabled: loading || clients.length === 0 || exporting !== null || !clientPermissions.viewClients,
+        }}
         filterFields={filterFields}
         onQueryParamsChange={handleQueryParamsChange}
         emptyMessage="No clients found"

@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { runWithAuth } from "@/lib/db"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
+import { auditLogger } from "@/lib/audit/audit-logger"
 
 type ActorContext = {
   id: string
@@ -186,6 +187,16 @@ export async function PATCH(
       if (actorRole !== "super_admin" && !actor.branch_id) return { error: "actor_branch_missing" as const }
       const scope = whereScope(actor)
 
+      const existingRes = await client.query(
+        `SELECT c.id, c.name, c.status, c.email, c.address, c.phone
+         FROM senteloans_clients c
+         WHERE ${scope.clause}
+         LIMIT 1`,
+        [id, actor.institution_id, ...scope.params]
+      )
+      if (existingRes.rows.length === 0) return { error: "client_not_found" as const }
+      const previous = existingRes.rows[0]
+
       const updateRes = await client.query(
         `UPDATE senteloans_clients c
          SET
@@ -203,7 +214,30 @@ export async function PATCH(
         [id, actor.institution_id, ...scope.params, name, status, email, address || null, phone || null, actor.id]
       )
       if (updateRes.rows.length === 0) return { error: "client_not_found" as const }
-      return { client: updateRes.rows[0] }
+      const updated = updateRes.rows[0]
+      await auditLogger.logUpdate(
+        "senteloans_clients",
+        id,
+        {
+          name: previous.name,
+          status: previous.status,
+          email: previous.email,
+          address: previous.address,
+          phone: previous.phone,
+        },
+        {
+          name: updated.name,
+          status: updated.status,
+          email: updated.email,
+          address: updated.address,
+          phone: updated.phone,
+        },
+        actor.institution_id,
+        actor.id,
+        undefined,
+        client
+      )
+      return { client: updated }
     })
 
     if (result && "error" in result) {

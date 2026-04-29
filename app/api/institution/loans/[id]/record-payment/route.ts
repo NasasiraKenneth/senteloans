@@ -3,6 +3,8 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { runWithAuth, runWithoutAuth } from "@/lib/db"
 import { buildRepaymentSchedule } from "@/lib/loans/calculations"
+import { auditLogger } from "@/lib/audit/audit-logger"
+import { makePrefixedNumber } from "@/lib/ids/prefixed-number"
 
 const PAYMENT_MODES = ["Cash", "Mobile Money", "Bank Transfer", "Cheque", "Card"] as const
 
@@ -168,6 +170,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       }
 
       let remaining = amount
+      const installmentChanges: Array<{
+        id: string
+        old: { amount_paid: number; amount_due: number; status: string; payment_date: string | null }
+        next: { amount_paid: number; amount_due: number; status: string; payment_date: string }
+      }> = []
       for (const row of rows) {
         if (remaining <= 0) break
         const total = Number(row.amount_due || 0)
@@ -185,6 +192,21 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
            WHERE id = $5`,
           [newPaid, newAmountDue, payment_date, newStatus, row.id]
         )
+        installmentChanges.push({
+          id: row.id,
+          old: {
+            amount_paid: paid,
+            amount_due: Number(row.amount_due || 0),
+            status: String(row.status || "Pending"),
+            payment_date: null,
+          },
+          next: {
+            amount_paid: newPaid,
+            amount_due: newAmountDue,
+            status: newStatus,
+            payment_date,
+          },
+        })
         remaining -= apply
       }
 
@@ -228,29 +250,99 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         )
       }
 
-      const transaction_number = `LR-${Date.now()}`
-      await client.query(
-        `INSERT INTO senteloans_transactions (institution_id, branch_id, member_id, account_id, loan_id, transaction_number, type, amount, mode, description, balance_before, balance_after, processed_by, transaction_date, status)
-         VALUES ($1, $2, $3, NULL, $4, $5, 'Loan Repayment', $6, $7, $8, $9, $10, $11, $12, 'Completed')`,
-        [
+      let txRes: { rows: Array<{ id: string }> } | null = null
+      let transaction_number = ""
+      for (let i = 0; i < 8; i++) {
+        transaction_number = makePrefixedNumber("LR")
+        try {
+          txRes = await client.query(
+            `INSERT INTO senteloans_transactions (institution_id, branch_id, member_id, account_id, loan_id, transaction_number, type, amount, mode, description, balance_before, balance_after, processed_by, transaction_date, status)
+             VALUES ($1, $2, $3, NULL, $4, $5, 'Loan Repayment', $6, $7, $8, $9, $10, $11, $12, 'Completed')
+             RETURNING id`,
+            [
+              institutionId,
+              loan.branch_id,
+              loan.member_id,
+              loanId,
+              transaction_number,
+              totalApplied,
+              mode,
+              `Loan payment - ${loanId.slice(0, 8)}`,
+              balanceBefore,
+              balanceAfter,
+              actor.id,
+              payment_date,
+            ]
+          )
+          break
+        } catch (e: any) {
+          if (String(e?.code) === "23505") continue
+          throw e
+        }
+      }
+      if (!txRes) return { error: "repayment_transaction_number_generation_failed" as const }
+      const transactionId = String(txRes.rows[0]?.id || "")
+      if (transactionId) {
+        await auditLogger.logInsert(
+          "senteloans_transactions",
+          transactionId,
+          {
+            member_id: loan.member_id,
+            loan_id: loanId,
+            transaction_number,
+            type: "Loan Repayment",
+            amount: totalApplied,
+            mode,
+            description: `Loan payment - ${loanId.slice(0, 8)}`,
+            balance_before: balanceBefore,
+            balance_after: balanceAfter,
+            transaction_date: payment_date,
+            status: "Completed",
+          },
           institutionId,
-          loan.branch_id,
-          loan.member_id,
-          loanId,
-          transaction_number,
-          totalApplied,
-          mode,
-          `Loan payment - ${loanId.slice(0, 8)}`,
-          balanceBefore,
-          balanceAfter,
           actor.id,
-          payment_date,
-        ]
+          undefined,
+          client
+        )
+      }
+
+      await auditLogger.logUpdate(
+        "senteloans_loans",
+        loanId,
+        {
+          outstanding_balance: balanceBefore,
+          status: String(loan.status || ""),
+        },
+        {
+          outstanding_balance: balanceAfter,
+          status: nextStatus,
+          next_payment_date: nextDue ?? null,
+          tenure_months: nextDue !== null ? remainingInstallments : 0,
+        },
+        institutionId,
+        actor.id,
+        undefined,
+        client
       )
 
-      await client.query(
-        `INSERT INTO senteloans_audit_logs (institution_id, branch_id, user_id, table_name, category, operation, record_id, new_values) VALUES ($1, $2, $3, 'senteloans_loan_repayments', 'loans', 'UPDATE', $4, $5)`,
-        [institutionId, loan.branch_id, actor.id, loanId, JSON.stringify({ amount: totalApplied, payment_date, mode })]
+      await auditLogger.logUpdate(
+        "senteloans_loan_repayments",
+        loanId,
+        {
+          total_payment: amount,
+          mode,
+          affected_installments: installmentChanges.map((c) => ({ id: c.id, ...c.old })),
+        },
+        {
+          total_applied: totalApplied,
+          payment_date,
+          mode,
+          affected_installments: installmentChanges.map((c) => ({ id: c.id, ...c.next })),
+        },
+        institutionId,
+        actor.id,
+        undefined,
+        client
       )
 
       return { ok: true, amount_applied: totalApplied, balance_after: balanceAfter }

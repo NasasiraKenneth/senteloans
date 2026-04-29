@@ -4,12 +4,14 @@ import { authOptions } from "@/lib/auth"
 import { runWithAuth } from "@/lib/db"
 import { notificationService } from "@/lib/notifications/notification-service"
 import { NotificationTemplates } from "@/lib/notifications/notification-types"
+import { auditLogger } from "@/lib/audit/audit-logger"
 import {
   buildRepaymentSchedule,
   calculateCompleteDisbursementAmount,
   calculateLoanTerms,
 } from "@/lib/loans/calculations"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
+import { makePrefixedNumber } from "@/lib/ids/prefixed-number"
 
 const PAYMENT_MODES = ["Cash", "Mobile Money", "Bank Transfer", "Cheque", "Card"] as const
 
@@ -635,35 +637,68 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       }
 
       if (disbursementContext) {
-        const disburseTxNumber = `LD-${Date.now()}`
         const amount = Number(disbursementContext.amount || 0)
-        const txRes = await client.query(
-          `INSERT INTO senteloans_transactions (institution_id, branch_id, member_id, account_id, loan_id, transaction_number, type, amount, mode, description, reference_number, balance_before, balance_after, processed_by, transaction_date, status)
-           VALUES ($1, $2, $3, NULL, $4, $5, 'Loan Disbursement', $6, $7, $8, $9, $10, $11, $12, $13, 'Completed')
-           RETURNING id`,
-          [
-            actor.institution_id,
-            loan.branch_id,
-            loan.member_id,
-            id,
-            disburseTxNumber,
-            amount,
-            disbursement_mode,
-            `Loan disbursement - ${id.slice(0, 8)}`,
-            disburseTxNumber,
-            Number(disbursementContext.balanceBefore || 0),
-            Number(disbursementContext.balanceAfter || 0),
-            actor.id,
-            disbursement_date,
-          ]
-        )
+        let txRes: { rows: Array<{ id: string }> } | null = null
+        let disburseTxNumber = ""
+        for (let i = 0; i < 8; i++) {
+          disburseTxNumber = makePrefixedNumber("LD")
+          try {
+            txRes = await client.query(
+              `INSERT INTO senteloans_transactions (institution_id, branch_id, member_id, account_id, loan_id, transaction_number, type, amount, mode, description, reference_number, balance_before, balance_after, processed_by, transaction_date, status)
+               VALUES ($1, $2, $3, NULL, $4, $5, 'Loan Disbursement', $6, $7, $8, $9, $10, $11, $12, $13, 'Completed')
+               RETURNING id`,
+              [
+                actor.institution_id,
+                loan.branch_id,
+                loan.member_id,
+                id,
+                disburseTxNumber,
+                amount,
+                disbursement_mode,
+                `Loan disbursement - ${id.slice(0, 8)}`,
+                disburseTxNumber,
+                Number(disbursementContext.balanceBefore || 0),
+                Number(disbursementContext.balanceAfter || 0),
+                actor.id,
+                disbursement_date,
+              ]
+            )
+            break
+          } catch (e: any) {
+            if (String(e?.code) === "23505") continue
+            throw e
+          }
+        }
+        if (!txRes) return { error: "disbursement_transaction_number_generation_failed" as const }
         const transactionId = String(txRes.rows[0]?.id || "")
         if (!transactionId) return { error: "disbursement_transaction_create_failed" as const }
+        await auditLogger.logInsert(
+          "senteloans_transactions",
+          transactionId,
+          {
+            member_id: loan.member_id,
+            loan_id: id,
+            transaction_number: disburseTxNumber,
+            type: "Loan Disbursement",
+            amount,
+            mode: disbursement_mode,
+            description: `Loan disbursement - ${id.slice(0, 8)}`,
+            balance_before: Number(disbursementContext.balanceBefore || 0),
+            balance_after: Number(disbursementContext.balanceAfter || 0),
+            transaction_date: disbursement_date,
+            status: "Completed",
+          },
+          actor.institution_id,
+          actor.id,
+          undefined,
+          client
+        )
 
-        await client.query(
+        const disbInsertRes = await client.query(
           `INSERT INTO senteloans_loan_disbursements
             (institution_id, branch_id, loan_id, disbursement_type, transaction_id, amount, disbursement_date, notes, created_by)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+           RETURNING id`,
           [
             actor.institution_id,
             loan.branch_id,
@@ -676,11 +711,40 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
             actor.id,
           ]
         )
+        const disbursementId = String(disbInsertRes.rows[0]?.id || "")
+        if (disbursementId) {
+          await auditLogger.logInsert(
+            "senteloans_loan_disbursements",
+            disbursementId,
+            {
+              loan_id: id,
+              disbursement_type: disbursementContext.disbursementTypeLabel,
+              transaction_id: transactionId,
+              amount,
+              disbursement_date,
+              notes: disbursementContext.notes,
+            },
+            actor.institution_id,
+            actor.id,
+            undefined,
+            client
+          )
+        }
       }
 
-      await client.query(
-        `INSERT INTO senteloans_audit_logs (institution_id, branch_id, user_id, table_name, category, operation, record_id, new_values) VALUES ($1, $2, $3, 'senteloans_loans', 'loans', 'UPDATE', $4, $5)`,
-        [actor.institution_id, loan.branch_id, actor.id, id, JSON.stringify(updates)]
+      const oldValues: Record<string, unknown> = {}
+      Object.keys(updates).forEach((k) => {
+        oldValues[k] = (loan as Record<string, unknown>)[k]
+      })
+      await auditLogger.logUpdate(
+        "senteloans_loans",
+        id,
+        oldValues,
+        updates,
+        actor.institution_id,
+        actor.id,
+        undefined,
+        client
       )
 
       if (newStatus) {

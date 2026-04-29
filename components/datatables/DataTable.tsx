@@ -8,6 +8,9 @@ import {FilterField} from "@/components/datatables/TableFilter";
 import {Icon, TabularFilters} from "@/components/datatables/index";
 import TableFilters from "@/components/datatables/TableFilters";
 import {convertDate} from "@/app/lib/utils";
+import { RiFileExcel2Line } from "react-icons/ri"
+import { BsFileEarmarkPdf, BsFiletypePdf } from "react-icons/bs"
+import TooltipButton from "@/components/newUI/tooltip_button";
 
 export interface DataTableColumn<Row> {
     key: string
@@ -46,6 +49,14 @@ export interface DataTableProps<Row> {
     onToggleExpand?: (rowId: string | number) => void
     pagination?: DataTablePaginationConfig
     exportButtons?: React.ReactNode
+    exportActions?: {
+        onExcel?: () => void
+        onPdf?: () => void
+        onSummaryPdf?: () => void
+        excelDisabled?: boolean
+        pdfDisabled?: boolean
+        summaryPdfDisabled?: boolean
+    }
     className?: string
 }
 
@@ -66,6 +77,7 @@ export default function DataTable<Row>({
                                            onToggleExpand,
                                            pagination,
                                            exportButtons,
+                                           exportActions,
                                            className,
                                        }: DataTableProps<Row>) {
 
@@ -170,6 +182,41 @@ export default function DataTable<Row>({
         </tr>
     ), [columns, hasDetail])
 
+    const defaultExportButtons = exportActions ? (
+      <div className="flex items-center gap-2">
+        {exportActions.onExcel ? (
+          <TooltipButton
+            tooltip="Export XLS"
+            onClick={() => exportActions.onExcel?.()}
+            disabled={!!exportActions.excelDisabled}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-green-200 bg-background text-green-600 hover:bg-green-50 hover:text-green-700 transition-colors"
+          >
+            <RiFileExcel2Line className="h-4 w-4" />
+          </TooltipButton>
+        ) : null}
+        {exportActions.onPdf ? (
+          <TooltipButton
+            tooltip="Export PDF"
+            onClick={() => exportActions.onPdf?.()}
+            disabled={!!exportActions.pdfDisabled}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-red-200 bg-background text-red-600 hover:bg-red-50 hover:text-red-700 transition-colors"
+          >
+            <BsFileEarmarkPdf className="h-4 w-4" />
+          </TooltipButton>
+        ) : null}
+        {exportActions.onSummaryPdf ? (
+          <TooltipButton
+            tooltip="Summary PDF"
+            onClick={() => exportActions.onSummaryPdf?.()}
+            disabled={!!exportActions.summaryPdfDisabled}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-red-200 bg-background text-red-600 hover:bg-red-50 hover:text-red-700 transition-colors"
+          >
+            <BsFiletypePdf className="h-4 w-4" />
+          </TooltipButton>
+        ) : null}
+      </div>
+    ) : null
+
     return (
         <div className={`flex flex-col rounded-lg shadow-sm border border-gray-200 ${className ?? ''}`}>
 
@@ -201,7 +248,7 @@ export default function DataTable<Row>({
                                 </span>
                             </div>
 
-                            {exportButtons ? <div className="flex space-x-3">{exportButtons}</div> : null}
+                            {exportButtons ? <div className="flex space-x-3">{exportButtons}</div> : defaultExportButtons}
 
                         </div>
                     </motion.div>
