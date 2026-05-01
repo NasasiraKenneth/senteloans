@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { runWithAuth } from "@/lib/db"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
+import { auditLogger } from "@/lib/audit/audit-logger"
 
 type ActorContext = {
   id: string
@@ -88,6 +89,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     const result = await runWithAuth(session.user.authUserId, async (client) => {
       const actor = await resolveActorContext(client, session.user.authUserId as string)
       if (!actor?.institution_id) return { error: "user_not_linked" as const }
+      const allowed = await hasPermission(client, actor, "view_sacco_loans")
+      if (!allowed) return { error: "missing_permission:view_sacco_loans" as const }
       const isSuperAdmin = String(actor.role || "").trim().toLowerCase() === "super_admin"
       if (!isSuperAdmin && !actor.branch_id) return { error: "actor_branch_missing" as const }
 
@@ -224,8 +227,8 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         : [actor.id, id, actor.institution_id, actor.branch_id]
 
       if (nextStatus === "Active") {
-        const ok = await hasPermission(client, actor, "disburse_loan")
-        if (!ok) return { error: "missing_permission:disburse_loan" as const }
+        const ok = await hasPermission(client, actor, "disburse_sacco_loan")
+        if (!ok) return { error: "missing_permission:disburse_sacco_loan" as const }
 
         const nextPaymentRaw = String(
           body.next_payment_date ?? body.nextPaymentDate ?? "",
@@ -244,8 +247,8 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
           return { error: "invalid_monthly_payment" as const }
         }
 
-        const loanRes = await client.query<{ status: string; tenure_months: number }>(
-          `SELECT l.status, l.tenure_months FROM senteloans_institution_loans l WHERE ${where} LIMIT 1`,
+        const loanRes = await client.query<{ status: string; tenure_months: number; next_payment_date: string | null; maturity_date: string | null; monthly_payment: number | null }>(
+          `SELECT l.status, l.tenure_months, l.next_payment_date, l.maturity_date, l.monthly_payment FROM senteloans_institution_loans l WHERE ${where} LIMIT 1`,
           qparams,
         )
         const row = loanRes.rows[0]
@@ -278,19 +281,39 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
            WHERE ${activeUpdateWhere}`,
           activeUpdateParams,
         )
+        await auditLogger.logUpdate(
+          "senteloans_institution_loans",
+          id,
+          {
+            status: row.status,
+            next_payment_date: row.next_payment_date,
+            maturity_date: row.maturity_date,
+            monthly_payment: row.monthly_payment,
+          },
+          {
+            status: "Active",
+            next_payment_date: nextPaymentDate,
+            maturity_date: maturityDate,
+            monthly_payment: Number(monthlyPayment),
+          },
+          actor.institution_id,
+          actor.id,
+          undefined,
+          client
+        )
         return { ok: true as const, status: "Active" as const }
       }
 
       if (nextStatus === "Approved") {
-        const ok = await hasPermission(client, actor, "approve_loan")
-        if (!ok) return { error: "missing_permission:approve_loan" as const }
+        const ok = await hasPermission(client, actor, "approve_sacco_loan")
+        if (!ok) return { error: "missing_permission:approve_sacco_loan" as const }
       } else {
-        const ok = await hasPermission(client, actor, "reject_loan")
-        if (!ok) return { error: "missing_permission:reject_loan" as const }
+        const ok = await hasPermission(client, actor, "reject_sacco_loan")
+        if (!ok) return { error: "missing_permission:reject_sacco_loan" as const }
       }
 
-      const loanRes = await client.query<{ status: string }>(
-        `SELECT l.status FROM senteloans_institution_loans l WHERE ${where} LIMIT 1`,
+      const loanRes = await client.query<{ status: string; approved_at: string | null; rejected_at: string | null }>(
+        `SELECT l.status, l.approved_at, l.rejected_at FROM senteloans_institution_loans l WHERE ${where} LIMIT 1`,
         qparams,
       )
       const row = loanRes.rows[0]
@@ -302,6 +325,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       }
 
       if (nextStatus === "Approved") {
+        const approvedAt = new Date().toISOString()
         await client.query(
           `UPDATE senteloans_institution_loans
            SET status = 'Approved'::loan_status_type,
@@ -312,7 +336,18 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
            WHERE ${updateWhere}`,
           updateParams,
         )
+        await auditLogger.logUpdate(
+          "senteloans_institution_loans",
+          id,
+          { status: row.status, approved_at: row.approved_at, rejected_at: row.rejected_at },
+          { status: "Approved", approved_at: approvedAt, rejected_at: null },
+          actor.institution_id,
+          actor.id,
+          undefined,
+          client
+        )
       } else {
+        const rejectedAt = new Date().toISOString()
         await client.query(
           `UPDATE senteloans_institution_loans
            SET status = 'Rejected'::loan_status_type,
@@ -323,6 +358,16 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
            WHERE ${updateWhere}`,
           updateParams,
         )
+        await auditLogger.logUpdate(
+          "senteloans_institution_loans",
+          id,
+          { status: row.status, approved_at: row.approved_at, rejected_at: row.rejected_at },
+          { status: "Rejected", approved_at: null, rejected_at: rejectedAt },
+          actor.institution_id,
+          actor.id,
+          undefined,
+          client
+        )
       }
 
       return { ok: true as const, status: nextStatus }
@@ -331,9 +376,10 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     if (result && "error" in result) {
       const err = result.error
       const statusCode =
-        err === "missing_permission:approve_loan" ||
-          err === "missing_permission:reject_loan" ||
-          err === "missing_permission:disburse_loan"
+        err === "missing_permission:approve_sacco_loan" ||
+          err === "missing_permission:reject_sacco_loan" ||
+          err === "missing_permission:disburse_sacco_loan" ||
+          err === "missing_permission:view_sacco_loans"
           ? 403
           : err === "user_not_linked" || err === "cross_branch_operation_forbidden"
             ? 403

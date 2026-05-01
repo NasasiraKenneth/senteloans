@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { runWithAuth } from "@/lib/db"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
+import { auditLogger } from "@/lib/audit/audit-logger"
 
 type ActorContext = {
   id: string
@@ -131,8 +132,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const result = await runWithAuth(session.user.authUserId, async (client) => {
       const actor = await resolveActorContext(client, session.user.authUserId as string)
       if (!actor?.institution_id) return { error: "user_not_linked" as const }
-      const allowed = await hasPermission(client, actor, "disburse_loan")
-      if (!allowed) return { error: "missing_permission:disburse_loan" as const }
+      const allowed = await hasPermission(client, actor, "disburse_sacco_loan")
+      if (!allowed) return { error: "missing_permission:disburse_sacco_loan" as const }
 
       const isSuperAdmin = String(actor.role || "").trim().toLowerCase() === "super_admin"
       if (!isSuperAdmin && !actor.branch_id) return { error: "actor_branch_missing" as const }
@@ -273,6 +274,26 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
           await client.query("ROLLBACK")
           return { error: "update_failed" as const }
         }
+        await auditLogger.logUpdate(
+          "senteloans_institution_loans",
+          loanId,
+          {
+            status: loan.status,
+            disbursement_balance: remainingBefore,
+            disbursement_date: null,
+            outstanding_balance: Number(loan.disbursement_balance ?? 0),
+          },
+          {
+            status: nextStatus,
+            disbursement_balance: newDisbursementBalance,
+            disbursement_date,
+            outstanding_balance: outstandingSeed,
+          },
+          actor.institution_id,
+          actor.id,
+          undefined,
+          client
+        )
 
         await client.query(
           `INSERT INTO senteloans_transactions (
@@ -301,6 +322,27 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
             transactionDate,
           ],
         )
+        await auditLogger.logInsert(
+          "senteloans_transactions",
+          transactionNumber,
+          {
+            transaction_number: transactionNumber,
+            type: "Loan Disbursement",
+            amount: roundMoney(amount),
+            mode: disbursement_mode,
+            description,
+            client_id: loan.client_id,
+            sacco_loan_id: loanId,
+            balance_before: txBalanceBefore,
+            balance_after: newDisbursementBalance,
+            transaction_date: transactionDate,
+            status: "Completed",
+          },
+          actor.institution_id,
+          actor.id,
+          undefined,
+          client
+        )
 
         await client.query("COMMIT")
       } catch (e) {
@@ -319,7 +361,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     if (result && "error" in result) {
       const err = result.error
       const statusCode =
-        err === "missing_permission:disburse_loan" || err === "user_not_linked"
+        err === "missing_permission:disburse_sacco_loan" || err === "user_not_linked"
           ? 403
           : err === "not_found"
             ? 404

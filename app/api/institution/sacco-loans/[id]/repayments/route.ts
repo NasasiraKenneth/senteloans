@@ -7,6 +7,7 @@ import { apiLog, getApiPath } from "@/lib/api/api-log"
 type ActorContext = {
   institution_id: string
   branch_id: string | null
+  role_id: string | null
   role: string | null
 }
 
@@ -15,6 +16,7 @@ async function resolveActorContext(client: any, authUserId: string): Promise<Act
     `SELECT
        u.institution_id,
        u.branch_id,
+       u.role_id,
        CASE
          WHEN r.name = 'System Admin' THEN 'system_admin'
          WHEN r.name = 'Super Admin' THEN 'super_admin'
@@ -29,6 +31,23 @@ async function resolveActorContext(client: any, authUserId: string): Promise<Act
     [authUserId],
   )
   return actorRes.rows[0] || null
+}
+
+async function hasPermission(client: any, actor: ActorContext, permission: string): Promise<boolean> {
+  const role = String(actor.role || "").trim().toLowerCase()
+  if (role === "super_admin") return true
+  if (!actor.role_id || !actor.branch_id) return false
+  const permRes = await client.query(
+    `SELECT 1
+     FROM senteloans_role_permissions rp
+     JOIN senteloans_permissions p ON p.id = rp.permission_id
+     WHERE rp.role_id = $1
+       AND rp.branch_id = $2
+       AND p.name = $3
+     LIMIT 1`,
+    [actor.role_id, actor.branch_id, permission],
+  )
+  return permRes.rowCount > 0
 }
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -66,6 +85,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     const result = await runWithAuth(session.user.authUserId, async (client) => {
       const actor = await resolveActorContext(client, session.user.authUserId as string)
       if (!actor?.institution_id) return { error: "user_not_linked" as const }
+      const allowed = await hasPermission(client, actor, "view_sacco_loans")
+      if (!allowed) return { error: "missing_permission:view_sacco_loans" as const }
       const isSuperAdmin = String(actor.role || "").trim().toLowerCase() === "super_admin"
       if (!isSuperAdmin && !actor.branch_id) return { error: "actor_branch_missing" as const }
 

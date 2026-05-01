@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { runWithAuth } from "@/lib/db"
+import { apiLog, getApiPath } from "@/lib/api/api-log"
 
 type ActorContext = {
   id: string
@@ -61,13 +62,23 @@ function whereScope(actor: ActorContext) {
 }
 
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const apiPath = getApiPath(_req)
   try {
     const { id } = await params
-    if (!id) return NextResponse.json({ error: "missing_id" }, { status: 400 })
+    if (!id) {
+      apiLog("warn", "transactions.detail.invalid", { method: "GET", apiPath, status: 400, error: "missing_id" })
+      return NextResponse.json({ error: "missing_id" }, { status: 400 })
+    }
 
     const session = await getServerSession(authOptions)
-    if (!session?.user?.authUserId) return NextResponse.json({ error: "unauthorized" }, { status: 401 })
-    if (session.user.type !== "staff") return NextResponse.json({ error: "no_app_user_profile" }, { status: 403 })
+    if (!session?.user?.authUserId) {
+      apiLog("warn", "transactions.detail.denied", { method: "GET", apiPath, status: 401, error: "unauthorized" })
+      return NextResponse.json({ error: "unauthorized" }, { status: 401 })
+    }
+    if (session.user.type !== "staff") {
+      apiLog("warn", "transactions.detail.denied", { method: "GET", apiPath, status: 403, error: "no_app_user_profile" })
+      return NextResponse.json({ error: "no_app_user_profile" }, { status: 403 })
+    }
 
     const result = await runWithAuth(session.user.authUserId, async (client) => {
       const actor = await resolveActorContext(client, session.user.authUserId as string)
@@ -163,11 +174,14 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
         errorCode.startsWith("missing_permission:") ? 403 :
         errorCode === "actor_branch_missing" ? 400 :
         errorCode === "no_app_user_profile" ? 403 : 400
+      apiLog("warn", "transactions.detail.denied", { method: "GET", apiPath, status: statusCode, error: errorCode, transactionId: id })
       return NextResponse.json({ error: errorCode }, { status: statusCode })
     }
+    apiLog("info", "transactions.detail.success", { method: "GET", apiPath, status: 200, transactionId: id })
     return NextResponse.json(result)
   } catch (e: unknown) {
     const err = e as Error
+    apiLog("error", "transactions.detail.error", { method: "GET", apiPath, status: 500, error: err?.message || "Unexpected error" })
     return NextResponse.json({ error: err?.message || "Unexpected error" }, { status: 500 })
   }
 }

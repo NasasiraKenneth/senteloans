@@ -178,13 +178,7 @@ export default function TransactionDetailPage() {
   }
 
   const isFeePayment = tx.type === "Fee Payment"
-  const isInflow =
-    tx.type === "Deposit" ||
-    tx.type === "Loan Disbursement" ||
-    tx.type === "Opening Balance" ||
-    tx.type === "Shares Purchase" ||
-    isFeePayment ||
-    tx.type === "Loan Repayment"
+  const isWithdrawal = tx.type === "Withdrawal"
 
   return (
     <>
@@ -224,8 +218,8 @@ export default function TransactionDetailPage() {
                 </CardHeader>
                 <CardContent>
                   <div className="text-sm mb-1">{tx.type}</div>
-                  <div className={`text-2xl font-bold ${isFeePayment ? "text-green-600" : isInflow ? "text-green-600" : "text-red-600"}`}>
-                    {isFeePayment ? "" : isInflow ? "" : "-"}
+                  <div className={`text-2xl font-bold ${isWithdrawal ? "text-red-600" : "text-green-600"}`}>
+                    {isWithdrawal ? "-" : ""}
                     {formatCurrency(Number(tx.amount || 0))}
                   </div>
                 </CardContent>
@@ -326,8 +320,8 @@ export default function TransactionDetailPage() {
                   <TableBody>
                     <TableRow>
                       <TableCell className="font-medium">{formatCurrency(Number(tx.balance_before || 0))}</TableCell>
-                      <TableCell className={isFeePayment ? "text-green-600" : isInflow ? "text-green-600" : "text-red-600"}>
-                        {isFeePayment ? "" : isInflow ? "" : "-"}
+                      <TableCell className={isWithdrawal ? "text-red-600" : "text-green-600"}>
+                        {isWithdrawal ? "-" : ""}
                         {formatCurrency(Number(tx.amount || 0))}
                       </TableCell>
                       <TableCell className="font-medium">{formatCurrency(Number(tx.balance_after || 0))}</TableCell>

@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { runWithAuth } from "@/lib/db"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
+import { auditLogger } from "@/lib/audit/audit-logger"
 
 type ActorContext = {
   id: string
@@ -103,7 +104,7 @@ const buildNextProductCode = async (
 
 /**
  * GET /api/institution/loan-products
- * Query params: status (defaults to Active), limit
+ * Query params: status (defaults to Active), page, pageSize
  */
 export async function GET(req: Request) {
   const apiPath = getApiPath(req)
@@ -121,7 +122,8 @@ export async function GET(req: Request) {
     const url = new URL(req.url)
     const statusParam = url.searchParams.get("status")
     const status = statusParam === null ? "Active" : statusParam
-    const limit = Math.min(Math.max(parseInt(url.searchParams.get("limit") || "100", 10), 1), 200)
+    const page = Math.max(parseInt(url.searchParams.get("page") || "1", 10), 1)
+    const pageSize = Math.min(Math.max(parseInt(url.searchParams.get("pageSize") || "10", 10), 1), 200)
     const q = (url.searchParams.get("q") || "").trim()
     const branchesRaw = (url.searchParams.get("branches") || "").trim()
     const selectedBranchIds = branchesRaw ? branchesRaw.split(",").map((v) => v.trim()).filter(Boolean) : []
@@ -154,7 +156,15 @@ export async function GET(req: Request) {
         params.push(`%${q}%`)
         idx++
       }
-      params.push(limit)
+      const countRes = await client.query<{ c: number }>(
+        `SELECT COUNT(*)::int AS c
+         FROM senteloans_loan_products lp
+         WHERE ${where}`,
+        params
+      )
+      const total = Number(countRes.rows[0]?.c || 0)
+      const offset = (page - 1) * pageSize
+      params.push(pageSize, offset)
       const res = await client.query(
         `SELECT
            lp.id,
@@ -188,10 +198,10 @@ export async function GET(req: Request) {
          WHERE ${where}
          GROUP BY lp.id
          ORDER BY lp.product_name ASC
-         LIMIT $${idx}`,
+         LIMIT $${idx} OFFSET $${idx + 1}`,
         params
       )
-      return { items: res.rows }
+      return { items: res.rows, total, page, pageSize }
     })
 
     if (result && "error" in result) {
@@ -205,7 +215,7 @@ export async function GET(req: Request) {
 
     const items = result?.items || []
     apiLog("info", "loan_products.list.success", { method: "GET", apiPath, status: 200, count: items.length, authUserId: session.user.authUserId })
-    return NextResponse.json({ items })
+    return NextResponse.json({ items, total: result?.total || 0, page: result?.page || page, pageSize: result?.pageSize || pageSize })
   } catch (e: unknown) {
     const err = e as Error
     apiLog("error", "loan_products.list.error", { method: "GET", apiPath, status: 500, error: err?.message || "Unexpected error" })
@@ -309,6 +319,31 @@ export async function POST(req: Request) {
             [product.id, item.eligibility, item.status]
           )
         }
+        await auditLogger.logInsert(
+          "senteloans_loan_products",
+          String(product.id),
+          {
+            product_name,
+            product_code: generatedProductCode,
+            description: description || null,
+            minimum_amount,
+            maximum_amount,
+            interest_rate,
+            minimum_tenure_months,
+            maximum_tenure_months,
+            interest_calculation_method: interest_calculation_method || "reducing_balance",
+            collateral_required: collateral_required || false,
+            guarantors_required: guarantors_required || 0,
+            processing_fee_percentage: processing_fee_percentage || 0,
+            insurance_required: insurance_required || false,
+            status: status || "Active",
+            eligibilities: normalizedEligibilities,
+          },
+          actor.institution_id,
+          actor.id,
+          undefined,
+          client
+        )
 
         await client.query("COMMIT")
         return product

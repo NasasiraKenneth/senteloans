@@ -17,6 +17,7 @@ import { withBranchFilterFirst } from "@/lib/filters/branch-first-filter"
 import { Filter } from "@/types"
 import { useToast } from "@/components/ui/toast"
 import AddNewLoan from "./components/add/newLoan"
+import { downloadLoansExport } from "./export/export"
 
 type LoanUI = {
   id: string
@@ -58,6 +59,8 @@ export default function LoansPage() {
   const [page, setPage] = useState(0)
   const [rowsPerPage, setRowsPerPage] = useState(10)
   const [isAddOpen, setIsAddOpen] = useState(false)
+  const [activeFilters, setActiveFilters] = useState<Record<string, string>>({})
+  const [exporting, setExporting] = useState<"excel" | "pdf" | null>(null)
 
   const onPageChange = (_: unknown, newPage: number) => setPage(newPage)
   const onRowsPerPageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -218,8 +221,56 @@ export default function LoansPage() {
   }, [])
 
   const handleQueryParamsChange = useCallback((params: object) => {
+    const normalized: Record<string, string> = {}
+    Object.entries(params || {}).forEach(([k, v]) => {
+      if (v && typeof v === "object" && "start" in (v as Record<string, unknown>) && "end" in (v as Record<string, unknown>)) {
+        const range = v as { start?: string; end?: string }
+        if (range.start) normalized[`${k}Start`] = range.start
+        if (range.end) normalized[`${k}End`] = range.end
+        return
+      }
+      if (v !== undefined && v !== null && String(v).trim() !== "") normalized[k] = String(v)
+    })
+    setActiveFilters(normalized)
     loadLoans(params)
   }, [])
+
+  const downloadExport = async (format: "excel" | "pdf") => {
+    if (!loanPermissions.viewLoans) {
+      toast({
+        variant: "warning",
+        title: "Access denied",
+        description: "You do not have permission to export loans.",
+      })
+      return
+    }
+    setExporting(format)
+    try {
+      await downloadLoansExport(activeFilters, format)
+      toast({
+        variant: "success",
+        title: `${format === "excel" ? "Excel" : "PDF"} downloaded`,
+        description: `Successfully downloaded loans ${format.toUpperCase()} report.`,
+      })
+    } catch (e: any) {
+      const message = String(e?.message || "")
+      if (message === "missing_permission:view_loans") {
+        toast({
+          variant: "warning",
+          title: "Access denied",
+          description: "You do not have permission to export loans.",
+        })
+      } else {
+        toast({
+          variant: "destructive",
+          title: `Download ${format.toUpperCase()} failed`,
+          description: message || `Failed to download ${format.toUpperCase()}.`,
+        })
+      }
+    } finally {
+      setExporting(null)
+    }
+  }
 
   const handleView = (row: LoanUI) => {
     router.push(`/loans/${row.id}`)
@@ -523,6 +574,12 @@ export default function LoansPage() {
               rows={loans.slice(page * rowsPerPage, (page + 1) * rowsPerPage)}
               loading={loading}
               title={`Loans (${loans.length})`}
+              exportActions={{
+                onExcel: () => void downloadExport("excel"),
+                onPdf: () => void downloadExport("pdf"),
+                excelDisabled: loading || loans.length === 0 || exporting !== null || !loanPermissions.viewLoans,
+                pdfDisabled: loading || loans.length === 0 || exporting !== null || !loanPermissions.viewLoans,
+              }}
               tabularFilters={filters}
               tabularFilterField="status"
               filterFields={filterFields}

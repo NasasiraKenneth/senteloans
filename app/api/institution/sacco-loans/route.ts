@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { runWithAuth } from "@/lib/db"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
+import { auditLogger } from "@/lib/audit/audit-logger"
 
 type ActorContext = {
   id: string
@@ -91,6 +92,8 @@ export async function GET(req: Request) {
     const result = await runWithAuth(session.user.authUserId, async (client) => {
       const actor = await resolveActorContext(client, session.user.authUserId as string)
       if (!actor?.institution_id) return { error: "user_not_linked" as const }
+      const allowed = await hasPermission(client, actor, "view_sacco_loans")
+      if (!allowed) return { error: "missing_permission:view_sacco_loans" as const }
       const isSuperAdmin = String(actor.role || "").trim().toLowerCase() === "super_admin"
       if (!isSuperAdmin && !actor.branch_id) return { error: "actor_branch_missing" as const }
 
@@ -270,8 +273,8 @@ export async function POST(req: Request) {
     const result = await runWithAuth(session.user.authUserId, async (client) => {
       const actor = await resolveActorContext(client, session.user.authUserId as string)
       if (!actor?.institution_id) return { error: "user_not_linked" as const }
-      const allowed = await hasPermission(client, actor, "create_loan")
-      if (!allowed) return { error: "missing_permission:create_loan" as const }
+      const allowed = await hasPermission(client, actor, "create_sacco_loan")
+      if (!allowed) return { error: "missing_permission:create_sacco_loan" as const }
 
       const isSuperAdmin = String(actor.role || "").trim().toLowerCase() === "super_admin"
       if (!isSuperAdmin && !actor.branch_id) return { error: "actor_branch_missing" as const }
@@ -330,13 +333,37 @@ export async function POST(req: Request) {
       )
       const row = ins.rows[0] as { id?: string } | undefined
       if (!row?.id) return { error: "insert_failed" as const }
+      await auditLogger.logInsert(
+        "senteloans_institution_loans",
+        String(row.id),
+        {
+          client_id,
+          loan_product,
+          principal_amount,
+          interest_rate,
+          tenure_months,
+          monthly_payment,
+          total_amount,
+          outstanding_balance: 0,
+          status,
+          loan_type,
+          purpose: purpose || null,
+          collateral_description,
+          application_date,
+          disbursement_balance: principal_amount,
+        },
+        actor.institution_id,
+        actor.id,
+        undefined,
+        client
+      )
       return { ok: true as const, id: String(row.id) }
     })
 
     if (result && "error" in result) {
       const err = result.error
       const statusCode =
-        err === "missing_permission:create_loan" || err === "cross_branch_operation_forbidden" || err === "user_not_linked"
+        err === "missing_permission:create_sacco_loan" || err === "cross_branch_operation_forbidden" || err === "user_not_linked"
           ? 403
           : err === "client_not_found"
             ? 404

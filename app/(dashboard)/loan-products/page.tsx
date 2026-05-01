@@ -13,6 +13,8 @@ import { DataTableColumn } from "@/components/datatables/DataTable"
 import { FilterField } from "@/components/datatables/TableFilter"
 import { ActionButtons } from "@/components/datatables/ActionButtons"
 import { getSession } from "@/lib/session"
+import { withBranchFilterFirst } from "@/lib/filters/branch-first-filter"
+import { downloadLoanProductsExport } from "./export/export"
 import AddNewLoanProduct from "./components/add/addNewLoanProduct"
 import EditLoanProduct from "./components/edit/editLoanProduct"
 import LoanProductExpandableContent from "./components/LoanProductExpandableContent"
@@ -41,10 +43,14 @@ type LoanProduct = {
 export default function LoanProductsPage() {
   const { toast } = useToast()
   const [products, setProducts] = useState<LoanProduct[]>([])
+  const [totalRows, setTotalRows] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [page, setPage] = useState(0)
   const [rowsPerPage, setRowsPerPage] = useState(10)
+  const [activeQueryParams, setActiveQueryParams] = useState<Record<string, unknown>>({})
+  const [activeFilters, setActiveFilters] = useState<Record<string, string>>({})
+  const [exporting, setExporting] = useState<"excel" | "pdf" | null>(null)
   const [currency, setCurrency] = useState("UGX")
   const [isAddOpen, setIsAddOpen] = useState(false)
   const [isEditOpen, setIsEditOpen] = useState(false)
@@ -64,11 +70,6 @@ export default function LoanProductsPage() {
     if (s?.institution?.config?.currency) setCurrency(s.institution.config.currency)
   }, [])
 
-  const onPageChange = (_: unknown, newPage: number) => setPage(newPage)
-  const onRowsPerPageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setPage(0)
-    setRowsPerPage(parseInt(e.target.value, 10))
-  }
   const toggleRowExpand = (rowId: string | number) => {
     setExpandedRowIds((prev) => {
       const next = new Set(prev)
@@ -101,7 +102,7 @@ export default function LoanProductsPage() {
     }
   }
 
-  async function loadProducts(queryParams?: object) {
+  async function loadProducts(queryParams?: object, pageOverride?: number, rowsPerPageOverride?: number) {
     setLoading(true)
     setError(null)
     try {
@@ -114,7 +115,10 @@ export default function LoanProductsPage() {
         })
       }
       if (!params.has("status")) params.set("status", "")
-      params.set("limit", "200")
+      const requestPage = typeof pageOverride === "number" ? pageOverride : page
+      const requestRows = typeof rowsPerPageOverride === "number" ? rowsPerPageOverride : rowsPerPage
+      params.set("page", String(requestPage + 1))
+      params.set("pageSize", String(requestRows))
       const res = await fetch(`/api/institution/loan-products?${params.toString()}`, { cache: "no-store" })
       if (!res.ok) {
         const body = await res.json().catch(() => ({}))
@@ -138,10 +142,12 @@ export default function LoanProductsPage() {
           eligibilities: Array.isArray(p.eligibilities) ? p.eligibilities : [],
         })),
       )
+      setTotalRows(Number(json?.total ?? items.length ?? 0))
       permissionToastShown.current = false
     } catch (e: any) {
       const message = e?.message || "Failed to load loan products"
       setError(message === "missing_permission:view_loan_products" ? null : message)
+      setTotalRows(0)
       if (message === "missing_permission:view_loan_products") {
         if (!permissionToastShown.current) {
           toast({
@@ -194,8 +200,71 @@ export default function LoanProductsPage() {
   }, [])
 
   const handleQueryParamsChange = useCallback((params: object) => {
-    loadProducts(params)
-  }, [])
+    setPage(0)
+    const normalized = params as Record<string, unknown>
+    const flat: Record<string, string> = {}
+    Object.entries(normalized).forEach(([k, v]) => {
+      if (v !== undefined && v !== null && String(v).trim() !== "") flat[k] = String(v)
+    })
+    setActiveFilters(flat)
+    setActiveQueryParams(normalized)
+    void loadProducts(normalized, 0, rowsPerPage)
+  }, [rowsPerPage])
+
+  const handlePageChange = useCallback(
+    (_: unknown, newPage: number) => {
+      setPage(newPage)
+      void loadProducts(activeQueryParams, newPage, rowsPerPage)
+    },
+    [activeQueryParams, rowsPerPage]
+  )
+
+  const handleRowsPerPageChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const next = parseInt(e.target.value, 10)
+      setRowsPerPage(next)
+      setPage(0)
+      void loadProducts(activeQueryParams, 0, next)
+    },
+    [activeQueryParams]
+  )
+
+  const downloadExport = async (format: "excel" | "pdf") => {
+    if (!loanProductPermissions.viewLoanProducts) {
+      toast({
+        variant: "warning",
+        title: "Access denied",
+        description: "You do not have permission to export loan products.",
+      })
+      return
+    }
+    setExporting(format)
+    try {
+      await downloadLoanProductsExport(activeFilters, format)
+      toast({
+        variant: "success",
+        title: `${format === "excel" ? "Excel" : "PDF"} downloaded`,
+        description: `Successfully downloaded loan products ${format.toUpperCase()} report.`,
+      })
+    } catch (e: any) {
+      const message = String(e?.message || "")
+      if (message === "missing_permission:view_loan_products") {
+        toast({
+          variant: "warning",
+          title: "Access denied",
+          description: "You do not have permission to export loan products.",
+        })
+      } else {
+        toast({
+          variant: "destructive",
+          title: `Download ${format.toUpperCase()} failed`,
+          description: message || `Failed to download ${format.toUpperCase()}.`,
+        })
+      }
+    } finally {
+      setExporting(null)
+    }
+  }
 
   const handleEdit = (row: LoanProduct) => {
     setEditProductId(row.id)
@@ -339,17 +408,10 @@ export default function LoanProductsPage() {
       },
     ]
 
-    if (loanProductPermissions.isSuperAdmin) {
-      fields.splice(1, 0, {
-        field: "branches",
-        label: "Branches",
-        options: loanProductPermissions.branches,
-        multiple: true,
-        type: "select",
-      })
-    }
-
-    return fields
+    return withBranchFilterFirst(fields, {
+      isSuperAdmin: loanProductPermissions.isSuperAdmin,
+      branchOptions: loanProductPermissions.branches,
+    })
   }, [loanProductPermissions.isSuperAdmin, loanProductPermissions.branches])
 
   return (
@@ -414,9 +476,15 @@ export default function LoanProductsPage() {
       {/* Table */}
       <DataTable<LoanProduct>
         columns={columns}
-        rows={products.slice(page * rowsPerPage, (page + 1) * rowsPerPage)}
+        rows={products}
         loading={loading}
-        title={`Loan Products (${products.length})`}
+        title={`Loan Products (${totalRows})`}
+        exportActions={{
+          onExcel: () => void downloadExport("excel"),
+          onPdf: () => void downloadExport("pdf"),
+          excelDisabled: loading || products.length === 0 || exporting !== null || !loanProductPermissions.viewLoanProducts,
+          pdfDisabled: loading || products.length === 0 || exporting !== null || !loanProductPermissions.viewLoanProducts,
+        }}
         filterFields={filterFields}
         onQueryParamsChange={handleQueryParamsChange}
         emptyMessage="No loan products found"
@@ -428,9 +496,9 @@ export default function LoanProductsPage() {
         pagination={{
           page,
           rowsPerPage,
-          total: products.length,
-          onPageChange,
-          onRowsPerPageChange,
+          total: totalRows,
+          onPageChange: handlePageChange,
+          onRowsPerPageChange: handleRowsPerPageChange,
           rowsPerPageOptions: [10, 25, 50],
         }}
       />

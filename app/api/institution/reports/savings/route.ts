@@ -108,6 +108,21 @@ export async function GET(req: Request) {
         params.push(openDateEnd)
       }
 
+      const summaryRes = await client.query(
+        `SELECT
+           COUNT(*)::int AS total_accounts,
+           COUNT(*) FILTER (WHERE sa.status = 'Active')::int AS active_accounts,
+           COUNT(*) FILTER (WHERE sa.status = 'Inactive')::int AS inactive_accounts,
+           COUNT(*) FILTER (WHERE sa.status = 'Suspended')::int AS suspended_accounts,
+           COUNT(*) FILTER (WHERE sa.status = 'Closed')::int AS closed_accounts,
+           COALESCE(SUM(sa.total_balance), 0)::numeric AS total_balance,
+           COALESCE(SUM(sa.available_balance), 0)::numeric AS total_available_balance
+         FROM senteloans_savings_accounts sa
+         LEFT JOIN senteloans_members m ON m.id = sa.member_id
+         WHERE ${where}`,
+        params
+      )
+
       params.push(pageSize)
       const rowsRes = await client.query(
         `SELECT
@@ -145,13 +160,14 @@ export async function GET(req: Request) {
         branch_name: String(r.branch_name || ""),
       }))
 
-      const total = items.length
-      const totalBalance = items.reduce((s, i) => s + Number(i.total_balance || i.available_balance || 0), 0)
-      const totalAvailableBalance = items.reduce((s, i) => s + Number(i.available_balance || 0), 0)
-      const activeAccounts = items.filter((i) => i.status === "Active").length
-      const inactiveAccounts = items.filter((i) => i.status === "Inactive").length
-      const suspendedAccounts = items.filter((i) => i.status === "Suspended").length
-      const closedAccounts = items.filter((i) => i.status === "Closed").length
+      const summary = summaryRes.rows[0] as Record<string, unknown>
+      const total = Number(summary?.total_accounts || 0)
+      const totalBalance = Number(summary?.total_balance || 0)
+      const totalAvailableBalance = Number(summary?.total_available_balance || 0)
+      const activeAccounts = Number(summary?.active_accounts || 0)
+      const inactiveAccounts = Number(summary?.inactive_accounts || 0)
+      const suspendedAccounts = Number(summary?.suspended_accounts || 0)
+      const closedAccounts = Number(summary?.closed_accounts || 0)
 
       return {
         total,

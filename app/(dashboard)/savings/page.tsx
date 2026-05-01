@@ -13,6 +13,8 @@ import { FilterField } from "@/components/datatables/TableFilter"
 import { ActionButtons } from "@/components/datatables/ActionButtons"
 import { useToast } from "@/components/ui/toast"
 import Tooltip from "@mui/material/Tooltip"
+import { withBranchFilterFirst } from "@/lib/filters/branch-first-filter"
+import { downloadSavingsExport } from "./export/export"
 
 type SavingsRow = {
   id: string
@@ -42,6 +44,9 @@ export default function SavingsPage() {
   const [error, setError] = useState<string>("")
   const [page, setPage] = useState(0)
   const [rowsPerPage, setRowsPerPage] = useState(10)
+  const [activeQueryParams, setActiveQueryParams] = useState<Record<string, unknown>>({})
+  const [activeFilters, setActiveFilters] = useState<Record<string, string>>({})
+  const [exporting, setExporting] = useState<"excel" | "pdf" | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [savingsPermissions, setSavingsPermissions] = useState({
     viewSavings: false,
@@ -52,13 +57,7 @@ export default function SavingsPage() {
   })
   const permissionToastShown = useRef(false)
 
-  const onPageChange = (_: unknown, newPage: number) => setPage(newPage)
-  const onRowsPerPageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setPage(0)
-    setRowsPerPage(parseInt(e.target.value, 10))
-  }
-
-  async function loadAccounts(queryParams?: object) {
+  async function loadAccounts(queryParams?: object, pageOverride?: number, rowsPerPageOverride?: number) {
     setLoading(true)
     setError("")
     try {
@@ -76,7 +75,10 @@ export default function SavingsPage() {
           }
         })
       }
-      params.set("pageSize", "200")
+      const requestPage = typeof pageOverride === "number" ? pageOverride : page
+      const requestRows = typeof rowsPerPageOverride === "number" ? rowsPerPageOverride : rowsPerPage
+      params.set("page", String(requestPage + 1))
+      params.set("pageSize", String(requestRows))
       const res = await fetch(`/api/institution/savings?${params.toString()}`, { cache: "no-store" })
       const data = await res.json()
       if (!res.ok) {
@@ -140,13 +142,82 @@ export default function SavingsPage() {
   }
 
   useEffect(() => {
-    loadSavingsPermissions()
-    loadAccounts()
+    void loadSavingsPermissions()
+    void loadAccounts()
   }, [])
 
   const handleQueryParamsChange = useCallback((params: object) => {
-    loadAccounts(params)
-  }, [])
+    setPage(0)
+    const normalized = params as Record<string, unknown>
+    const flat: Record<string, string> = {}
+    Object.entries(normalized).forEach(([k, v]) => {
+      if (v && typeof v === "object" && "start" in (v as Record<string, unknown>) && "end" in (v as Record<string, unknown>)) {
+        const range = v as { start?: string; end?: string }
+        if (range.start) flat[`${k}Start`] = range.start
+        if (range.end) flat[`${k}End`] = range.end
+        return
+      }
+      if (v !== undefined && v !== null && String(v).trim() !== "") flat[k] = String(v)
+    })
+    setActiveFilters(flat)
+    setActiveQueryParams(normalized)
+    void loadAccounts(normalized, 0, rowsPerPage)
+  }, [rowsPerPage])
+
+  const handlePageChange = useCallback(
+    (_: unknown, newPage: number) => {
+      setPage(newPage)
+      void loadAccounts(activeQueryParams, newPage, rowsPerPage)
+    },
+    [activeQueryParams, rowsPerPage]
+  )
+
+  const handleRowsPerPageChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const next = parseInt(e.target.value, 10)
+      setRowsPerPage(next)
+      setPage(0)
+      void loadAccounts(activeQueryParams, 0, next)
+    },
+    [activeQueryParams]
+  )
+
+  const downloadExport = async (format: "excel" | "pdf") => {
+    if (!savingsPermissions.viewSavings) {
+      toast({
+        variant: "warning",
+        title: "Access denied",
+        description: "You do not have permission to export savings accounts.",
+      })
+      return
+    }
+    setExporting(format)
+    try {
+      await downloadSavingsExport(activeFilters, format)
+      toast({
+        variant: "success",
+        title: `${format === "excel" ? "Excel" : "PDF"} downloaded`,
+        description: `Successfully downloaded savings accounts ${format.toUpperCase()} report.`,
+      })
+    } catch (e: any) {
+      const message = String(e?.message || "")
+      if (message === "missing_permission:view_savings") {
+        toast({
+          variant: "warning",
+          title: "Access denied",
+          description: "You do not have permission to export savings accounts.",
+        })
+      } else {
+        toast({
+          variant: "destructive",
+          title: `Download ${format.toUpperCase()} failed`,
+          description: message || `Failed to download ${format.toUpperCase()}.`,
+        })
+      }
+    } finally {
+      setExporting(null)
+    }
+  }
 
   const handleView = (row: SavingsRow) => {
     router.push(`/savings/${row.id}`)
@@ -277,6 +348,7 @@ export default function SavingsPage() {
       onClick: handleTransaction,
       variant: "primary",
       icon: <ArrowUpDown className="h-4 w-4" />,
+      disabled: !savingsPermissions.createTransaction,
     },
   ]
 
@@ -300,23 +372,27 @@ export default function SavingsPage() {
         type: "select",
       },
       {
+        field: "account_type",
+        label: "Account Type",
+        options: [
+          { value: "Voluntary", label: "Voluntary" },
+          { value: "Fixed", label: "Fixed" },
+          { value: "Shares", label: "Shares" },
+        ],
+        multiple: true,
+        type: "select",
+      },
+      {
         field: "open_date",
         label: "Search By Open Date Range",
         type: "date-range",
       },
     ]
 
-    if (savingsPermissions.isSuperAdmin) {
-      fields.splice(1, 0, {
-        field: "branches",
-        label: "Branches",
-        options: savingsPermissions.branches,
-        multiple: true,
-        type: "select",
-      })
-    }
-
-    return fields
+    return withBranchFilterFirst(fields, {
+      isSuperAdmin: savingsPermissions.isSuperAdmin,
+      branchOptions: savingsPermissions.branches,
+    })
   }, [savingsPermissions.isSuperAdmin, savingsPermissions.branches])
 
   return (
@@ -414,9 +490,15 @@ export default function SavingsPage() {
 
                 <DataTable<SavingsRow>
                   columns={columns}
-                  rows={accounts.slice(page * rowsPerPage, (page + 1) * rowsPerPage)}
+                  rows={accounts}
                   loading={loading}
                   title={`Savings Accounts (${total})`}
+                  exportActions={{
+                    onExcel: () => void downloadExport("excel"),
+                    onPdf: () => void downloadExport("pdf"),
+                    excelDisabled: loading || accounts.length === 0 || exporting !== null || !savingsPermissions.viewSavings,
+                    pdfDisabled: loading || accounts.length === 0 || exporting !== null || !savingsPermissions.viewSavings,
+                  }}
                   filterFields={filterFields}
                   onQueryParamsChange={handleQueryParamsChange}
                   emptyMessage="No accounts found"
@@ -424,9 +506,9 @@ export default function SavingsPage() {
                   pagination={{
                     page,
                     rowsPerPage,
-                    total: accounts.length,
-                    onPageChange,
-                    onRowsPerPageChange,
+                    total,
+                    onPageChange: handlePageChange,
+                    onRowsPerPageChange: handleRowsPerPageChange,
                   }}
                 />
               </div>

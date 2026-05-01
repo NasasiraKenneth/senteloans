@@ -14,6 +14,8 @@ import { DataTableColumn } from "@/components/datatables/DataTable"
 import { FilterField } from "@/components/datatables/TableFilter"
 import { ActionButtons } from "@/components/datatables/ActionButtons"
 import { useToast } from "@/components/ui/toast"
+import { withBranchFilterFirst } from "@/lib/filters/branch-first-filter"
+import { downloadTransactionsExport } from "./export/export"
 
 type TransactionRow = {
   id: string
@@ -59,7 +61,10 @@ export default function TransactionsPage() {
   const [error, setError] = useState<string>("")
   const [page, setPage] = useState(0)
   const [rowsPerPage, setRowsPerPage] = useState(10)
+  const [activeQueryParams, setActiveQueryParams] = useState<Record<string, unknown>>({})
+  const [activeFilters, setActiveFilters] = useState<Record<string, string>>({})
   const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [exporting, setExporting] = useState<"excel" | "pdf" | null>(null)
   const [txPermissions, setTxPermissions] = useState({
     viewTransactions: false,
     createTransaction: false,
@@ -68,13 +73,18 @@ export default function TransactionsPage() {
   })
   const permissionToastShown = useRef(false)
 
-  const onPageChange = (_: unknown, newPage: number) => setPage(newPage)
+  const onPageChange = (_: unknown, newPage: number) => {
+    setPage(newPage)
+    void loadTransactions(activeQueryParams, newPage, rowsPerPage)
+  }
   const onRowsPerPageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const next = parseInt(e.target.value, 10)
     setPage(0)
-    setRowsPerPage(parseInt(e.target.value, 10))
+    setRowsPerPage(next)
+    void loadTransactions(activeQueryParams, 0, next)
   }
 
-  async function loadTransactions(queryParams?: object) {
+  async function loadTransactions(queryParams?: object, pageOverride?: number, rowsPerPageOverride?: number) {
     setLoading(true)
     setError("")
     try {
@@ -97,8 +107,10 @@ export default function TransactionsPage() {
           }
         })
       }
-      params.set("page", "1")
-      params.set("pageSize", "200")
+      const requestPage = typeof pageOverride === "number" ? pageOverride : page
+      const requestRows = typeof rowsPerPageOverride === "number" ? rowsPerPageOverride : rowsPerPage
+      params.set("page", String(requestPage + 1))
+      params.set("pageSize", String(requestRows))
       const res = await fetch(`/api/institution/transactions?${params.toString()}`, { cache: "no-store" })
       const data = await res.json()
       if (!res.ok) {
@@ -165,8 +177,64 @@ export default function TransactionsPage() {
   }, [])
 
   const handleQueryParamsChange = useCallback((params: object) => {
-    loadTransactions(params)
-  }, [])
+    setPage(0)
+    const normalized = params as Record<string, unknown>
+    setActiveQueryParams(normalized)
+    const flat: Record<string, string> = {}
+    Object.entries(normalized).forEach(([k, v]) => {
+      if (v && typeof v === "object" && "start" in (v as Record<string, unknown>) && "end" in (v as Record<string, unknown>)) {
+        const range = v as { start?: string; end?: string }
+        if (k === "date") {
+          if (range.start) flat["date_from"] = range.start
+          if (range.end) flat["date_to"] = range.end
+        } else {
+          if (range.start) flat[`${k}Start`] = range.start
+          if (range.end) flat[`${k}End`] = range.end
+        }
+        return
+      }
+      if (v !== undefined && v !== null && String(v).trim() !== "") flat[k] = String(v)
+    })
+    setActiveFilters(flat)
+    void loadTransactions(params, 0, rowsPerPage)
+  }, [rowsPerPage])
+
+  const downloadExport = async (format: "excel" | "pdf") => {
+    if (!txPermissions.viewTransactions) {
+      toast({
+        variant: "warning",
+        title: "Access denied",
+        description: "You do not have permission to export transactions.",
+      })
+      return
+    }
+    setExporting(format)
+    try {
+      await downloadTransactionsExport(activeFilters, format)
+      toast({
+        variant: "success",
+        title: `${format === "excel" ? "Excel" : "PDF"} downloaded`,
+        description: `Successfully downloaded transactions ${format.toUpperCase()} report.`,
+      })
+    } catch (e: any) {
+      const message = String(e?.message || "")
+      if (message === "missing_permission:view_transactions") {
+        toast({
+          variant: "warning",
+          title: "Access denied",
+          description: "You do not have permission to export transactions.",
+        })
+      } else {
+        toast({
+          variant: "destructive",
+          title: `Download ${format.toUpperCase()} failed`,
+          description: message || `Failed to download ${format.toUpperCase()}.`,
+        })
+      }
+    } finally {
+      setExporting(null)
+    }
+  }
 
   const handleView = (row: TransactionRow) => {
     router.push(`/transactions/${row.id}`)
@@ -341,17 +409,10 @@ export default function TransactionsPage() {
       },
     ]
 
-    if (txPermissions.isSuperAdmin) {
-      fields.splice(1, 0, {
-        field: "branches",
-        label: "Branches",
-        options: txPermissions.branches,
-        multiple: true,
-        type: "select",
-      })
-    }
-
-    return fields
+    return withBranchFilterFirst(fields, {
+      isSuperAdmin: txPermissions.isSuperAdmin,
+      branchOptions: txPermissions.branches,
+    })
   }, [txPermissions.isSuperAdmin, txPermissions.branches])
 
   return (
@@ -456,7 +517,7 @@ export default function TransactionsPage() {
 
                 <DataTable<TransactionRow>
                   columns={columns}
-                  rows={transactions.slice(page * rowsPerPage, (page + 1) * rowsPerPage)}
+                  rows={transactions}
                   loading={loading}
                   title={`All Transactions (${transactions.length}${total > transactions.length ? ` of ${total}` : ""})`}
                   filterFields={filterFields}
@@ -466,10 +527,16 @@ export default function TransactionsPage() {
                   pagination={{
                     page,
                     rowsPerPage,
-                    total: transactions.length,
+                    total,
                     onPageChange,
                     onRowsPerPageChange,
                     rowsPerPageOptions: [10, 25, 50],
+                  }}
+                  exportActions={{
+                    onExcel: () => void downloadExport("excel"),
+                    onPdf: () => void downloadExport("pdf"),
+                    excelDisabled: loading || total === 0 || exporting !== null,
+                    pdfDisabled: loading || total === 0 || exporting !== null,
                   }}
                 />
               </div>

@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { runWithAuth } from "@/lib/db"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
+import { auditLogger } from "@/lib/audit/audit-logger"
 
 type ActorContext = {
   id: string
@@ -209,6 +210,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
  */
 export async function PUT(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const apiPath = getApiPath(req)
+  let productId = ""
   try {
     const session = await getServerSession(authOptions)
     if (!session?.user?.authUserId) {
@@ -221,6 +223,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     }
 
     const { id } = await params
+    productId = id
     const body = await req.json()
     const {
       product_name, product_code, description,
@@ -244,7 +247,12 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       if ("error" in scope) return { error: scope.error }
 
       const currentRes = await client.query(
-        `SELECT lp.product_code, $2::uuid AS institution_id, i.name AS institution_name
+        `SELECT lp.product_name, lp.product_code, lp.description,
+                lp.minimum_amount, lp.maximum_amount, lp.interest_rate,
+                lp.minimum_tenure_months, lp.maximum_tenure_months,
+                lp.interest_calculation_method, lp.collateral_required, lp.guarantors_required,
+                lp.processing_fee_percentage, lp.insurance_required, lp.status,
+                $2::uuid AS institution_id, i.name AS institution_name
          FROM senteloans_loan_products lp
          JOIN senteloans_institutions i ON i.id = $2
          WHERE ${scope.clause}`,
@@ -265,7 +273,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
               String(current.institution_id),
               String(current.institution_name || ""),
               requestedShortCode,
-              id
+              productId
             )
 
       const normalizedEligibilities = Array.isArray(eligibilities)
@@ -284,6 +292,13 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
 
       await client.query("BEGIN")
       try {
+        const oldEligRes = await client.query(
+          `SELECT eligibility, status
+           FROM senteloans_loan_product_eligibilities
+           WHERE loan_product_id = $1
+           ORDER BY created_at ASC`,
+          [id]
+        )
         await client.query(
           `UPDATE senteloans_loan_products SET
              product_name = $1, product_code = $2, description = $3,
@@ -302,14 +317,14 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
             interest_calculation_method || "reducing_balance",
             collateral_required || false, guarantors_required || 0,
             processing_fee_percentage || 0, insurance_required || false,
-            status || "Active", id, actor.institution_id,
+            status || "Active", productId, actor.institution_id,
             String(actor.role || "").trim().toLowerCase() === "super_admin" ? null : actor.branch_id,
           ]
         )
 
         await client.query(
           `DELETE FROM senteloans_loan_product_eligibilities WHERE loan_product_id = $1`,
-          [id]
+          [productId]
         )
 
         for (const item of normalizedEligibilities) {
@@ -318,9 +333,51 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
              VALUES ($1, $2, $3)
              ON CONFLICT (loan_product_id, eligibility)
              DO UPDATE SET status = EXCLUDED.status, updated_at = NOW()`,
-            [id, item.eligibility, item.status]
+            [productId, item.eligibility, item.status]
           )
         }
+        await auditLogger.logUpdate(
+          "senteloans_loan_products",
+          productId,
+          {
+            product_name: current.product_name,
+            product_code: current.product_code,
+            description: current.description,
+            minimum_amount: current.minimum_amount,
+            maximum_amount: current.maximum_amount,
+            interest_rate: current.interest_rate,
+            minimum_tenure_months: current.minimum_tenure_months,
+            maximum_tenure_months: current.maximum_tenure_months,
+            interest_calculation_method: current.interest_calculation_method,
+            collateral_required: current.collateral_required,
+            guarantors_required: current.guarantors_required,
+            processing_fee_percentage: current.processing_fee_percentage,
+            insurance_required: current.insurance_required,
+            status: current.status,
+            eligibilities: oldEligRes.rows,
+          },
+          {
+            product_name,
+            product_code: finalProductCode,
+            description: description || null,
+            minimum_amount,
+            maximum_amount,
+            interest_rate,
+            minimum_tenure_months,
+            maximum_tenure_months,
+            interest_calculation_method: interest_calculation_method || "reducing_balance",
+            collateral_required: collateral_required || false,
+            guarantors_required: guarantors_required || 0,
+            processing_fee_percentage: processing_fee_percentage || 0,
+            insurance_required: insurance_required || false,
+            status: status || "Active",
+            eligibilities: normalizedEligibilities,
+          },
+          actor.institution_id,
+          actor.id,
+          undefined,
+          client
+        )
 
         await client.query("COMMIT")
         return { ok: true }
@@ -337,27 +394,27 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
         result.error === "invalid_product_code" ? 400 :
         result.error === "no_app_user_profile" ? 403 :
         result.error === "actor_branch_missing" ? 400 : 400
-      apiLog("warn", "loan_products.update.denied", { method: "PUT", apiPath, status: statusCode, error: result.error, authUserId: session.user.authUserId, productId: id })
+      apiLog("warn", "loan_products.update.denied", { method: "PUT", apiPath, status: statusCode, error: result.error, authUserId: session.user.authUserId, productId })
       return NextResponse.json({ error: result.error === "product_not_found" ? "Product not found" : result.error === "invalid_product_code" ? "Invalid product code" : result.error }, { status: statusCode })
     }
 
-    apiLog("info", "loan_products.update.success", { method: "PUT", apiPath, status: 200, authUserId: session.user.authUserId, productId: id })
+    apiLog("info", "loan_products.update.success", { method: "PUT", apiPath, status: 200, authUserId: session.user.authUserId, productId })
     return NextResponse.json({ success: true })
   } catch (e: unknown) {
     const err = e as Error
     if (err?.message === "product_not_found") {
-      apiLog("warn", "loan_products.update.not_found", { method: "PUT", apiPath, status: 404, productId: id })
+      apiLog("warn", "loan_products.update.not_found", { method: "PUT", apiPath, status: 404, productId })
       return NextResponse.json({ error: "Product not found" }, { status: 404 })
     }
     if (err?.message === "invalid_product_code") {
-      apiLog("warn", "loan_products.update.invalid_request", { method: "PUT", apiPath, status: 400, error: "invalid_product_code", productId: id })
+      apiLog("warn", "loan_products.update.invalid_request", { method: "PUT", apiPath, status: 400, error: "invalid_product_code", productId })
       return NextResponse.json({ error: "Invalid product code" }, { status: 400 })
     }
     if (err?.message?.includes("uk_loan_products_code")) {
-      apiLog("warn", "loan_products.update.conflict", { method: "PUT", apiPath, status: 409, error: "uk_loan_products_code", productId: id })
+      apiLog("warn", "loan_products.update.conflict", { method: "PUT", apiPath, status: 409, error: "uk_loan_products_code", productId })
       return NextResponse.json({ error: "A product with this code already exists" }, { status: 409 })
     }
-    apiLog("error", "loan_products.update.error", { method: "PUT", apiPath, status: 500, error: err?.message || "Unexpected error", productId: id })
+    apiLog("error", "loan_products.update.error", { method: "PUT", apiPath, status: 500, error: err?.message || "Unexpected error", productId })
     return NextResponse.json({ error: err?.message || "Unexpected error" }, { status: 500 })
   }
 }

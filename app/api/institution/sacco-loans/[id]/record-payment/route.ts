@@ -3,11 +3,13 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { runWithAuth } from "@/lib/db"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
+import { auditLogger } from "@/lib/audit/audit-logger"
 
 type ActorContext = {
   id: string
   institution_id: string
   branch_id: string | null
+  role_id: string | null
   role: string | null
 }
 
@@ -17,6 +19,7 @@ async function resolveActorContext(client: any, authUserId: string): Promise<Act
        u.id,
        u.institution_id,
        u.branch_id,
+       u.role_id,
        CASE
          WHEN r.name = 'System Admin' THEN 'system_admin'
          WHEN r.name = 'Super Admin' THEN 'super_admin'
@@ -31,6 +34,23 @@ async function resolveActorContext(client: any, authUserId: string): Promise<Act
     [authUserId],
   )
   return actorRes.rows[0] || null
+}
+
+async function hasPermission(client: any, actor: ActorContext, permission: string): Promise<boolean> {
+  const role = String(actor.role || "").trim().toLowerCase()
+  if (role === "super_admin") return true
+  if (!actor.role_id || !actor.branch_id) return false
+  const permRes = await client.query(
+    `SELECT 1
+     FROM senteloans_role_permissions rp
+     JOIN senteloans_permissions p ON p.id = rp.permission_id
+     WHERE rp.role_id = $1
+       AND rp.branch_id = $2
+       AND p.name = $3
+     LIMIT 1`,
+    [actor.role_id, actor.branch_id, permission],
+  )
+  return permRes.rowCount > 0
 }
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -98,6 +118,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const result = await runWithAuth(session.user.authUserId, async (client) => {
       const actor = await resolveActorContext(client, session.user.authUserId as string)
       if (!actor?.institution_id) return { error: "user_not_linked" as const }
+      const allowed = await hasPermission(client, actor, "record_sacco_loan_payment")
+      if (!allowed) return { error: "missing_permission:record_sacco_loan_payment" as const }
       const isSuperAdmin = String(actor.role || "").trim().toLowerCase() === "super_admin"
       if (!isSuperAdmin && !actor.branch_id) return { error: "actor_branch_missing" as const }
 
@@ -137,12 +159,39 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
       await client.query("BEGIN")
       try {
-        await client.query(
+        const repaymentRes = await client.query<{ id: string }>(
           `INSERT INTO senteloans_institution_loan_repayments (
              loan_id, due_date, amount_paid, payment_date, status
-           ) VALUES ($1, $2, $3, $4, 'Paid'::repayment_status)`,
+           ) VALUES ($1, $2, $3, $4, 'Paid'::repayment_status)
+           RETURNING id`,
           [loanId, currentDueDate, amount, payment_date],
         )
+        const repaymentId = String(repaymentRes.rows[0]?.id || "")
+        if (!repaymentId) {
+          await client.query("ROLLBACK")
+          return { error: "repayment_insert_failed" as const }
+        }
+        await auditLogger.logInsert(
+          "senteloans_institution_loan_repayments",
+          repaymentId,
+          {
+            loan_id: loanId,
+            due_date: currentDueDate,
+            amount_paid: amount,
+            payment_date,
+            status: "Paid",
+          },
+          actor.institution_id,
+          actor.id,
+          undefined,
+          client
+        )
+
+        const loanStatusBeforeRes = await client.query<{ status: string }>(
+          `SELECT status FROM senteloans_institution_loans WHERE id = $1 LIMIT 1`,
+          [loanId],
+        )
+        const loanStatusBefore = String(loanStatusBeforeRes.rows[0]?.status || "")
 
         await client.query(
           `UPDATE senteloans_institution_loans
@@ -154,6 +203,26 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
                updated_at = NOW()
            WHERE id = $5`,
           [nextTenureMonths, outstandingAfter, next_payment_date, actor.id, loanId, isClosed],
+        )
+        await auditLogger.logUpdate(
+          "senteloans_institution_loans",
+          loanId,
+          {
+            tenure_months: Number(loan.tenure_months ?? 0),
+            outstanding_balance: outstandingBefore,
+            next_payment_date: currentDueDate,
+            status: loanStatusBefore,
+          },
+          {
+            tenure_months: nextTenureMonths,
+            outstanding_balance: outstandingAfter,
+            next_payment_date: isClosed ? null : next_payment_date,
+            status: isClosed ? "Closed" : loanStatusBefore,
+          },
+          actor.institution_id,
+          actor.id,
+          undefined,
+          client
         )
 
         await client.query(
@@ -183,6 +252,27 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
             `${payment_date}T12:00:00.000Z`,
           ],
         )
+        await auditLogger.logInsert(
+          "senteloans_transactions",
+          txNumber,
+          {
+            transaction_number: txNumber,
+            type: "Loan Repayment",
+            amount,
+            mode: payment_mode,
+            description,
+            client_id: loan.client_id,
+            sacco_loan_id: loanId,
+            balance_before: outstandingBefore,
+            balance_after: outstandingAfter,
+            transaction_date: `${payment_date}T12:00:00.000Z`,
+            status: "Completed",
+          },
+          actor.institution_id,
+          actor.id,
+          undefined,
+          client
+        )
 
         await client.query("COMMIT")
       } catch (e) {
@@ -196,7 +286,13 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     if (result && "error" in result) {
       const err = result.error
       const statusCode =
-        err === "user_not_linked" ? 403 : err === "actor_branch_missing" ? 400 : err === "not_found" ? 404 : 400
+        err === "user_not_linked" || err === "missing_permission:record_sacco_loan_payment"
+          ? 403
+          : err === "actor_branch_missing"
+            ? 400
+            : err === "not_found"
+              ? 404
+              : 400
       apiLog("warn", "sacco_loans.record_payment.denied", { method: "POST", apiPath, status: statusCode, error: err })
       return NextResponse.json({ error: err }, { status: statusCode })
     }

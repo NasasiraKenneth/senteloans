@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { runWithAuth } from "@/lib/db"
+import { apiLog, getApiPath } from "@/lib/api/api-log"
 
 type ActorContext = {
   id: string
@@ -52,11 +53,18 @@ async function hasPermission(client: any, actor: ActorContext, permission: strin
   return permRes.rowCount > 0
 }
 
-export async function GET() {
+export async function GET(req: Request) {
+  const apiPath = getApiPath(req)
   try {
     const session = await getServerSession(authOptions)
-    if (!session?.user?.authUserId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    if (session.user.type !== "staff") return NextResponse.json({ error: "no_app_user_profile" }, { status: 403 })
+    if (!session?.user?.authUserId) {
+      apiLog("warn", "transactions.permissions.denied", { method: "GET", apiPath, status: 401, error: "unauthorized" })
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+    if (session.user.type !== "staff") {
+      apiLog("warn", "transactions.permissions.denied", { method: "GET", apiPath, status: 403, error: "no_app_user_profile" })
+      return NextResponse.json({ error: "no_app_user_profile" }, { status: 403 })
+    }
 
     const permissions = await runWithAuth(session.user.authUserId, async (client) => {
       const actor = await resolveActorContext(client, session.user.authUserId as string)
@@ -89,10 +97,15 @@ export async function GET() {
       }
     })
 
-    if (!permissions) return NextResponse.json({ error: "no_app_user_profile" }, { status: 403 })
+    if (!permissions) {
+      apiLog("warn", "transactions.permissions.denied", { method: "GET", apiPath, status: 403, error: "no_app_user_profile" })
+      return NextResponse.json({ error: "no_app_user_profile" }, { status: 403 })
+    }
+    apiLog("info", "transactions.permissions.success", { method: "GET", apiPath, status: 200, authUserId: session.user.authUserId })
     return NextResponse.json({ permissions })
   } catch (e: unknown) {
     const err = e as Error
+    apiLog("error", "transactions.permissions.error", { method: "GET", apiPath, status: 500, error: err?.message || "Unexpected error" })
     return NextResponse.json({ error: err?.message || "Unexpected error" }, { status: 500 })
   }
 }

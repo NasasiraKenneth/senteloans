@@ -11,6 +11,9 @@ import { CreditCard, AlertTriangle, Calendar, Clock, Plus, Eye } from "lucide-re
 import { ActionButtons } from "@/components/datatables/ActionButtons"
 import { useToast } from "@/components/ui/toast"
 import { getInitials } from "@/lib/invoices/utils"
+import { getSession } from "@/lib/session"
+import { withBranchFilterFirst } from "@/lib/filters/branch-first-filter"
+import { downloadSaccoLoansExport } from "./export/export"
 import AddSaccoLoan from "./components/add/add"
 
 type SaccoLoanRow = {
@@ -81,6 +84,10 @@ export default function SaccoLoansPage() {
   const [rowsPerPage, setRowsPerPage] = useState(10)
   const [activeQueryParams, setActiveQueryParams] = useState<Record<string, unknown>>({})
   const [addOpen, setAddOpen] = useState(false)
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false)
+  const [branchOptions, setBranchOptions] = useState<Array<{ value: string; label: string }>>([])
+  const [activeFilters, setActiveFilters] = useState<Record<string, string>>({})
+  const [exporting, setExporting] = useState<"excel" | "pdf" | null>(null)
 
   const loadLoans = useCallback(
     async (queryParams?: object, pageOverride?: number, rowsPerPageOverride?: number) => {
@@ -142,15 +149,86 @@ export default function SaccoLoansPage() {
     void loadLoans()
   }, [loadLoans])
 
+  useEffect(() => {
+    const session = getSession()
+    const role = String(session?.role || "").trim().toLowerCase()
+    const superAdmin = role === "super_admin"
+    setIsSuperAdmin(superAdmin)
+    if (!superAdmin) {
+      setBranchOptions([])
+      return
+    }
+    void (async () => {
+      try {
+        const res = await fetch("/api/institution/branches", { cache: "no-store" })
+        const body = await res.json().catch(() => ({}))
+        if (!res.ok) {
+          setBranchOptions([])
+          return
+        }
+        const raw = Array.isArray(body?.branches) ? body.branches : []
+        setBranchOptions(
+          raw
+            .map((b: Record<string, unknown>) => ({
+              value: String(b.id || ""),
+              label: String(b.name || ""),
+            }))
+            .filter((b: { value: string; label: string }) => Boolean(b.value)),
+        )
+      } catch {
+        setBranchOptions([])
+      }
+    })()
+  }, [])
+
   const handleQueryParamsChange = useCallback(
     (params: object) => {
       setPage(0)
-      const normalized = params as Record<string, unknown>
+      const normalized: Record<string, string> = {}
+      Object.entries((params || {}) as Record<string, unknown>).forEach(([k, v]) => {
+        if (v && typeof v === "object" && "start" in (v as Record<string, unknown>) && "end" in (v as Record<string, unknown>)) {
+          const range = v as { start?: string; end?: string }
+          if (range.start) normalized[`${k}Start`] = range.start
+          if (range.end) normalized[`${k}End`] = range.end
+          return
+        }
+        if (v !== undefined && v !== null && String(v).trim() !== "") normalized[k] = String(v)
+      })
+      setActiveFilters(normalized)
       setActiveQueryParams(normalized)
       void loadLoans(normalized, 0, rowsPerPage)
     },
     [loadLoans, rowsPerPage],
   )
+
+  const downloadExport = async (format: "excel" | "pdf") => {
+    setExporting(format)
+    try {
+      await downloadSaccoLoansExport(activeFilters, format)
+      toast({
+        variant: "success",
+        title: `${format === "excel" ? "Excel" : "PDF"} downloaded`,
+        description: `Successfully downloaded sacco loans ${format.toUpperCase()} report.`,
+      })
+    } catch (e: any) {
+      const message = String(e?.message || "")
+      if (message === "missing_permission:view_sacco_loans") {
+        toast({
+          variant: "warning",
+          title: "Access denied",
+          description: "You do not have permission to export sacco loans.",
+        })
+      } else {
+        toast({
+          variant: "destructive",
+          title: `Download ${format.toUpperCase()} failed`,
+          description: message || `Failed to download ${format.toUpperCase()}.`,
+        })
+      }
+    } finally {
+      setExporting(null)
+    }
+  }
 
   const handlePageChange = useCallback(
     (_: unknown, newPage: number) => {
@@ -171,14 +249,55 @@ export default function SaccoLoansPage() {
   )
 
   const filterFields = useMemo<FilterField[]>(
-    () => [
-      {
-        field: "q",
-        label: "Search client name, loan product, or purpose",
-        type: "text",
-      },
-    ],
-    [],
+    () => {
+      const fields: FilterField[] = [
+        {
+          field: "q",
+          label: "Search client name, loan product, or purpose",
+          type: "text",
+        },
+        {
+          field: "loan_type",
+          label: "Loan Type",
+          options: [
+            { value: "normal", label: "Normal" },
+            { value: "top_up", label: "Top Up" },
+            { value: "buy_off", label: "Buy Off" },
+            { value: "sell_off", label: "Sell Off" },
+          ],
+          multiple: false,
+          type: "select",
+        },
+        {
+          field: "remainingTenure",
+          label: "Remaining Tenure",
+          options: [
+            { value: "eq1", label: "1 month" },
+            { value: "lte3", label: "<= 3 months" },
+            { value: "lte6", label: "<= 6 months" },
+            { value: "lte12", label: "<= 12 months" },
+            { value: "gt12", label: "> 12 months" },
+          ],
+          multiple: false,
+          type: "select",
+        },
+        {
+          field: "applicationDate",
+          label: "Search By Application Date Range",
+          type: "date-range",
+        },
+        {
+          field: "nextPaymentDate",
+          label: "Search By Next Payment Date Range",
+          type: "date-range",
+        },
+      ]
+      return withBranchFilterFirst(fields, {
+        isSuperAdmin,
+        branchOptions,
+      })
+    },
+    [isSuperAdmin, branchOptions],
   )
 
   const tabularFilters: Filter[] = useMemo(
@@ -356,6 +475,12 @@ export default function SaccoLoansPage() {
         rows={rows}
         loading={loading}
         title={`Sacco loans (${totalRows})`}
+        exportActions={{
+          onExcel: () => void downloadExport("excel"),
+          onPdf: () => void downloadExport("pdf"),
+          excelDisabled: loading || rows.length === 0 || exporting !== null,
+          pdfDisabled: loading || rows.length === 0 || exporting !== null,
+        }}
         filterFields={filterFields}
         tabularFilters={tabularFilters}
         tabularFilterField="status"

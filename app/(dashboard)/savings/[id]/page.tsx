@@ -7,46 +7,136 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import DataTable, { DataTableColumn } from "@/components/datatables/DataTable"
-
-import { ArrowLeft, PiggyBank, User, Calendar, ArrowUpDown, TrendingUp, Edit, X } from "lucide-react"
-import Link from "next/link"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useToast } from "@/components/ui/toast"
+import EditAccount from "../edit_account/edit"
+import type { SavingsAccountFormValues } from "../forms/accountForm"
+import type { FilterField } from "@/components/datatables/TableFilter"
+import { downloadAccountStatementExport } from "./export/export"
+
+import { ArrowLeft, PiggyBank, User, ArrowUpDown, TrendingUp, Edit } from "lucide-react"
+import Link from "next/link"
+
+const TRANSACTION_TYPE_OPTIONS = [
+  { value: "Deposit", label: "Deposit" },
+  { value: "Withdrawal", label: "Withdrawal" },
+  { value: "Opening Balance", label: "Opening Balance" },
+  { value: "Loan Repayment", label: "Loan Repayment" },
+  { value: "Membership Fee", label: "Membership Fee" },
+  { value: "Shares Purchase", label: "Shares Purchase" },
+]
+
+const TRANSACTION_MODE_OPTIONS = [
+  { value: "Cash", label: "Cash" },
+  { value: "Mobile Money", label: "Mobile Money" },
+  { value: "Bank Transfer", label: "Bank Transfer" },
+  { value: "Cheque", label: "Cheque" },
+  { value: "Card", label: "Card" },
+]
+
+const TRANSACTION_TYPE_STYLES: Record<string, string> = {
+  Deposit: "bg-green-100 text-green-700 border border-green-200",
+  Withdrawal: "bg-red-100 text-red-700 border border-red-200",
+  "Opening Balance": "bg-emerald-100 text-emerald-700 border border-emerald-200",
+  "Loan Repayment": "bg-indigo-100 text-indigo-700 border border-indigo-200",
+  "Loan Disbursement": "bg-amber-100 text-amber-700 border border-amber-200",
+  "Membership Fee": "bg-cyan-100 text-cyan-700 border border-cyan-200",
+  "Shares Purchase": "bg-purple-100 text-purple-700 border border-purple-200",
+  "Investment Deposit": "bg-teal-100 text-teal-700 border border-teal-200",
+}
 
 export default function AccountDetailsPage() {
   const params = useParams()
   const accountId = params.id as string
-  const [loading, setLoading] = useState(true)
+  const [accountLoading, setAccountLoading] = useState(true)
+  const [transactionsLoading, setTransactionsLoading] = useState(false)
   const [error, setError] = useState<string>("")
   const [account, setAccount] = useState<any>(null)
   const [transactions, setTransactions] = useState<any[]>([])
+  const [txTotal, setTxTotal] = useState(0)
   const [txPage, setTxPage] = useState(0)
-  const [txRowsPerPage, setTxRowsPerPage] = useState(6)
-  const [editing, setEditing] = useState(false)
-  const [statusDraft, setStatusDraft] = useState<string>("")
+  const [txRowsPerPage, setTxRowsPerPage] = useState(10)
+  const [activeTxQueryParams, setActiveTxQueryParams] = useState<Record<string, unknown>>({})
+  const [activeTxFilters, setActiveTxFilters] = useState<Record<string, string>>({})
+  const [editOpen, setEditOpen] = useState(false)
+  const [savingEdit, setSavingEdit] = useState(false)
+  const [exporting, setExporting] = useState<"excel" | "pdf" | null>(null)
+  const [detailPermissions, setDetailPermissions] = useState({
+    editAccount: false,
+    generateAccountStatements: false,
+  })
   const { toast } = useToast()
 
-  useEffect(() => {
-    let abort = false
-    ;(async () => {
-      setLoading(true)
-      setError("")
-      try {
-        const res = await fetch(`/api/institution/savings/${accountId}`, { cache: "no-store" })
-        const data = await res.json()
-        if (!res.ok) throw new Error(data.error || "Failed to load account")
-        if (abort) return
-        setAccount(data.account)
-        setStatusDraft(data.account?.status || "")
-        setTransactions(data.transactions || [])
-      } catch (e: any) {
-        if (!abort) setError(e?.message || "Failed to load account")
-      } finally {
-        if (!abort) setLoading(false)
+  const serializeQueryParams = (value: Record<string, unknown>) => {
+    const entries = Object.entries(value).sort(([a], [b]) => a.localeCompare(b))
+    return JSON.stringify(entries)
+  }
+
+  const loadAccountDetails = async (queryParams?: Record<string, unknown>, pageOverride?: number, rowsPerPageOverride?: number) => {
+    const isInitialLoad = accountLoading && !account
+    if (isInitialLoad) {
+      setAccountLoading(true)
+    } else {
+      setTransactionsLoading(true)
+    }
+    setError("")
+    try {
+      const params = new URLSearchParams()
+      if (queryParams) {
+        Object.entries(queryParams).forEach(([key, value]) => {
+          if (value && typeof value === "object" && "start" in (value as Record<string, unknown>) && "end" in (value as Record<string, unknown>)) {
+            const range = value as { start?: string; end?: string }
+            if (range.start) params.set(`${key}Start`, range.start)
+            if (range.end) params.set(`${key}End`, range.end)
+            return
+          }
+          if (value !== undefined && value !== null && String(value).trim() !== "") params.set(key, String(value))
+        })
       }
-    })()
-    return () => { abort = true }
+      const requestPage = typeof pageOverride === "number" ? pageOverride : txPage
+      const requestRows = typeof rowsPerPageOverride === "number" ? rowsPerPageOverride : txRowsPerPage
+      params.set("page", String(requestPage + 1))
+      params.set("pageSize", String(requestRows))
+      const res = await fetch(`/api/institution/savings/${accountId}?${params.toString()}`, { cache: "no-store" })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || "Failed to load account")
+      setAccount(data.account)
+      setTransactions(data.transactions || [])
+      setTxTotal(Number(data?.transactionPagination?.total || 0))
+    } catch (e: any) {
+      setError(e?.message || "Failed to load account")
+    } finally {
+      if (isInitialLoad) {
+        setAccountLoading(false)
+      }
+      setTransactionsLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    void loadAccountDetails()
   }, [accountId])
+
+  useEffect(() => {
+    let cancelled = false
+    const loadPermissions = async () => {
+      try {
+        const res = await fetch("/api/institution/savings/permissions", { cache: "no-store" })
+        if (!res.ok) return
+        const data = await res.json()
+        if (cancelled) return
+        setDetailPermissions({
+          editAccount: Boolean(data?.permissions?.editAccount),
+          generateAccountStatements: Boolean(data?.permissions?.generateAccountStatements),
+        })
+      } catch {
+        // keep defaults
+      }
+    }
+    void loadPermissions()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat("en-UG", {
@@ -63,8 +153,6 @@ export default function AccountDetailsPage() {
       day: "numeric",
     })
   }
-  const transactionHistory = useMemo(() => transactions, [transactions])
-
   type TransactionRow = {
     id: string
     date: string
@@ -91,7 +179,11 @@ export default function AccountDetailsPage() {
           ) : (
             <ArrowUpDown className="h-4 w-4 text-red-600 mr-2" />
           )}
-          <Badge variant={row.type === "Deposit" || row.type === "Opening Balance" ? "default" : "outline"}>
+          <Badge
+            className={
+              TRANSACTION_TYPE_STYLES[row.type] || "bg-gray-100 text-gray-700 border border-gray-200"
+            }
+          >
             {row.type}
           </Badge>
         </div>
@@ -128,7 +220,7 @@ export default function AccountDetailsPage() {
 
   const mappedTransactionHistory: TransactionRow[] = useMemo(
     () =>
-      transactionHistory.map((transaction: any, index: number) => ({
+      transactions.map((transaction: any, index: number) => ({
         id: transaction.id || `${transaction.date || "tx"}-${index}`,
         date: transaction.date || "",
         type: transaction.type || "",
@@ -137,31 +229,181 @@ export default function AccountDetailsPage() {
         description: transaction.description || "",
         balance: Number(transaction.balance || 0),
       })),
-    [transactionHistory],
-  )
-
-  const pagedTransactionHistory = mappedTransactionHistory.slice(
-    txPage * txRowsPerPage,
-    (txPage + 1) * txRowsPerPage,
+    [transactions],
   )
 
   const getAccountTypeColor = (type: string) => {
     switch (type) {
       case "Voluntary":
-        return "default"
+        return "bg-blue-100 text-blue-700 border border-blue-200"
       case "Fixed":
-        return "secondary"
+        return "bg-purple-100 text-purple-700 border border-purple-200"
       case "Shares":
-        return "outline"
+        return "bg-orange-100 text-orange-700 border border-orange-200"
+      case "Current":
+        return "bg-cyan-100 text-cyan-700 border border-cyan-200"
       default:
-        return "outline"
+        return "bg-gray-100 text-gray-700 border border-gray-200"
     }
   }
 
-  if (loading) {
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case "Active":
+        return "bg-green-100 text-green-700 border border-green-200"
+      case "Inactive":
+        return "bg-gray-100 text-gray-700 border border-gray-200"
+      case "Suspended":
+        return "bg-red-100 text-red-700 border border-red-200"
+      case "Closed":
+        return "bg-gray-100 text-gray-700 border border-gray-200"
+      default:
+        return "bg-gray-100 text-gray-700 border border-gray-200"
+    }
+  }
+
+  const handleEditSubmit = async (values: SavingsAccountFormValues) => {
+    if (!detailPermissions.editAccount) {
+      toast({
+        variant: "warning",
+        title: "Access denied",
+        description: "You do not have permission to edit account details.",
+      })
+      return
+    }
+    try {
+      setSavingEdit(true)
+      const res = await fetch(`/api/institution/savings/${accountId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(values),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data?.error || "Failed to update savings account")
+      setAccount((prev: any) => ({
+        ...(prev || {}),
+        ...(data?.account || {}),
+        status: data?.account?.status || values.status,
+        account_type: data?.account?.account_type || values.account_type,
+      }))
+      setEditOpen(false)
+      toast({ variant: "success", title: "Saved", description: "Savings account updated successfully." })
+    } catch (e: any) {
+      if (String(e?.message || "") === "missing_permission:edit_account") {
+        toast({
+          variant: "warning",
+          title: "Access denied",
+          description: "You do not have permission to edit account details.",
+        })
+        return
+      }
+      toast({ variant: "destructive", title: "Update failed", description: e?.message || "Please try again." })
+    } finally {
+      setSavingEdit(false)
+    }
+  }
+
+  const handleTransactionQueryParamsChange = (params: object) => {
+    const next = params as Record<string, unknown>
+    const sameQuery = serializeQueryParams(next) === serializeQueryParams(activeTxQueryParams)
+    if (sameQuery) return
+    setTxPage(0)
+    setActiveTxQueryParams(next)
+    const flat: Record<string, string> = {}
+    Object.entries(next).forEach(([k, v]) => {
+      if (v && typeof v === "object" && "start" in (v as Record<string, unknown>) && "end" in (v as Record<string, unknown>)) {
+        const range = v as { start?: string; end?: string }
+        if (range.start) flat[`${k}Start`] = range.start
+        if (range.end) flat[`${k}End`] = range.end
+        return
+      }
+      if (v !== undefined && v !== null && String(v).trim() !== "") flat[k] = String(v)
+    })
+    setActiveTxFilters(flat)
+    void loadAccountDetails(next, 0, txRowsPerPage)
+  }
+
+  const handleTransactionPageChange = (_: unknown, newPage: number) => {
+    setTxPage(newPage)
+    void loadAccountDetails(activeTxQueryParams, newPage, txRowsPerPage)
+  }
+
+  const handleTransactionRowsPerPageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const next = parseInt(e.target.value, 10)
+    setTxRowsPerPage(next)
+    setTxPage(0)
+    void loadAccountDetails(activeTxQueryParams, 0, next)
+  }
+
+  const transactionFilterFields: FilterField[] = useMemo(
+    () => [
+      {
+        field: "type",
+        label: "Type",
+        type: "select",
+        options: TRANSACTION_TYPE_OPTIONS,
+      },
+      {
+        field: "mode",
+        label: "Mode",
+        type: "select",
+        multiple: true,
+        options: TRANSACTION_MODE_OPTIONS,
+      },
+      {
+        field: "date",
+        label: "Transaction Date Range",
+        type: "date-range",
+      },
+    ],
+    [],
+  )
+
+  const downloadExport = async (format: "excel" | "pdf") => {
+    if (!detailPermissions.generateAccountStatements) {
+      toast({
+        variant: "warning",
+        title: "Access denied",
+        description: "You do not have permission to generate account statements.",
+      })
+      return
+    }
+    setExporting(format)
+    try {
+      await downloadAccountStatementExport(accountId, activeTxFilters, format)
+      toast({
+        variant: "success",
+        title: `${format === "excel" ? "Excel" : "PDF"} downloaded`,
+        description: `Successfully downloaded account statement ${format.toUpperCase()} report.`,
+      })
+    } catch (e: any) {
+      if (String(e?.message || "") === "missing_permission:generate_account_statements") {
+        toast({
+          variant: "warning",
+          title: "Access denied",
+          description: "You do not have permission to generate account statements.",
+        })
+        return
+      }
+      toast({
+        variant: "destructive",
+        title: `Download ${format.toUpperCase()} failed`,
+        description: String(e?.message || `Failed to download ${format.toUpperCase()}.`),
+      })
+    } finally {
+      setExporting(null)
+    }
+  }
+
+  if (accountLoading) {
     return (
       <>
-        <div className="text-center text-muted-foreground">Loading account...</div>
+        <div className="flex min-h-[70vh] w-full items-center justify-center">
+          <div className="text-center">
+            <div className="mx-auto mb-4 h-8 w-8 animate-spin rounded-full border-b-2 border-primary"></div>
+            <p className="text-muted-foreground">Loading account details...</p>
+          </div>
+        </div>
       </>
     )
   }
@@ -195,19 +437,6 @@ export default function AccountDetailsPage() {
                   <div className="flex items-center space-x-2">
                     <PiggyBank className="h-5 w-5" />
                     <h1 className="text-3xl font-bold">Account Details - {account.account_number}</h1>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {editing ? (
-                      <Button variant="ghost" size="sm" onClick={() => setEditing(false)}>
-                        <X className="h-4 w-4 mr-2" />
-                        Cancel
-                      </Button>
-                    ) : (
-                      <Button variant="outline" size="sm" onClick={() => setEditing(true)}>
-                        <Edit className="h-4 w-4 mr-2" />
-                        Edit Account
-                      </Button>
-                    )}
                   </div>
                 </div>
                 <p className="text-muted-foreground text-pretty">Complete account information and transaction history for {account.client_name}</p>
@@ -263,61 +492,26 @@ export default function AccountDetailsPage() {
                   <div>
                     <Label>Account Type</Label>
                     <div className="flex items-center space-x-2">
-                      <Badge variant={getAccountTypeColor(account.account_type)}>{account.account_type}</Badge>
+                      <span
+                        className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getAccountTypeColor(
+                          account.account_type
+                        )}`}
+                      >
+                        {account.account_type}
+                      </span>
                     </div>
                   </div>
                   <div>
                     <Label>Status</Label>
-                    {editing ? (
-                      <div className="flex items-center gap-3">
-                        <Select value={statusDraft} onValueChange={setStatusDraft}>
-                          <SelectTrigger className="w-48">
-                            <SelectValue placeholder="Select status" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="Active" disabled={account.status === "Closed"}>Active</SelectItem>
-                            <SelectItem value="Inactive">Inactive</SelectItem>
-                            <SelectItem value="Suspended">Suspended</SelectItem>
-                            <SelectItem value="Closed">Closed</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <Button
-                          size="sm"
-                          onClick={async () => {
-                            // Client-side validation
-                            const allowed = ["Active", "Inactive", "Suspended", "Closed"]
-                            if (!allowed.includes(statusDraft)) {
-                              toast({ variant: "warning", title: "Invalid status", description: "Choose Active, Inactive, Suspended, or Closed." })
-                              return
-                            }
-                            if (account.status === "Closed" && statusDraft === "Active") {
-                              toast({ variant: "warning", title: "Not allowed", description: "Closed accounts cannot be re-activated here." })
-                              return
-                            }
-                            try {
-                              const res = await fetch(`/api/institution/savings/${accountId}`, {
-                                method: "PUT",
-                                headers: { "Content-Type": "application/json" },
-                                body: JSON.stringify({ status: statusDraft }),
-                              })
-                              const data = await res.json()
-                              if (!res.ok) throw new Error(data.error || "Failed to update")
-                              setAccount((prev: any) => ({ ...(prev || {}), status: data.account?.status || statusDraft }))
-                              setEditing(false)
-                              toast({ variant: "success", title: "Saved", description: "Account status updated." })
-                            } catch (e: any) {
-                              toast({ variant: "destructive", title: "Update failed", description: e?.message || "Try again" })
-                            }
-                          }}
-                        >
-                          Save
-                        </Button>
-                      </div>
-                    ) : (
-                      <div className="flex items-center space-x-2">
-                        <Badge variant={account.status === "Active" ? "default" : "secondary"}>{account.status}</Badge>
-                      </div>
-                    )}
+                    <div className="flex items-center space-x-2">
+                      <span
+                        className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(
+                          account.status
+                        )}`}
+                      >
+                        {account.status}
+                      </span>
+                    </div>
                   </div>
                   <div>
                     <Label>Opening Date</Label>
@@ -357,21 +551,28 @@ export default function AccountDetailsPage() {
 
             <DataTable<TransactionRow>
               columns={transactionColumns}
-              rows={pagedTransactionHistory}
-              loading={loading}
+              rows={mappedTransactionHistory}
+              loading={transactionsLoading}
               title="Transaction History"
+              filterFields={transactionFilterFields}
+              onQueryParamsChange={handleTransactionQueryParamsChange}
               emptyMessage="No transactions found for this account"
               getRowId={(row) => row.id}
               pagination={{
                 page: txPage,
                 rowsPerPage: txRowsPerPage,
-                total: mappedTransactionHistory.length,
-                onPageChange: (_e, newPage) => setTxPage(newPage),
-                onRowsPerPageChange: (e) => {
-                  setTxRowsPerPage(parseInt(e.target.value, 10))
-                  setTxPage(0)
-                },
-                rowsPerPageOptions: [6, 12, 18],
+                total: txTotal,
+                onPageChange: handleTransactionPageChange,
+                onRowsPerPageChange: handleTransactionRowsPerPageChange,
+                rowsPerPageOptions: [10, 25, 50],
+              }}
+              exportActions={{
+                onExcel: () => void downloadExport("excel"),
+                onPdf: () => void downloadExport("pdf"),
+                excelDisabled:
+                  transactionsLoading || txTotal === 0 || exporting !== null || !detailPermissions.generateAccountStatements,
+                pdfDisabled:
+                  transactionsLoading || txTotal === 0 || exporting !== null || !detailPermissions.generateAccountStatements,
               }}
             />
 
@@ -383,16 +584,35 @@ export default function AccountDetailsPage() {
                   New Transaction
                 </Button>
               </Link>
-              <Button variant="outline">
-                <Calendar className="h-4 w-4 mr-2" />
-                Generate Statement
-              </Button>
-              <Button>
+              <Button
+                disabled={!detailPermissions.editAccount}
+                onClick={() => {
+                  if (!detailPermissions.editAccount) {
+                    toast({
+                      variant: "warning",
+                      title: "Access denied",
+                      description: "You do not have permission to edit account details.",
+                    })
+                    return
+                  }
+                  setEditOpen(true)
+                }}
+              >
                 <Edit className="h-4 w-4 mr-2" />
                 Edit Account
               </Button>
             </div>
           </div>
+      <EditAccount
+        isOpen={editOpen}
+        loading={savingEdit}
+        initialValues={{
+          status: String(account?.status || ""),
+          account_type: String(account?.account_type || ""),
+        }}
+        onClose={() => setEditOpen(false)}
+        onSubmit={handleEditSubmit}
+      />
     </>
   )
 }

@@ -2,6 +2,8 @@ import { NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { runWithAuth } from "@/lib/db"
+import { makePrefixedNumber } from "@/lib/ids/prefixed-number"
+import { apiLog, getApiPath } from "@/lib/api/api-log"
 
 type ActorContext = {
   id: string
@@ -53,10 +55,17 @@ async function hasPermission(client: any, actor: ActorContext, permission: strin
 }
 
 export async function GET(req: Request) {
+  const apiPath = getApiPath(req)
   try {
     const session = await getServerSession(authOptions)
-    if (!session?.user?.authUserId) return NextResponse.json({ error: "unauthorized" }, { status: 401 })
-    if (session.user.type !== "staff") return NextResponse.json({ error: "no_app_user_profile" }, { status: 403 })
+    if (!session?.user?.authUserId) {
+      apiLog("warn", "transactions.list.denied", { method: "GET", apiPath, status: 401, error: "unauthorized" })
+      return NextResponse.json({ error: "unauthorized" }, { status: 401 })
+    }
+    if (session.user.type !== "staff") {
+      apiLog("warn", "transactions.list.denied", { method: "GET", apiPath, status: 403, error: "no_app_user_profile" })
+      return NextResponse.json({ error: "no_app_user_profile" }, { status: 403 })
+    }
 
     const url = new URL(req.url)
     const page = Math.max(parseInt(url.searchParams.get("page") || "1", 10), 1)
@@ -66,7 +75,8 @@ export async function GET(req: Request) {
     const dateFrom = (url.searchParams.get("date_from") || "").trim()
     const dateTo = (url.searchParams.get("date_to") || "").trim()
     const search = (url.searchParams.get("search") || "").trim()
-    const memberId = (url.searchParams.get("member_id") || url.searchParams.get("client_id") || "").trim()
+    const memberId = (url.searchParams.get("member_id") || "").trim()
+    const clientId = (url.searchParams.get("client_id") || "").trim()
     const branchesRaw = (url.searchParams.get("branches") || "").trim()
     const selectedBranchIds = branchesRaw ? branchesRaw.split(",").map((v) => v.trim()).filter(Boolean) : []
 
@@ -96,6 +106,10 @@ export async function GET(req: Request) {
       if (memberId) {
         where += ` AND t.member_id = $${idx++}`
         params.push(memberId)
+      }
+      if (clientId) {
+        where += ` AND t.client_id = $${idx++}`
+        params.push(clientId)
       }
       if (type) {
         where += ` AND t.type = $${idx++}`
@@ -238,20 +252,30 @@ export async function GET(req: Request) {
         errorCode.startsWith("missing_permission:") ? 403 :
         errorCode === "actor_branch_missing" ? 400 :
         errorCode === "no_app_user_profile" ? 403 : 400
+      apiLog("warn", "transactions.list.denied", { method: "GET", apiPath, status: statusCode, error: errorCode })
       return NextResponse.json({ error: errorCode }, { status: statusCode })
     }
+    apiLog("info", "transactions.list.success", { method: "GET", apiPath, status: 200, page, pageSize })
     return NextResponse.json(result)
   } catch (e: unknown) {
     const err = e as Error
+    apiLog("error", "transactions.list.error", { method: "GET", apiPath, status: 500, error: err?.message || "Unexpected error" })
     return NextResponse.json({ error: err?.message || "Unexpected error" }, { status: 500 })
   }
 }
 
 export async function POST(req: Request) {
+  const apiPath = getApiPath(req)
   try {
     const session = await getServerSession(authOptions)
-    if (!session?.user?.authUserId) return NextResponse.json({ error: "unauthorized" }, { status: 401 })
-    if (session.user.type !== "staff") return NextResponse.json({ error: "no_app_user_profile" }, { status: 403 })
+    if (!session?.user?.authUserId) {
+      apiLog("warn", "transactions.create.denied", { method: "POST", apiPath, status: 401, error: "unauthorized" })
+      return NextResponse.json({ error: "unauthorized" }, { status: 401 })
+    }
+    if (session.user.type !== "staff") {
+      apiLog("warn", "transactions.create.denied", { method: "POST", apiPath, status: 403, error: "no_app_user_profile" })
+      return NextResponse.json({ error: "no_app_user_profile" }, { status: 403 })
+    }
 
     const body = await req.json().catch(() => ({})) as Record<string, unknown>
     const member_id = String(body.member_id || body.client_id || "").trim()
@@ -263,12 +287,27 @@ export async function POST(req: Request) {
     const reference_number = typeof body.reference_number === "string" ? body.reference_number : ""
     const transaction_date = body.transaction_date as string | undefined
 
-    if (!member_id) return NextResponse.json({ error: "member_id_required" }, { status: 400 })
-    if (!account_id) return NextResponse.json({ error: "account_id_required" }, { status: 400 })
-    if (!type || !["Deposit", "Withdrawal"].includes(String(type))) return NextResponse.json({ error: "invalid_type" }, { status: 400 })
-    if (!Number.isFinite(amount) || amount <= 0) return NextResponse.json({ error: "invalid_amount" }, { status: 400 })
+    if (!member_id) {
+      apiLog("warn", "transactions.create.invalid", { method: "POST", apiPath, status: 400, error: "member_id_required" })
+      return NextResponse.json({ error: "member_id_required" }, { status: 400 })
+    }
+    if (!account_id) {
+      apiLog("warn", "transactions.create.invalid", { method: "POST", apiPath, status: 400, error: "account_id_required" })
+      return NextResponse.json({ error: "account_id_required" }, { status: 400 })
+    }
+    if (!type || !["Deposit", "Withdrawal"].includes(String(type))) {
+      apiLog("warn", "transactions.create.invalid", { method: "POST", apiPath, status: 400, error: "invalid_type" })
+      return NextResponse.json({ error: "invalid_type" }, { status: 400 })
+    }
+    if (!Number.isFinite(amount) || amount <= 0) {
+      apiLog("warn", "transactions.create.invalid", { method: "POST", apiPath, status: 400, error: "invalid_amount" })
+      return NextResponse.json({ error: "invalid_amount" }, { status: 400 })
+    }
     const validModes = ["Cash", "Mobile Money", "Bank Transfer", "Cheque", "Card"]
-    if (!mode || !validModes.includes(String(mode))) return NextResponse.json({ error: "invalid_mode" }, { status: 400 })
+    if (!mode || !validModes.includes(String(mode))) {
+      apiLog("warn", "transactions.create.invalid", { method: "POST", apiPath, status: 400, error: "invalid_mode" })
+      return NextResponse.json({ error: "invalid_mode" }, { status: 400 })
+    }
 
     const result = await runWithAuth(session.user.authUserId, async (client) => {
       const actor = await resolveActorContext(client, session.user.authUserId as string)
@@ -304,7 +343,6 @@ export async function POST(req: Request) {
         balance_after = balance_before - amount
       }
 
-      const transaction_number = `TXN-${Date.now()}`
       const txDate = transaction_date ? new Date(transaction_date).toISOString() : new Date().toISOString()
 
       await client.query(
@@ -312,17 +350,30 @@ export async function POST(req: Request) {
         [balance_after, balance_after, txDate.slice(0, 10), account_id]
       )
 
-      const insRes = await client.query(
-        `INSERT INTO senteloans_transactions (institution_id, branch_id, member_id, account_id, loan_id, transaction_number, type, amount, mode, description, reference_number, balance_before, balance_after, processed_by, transaction_date, status)
-         VALUES ($1, $2, $3, $4, NULL, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'Completed') RETURNING id`,
-        [actor.institution_id, account.branch_id, member_id, account_id, transaction_number, type, amount, mode, description, reference_number, balance_before, balance_after, actor.id, txDate]
-      )
-      const txRow = insRes.rows[0]
-      if (!txRow) return { error: "insert_failed" as const }
+      let transaction_number = ""
+      let txRow: { id: string } | null = null
+      for (let attempt = 0; attempt < 5; attempt++) {
+        transaction_number = makePrefixedNumber("TXN")
+        try {
+          const insRes = await client.query(
+            `INSERT INTO senteloans_transactions (institution_id, branch_id, member_id, account_id, loan_id, transaction_number, type, amount, mode, description, reference_number, balance_before, balance_after, processed_by, transaction_date, status)
+             VALUES ($1, $2, $3, $4, NULL, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'Completed') RETURNING id`,
+            [actor.institution_id, account.branch_id, member_id, account_id, transaction_number, type, amount, mode, description, reference_number, balance_before, balance_after, actor.id, txDate]
+          )
+          txRow = insRes.rows[0] || null
+          if (txRow) break
+        } catch (e: any) {
+          const code = String(e?.code || "")
+          if (code === "23505") continue
+          throw e
+        }
+      }
+      if (!txRow) return { error: "transaction_number_generation_failed" as const }
 
       await client.query(
-        `INSERT INTO senteloans_audit_logs (institution_id, user_id, table_name, category, operation, record_id, new_values) VALUES ($1, $2, 'senteloans_transactions', 'transactions', 'INSERT', $3, $4)`,
-        [actor.institution_id, actor.id, txRow.id, JSON.stringify({ transaction_number, type, amount, member_id, account_id })]
+        `INSERT INTO senteloans_audit_logs (institution_id, branch_id, user_id, table_name, category, operation, record_id, new_values)
+         VALUES ($1, $2, $3, 'senteloans_transactions', 'transactions', 'INSERT', $4, $5)`,
+        [actor.institution_id, account.branch_id, actor.id, txRow.id, JSON.stringify({ transaction_number, type, amount, member_id, account_id })]
       )
 
       return { ok: true, id: txRow.id, transaction_number, balance_after }
@@ -334,11 +385,14 @@ export async function POST(req: Request) {
         errorCode.startsWith("missing_permission:") ? 403 :
         errorCode === "cross_tenant_operation_forbidden" || errorCode === "cross_branch_operation_forbidden" ? 403 :
         errorCode === "member_not_found" || errorCode === "account_not_found" ? 404 : 400
+      apiLog("warn", "transactions.create.denied", { method: "POST", apiPath, status, error: errorCode })
       return NextResponse.json({ error: errorCode }, { status })
     }
+    apiLog("info", "transactions.create.success", { method: "POST", apiPath, status: 201, accountId: account_id, memberId: member_id })
     return NextResponse.json(result, { status: 201 })
   } catch (e: unknown) {
     const err = e as Error
+    apiLog("error", "transactions.create.error", { method: "POST", apiPath, status: 500, error: err?.message || "Unexpected error" })
     return NextResponse.json({ error: err?.message || "Unexpected error" }, { status: 500 })
   }
 }

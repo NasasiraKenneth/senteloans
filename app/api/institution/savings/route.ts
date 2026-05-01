@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { runWithAuth } from "@/lib/db"
+import { apiLog, getApiPath } from "@/lib/api/api-log"
 
 type ActorContext = {
   id: string
@@ -53,16 +54,24 @@ async function hasPermission(client: any, actor: ActorContext, permission: strin
 }
 
 export async function GET(req: Request) {
+  const apiPath = getApiPath(req)
   try {
     const session = await getServerSession(authOptions)
-    if (!session?.user?.authUserId) return NextResponse.json({ error: "unauthorized" }, { status: 401 })
-    if (session.user.type !== "staff") return NextResponse.json({ error: "no_app_user_profile" }, { status: 403 })
+    if (!session?.user?.authUserId) {
+      apiLog("warn", "savings.list.denied", { method: "GET", apiPath, status: 401, error: "unauthorized" })
+      return NextResponse.json({ error: "unauthorized" }, { status: 401 })
+    }
+    if (session.user.type !== "staff") {
+      apiLog("warn", "savings.list.denied", { method: "GET", apiPath, status: 403, error: "no_app_user_profile" })
+      return NextResponse.json({ error: "no_app_user_profile" }, { status: 403 })
+    }
 
     const url = new URL(req.url)
     const page = Math.max(parseInt(url.searchParams.get("page") || "1", 10), 1)
     let pageSize = Math.min(Math.max(parseInt(url.searchParams.get("pageSize") || "10", 10), 1), 100)
     const status = (url.searchParams.get("status") || "").trim()
     const accountType = (url.searchParams.get("account_type") || "").trim()
+    const accountTypes = accountType ? accountType.split(",").map((v) => v.trim()).filter(Boolean) : []
     const search = (url.searchParams.get("search") || "").trim()
     const memberId = (url.searchParams.get("member_id") || url.searchParams.get("client_id") || "").trim()
     const openDateStart = (url.searchParams.get("open_dateStart") || "").trim()
@@ -102,9 +111,12 @@ export async function GET(req: Request) {
         where += ` AND sa.status = $${idx++}`
         params.push(status)
       }
-      if (accountType) {
+      if (accountTypes.length === 1) {
         where += ` AND sa.account_type = $${idx++}`
-        params.push(accountType)
+        params.push(accountTypes[0])
+      } else if (accountTypes.length > 1) {
+        where += ` AND sa.account_type = ANY($${idx++}::text[])`
+        params.push(accountTypes)
       }
       if (memberId) {
         where += ` AND sa.member_id = $${idx++}`
@@ -217,11 +229,20 @@ export async function GET(req: Request) {
         errorCode.startsWith("missing_permission:") ? 403 :
         errorCode === "actor_branch_missing" ? 400 :
         errorCode === "no_app_user_profile" ? 403 : 400
+      apiLog("warn", "savings.list.denied", { method: "GET", apiPath, status: statusCode, error: errorCode })
       return NextResponse.json({ error: errorCode }, { status: statusCode })
     }
+    apiLog("info", "savings.list.success", {
+      method: "GET",
+      apiPath,
+      status: 200,
+      count: Array.isArray(result?.items) ? result.items.length : 0,
+      total: Number(result?.total || 0),
+    })
     return NextResponse.json(result)
   } catch (e: unknown) {
     const err = e as Error
+    apiLog("error", "savings.list.error", { method: "GET", apiPath, status: 500, error: err?.message || "Unexpected error" })
     return NextResponse.json({ error: err?.message || "Unexpected error" }, { status: 500 })
   }
 }

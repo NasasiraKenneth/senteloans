@@ -73,8 +73,8 @@ export async function GET(req: Request) {
   const result = await runWithAuth(session.user.authUserId, async (client) => {
     const actor = await resolveActorContext(client, session.user.authUserId as string)
     if (!actor?.institution_id) return { error: "user_not_linked" as const }
-    const allowed = await hasPermission(client, actor, "view_loans")
-    if (!allowed) return { error: "missing_permission:view_loans" as const }
+    const allowed = await hasPermission(client, actor, "view_sacco_loans")
+    if (!allowed) return { error: "missing_permission:view_sacco_loans" as const }
 
     const role = String(actor.role || "").trim().toLowerCase()
     const isSuperAdmin = role === "super_admin"
@@ -275,7 +275,7 @@ export async function GET(req: Request) {
   })
 
   if (result && "error" in result) {
-    const statusCode = result.error === "missing_permission:view_loans" ? 403 : result.error === "user_not_linked" ? 403 : 400
+    const statusCode = result.error === "missing_permission:view_sacco_loans" ? 403 : result.error === "user_not_linked" ? 403 : 400
     return NextResponse.json({ error: result.error }, { status: statusCode })
   }
   return NextResponse.json(result)
