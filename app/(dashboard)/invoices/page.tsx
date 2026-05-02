@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, type ChangeEvent } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef, type ChangeEvent } from "react";
 import {
   Card,
   CardContent,
@@ -35,6 +35,8 @@ import { FaRobot, FaUserCheck } from "react-icons/fa";
 import { ActionSelect, SelectOption } from "@/components/datatables/actions";
 import { Filter } from "@/types";
 import { useToast } from "@/components/ui/toast"
+import { withBranchFilterFirst } from "@/lib/filters/branch-first-filter"
+import { downloadInvoicesExport } from "./export/export"
 
 type InvoiceRow = {
   id: string;
@@ -168,6 +170,14 @@ export default function InvoicesPage() {
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [editInvoiceId, setEditInvoiceId] = useState<string | null>(null);
   const [activeQueryParams, setActiveQueryParams] = useState<Record<string, unknown>>({});
+  const [activeFilters, setActiveFilters] = useState<Record<string, string>>({});
+  const [exporting, setExporting] = useState<"excel" | "pdf" | null>(null);
+  const [invoicePermissions, setInvoicePermissions] = useState({
+    viewInvoices: false,
+    isSuperAdmin: false,
+    branches: [] as Array<{ value: string; label: string }>,
+  });
+  const exportPermissionToastShown = useRef(false);
   const { toast } = useToast()
 
   const onPageChange = (_: unknown, newPage: number) => {
@@ -234,6 +244,30 @@ export default function InvoicesPage() {
   }
 
   useEffect(() => {
+    async function loadPermissions() {
+      try {
+        const res = await fetch("/api/institution/invoices/permissions", { cache: "no-store" });
+        if (!res.ok) return;
+        const data = (await res.json()) as {
+          permissions?: {
+            viewInvoices?: boolean;
+            isSuperAdmin?: boolean;
+            branches?: Array<{ id: string; name: string }>;
+          };
+        };
+        setInvoicePermissions({
+          viewInvoices: !!data.permissions?.viewInvoices,
+          isSuperAdmin: !!data.permissions?.isSuperAdmin,
+          branches: (data.permissions?.branches || []).map((b) => ({ value: b.id, label: b.name })),
+        });
+      } catch {
+        // keep defaults
+      }
+    }
+    void loadPermissions();
+  }, []);
+
+  useEffect(() => {
     void loadInvoices(activeQueryParams, page, rowsPerPage);
   }, []);
 
@@ -241,8 +275,74 @@ export default function InvoicesPage() {
     const normalized = params as Record<string, unknown>;
     setActiveQueryParams(normalized);
     setPage(0);
+    const flat: Record<string, string> = {};
+    Object.entries(normalized).forEach(([k, v]) => {
+      if (
+        v &&
+        typeof v === "object" &&
+        "start" in (v as Record<string, unknown>) &&
+        "end" in (v as Record<string, unknown>)
+      ) {
+        const range = v as { start?: string; end?: string };
+        const start = range.start ? String(range.start).slice(0, 10) : "";
+        const end = range.end ? String(range.end).slice(0, 10) : "";
+        if (k === "invoiceDate") {
+          if (/^\d{4}-\d{2}-\d{2}$/.test(start)) flat.date_from = start;
+          if (/^\d{4}-\d{2}-\d{2}$/.test(end)) flat.date_to = end;
+        } else if (k === "invoice_due") {
+          if (/^\d{4}-\d{2}-\d{2}$/.test(start)) flat.due_from = start;
+          if (/^\d{4}-\d{2}-\d{2}$/.test(end)) flat.due_to = end;
+        }
+        return;
+      }
+      if (v !== undefined && v !== null && String(v).trim() !== "") {
+        flat[k] = String(v);
+      }
+    });
+    setActiveFilters(flat);
+    exportPermissionToastShown.current = false;
     void loadInvoices(normalized, 0, rowsPerPage);
   }, [rowsPerPage]);
+
+  const downloadExport = async (format: "excel" | "pdf") => {
+    if (!invoicePermissions.viewInvoices) {
+      toast({
+        variant: "warning",
+        title: "Access denied",
+        description: "You do not have permission to export invoices.",
+      });
+      return;
+    }
+    setExporting(format);
+    try {
+      await downloadInvoicesExport(activeFilters, format);
+      toast({
+        variant: "success",
+        title: `${format === "excel" ? "Excel" : "PDF"} downloaded`,
+        description: `Successfully downloaded invoice list ${format.toUpperCase()}.`,
+      });
+    } catch (e: unknown) {
+      const message = String((e as Error)?.message || "");
+      if (message === "missing_permission:view_invoices") {
+        if (!exportPermissionToastShown.current) {
+          exportPermissionToastShown.current = true;
+          toast({
+            variant: "warning",
+            title: "Access denied",
+            description: "You do not have permission to export invoices.",
+          });
+        }
+      } else {
+        toast({
+          variant: "destructive",
+          title: `Download ${format.toUpperCase()} failed`,
+          description: message || `Failed to download ${format.toUpperCase()}.`,
+        });
+      }
+    } finally {
+      setExporting(null);
+    }
+  };
 
   const totalAmount = invoices.reduce(
     (sum, row) => sum + Number(row.total_amount || 0),
@@ -465,35 +565,41 @@ export default function InvoicesPage() {
     },
   ];
 
-  const filterFields: FilterField[] = [
-    {
-      field: "search",
-      label: "Search by invoice number or assigned to",
-      type: "text",
-    },
-    {
-      field: "target_type",
-      label: "Invoice Target",
-      type: "select",
-      multiple: false,
-      options: [
-        { value: "member", label: "Member Invoices" },
-        { value: "client", label: "Client Invoices" },
-      ],
-    },
-    {
-      field: "invoice_type",
-      label: "Invoice Type",
-      type: "select",
-      multiple: false,
-      options: [
-        { value: "Auto", label: "Auto" },
-        { value: "Manual", label: "Manual" },
-      ],
-    },
-    { field: "invoiceDate", label: "Invoice Date Range", type: "date-range" },
-    { field: "invoice_due", label: "Invoice Due Date", type: "date-range" },
-  ];
+  const filterFields: FilterField[] = useMemo(() => {
+    const fields: FilterField[] = [
+      {
+        field: "search",
+        label: "Search by invoice number or assigned to",
+        type: "text",
+      },
+      {
+        field: "target_type",
+        label: "Invoice Target",
+        type: "select",
+        multiple: false,
+        options: [
+          { value: "member", label: "Member Invoices" },
+          { value: "client", label: "Client Invoices" },
+        ],
+      },
+      {
+        field: "invoice_type",
+        label: "Invoice Type",
+        type: "select",
+        multiple: false,
+        options: [
+          { value: "Auto", label: "Auto" },
+          { value: "Manual", label: "Manual" },
+        ],
+      },
+      { field: "invoiceDate", label: "Invoice Date Range", type: "date-range" },
+      { field: "invoice_due", label: "Invoice Due Date", type: "date-range" },
+    ];
+    return withBranchFilterFirst(fields, {
+      isSuperAdmin: invoicePermissions.isSuperAdmin,
+      branchOptions: invoicePermissions.branches,
+    });
+  }, [invoicePermissions.isSuperAdmin, invoicePermissions.branches]);
 
   // Tabular filter options
   const filters: Filter[] = [
@@ -603,6 +709,14 @@ export default function InvoicesPage() {
           onPageChange,
           onRowsPerPageChange,
           rowsPerPageOptions: [10, 25, 50],
+        }}
+        exportActions={{
+          onExcel: () => void downloadExport("excel"),
+          onPdf: () => void downloadExport("pdf"),
+          excelDisabled:
+            loading || total === 0 || exporting !== null || !invoicePermissions.viewInvoices,
+          pdfDisabled:
+            loading || total === 0 || exporting !== null || !invoicePermissions.viewInvoices,
         }}
       />
 

@@ -1,11 +1,12 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState, type ChangeEvent } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react"
 import { useRouter } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import DataTable, { DataTableColumn } from "@/components/datatables/DataTable"
 import { FilterField } from "@/components/datatables/TableFilter"
+import { withBranchFilterFirst } from "@/lib/filters/branch-first-filter"
 import { Filter } from "@/types"
 import { Plus, AlertTriangle, Eye, Edit, FileText, Calendar, Clock } from "lucide-react"
 import { useToast } from "@/components/ui/toast"
@@ -13,6 +14,7 @@ import { getInitials } from "@/lib/invoices/utils"
 import AddNewInvestment from "./components/add/new"
 import EditInvestment from "./components/edit/edit"
 import { ActionButtons } from "@/components/datatables/ActionButtons"
+import { downloadInvestmentsExport } from "./export/export"
 
 type InvestmentRow = {
   id: string
@@ -90,6 +92,14 @@ export default function InvestmentsPage() {
   const [isEditOpen, setIsEditOpen] = useState(false)
   const [activeEditId, setActiveEditId] = useState<string | null>(null)
   const [activeQueryParams, setActiveQueryParams] = useState<Record<string, unknown>>({})
+  const [activeFilters, setActiveFilters] = useState<Record<string, string>>({})
+  const [exporting, setExporting] = useState<"excel" | "pdf" | null>(null)
+  const exportPermissionToastShown = useRef(false)
+  const [investmentPermissions, setInvestmentPermissions] = useState({
+    viewInvestments: false,
+    isSuperAdmin: false,
+    branches: [] as Array<{ value: string; label: string }>,
+  })
 
   const loadInvestments = useCallback(async (queryParams?: object, pageOverride?: number, rowsPerPageOverride?: number) => {
     setLoading(true)
@@ -147,6 +157,30 @@ export default function InvestmentsPage() {
   }, [toast, page, rowsPerPage])
 
   useEffect(() => {
+    async function loadPermissions() {
+      try {
+        const res = await fetch("/api/institution/investments/permissions", { cache: "no-store" })
+        if (!res.ok) return
+        const data = (await res.json()) as {
+          permissions?: {
+            viewInvestments?: boolean
+            isSuperAdmin?: boolean
+            branches?: Array<{ id: string; name: string }>
+          }
+        }
+        setInvestmentPermissions({
+          viewInvestments: !!data.permissions?.viewInvestments,
+          isSuperAdmin: !!data.permissions?.isSuperAdmin,
+          branches: (data.permissions?.branches || []).map((b) => ({ value: b.id, label: b.name })),
+        })
+      } catch {
+        // keep defaults
+      }
+    }
+    void loadPermissions()
+  }, [])
+
+  useEffect(() => {
     loadInvestments()
   }, [loadInvestments])
 
@@ -154,8 +188,60 @@ export default function InvestmentsPage() {
     setPage(0)
     const normalized = params as Record<string, unknown>
     setActiveQueryParams(normalized)
+    const flat: Record<string, string> = {}
+    Object.entries(normalized).forEach(([k, v]) => {
+      if (v && typeof v === "object" && "start" in (v as Record<string, unknown>) && "end" in (v as Record<string, unknown>)) {
+        const range = v as { start?: string; end?: string }
+        if (range.start) flat[`${k}Start`] = range.start
+        if (range.end) flat[`${k}End`] = range.end
+        return
+      }
+      if (v !== undefined && v !== null && String(v).trim() !== "") flat[k] = String(v)
+    })
+    setActiveFilters(flat)
+    exportPermissionToastShown.current = false
     loadInvestments(normalized, 0, rowsPerPage)
   }, [loadInvestments, rowsPerPage])
+
+  const downloadExport = async (format: "excel" | "pdf") => {
+    if (!investmentPermissions.viewInvestments) {
+      toast({
+        variant: "warning",
+        title: "Access denied",
+        description: "You do not have permission to export investments.",
+      })
+      return
+    }
+    setExporting(format)
+    try {
+      await downloadInvestmentsExport(activeFilters, format)
+      toast({
+        variant: "success",
+        title: `${format === "excel" ? "Excel" : "PDF"} downloaded`,
+        description: `Successfully downloaded investments ${format.toUpperCase()} report.`,
+      })
+    } catch (e: unknown) {
+      const message = String((e as Error)?.message || "")
+      if (message === "missing_permission:view_investments") {
+        if (!exportPermissionToastShown.current) {
+          toast({
+            variant: "warning",
+            title: "Access denied",
+            description: "You do not have permission to export investments.",
+          })
+          exportPermissionToastShown.current = true
+        }
+      } else {
+        toast({
+          variant: "destructive",
+          title: `Download ${format.toUpperCase()} failed`,
+          description: message || `Failed to download ${format.toUpperCase()}.`,
+        })
+      }
+    } finally {
+      setExporting(null)
+    }
+  }
 
   const handlePageChange = useCallback((_: unknown, newPage: number) => {
     setPage(newPage)
@@ -167,7 +253,7 @@ export default function InvestmentsPage() {
     setRowsPerPage(nextRowsPerPage)
     setPage(0)
     loadInvestments(activeQueryParams, 0, nextRowsPerPage)
-  }, [loadInvestments])
+  }, [activeQueryParams, loadInvestments])
 
   const normalizedStatus = (status: string) => String(status || "").trim().toLowerCase()
   const totalPrincipal = useMemo(() => rows.reduce((sum, row) => sum + row.principal_amount, 0), [rows])
@@ -282,42 +368,48 @@ export default function InvestmentsPage() {
     },
   ]
 
-  const filterFields: FilterField[] = [
-    { field: "q", label: "Search by number or provider or name", type: "text" },
-    {
-      field: "investment_type",
-      label: "Investment Type",
-      type: "select",
-      multiple: false,
-      options: [
-        { value: "fixed_income", label: "Fixed Income" },
-        { value: "project", label: "Project" },
-        { value: "equity", label: "Equity" },
-        { value: "partnership", label: "Partnership" },
-      ],
-    },
-    {
-      field: "risk_level",
-      label: "Risk Level",
-      type: "select",
-      multiple: false,
-      options: [
-        { value: "Low", label: "Low" },
-        { value: "Medium", label: "Medium" },
-        { value: "High", label: "High" },
-      ],
-    },
-    {
+  const filterFields: FilterField[] = useMemo(() => {
+    const fields: FilterField[] = [
+      { field: "q", label: "Search by number or provider or name", type: "text" },
+      {
+        field: "investment_type",
+        label: "Investment Type",
+        type: "select",
+        multiple: false,
+        options: [
+          { value: "fixed_income", label: "Fixed Income" },
+          { value: "project", label: "Project" },
+          { value: "equity", label: "Equity" },
+          { value: "partnership", label: "Partnership" },
+        ],
+      },
+      {
+        field: "risk_level",
+        label: "Risk Level",
+        type: "select",
+        multiple: false,
+        options: [
+          { value: "Low", label: "Low" },
+          { value: "Medium", label: "Medium" },
+          { value: "High", label: "High" },
+        ],
+      },
+      {
         field: "startDate",
         label: "Search By Start Date Range",
         type: "date-range",
-    },
-    {
+      },
+      {
         field: "maturityDate",
         label: "Search By Maturity Date Range",
         type: "date-range",
-    },
-  ]
+      },
+    ]
+    return withBranchFilterFirst(fields, {
+      isSuperAdmin: investmentPermissions.isSuperAdmin,
+      branchOptions: investmentPermissions.branches,
+    })
+  }, [investmentPermissions.isSuperAdmin, investmentPermissions.branches])
 
   const filters: Filter[] = [
     { label: "All", value: "" },
@@ -390,6 +482,12 @@ export default function InvestmentsPage() {
           total: totalRows,
           onPageChange: handlePageChange,
           onRowsPerPageChange: handleRowsPerPageChange,
+        }}
+        exportActions={{
+          onExcel: () => void downloadExport("excel"),
+          onPdf: () => void downloadExport("pdf"),
+          excelDisabled: loading || totalRows === 0 || exporting !== null || !investmentPermissions.viewInvestments,
+          pdfDisabled: loading || totalRows === 0 || exporting !== null || !investmentPermissions.viewInvestments,
         }}
       />
 

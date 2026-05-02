@@ -40,6 +40,54 @@ const toFlag = (v: unknown, fallback = false): boolean => {
   return fallback
 }
 
+type ActorContext = {
+  id: string
+  institution_id: string
+  branch_id: string | null
+  role_id: string | null
+  role: string | null
+}
+
+async function resolveActorContext(client: any, authUserId: string): Promise<ActorContext | null> {
+  const actorRes = await client.query(
+    `SELECT
+       u.id,
+       u.institution_id,
+       u.branch_id,
+       u.role_id,
+       CASE
+         WHEN r.name = 'System Admin' THEN 'system_admin'
+         WHEN r.name = 'Super Admin' THEN 'super_admin'
+         WHEN r.name = 'Admin' THEN 'institution_admin'
+         WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
+         ELSE NULL
+       END AS role
+     FROM senteloans_users u
+     LEFT JOIN senteloans_roles r ON r.id = u.role_id
+     WHERE u.supabase_user_id = $1
+     LIMIT 1`,
+    [authUserId],
+  )
+  return actorRes.rows[0] || null
+}
+
+async function hasPermission(client: any, actor: ActorContext, permission: string): Promise<boolean> {
+  const role = String(actor.role || "").trim().toLowerCase()
+  if (role === "super_admin") return true
+  if (!actor.role_id || !actor.branch_id) return false
+  const permRes = await client.query(
+    `SELECT 1
+     FROM senteloans_role_permissions rp
+     JOIN senteloans_permissions p ON p.id = rp.permission_id
+     WHERE rp.role_id = $1
+       AND rp.branch_id = $2
+       AND p.name = $3
+     LIMIT 1`,
+    [actor.role_id, actor.branch_id, permission],
+  )
+  return (permRes.rowCount ?? 0) > 0
+}
+
 export async function GET(req: Request) {
   const apiPath = getApiPath(req)
   try {
@@ -167,6 +215,17 @@ export async function PUT(req: Request) {
     const payload = body?.config || {}
 
     const result = await runWithAuth(session.user.authUserId, async (client) => {
+      const actor = await resolveActorContext(client, session.user.authUserId as string)
+      if (!actor?.institution_id) return null
+      const canEdit = await Promise.all([
+        hasPermission(client, actor, "edit_loan_policies"),
+        hasPermission(client, actor, "edit_membership_policies"),
+        hasPermission(client, actor, "edit_invoice_policies"),
+        hasPermission(client, actor, "edit_share_policies"),
+        hasPermission(client, actor, "edit_branch_financial_info"),
+      ])
+      if (!canEdit.some(Boolean)) return { error: "missing_permission:edit_institution_settings" as const }
+
       const profileRes = await client.query(
         `SELECT u.id AS user_id, u.branch_id, i.id AS institution_id, i.type
          FROM senteloans_users u
@@ -326,7 +385,8 @@ export async function PUT(req: Request) {
       return NextResponse.json({ error: "institution_not_found" }, { status: 404 })
     }
     if (result && "error" in result) {
-      return NextResponse.json({ error: result.error }, { status: 400 })
+      const status = result.error === "missing_permission:edit_institution_settings" ? 403 : 400
+      return NextResponse.json({ error: result.error }, { status })
     }
     const s2 = result as Record<string, unknown>
     const response = {

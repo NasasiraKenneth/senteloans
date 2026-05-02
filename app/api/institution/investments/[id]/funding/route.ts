@@ -2,27 +2,8 @@ import { NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { runWithAuth } from "@/lib/db"
-
-type ActorContext = { id: string; institution_id: string; branch_id: string | null; role: string | null }
-
-async function resolveActorContext(client: any, authUserId: string): Promise<ActorContext | null> {
-  const res = await client.query(
-    `SELECT u.id, u.institution_id, u.branch_id,
-      CASE
-        WHEN r.name = 'System Admin' THEN 'system_admin'
-        WHEN r.name = 'Super Admin' THEN 'super_admin'
-        WHEN r.name = 'Admin' THEN 'institution_admin'
-        WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
-        ELSE NULL
-      END AS role
-     FROM senteloans_users u
-     LEFT JOIN senteloans_roles r ON r.id = u.role_id
-     WHERE u.supabase_user_id = $1
-     LIMIT 1`,
-    [authUserId],
-  )
-  return res.rows[0] || null
-}
+import { auditLogger } from "@/lib/audit/audit-logger"
+import { hasInvestmentPermission, resolveInvestmentActor } from "@/lib/api/investment-rbac"
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
@@ -38,8 +19,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   }
   if (Number.isNaN(amount) || amount < 0) return NextResponse.json({ error: "invalid_amount" }, { status: 400 })
   return runWithAuth(session.user.authUserId, async (client) => {
-    const actor = await resolveActorContext(client, session.user.authUserId as string)
+    const actor = await resolveInvestmentActor(client, session.user.authUserId as string)
     if (!actor?.institution_id) return NextResponse.json({ error: "user_not_linked" }, { status: 403 })
+    const allowed = await hasInvestmentPermission(client, actor, "edit_investment_funding")
+    if (!allowed) return NextResponse.json({ error: "missing_permission:edit_investment_funding" }, { status: 403 })
+
     const isSuperAdmin = String(actor.role || "").trim().toLowerCase() === "super_admin"
     if (!isSuperAdmin && !actor.branch_id) return NextResponse.json({ error: "actor_branch_missing" }, { status: 400 })
 
@@ -61,6 +45,21 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
        RETURNING id`,
       [id, sourceType, sourceType === "loan" ? loanId : null, amount],
     )
-    return NextResponse.json({ ok: true, id: res.rows[0]?.id }, { status: 201 })
+    const newId = String(res.rows[0]?.id || "")
+    await auditLogger.logInsert(
+      "senteloans_investment_funding_sources",
+      newId,
+      {
+        investment_id: id,
+        source_type: sourceType,
+        loan_id: sourceType === "loan" ? loanId : null,
+        amount,
+      },
+      actor.institution_id,
+      actor.id,
+      undefined,
+      client,
+    )
+    return NextResponse.json({ ok: true, id: newId }, { status: 201 })
   })
 }

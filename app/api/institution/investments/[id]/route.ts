@@ -3,35 +3,8 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { runWithAuth } from "@/lib/db"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
-
-type ActorContext = {
-  id: string
-  institution_id: string
-  branch_id: string | null
-  role: string | null
-}
-
-async function resolveActorContext(client: any, authUserId: string): Promise<ActorContext | null> {
-  const actorRes = await client.query(
-    `SELECT
-       u.id,
-       u.institution_id,
-       u.branch_id,
-       CASE
-         WHEN r.name = 'System Admin' THEN 'system_admin'
-         WHEN r.name = 'Super Admin' THEN 'super_admin'
-         WHEN r.name = 'Admin' THEN 'institution_admin'
-         WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
-         ELSE NULL
-       END AS role
-     FROM senteloans_users u
-     LEFT JOIN senteloans_roles r ON r.id = u.role_id
-     WHERE u.supabase_user_id = $1
-     LIMIT 1`,
-    [authUserId],
-  )
-  return actorRes.rows[0] || null
-}
+import { auditLogger } from "@/lib/audit/audit-logger"
+import { hasInvestmentPermission, resolveInvestmentActor } from "@/lib/api/investment-rbac"
 
 const normalizeDate = (value: unknown): string | null => {
   if (typeof value !== "string" || !value.trim()) return null
@@ -48,8 +21,10 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     if (session.user.type !== "staff") return NextResponse.json({ error: "not_staff" }, { status: 403 })
 
     const result = await runWithAuth(session.user.authUserId, async (client) => {
-      const actor = await resolveActorContext(client, session.user.authUserId as string)
+      const actor = await resolveInvestmentActor(client, session.user.authUserId as string)
       if (!actor?.institution_id) return { error: "user_not_linked" as const }
+      const allowed = await hasInvestmentPermission(client, actor, "view_investments")
+      if (!allowed) return { error: "missing_permission:view_investments" as const }
       const isSuperAdmin = String(actor.role || "").trim().toLowerCase() === "super_admin"
       if (!isSuperAdmin && !actor.branch_id) return { error: "actor_branch_missing" as const }
 
@@ -154,15 +129,19 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     if (!["pending", "approved", "active", "matured", "closed", "cancelled"].includes(status)) return NextResponse.json({ error: "invalid_status" }, { status: 400 })
 
     const result = await runWithAuth(session.user.authUserId, async (client) => {
-      const actor = await resolveActorContext(client, session.user.authUserId as string)
+      const actor = await resolveInvestmentActor(client, session.user.authUserId as string)
       if (!actor?.institution_id) return { error: "user_not_linked" as const }
+      const allowed = await hasInvestmentPermission(client, actor, "edit_investment")
+      if (!allowed) return { error: "missing_permission:edit_investment" as const }
       const isSuperAdmin = String(actor.role || "").trim().toLowerCase() === "super_admin"
       if (!isSuperAdmin && !actor.branch_id) return { error: "actor_branch_missing" as const }
 
       await client.query("BEGIN")
       try {
         const existsRes = await client.query(
-          `SELECT id
+          `SELECT
+             provider_id, category, description, initial_amount, current_value, expected_percentage, expected_returns,
+             risk_level, start_date, period_in_months, period_in_years, maturity_date, status
            FROM senteloans_investments
            WHERE id = $1 AND institution_id = $2
            ${isSuperAdmin ? "" : "AND branch_id = $3"}
@@ -173,8 +152,15 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
           await client.query("ROLLBACK")
           return { error: "investment_not_found" as const }
         }
+        const prevInv = existsRes.rows[0] as Record<string, unknown>
 
-        await client.query(
+        const productPrevRes = await client.query(
+          `SELECT id, name, address FROM senteloans_investment_products WHERE investment_id = $1 LIMIT 1`,
+          [id],
+        )
+        const prevProduct = productPrevRes.rows[0] as { id: string; name: string | null; address: string | null } | undefined
+
+        const updInv = await client.query(
           `UPDATE senteloans_investments
            SET provider_id = $1,
                category = $2,
@@ -191,7 +177,10 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
                status = $13,
                modified_by = $14,
                updated_at = NOW()
-           WHERE id = $15`,
+           WHERE id = $15
+           RETURNING
+             provider_id, category, description, initial_amount, current_value, expected_percentage, expected_returns,
+             risk_level, start_date, period_in_months, period_in_years, maturity_date, status`,
           [
             providerId,
             category,
@@ -210,23 +199,82 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
             id,
           ],
         )
+        const newInv = updInv.rows[0] as Record<string, unknown>
 
-        const productExists = await client.query(
-          `SELECT id FROM senteloans_investment_products WHERE investment_id = $1 LIMIT 1`,
-          [id],
+        await auditLogger.logUpdate(
+          "senteloans_investments",
+          id,
+          {
+            provider_id: prevInv.provider_id,
+            category: prevInv.category,
+            description: prevInv.description,
+            initial_amount: prevInv.initial_amount,
+            current_value: prevInv.current_value,
+            expected_percentage: prevInv.expected_percentage,
+            expected_returns: prevInv.expected_returns,
+            risk_level: prevInv.risk_level,
+            start_date: prevInv.start_date,
+            period_in_months: prevInv.period_in_months,
+            period_in_years: prevInv.period_in_years,
+            maturity_date: prevInv.maturity_date,
+            status: prevInv.status,
+          },
+          {
+            provider_id: newInv.provider_id,
+            category: newInv.category,
+            description: newInv.description,
+            initial_amount: newInv.initial_amount,
+            current_value: newInv.current_value,
+            expected_percentage: newInv.expected_percentage,
+            expected_returns: newInv.expected_returns,
+            risk_level: newInv.risk_level,
+            start_date: newInv.start_date,
+            period_in_months: newInv.period_in_months,
+            period_in_years: newInv.period_in_years,
+            maturity_date: newInv.maturity_date,
+            status: newInv.status,
+          },
+          actor.institution_id,
+          actor.id,
+          undefined,
+          client,
         )
-        if (productExists.rowCount > 0) {
-          await client.query(
+
+        if (prevProduct) {
+          const prodUpd = await client.query(
             `UPDATE senteloans_investment_products
              SET name = $1, address = $2, modified_by = $3, updated_at = NOW()
-             WHERE investment_id = $4`,
+             WHERE investment_id = $4
+             RETURNING id, name, address`,
             [investmentName || null, investmentAddress || null, actor.id, id],
           )
+          const np = prodUpd.rows[0] as { id: string; name: string | null; address: string | null }
+          await auditLogger.logUpdate(
+            "senteloans_investment_products",
+            np.id,
+            { name: prevProduct.name, address: prevProduct.address },
+            { name: np.name, address: np.address },
+            actor.institution_id,
+            actor.id,
+            undefined,
+            client,
+          )
         } else if (investmentName || investmentAddress) {
-          await client.query(
+          const insProd = await client.query(
             `INSERT INTO senteloans_investment_products (investment_id, name, address, created_by, modified_by, updated_at)
-             VALUES ($1, $2, $3, $4, $4, NOW())`,
+             VALUES ($1, $2, $3, $4, $4, NOW())
+             RETURNING id, name, address`,
             [id, investmentName || null, investmentAddress || null, actor.id],
+          )
+          const row = insProd.rows[0] as { id: string; name: string | null; address: string | null }
+          await auditLogger.logInsert(
+            "senteloans_investment_products",
+            row.id,
+            { investment_id: id, name: row.name, address: row.address },
+            actor.institution_id,
+            actor.id,
+            undefined,
+            client,
           )
         }
 
@@ -265,20 +313,24 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     }
 
     const result = await runWithAuth(session.user.authUserId, async (client) => {
-      const actor = await resolveActorContext(client, session.user.authUserId as string)
+      const actor = await resolveInvestmentActor(client, session.user.authUserId as string)
       if (!actor?.institution_id) return { error: "user_not_linked" as const }
+      const allowed = await hasInvestmentPermission(client, actor, "edit_investment_status")
+      if (!allowed) return { error: "missing_permission:edit_investment_status" as const }
       const isSuperAdmin = String(actor.role || "").trim().toLowerCase() === "super_admin"
       if (!isSuperAdmin && !actor.branch_id) return { error: "actor_branch_missing" as const }
 
-      const existsRes = await client.query(
-        `SELECT id
+      const prevRes = await client.query(
+        `SELECT id, status, institution_id
          FROM senteloans_investments
          WHERE id = $1 AND institution_id = $2
          ${isSuperAdmin ? "" : "AND branch_id = $3"}
          LIMIT 1`,
         isSuperAdmin ? [id, actor.institution_id] : [id, actor.institution_id, actor.branch_id],
       )
-      if (existsRes.rowCount === 0) return { error: "investment_not_found" as const }
+      if (prevRes.rowCount === 0) return { error: "investment_not_found" as const }
+      const prevStatus = String(prevRes.rows[0]?.status || "")
+      const institutionId = String(prevRes.rows[0]?.institution_id || actor.institution_id)
 
       await client.query(
         `UPDATE senteloans_investments
@@ -287,6 +339,16 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
              updated_at = NOW()
          WHERE id = $3`,
         [status, actor.id, id],
+      )
+      await auditLogger.logUpdate(
+        "senteloans_investments",
+        id,
+        { status: prevStatus },
+        { status },
+        institutionId,
+        actor.id,
+        undefined,
+        client,
       )
       return { ok: true, id }
     })

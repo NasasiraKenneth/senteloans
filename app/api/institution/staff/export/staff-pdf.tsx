@@ -1,8 +1,7 @@
-"use server"
-
 import React from "react"
 import { Document, Page, Text, View } from "@react-pdf/renderer"
 import { formatIsoDate, serverPdfStyles as styles, toServerPdfBuffer } from "@/lib/export/server-pdf"
+
 
 type StaffRow = {
   full_name: string
@@ -59,11 +58,11 @@ export async function renderStaffPdfBuffer(payload: Payload): Promise<Buffer> {
             </View>
             {sheet.rows.map((row, rowIdx) => (
               <View key={rowIdx} style={styles.row}>
-                <Text style={styles.cell}>{row.full_name || "—"}</Text>
-                <Text style={styles.cell}>{row.email || "—"}</Text>
-                <Text style={styles.cell}>{row.phone_number || "—"}</Text>
+                <Text style={styles.cell}>{row.full_name || ""}</Text>
+                <Text style={styles.cell}>{row.email || ""}</Text>
+                <Text style={styles.cell}>{row.phone_number || ""}</Text>
                 <Text style={styles.cell}>{fmtRole(row.role)}</Text>
-                <Text style={styles.cell}>{row.status || "—"}</Text>
+                <Text style={styles.cell}>{row.status || ""}</Text>
                 <Text style={styles.cell}>{formatIsoDate(row.last_login)}</Text>
                 <Text style={styles.cell}>{formatIsoDate(row.joined_at || row.created_at)}</Text>
               </View>

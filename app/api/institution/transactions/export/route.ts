@@ -2,7 +2,12 @@ import { NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { runWithAuth } from "@/lib/db"
-import { addExcelTitleAndHeaders, createExcelWorkbook, formatIsoDateForExcel } from "@/lib/export/server-excel"
+import {
+  addExcelTitleAndHeaders,
+  createExcelWorkbook,
+  formatIsoDateForExcel,
+  toSafeExcelSheetName,
+} from "@/lib/export/server-excel"
 import { renderTransactionsPdfBuffer } from "./transactions-pdf"
 
 type ActorContext = {
@@ -12,6 +17,8 @@ type ActorContext = {
   role_id: string | null
   role: string | null
 }
+
+type BranchScope = { id: string; name: string }
 
 async function resolveActorContext(client: any, authUserId: string): Promise<ActorContext | null> {
   const actorRes = await client.query(
@@ -82,63 +89,105 @@ export async function GET(req: Request) {
       const actorRole = String(actor.role || "").trim().toLowerCase()
       if (actorRole !== "super_admin" && !actor.branch_id) return { error: "actor_branch_missing" as const }
 
-      let where = "t.institution_id = $1"
-      const params: unknown[] = [actor.institution_id]
-      let idx = 2
+      let branchScopes: BranchScope[] = []
+      if (actorRole === "super_admin") {
+        const branchRes = await client.query(
+          `SELECT id, name
+           FROM senteloans_branches
+           WHERE institution_id = $1
+           ORDER BY name ASC`,
+          [actor.institution_id]
+        )
+        const allBranches = branchRes.rows as BranchScope[]
+        branchScopes =
+          selectedBranchIds.length > 0
+            ? allBranches.filter((b) => selectedBranchIds.includes(b.id))
+            : allBranches
+      } else {
+        const branchRes = await client.query(
+          `SELECT id, name
+           FROM senteloans_branches
+           WHERE id = $1
+           LIMIT 1`,
+          [actor.branch_id]
+        )
+        branchScopes = branchRes.rows.length > 0 ? [branchRes.rows[0] as BranchScope] : []
+      }
 
-      if (actorRole !== "super_admin") {
-        where += ` AND t.branch_id = $${idx++}`
-        params.push(actor.branch_id)
-      } else if (selectedBranchIds.length > 0) {
-        where += ` AND t.branch_id = ANY($${idx++}::uuid[])`
-        params.push(selectedBranchIds)
-      }
-      if (mode) {
-        where += ` AND t.mode = $${idx++}`
-        params.push(mode)
-      }
-      if (dateFrom) {
-        where += ` AND t.transaction_date >= ($${idx++}::timestamp AT TIME ZONE 'Africa/Nairobi')`
-        params.push(dateFrom)
-      }
-      if (dateTo) {
-        where += ` AND t.transaction_date <= ($${idx++}::timestamp AT TIME ZONE 'Africa/Nairobi')`
-        params.push(dateTo)
-      }
-      if (search) {
-        where += ` AND (
+      if (branchScopes.length === 0) return { error: "no_branch_scope" as const }
+
+      const title = buildTitle({ mode, search, dateFrom, dateTo })
+      const sheets: Array<{
+        branch_name: string
+        rows: Array<{
+          transaction_number: string
+          assigned_to: string
+          account_number: string
+          type: string
+          amount: number
+          mode: string
+          transaction_date: string | null
+          balance_after: number
+        }>
+      }> = []
+
+      for (const branch of branchScopes) {
+        let where = "t.institution_id = $1 AND t.branch_id = $2"
+        const params: unknown[] = [actor.institution_id, branch.id]
+        let idx = 3
+
+        if (mode) {
+          where += ` AND t.mode = $${idx++}`
+          params.push(mode)
+        }
+        if (dateFrom) {
+          where += ` AND t.transaction_date >= ($${idx++}::timestamp AT TIME ZONE 'Africa/Nairobi')`
+          params.push(dateFrom)
+        }
+        if (dateTo) {
+          where += ` AND t.transaction_date <= ($${idx++}::timestamp AT TIME ZONE 'Africa/Nairobi')`
+          params.push(dateTo)
+        }
+        if (search) {
+          where += ` AND (
           t.description ILIKE $${idx}
           OR t.transaction_number ILIKE $${idx}
           OR m.full_name ILIKE $${idx}
           OR m.member_number ILIKE $${idx}
           OR c.name ILIKE $${idx}
         )`
-        params.push(`%${search}%`)
-        idx++
+          params.push(`%${search}%`)
+          idx++
+        }
+
+        const txRes = await client.query(
+          `SELECT
+             t.transaction_number,
+             COALESCE(m.full_name, c.name, '') AS assigned_to,
+             COALESCE(sa.account_number, '') AS account_number,
+             t.type,
+             t.amount,
+             t.mode,
+             t.transaction_date,
+             t.balance_after
+           FROM senteloans_transactions t
+           LEFT JOIN senteloans_members m ON m.id = t.member_id
+           LEFT JOIN senteloans_clients c ON c.id = t.client_id
+           LEFT JOIN senteloans_savings_accounts sa ON sa.id = t.account_id
+           WHERE ${where}
+           ORDER BY t.created_at DESC`,
+          params
+        )
+
+        sheets.push({
+          branch_name: branch.name,
+          rows: txRes.rows,
+        })
       }
 
-      const txRes = await client.query(
-        `SELECT
-           t.transaction_number,
-           COALESCE(m.full_name, c.name, '') AS assigned_to,
-           COALESCE(sa.account_number, '') AS account_number,
-           t.type,
-           t.amount,
-           t.mode,
-           t.transaction_date,
-           t.balance_after
-         FROM senteloans_transactions t
-         LEFT JOIN senteloans_members m ON m.id = t.member_id
-         LEFT JOIN senteloans_clients c ON c.id = t.client_id
-         LEFT JOIN senteloans_savings_accounts sa ON sa.id = t.account_id
-         WHERE ${where}
-         ORDER BY t.created_at DESC`,
-        params
-      )
-
       return {
-        title: buildTitle({ mode, search, dateFrom, dateTo }),
-        rows: txRes.rows,
+        title,
+        sheets,
       }
     })
 
@@ -152,21 +201,32 @@ export async function GET(req: Request) {
     const date = new Date().toISOString().slice(0, 10)
     if (format === "excel") {
       const workbook = await createExcelWorkbook()
-      const ws = workbook.addWorksheet("Transactions")
       const headers = ["Txn #", "Assigned To", "Account", "Type", "Amount", "Mode", "Date", "Balance"]
-      addExcelTitleAndHeaders(ws, result.title || "Transaction Report", headers, "A1:H1")
-      ws.columns = [{ width: 22 }, { width: 24 }, { width: 18 }, { width: 18 }, { width: 14 }, { width: 16 }, { width: 14 }, { width: 14 }]
-      for (const row of result.rows || []) {
-        ws.addRow([
-          row.transaction_number || "",
-          row.assigned_to || "",
-          row.account_number || "",
-          row.type || "",
-          Number(row.amount || 0),
-          row.mode || "",
-          row.transaction_date ? formatIsoDateForExcel(row.transaction_date) : "",
-          Number(row.balance_after || 0),
-        ])
+      for (const sheet of result.sheets || []) {
+        const ws = workbook.addWorksheet(toSafeExcelSheetName(sheet.branch_name))
+        addExcelTitleAndHeaders(ws, result.title || "Transaction Report", headers, "A1:H1")
+        ws.columns = [
+          { width: 22 },
+          { width: 24 },
+          { width: 18 },
+          { width: 18 },
+          { width: 14 },
+          { width: 16 },
+          { width: 14 },
+          { width: 14 },
+        ]
+        for (const row of sheet.rows || []) {
+          ws.addRow([
+            row.transaction_number || "",
+            row.assigned_to || "",
+            row.account_number || "",
+            row.type || "",
+            Number(row.amount || 0),
+            row.mode || "",
+            row.transaction_date ? formatIsoDateForExcel(row.transaction_date) : "",
+            Number(row.balance_after || 0),
+          ])
+        }
       }
       const buffer = await workbook.xlsx.writeBuffer()
       return new NextResponse(buffer as BodyInit, {
@@ -181,7 +241,7 @@ export async function GET(req: Request) {
     if (format === "pdf") {
       const buffer = await renderTransactionsPdfBuffer({
         title: result.title,
-        rows: result.rows,
+        sheets: result.sheets,
       })
       return new NextResponse(buffer as BodyInit, {
         status: 200,

@@ -3,35 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { runWithAuth } from "@/lib/db"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
-
-type ActorContext = {
-  id: string
-  institution_id: string
-  branch_id: string | null
-  role: string | null
-}
-
-async function resolveActorContext(client: any, authUserId: string): Promise<ActorContext | null> {
-  const actorRes = await client.query(
-    `SELECT
-       u.id,
-       u.institution_id,
-       u.branch_id,
-       CASE
-         WHEN r.name = 'System Admin' THEN 'system_admin'
-         WHEN r.name = 'Super Admin' THEN 'super_admin'
-         WHEN r.name = 'Admin' THEN 'institution_admin'
-         WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
-         ELSE NULL
-       END AS role
-     FROM senteloans_users u
-     LEFT JOIN senteloans_roles r ON r.id = u.role_id
-     WHERE u.supabase_user_id = $1
-     LIMIT 1`,
-    [authUserId],
-  )
-  return actorRes.rows[0] || null
-}
+import { hasInvestmentPermission, resolveInvestmentActor } from "@/lib/api/investment-rbac"
 
 const normalizeDate = (value: unknown): string | null => {
   if (typeof value !== "string" || !value.trim()) return null
@@ -84,8 +56,10 @@ export async function GET(req: Request) {
     const selectedBranchIds = branchesRaw ? branchesRaw.split(",").map((v) => v.trim()).filter(Boolean) : []
 
     const result = await runWithAuth(session.user.authUserId, async (client) => {
-      const actor = await resolveActorContext(client, session.user.authUserId as string)
+      const actor = await resolveInvestmentActor(client, session.user.authUserId as string)
       if (!actor?.institution_id) return { error: "user_not_linked" as const }
+      const allowed = await hasInvestmentPermission(client, actor, "view_investments")
+      if (!allowed) return { error: "missing_permission:view_investments" as const }
       const isSuperAdmin = String(actor.role || "").trim().toLowerCase() === "super_admin"
       if (!isSuperAdmin && !actor.branch_id) return { error: "actor_branch_missing" as const }
 
@@ -204,7 +178,13 @@ export async function GET(req: Request) {
 
     if (result && "error" in result) {
       const statusCode = result.error === "actor_branch_missing" ? 400 : 403
-      apiLog("warn", "investments.list.denied", { method: "GET", apiPath, status: statusCode, error: result.error, authUserId: session.user.authUserId })
+      apiLog("warn", "investments.list.denied", {
+        method: "GET",
+        apiPath,
+        status: statusCode,
+        error: result.error,
+        authUserId: session.user.authUserId,
+      })
       return NextResponse.json({ error: result.error }, { status: statusCode })
     }
 
@@ -308,8 +288,10 @@ export async function POST(req: Request) {
     }
 
     const result = await runWithAuth(session.user.authUserId, async (client) => {
-      const actor = await resolveActorContext(client, session.user.authUserId as string)
+      const actor = await resolveInvestmentActor(client, session.user.authUserId as string)
       if (!actor?.institution_id) return { error: "user_not_linked" as const }
+      const allowed = await hasInvestmentPermission(client, actor, "add_investment")
+      if (!allowed) return { error: "missing_permission:add_investment" as const }
       if (!actor.branch_id) return { error: "actor_branch_missing" as const }
 
       if (providerId) {

@@ -2,35 +2,8 @@ import { NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { runWithAuth } from "@/lib/db"
-
-type ActorContext = {
-  id: string
-  institution_id: string
-  branch_id: string | null
-  role: string | null
-}
-
-async function resolveActorContext(client: any, authUserId: string): Promise<ActorContext | null> {
-  const actorRes = await client.query(
-    `SELECT
-       u.id,
-       u.institution_id,
-       u.branch_id,
-       CASE
-         WHEN r.name = 'System Admin' THEN 'system_admin'
-         WHEN r.name = 'Super Admin' THEN 'super_admin'
-         WHEN r.name = 'Admin' THEN 'institution_admin'
-         WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
-         ELSE NULL
-       END AS role
-     FROM senteloans_users u
-     LEFT JOIN senteloans_roles r ON r.id = u.role_id
-     WHERE u.supabase_user_id = $1
-     LIMIT 1`,
-    [authUserId],
-  )
-  return actorRes.rows[0] || null
-}
+import { auditLogger } from "@/lib/audit/audit-logger"
+import { hasInvestmentPermission, resolveInvestmentActor } from "@/lib/api/investment-rbac"
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
@@ -54,15 +27,18 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   }
 
   return runWithAuth(session.user.authUserId, async (client) => {
-    const actor = await resolveActorContext(client, session.user.authUserId as string)
+    const actor = await resolveInvestmentActor(client, session.user.authUserId as string)
     if (!actor?.institution_id) return NextResponse.json({ error: "user_not_linked" }, { status: 403 })
+    const allowed = await hasInvestmentPermission(client, actor, "record_monthly_report")
+    if (!allowed) return NextResponse.json({ error: "missing_permission:record_monthly_report" }, { status: 403 })
+
     const isSuperAdmin = String(actor.role || "").trim().toLowerCase() === "super_admin"
     if (!isSuperAdmin && !actor.branch_id) return NextResponse.json({ error: "actor_branch_missing" }, { status: 400 })
 
     await client.query("BEGIN")
     try {
       const invRes = await client.query(
-        `SELECT id
+        `SELECT id, current_value
          FROM senteloans_investments
          WHERE id = $1 AND institution_id = $2
          ${isSuperAdmin ? "" : "AND branch_id = $3"}
@@ -73,6 +49,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         await client.query("ROLLBACK")
         return NextResponse.json({ error: "investment_not_found" }, { status: 404 })
       }
+      const previousCurrentValue = invRes.rows[0]?.current_value
 
       let adjustmentInflow = 0
       let adjustmentOutflow = 0
@@ -129,6 +106,27 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         throw e
       }
 
+      await auditLogger.logInsert(
+        "senteloans_investment_reports",
+        reportId,
+        {
+          investment_id: id,
+          report_number: reportNumber,
+          report_period: reportPeriod,
+          opening_value: openingValue,
+          capital_added: capitalAdded,
+          income,
+          expenses,
+          closing_value: closingValue,
+          notes,
+          linked_cashflow_ids: cashflowIds,
+        },
+        actor.institution_id,
+        actor.id,
+        undefined,
+        client,
+      )
+
       if (cashflowIds.length > 0) {
         await client.query(
           `UPDATE senteloans_investment_cashflows
@@ -139,11 +137,30 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         )
       }
 
-      await client.query(
+      const valIns = await client.query(
         `INSERT INTO senteloans_investment_valuations (investment_id, valuation_date, value, notes)
-         VALUES ($1, CURRENT_DATE, $2, $3)`,
+         VALUES ($1, CURRENT_DATE, $2, $3)
+         RETURNING id, valuation_date`,
         [id, closingValue, `${reportPeriod} report valuation`],
       )
+      const valRow = valIns.rows[0] as { id: string; valuation_date: string } | undefined
+      const valuationId = String(valRow?.id || "")
+      if (valuationId) {
+        await auditLogger.logInsert(
+          "senteloans_investment_valuations",
+          valuationId,
+          {
+            investment_id: id,
+            valuation_date: valRow?.valuation_date,
+            value: closingValue,
+            notes: `${reportPeriod} report valuation`,
+          },
+          actor.institution_id,
+          actor.id,
+          undefined,
+          client,
+        )
+      }
 
       await client.query(
         `UPDATE senteloans_investments
@@ -152,6 +169,16 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
              updated_at = NOW()
          WHERE id = $3`,
         [closingValue, actor.id, id],
+      )
+      await auditLogger.logUpdate(
+        "senteloans_investments",
+        id,
+        { current_value: previousCurrentValue },
+        { current_value: closingValue },
+        actor.institution_id,
+        actor.id,
+        undefined,
+        client,
       )
 
       await client.query("COMMIT")

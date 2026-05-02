@@ -1,15 +1,17 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState, type ChangeEvent } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import DataTable, { DataTableColumn } from "@/components/datatables/DataTable"
 import { FilterField } from "@/components/datatables/TableFilter"
+import { withBranchFilterFirst } from "@/lib/filters/branch-first-filter"
 import { FileText, AlertTriangle, Eye, Calendar } from "lucide-react"
 import { useToast } from "@/components/ui/toast"
 import { getInitials } from "@/lib/invoices/utils"
 import { ActionButtons } from "@/components/datatables/ActionButtons"
+import { downloadInvestmentReportsExport } from "./export/export"
 
 type InvestmentReportExtended = {
   opening_value: number
@@ -125,7 +127,16 @@ export default function InvestmentReportsPage() {
   const [page, setPage] = useState(0)
   const [rowsPerPage, setRowsPerPage] = useState(10)
   const [activeQueryParams, setActiveQueryParams] = useState<Record<string, unknown>>({})
+  const [activeFilters, setActiveFilters] = useState<Record<string, string>>({})
   const [expandedRowIds, setExpandedRowIds] = useState<Set<string | number>>(new Set())
+  const [exporting, setExporting] = useState<"excel" | "pdf" | null>(null)
+  const [reportPermissions, setReportPermissions] = useState({
+    viewInvestmentReports: false,
+    isSuperAdmin: false,
+    branches: [] as Array<{ value: string; label: string }>,
+  })
+  const permissionDeniedToastShown = useRef(false)
+  const exportPermissionToastShown = useRef(false)
 
   const loadReports = useCallback(
     async (queryParams?: object, pageOverride?: number, rowsPerPageOverride?: number) => {
@@ -157,7 +168,15 @@ export default function InvestmentReportsPage() {
         params.set("pageSize", String(requestRows))
         const res = await fetch(`/api/institution/investments/reports?${params.toString()}`, { cache: "no-store" })
         const body = await res.json().catch(() => ({}))
-        if (!res.ok) throw new Error(body?.error || "Failed to load investment reports")
+        if (!res.ok) {
+          const errCode = String(body?.error || "")
+          if (errCode === "missing_permission:view_investment_reports") {
+            const e = new Error(errCode) as Error & { code?: string }
+            e.code = errCode
+            throw e
+          }
+          throw new Error(errCode || "Failed to load investment reports")
+        }
 
         const items = Array.isArray(body?.items) ? body.items : []
         setRows(
@@ -186,18 +205,58 @@ export default function InvestmentReportsPage() {
           }),
         )
         setTotalRows(Number(body?.total ?? items.length ?? 0))
+        permissionDeniedToastShown.current = false
+        exportPermissionToastShown.current = false
       } catch (e: unknown) {
         const message = e instanceof Error ? e.message : "Failed to load investment reports"
-        setError(message)
-        setRows([])
-        setTotalRows(0)
-        toast({ variant: "destructive", title: "Failed to load reports", description: message })
+        if (message === "missing_permission:view_investment_reports") {
+          setError("")
+          setRows([])
+          setTotalRows(0)
+          if (!permissionDeniedToastShown.current) {
+            permissionDeniedToastShown.current = true
+            toast({
+              variant: "warning",
+              title: "Access denied",
+              description: "You do not have permission to view investment reports.",
+            })
+          }
+        } else {
+          setError(message)
+          setRows([])
+          setTotalRows(0)
+          toast({ variant: "destructive", title: "Failed to load reports", description: message })
+        }
       } finally {
         setLoading(false)
       }
     },
     [toast, page, rowsPerPage],
   )
+
+  useEffect(() => {
+    async function loadPermissions() {
+      try {
+        const res = await fetch("/api/institution/investments/permissions", { cache: "no-store" })
+        if (!res.ok) return
+        const data = (await res.json()) as {
+          permissions?: {
+            viewInvestmentReports?: boolean
+            isSuperAdmin?: boolean
+            branches?: Array<{ id: string; name: string }>
+          }
+        }
+        setReportPermissions({
+          viewInvestmentReports: !!data.permissions?.viewInvestmentReports,
+          isSuperAdmin: !!data.permissions?.isSuperAdmin,
+          branches: (data.permissions?.branches || []).map((b) => ({ value: b.id, label: b.name })),
+        })
+      } catch {
+        // keep defaults
+      }
+    }
+    void loadPermissions()
+  }, [])
 
   useEffect(() => {
     void loadReports()
@@ -208,10 +267,69 @@ export default function InvestmentReportsPage() {
       setPage(0)
       const normalized = params as Record<string, unknown>
       setActiveQueryParams(normalized)
+      const flat: Record<string, string> = {}
+      Object.entries(normalized).forEach(([k, v]) => {
+        if (
+          v &&
+          typeof v === "object" &&
+          "start" in (v as Record<string, unknown>) &&
+          "end" in (v as Record<string, unknown>)
+        ) {
+          const range = v as { start?: string; end?: string }
+          const start = range.start ? String(range.start).slice(0, 10) : ""
+          const end = range.end ? String(range.end).slice(0, 10) : ""
+          if (/^\d{4}-\d{2}-\d{2}$/.test(start)) flat[`${k}Start`] = start
+          if (/^\d{4}-\d{2}-\d{2}$/.test(end)) flat[`${k}End`] = end
+          return
+        }
+        if (v !== undefined && v !== null && String(v).trim() !== "") flat[k] = String(v)
+      })
+      setActiveFilters(flat)
+      exportPermissionToastShown.current = false
       void loadReports(normalized, 0, rowsPerPage)
     },
     [loadReports, rowsPerPage],
   )
+
+  const downloadExport = async (format: "excel" | "pdf") => {
+    if (!reportPermissions.viewInvestmentReports) {
+      toast({
+        variant: "warning",
+        title: "Access denied",
+        description: "You do not have permission to export investment reports.",
+      })
+      return
+    }
+    setExporting(format)
+    try {
+      await downloadInvestmentReportsExport(activeFilters, format)
+      toast({
+        variant: "success",
+        title: `${format === "excel" ? "Excel" : "PDF"} downloaded`,
+        description: `Successfully downloaded investment reports ${format.toUpperCase()}.`,
+      })
+    } catch (e: unknown) {
+      const message = String((e as Error)?.message || "")
+      if (message === "missing_permission:view_investment_reports") {
+        if (!exportPermissionToastShown.current) {
+          exportPermissionToastShown.current = true
+          toast({
+            variant: "warning",
+            title: "Access denied",
+            description: "You do not have permission to export investment reports.",
+          })
+        }
+      } else {
+        toast({
+          variant: "destructive",
+          title: `Download ${format.toUpperCase()} failed`,
+          description: message || `Failed to download ${format.toUpperCase()}.`,
+        })
+      }
+    } finally {
+      setExporting(null)
+    }
+  }
 
   const handlePageChange = useCallback(
     (_: unknown, newPage: number) => {
@@ -246,8 +364,8 @@ export default function InvestmentReportsPage() {
     router.push(`/investments/${row.investment_id}`)
   }
 
-  const filterFields = useMemo<FilterField[]>(
-    () => [
+  const filterFields = useMemo<FilterField[]>(() => {
+    const fields: FilterField[] = [
       { field: "q", label: "Search report #, investment #, investment name, provider", type: "text" },
       { field: "recordedDate", label: "Recorded date", type: "date-range" },
       {
@@ -264,9 +382,12 @@ export default function InvestmentReportsPage() {
         multiple: true,
         options: buildReportPeriodYearOptions(),
       },
-    ],
-    [],
-  )
+    ]
+    return withBranchFilterFirst(fields, {
+      isSuperAdmin: reportPermissions.isSuperAdmin,
+      branchOptions: reportPermissions.branches,
+    })
+  }, [reportPermissions.isSuperAdmin, reportPermissions.branches])
 
   const columns: DataTableColumn<InvestmentReportRow>[] = [
     {
@@ -417,6 +538,12 @@ export default function InvestmentReportsPage() {
           onPageChange: handlePageChange,
           onRowsPerPageChange: handleRowsPerPageChange,
           rowsPerPageOptions: [10, 20, 50],
+        }}
+        exportActions={{
+          onExcel: () => void downloadExport("excel"),
+          onPdf: () => void downloadExport("pdf"),
+          excelDisabled: loading || totalRows === 0 || exporting !== null || !reportPermissions.viewInvestmentReports,
+          pdfDisabled: loading || totalRows === 0 || exporting !== null || !reportPermissions.viewInvestmentReports,
         }}
       />
     </div>

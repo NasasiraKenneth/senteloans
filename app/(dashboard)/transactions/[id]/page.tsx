@@ -158,7 +158,12 @@ export default function TransactionDetailPage() {
   if (loading) {
     return (
       <>
-        <div className="text-center text-muted-foreground">Loading transaction...</div>
+        <div className="flex min-h-[70vh] w-full items-center justify-center">
+          <div className="text-center">
+            <div className="mx-auto mb-4 h-8 w-8 animate-spin rounded-full border-b-2 border-primary"></div>
+            <p className="text-muted-foreground">Loading transaction details...</p>
+          </div>
+        </div>
       </>
     )
   }

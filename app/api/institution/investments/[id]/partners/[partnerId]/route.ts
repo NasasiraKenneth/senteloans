@@ -2,47 +2,112 @@ import { NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { runWithAuth } from "@/lib/db"
-
-type ActorContext = { id: string; institution_id: string; branch_id: string | null; role: string | null }
-
-async function resolveActorContext(client: any, authUserId: string): Promise<ActorContext | null> {
-  const res = await client.query(
-    `SELECT u.id, u.institution_id, u.branch_id,
-      CASE
-        WHEN r.name = 'System Admin' THEN 'system_admin'
-        WHEN r.name = 'Super Admin' THEN 'super_admin'
-        WHEN r.name = 'Admin' THEN 'institution_admin'
-        WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
-        ELSE NULL
-      END AS role
-     FROM senteloans_users u
-     LEFT JOIN senteloans_roles r ON r.id = u.role_id
-     WHERE u.supabase_user_id = $1
-     LIMIT 1`,
-    [authUserId],
-  )
-  return res.rows[0] || null
-}
+import { auditLogger } from "@/lib/audit/audit-logger"
+import { hasInvestmentPermission, resolveInvestmentActor } from "@/lib/api/investment-rbac"
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string; partnerId: string }> }) {
-  const { partnerId } = await params
+  const { id: investmentId, partnerId } = await params
   const session = await getServerSession(authOptions)
   if (!session?.user?.authUserId) return NextResponse.json({ error: "unauthorized" }, { status: 401 })
   if (session.user.type !== "staff") return NextResponse.json({ error: "not_staff" }, { status: 403 })
   const body = (await req.json().catch(() => ({}))) as Record<string, unknown>
   return runWithAuth(session.user.authUserId, async (client) => {
+    const actor = await resolveInvestmentActor(client, session.user.authUserId as string)
+    if (!actor?.institution_id) return NextResponse.json({ error: "user_not_linked" }, { status: 403 })
+    const allowed = await hasInvestmentPermission(client, actor, "edit_investment")
+    if (!allowed) return NextResponse.json({ error: "missing_permission:edit_investment" }, { status: 403 })
+
     const counterpartyId = String(body.counterpartyId || body.counterparty_id || "").trim()
     const role = String(body.role || "").trim() || null
     const status = String(body.status || "Active").trim().toLowerCase() === "inactive" ? "Inactive" : "Active"
     const contributionPercentage = body.contributionPercentage ?? body.contribution_percentage ?? null
     const contributionAmount = body.contributionAmount ?? body.contribution_amount ?? null
     const ownershipPercentage = body.ownershipPercentage ?? body.ownership_percentage ?? null
-    await client.query(
-      `UPDATE senteloans_investment_partners
-       SET counterparty_id = $1, role = $2, status = $3,
-           contribution_percentage = $4, contribution_amount = $5, ownership_percentage = $6, updated_at = NOW()
-       WHERE id = $7`,
-      [counterpartyId, role, status, contributionPercentage, contributionAmount, ownershipPercentage, partnerId],
+
+    const isSuperAdmin = String(actor.role || "").trim().toLowerCase() === "super_admin"
+    if (!isSuperAdmin && !actor.branch_id) return NextResponse.json({ error: "actor_branch_missing" }, { status: 400 })
+
+    const setParams: unknown[] = [
+      counterpartyId,
+      role,
+      status,
+      contributionPercentage,
+      contributionAmount,
+      ownershipPercentage,
+      partnerId,
+      investmentId,
+      actor.institution_id,
+    ]
+    const branchClause = isSuperAdmin ? "" : " AND i.branch_id = $10"
+    const params: unknown[] = isSuperAdmin ? setParams : [...setParams, actor.branch_id]
+
+    const prevRes = await client.query(
+      `SELECT
+         p.id,
+         p.counterparty_id,
+         p.role,
+         p.status,
+         p.contribution_percentage,
+         p.contribution_amount,
+         p.ownership_percentage
+       FROM senteloans_investment_partners p
+       JOIN senteloans_investments i ON i.id = p.investment_id
+       WHERE p.id = $7
+         AND p.investment_id = $8
+         AND i.institution_id = $9${branchClause}`,
+      params,
+    )
+    if (prevRes.rowCount === 0) return NextResponse.json({ error: "partner_not_found" }, { status: 404 })
+    const prev = prevRes.rows[0] as {
+      counterparty_id: string
+      role: string | null
+      status: string
+      contribution_percentage: unknown
+      contribution_amount: unknown
+      ownership_percentage: unknown
+    }
+
+    const upd = await client.query(
+      `UPDATE senteloans_investment_partners p
+       SET counterparty_id = $1,
+           role = $2,
+           status = $3,
+           contribution_percentage = $4,
+           contribution_amount = $5,
+           ownership_percentage = $6,
+           updated_at = NOW()
+       FROM senteloans_investments i
+       WHERE p.id = $7
+         AND p.investment_id = $8
+         AND i.id = p.investment_id
+         AND i.institution_id = $9${branchClause}
+       RETURNING p.id`,
+      params,
+    )
+    if (upd.rowCount === 0) return NextResponse.json({ error: "partner_not_found" }, { status: 404 })
+    await auditLogger.logUpdate(
+      "senteloans_investment_partners",
+      partnerId,
+      {
+        counterparty_id: prev.counterparty_id,
+        role: prev.role,
+        status: prev.status,
+        contribution_percentage: prev.contribution_percentage,
+        contribution_amount: prev.contribution_amount,
+        ownership_percentage: prev.ownership_percentage,
+      },
+      {
+        counterparty_id: counterpartyId,
+        role,
+        status,
+        contribution_percentage: contributionPercentage,
+        contribution_amount: contributionAmount,
+        ownership_percentage: ownershipPercentage,
+      },
+      actor.institution_id,
+      actor.id,
+      undefined,
+      client,
     )
     return NextResponse.json({ ok: true })
   })
@@ -54,8 +119,11 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
   if (!session?.user?.authUserId) return NextResponse.json({ error: "unauthorized" }, { status: 401 })
   if (session.user.type !== "staff") return NextResponse.json({ error: "not_staff" }, { status: 403 })
   return runWithAuth(session.user.authUserId, async (client) => {
-    const actor = await resolveActorContext(client, session.user.authUserId as string)
+    const actor = await resolveInvestmentActor(client, session.user.authUserId as string)
     if (!actor?.institution_id) return NextResponse.json({ error: "user_not_linked" }, { status: 403 })
+    const allowed = await hasInvestmentPermission(client, actor, "edit_investment")
+    if (!allowed) return NextResponse.json({ error: "missing_permission:edit_investment" }, { status: 403 })
+
     const isSuperAdmin = String(actor.role || "").trim().toLowerCase() === "super_admin"
     if (!isSuperAdmin && !actor.branch_id) return NextResponse.json({ error: "actor_branch_missing" }, { status: 400 })
 
@@ -74,6 +142,23 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
       return NextResponse.json({ error: "partner_delete_allowed_only_when_pending" }, { status: 409 })
     }
 
+    const prevPartnerRes = await client.query(
+      `SELECT
+         p.id,
+         p.counterparty_id,
+         p.role,
+         p.status,
+         p.contribution_percentage,
+         p.contribution_amount,
+         p.ownership_percentage
+       FROM senteloans_investment_partners p
+       WHERE p.id = $1 AND p.investment_id = $2
+       LIMIT 1`,
+      [partnerId, id],
+    )
+    if (prevPartnerRes.rowCount === 0) return NextResponse.json({ error: "partner_not_found" }, { status: 404 })
+    const prevP = prevPartnerRes.rows[0] as Record<string, unknown>
+
     const delRes = await client.query(
       `DELETE FROM senteloans_investment_partners
        WHERE id = $1 AND investment_id = $2
@@ -81,6 +166,23 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
       [partnerId, id],
     )
     if (delRes.rowCount === 0) return NextResponse.json({ error: "partner_not_found" }, { status: 404 })
+    await auditLogger.logDelete(
+      "senteloans_investment_partners",
+      partnerId,
+      {
+        investment_id: id,
+        counterparty_id: prevP.counterparty_id,
+        role: prevP.role,
+        status: prevP.status,
+        contribution_percentage: prevP.contribution_percentage,
+        contribution_amount: prevP.contribution_amount,
+        ownership_percentage: prevP.ownership_percentage,
+      },
+      actor.institution_id,
+      actor.id,
+      undefined,
+      client,
+    )
     return NextResponse.json({ ok: true })
   })
 }

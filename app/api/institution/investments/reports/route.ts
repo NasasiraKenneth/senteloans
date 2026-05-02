@@ -3,13 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { runWithAuth } from "@/lib/db"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
-
-type ActorContext = {
-  id: string
-  institution_id: string
-  branch_id: string | null
-  role: string | null
-}
+import { hasInvestmentPermission, resolveInvestmentActor } from "@/lib/api/investment-rbac"
 
 const ALLOWED_PERIOD_MONTHS = new Set([
   "january",
@@ -27,28 +21,6 @@ const ALLOWED_PERIOD_MONTHS = new Set([
 ])
 
 const isIsoDate = (v: string) => /^\d{4}-\d{2}-\d{2}$/.test(v)
-
-async function resolveActorContext(client: any, authUserId: string): Promise<ActorContext | null> {
-  const actorRes = await client.query(
-    `SELECT
-       u.id,
-       u.institution_id,
-       u.branch_id,
-       CASE
-         WHEN r.name = 'System Admin' THEN 'system_admin'
-         WHEN r.name = 'Super Admin' THEN 'super_admin'
-         WHEN r.name = 'Admin' THEN 'institution_admin'
-         WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
-         ELSE NULL
-       END AS role
-     FROM senteloans_users u
-     LEFT JOIN senteloans_roles r ON r.id = u.role_id
-     WHERE u.supabase_user_id = $1
-     LIMIT 1`,
-    [authUserId],
-  )
-  return actorRes.rows[0] || null
-}
 
 export async function GET(req: Request) {
   const apiPath = getApiPath(req)
@@ -77,10 +49,14 @@ export async function GET(req: Request) {
       .map((s) => parseInt(s.trim(), 10))
       .filter((n) => Number.isInteger(n) && n >= 1900 && n <= 2100)
     const periodYears = [...new Set(periodYearsRaw)]
+    const branchesRaw = (url.searchParams.get("branches") || "").trim()
+    const selectedBranchIds = branchesRaw ? branchesRaw.split(",").map((v) => v.trim()).filter(Boolean) : []
 
     const result = await runWithAuth(session.user.authUserId, async (client) => {
-      const actor = await resolveActorContext(client, session.user.authUserId as string)
+      const actor = await resolveInvestmentActor(client, session.user.authUserId as string)
       if (!actor?.institution_id) return { error: "user_not_linked" as const }
+      const allowed = await hasInvestmentPermission(client, actor, "view_investment_reports")
+      if (!allowed) return { error: "missing_permission:view_investment_reports" as const }
       const isSuperAdmin = String(actor.role || "").trim().toLowerCase() === "super_admin"
       if (!isSuperAdmin && !actor.branch_id) return { error: "actor_branch_missing" as const }
 
@@ -91,6 +67,9 @@ export async function GET(req: Request) {
       if (!isSuperAdmin) {
         where += ` AND i.branch_id = $${idx++}`
         params.push(actor.branch_id)
+      } else if (selectedBranchIds.length > 0) {
+        where += ` AND i.branch_id = ANY($${idx++}::uuid[])`
+        params.push(selectedBranchIds)
       }
 
       if (q) {

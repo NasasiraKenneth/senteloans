@@ -2,38 +2,21 @@ import { NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { runWithAuth } from "@/lib/db"
-
-type ActorContext = {
-  id: string
-  institution_id: string
-  branch_id: string | null
-  role: string | null
-}
-
-async function resolveActorContext(client: any, authUserId: string): Promise<ActorContext | null> {
-  const actorRes = await client.query(
-    `SELECT
-       u.id,
-       u.institution_id,
-       u.branch_id,
-       CASE
-         WHEN r.name = 'System Admin' THEN 'system_admin'
-         WHEN r.name = 'Super Admin' THEN 'super_admin'
-         WHEN r.name = 'Admin' THEN 'institution_admin'
-         WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
-         ELSE NULL
-       END AS role
-     FROM senteloans_users u
-     LEFT JOIN senteloans_roles r ON r.id = u.role_id
-     WHERE u.supabase_user_id = $1
-     LIMIT 1`,
-    [authUserId],
-  )
-  return actorRes.rows[0] || null
-}
+import { auditLogger } from "@/lib/audit/audit-logger"
+import { insertTransactionInsertAuditLog } from "@/lib/audit/transaction-insert-audit"
+import { insertWithTransactionNumberRetry } from "@/lib/transactions/transaction-number-retry"
+import {
+  hasInvestmentPermission,
+  resolveInvestmentActor,
+} from "@/lib/api/investment-rbac"
 
 const isDateOnly = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value)
-const makeTransactionNumber = () => `TXN-${Date.now()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`
+
+function amountsMatchDb(a: number, b: number): boolean {
+  const x = Math.round(Number(a) * 100)
+  const y = Math.round(Number(b) * 100)
+  return Number.isFinite(x) && Number.isFinite(y) && x === y
+}
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
@@ -58,15 +41,18 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   }
 
   return runWithAuth(session.user.authUserId, async (client) => {
-    const actor = await resolveActorContext(client, session.user.authUserId as string)
+    const actor = await resolveInvestmentActor(client, session.user.authUserId as string)
     if (!actor?.institution_id) return NextResponse.json({ error: "user_not_linked" }, { status: 403 })
+    const allowed = await hasInvestmentPermission(client, actor, "edit_investment_status")
+    if (!allowed) return NextResponse.json({ error: "missing_permission:edit_investment_status" }, { status: 403 })
+
     const isSuperAdmin = String(actor.role || "").trim().toLowerCase() === "super_admin"
     if (!isSuperAdmin && !actor.branch_id) return NextResponse.json({ error: "actor_branch_missing" }, { status: 400 })
 
     await client.query("BEGIN")
     try {
       const invRes = await client.query(
-        `SELECT id, institution_id, branch_id, provider_id, investment_number, initial_amount, status
+        `SELECT id, institution_id, branch_id, provider_id, investment_number, initial_amount, status, start_date, maturity_date
          FROM senteloans_investments
          WHERE id = $1 AND institution_id = $2
          ${isSuperAdmin ? "" : "AND branch_id = $3"}
@@ -84,27 +70,30 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         branch_id: string
         provider_id: string | null
         investment_number: string | null
-        initial_amount: number
+        initial_amount: string | number
         status: string
+        start_date: string | null
+        maturity_date: string | null
       }
       const currentStatus = String(inv.status || "").toLowerCase()
       if (currentStatus !== "approved") {
         await client.query("ROLLBACK")
         return NextResponse.json({ error: "investment_must_be_approved_first" }, { status: 409 })
       }
-      const amount = principalAmount
-      if (!(amount > 0)) {
+
+      const initialNum = Number(inv.initial_amount)
+      if (!amountsMatchDb(principalAmount, initialNum)) {
         await client.query("ROLLBACK")
-        return NextResponse.json({ error: "invalid_investment_amount" }, { status: 400 })
+        return NextResponse.json({ error: "principal_must_match_initial_amount" }, { status: 400 })
       }
 
+      const amount = principalAmount
       const txDate = `${startDate}T00:00:00.000Z`
-      let txRes: { rows: Array<{ id: string }> } | null = null
-      let transactionNumber = ""
-      for (let i = 0; i < 5; i++) {
-        transactionNumber = makeTransactionNumber()
-        try {
-          txRes = await client.query(
+      const txDesc =
+        description || `Investment activation deposit (${inv.investment_number || inv.id})`
+      const inserted = await insertWithTransactionNumberRetry(
+        (transactionNumber) =>
+          client.query(
             `INSERT INTO senteloans_transactions (
                institution_id, branch_id, client_id, transaction_number, type, amount, mode, description,
                reference_number, processed_by, transaction_date, status
@@ -118,22 +107,34 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
               transactionNumber,
               amount,
               mode,
-              description || `Investment activation deposit (${inv.investment_number || inv.id})`,
+              txDesc,
               transactionNumber,
               actor.id,
               txDate,
             ],
-          )
-          break
-        } catch (e: any) {
-          if (String(e?.code) === "23505") continue
-          throw e
-        }
-      }
-      if (!txRes) {
+          ),
+        { prefix: "TXN" },
+      )
+      if (!inserted) {
         await client.query("ROLLBACK")
         return NextResponse.json({ error: "transaction_number_generation_failed" }, { status: 500 })
       }
+      const transactionNumber = inserted.transactionNumber
+      await insertTransactionInsertAuditLog(client, {
+        institutionId: inv.institution_id,
+        branchId: inv.branch_id,
+        userId: actor.id,
+        transactionId: inserted.row.id,
+        newValues: {
+          transaction_number: transactionNumber,
+          type: "Investment Deposit",
+          amount,
+          mode,
+          client_id: inv.provider_id,
+          investment_id: id,
+          source: "investment_activate",
+        },
+      })
 
       await client.query(
         `UPDATE senteloans_investments
@@ -146,10 +147,29 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         [startDate, maturityDate, actor.id, id],
       )
 
+      await auditLogger.logUpdate(
+        "senteloans_investments",
+        id,
+        {
+          status: inv.status,
+          start_date: inv.start_date,
+          maturity_date: inv.maturity_date,
+        },
+        {
+          status: "active",
+          start_date: startDate,
+          maturity_date: maturityDate,
+        },
+        inv.institution_id,
+        actor.id,
+        undefined,
+        client,
+      )
+
       await client.query("COMMIT")
       return NextResponse.json({
         ok: true,
-        transaction_id: txRes?.rows?.[0]?.id || null,
+        transaction_id: inserted.row.id,
         transaction_number: transactionNumber,
       })
     } catch (e: any) {

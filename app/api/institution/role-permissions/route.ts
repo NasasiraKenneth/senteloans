@@ -59,18 +59,10 @@ async function hasPermission(client: any, actor: ActorContext, permission: strin
 
 const EXCLUDED_ROLE_NAMES = ["Super Admin", "System Admin"]
 
-// TODO(permissions): Restore real authorization before production hardening.
-// Intended policy (previous implementation):
-//   - `edit_role_permissions` on the actor's branch role, OR
-//   - super_admin / system_admin / institution_admin (mapped from `senteloans_roles.name`).
-// Temporary: any authenticated staff user with `branch_id` may GET/PUT role-permission matrices for that branch.
-async function canManageRolePermissions(_client: any, _actor: ActorContext): Promise<boolean> {
-  void _client
-  void _actor
-  // const role = String(actor.role || "").trim().toLowerCase()
-  // if (role === "super_admin" || role === "system_admin" || role === "institution_admin") return true
-  // return hasPermission(client, actor, "edit_role_permissions")
-  return true
+async function canManageRolePermissions(client: any, actor: ActorContext): Promise<boolean> {
+  const role = String(actor.role || "").trim().toLowerCase()
+  if (role === "super_admin" || role === "system_admin" || role === "institution_admin") return true
+  return hasPermission(client, actor, "edit_role_permissions")
 }
 
 export async function GET(req: Request) {

@@ -242,18 +242,57 @@ export async function PUT(req: Request,
         if (!isSuperAdmin && !actor.branch_id) return { error: "actor_branch_missing" as const };
 
         const existingInvoiceRes = await client.query<{
-          id: string;
-          invoice_number: string;
-          branch_id: string | null;
+          id: string
+          invoice_number: string
+          branch_id: string | null
+          member_id: string | null
+          client_id: string | null
+          invoice_date: string
+          invoice_due: string | null
+          subtotal: string | number
+          vat: string | number
+          total_amount: string | number
+          inwords: string | null
+          invoice_type: string
+          status: string
+          item_count: string | number
         }>(
-          `SELECT id, invoice_number, branch_id
-         FROM senteloans_invoices
-         WHERE id = $1 AND institution_id = $2
-         ${isSuperAdmin ? "" : "AND branch_id = $3"}`,
+          `SELECT
+             i.id,
+             i.invoice_number,
+             i.branch_id,
+             i.member_id,
+             i.client_id,
+             i.invoice_date::text AS invoice_date,
+             i.invoice_due::text AS invoice_due,
+             i.subtotal,
+             i.vat,
+             i.total_amount,
+             i.inwords,
+             i.invoice_type,
+             i.status,
+             (SELECT COUNT(*)::int FROM senteloans_invoice_items ii WHERE ii.invoice_id = i.id) AS item_count
+           FROM senteloans_invoices i
+           WHERE i.id = $1 AND i.institution_id = $2
+           ${isSuperAdmin ? "" : "AND i.branch_id = $3"}`,
           isSuperAdmin ? [invoiceId, actor.institution_id] : [invoiceId, actor.institution_id, actor.branch_id],
-        );
-        const existing = existingInvoiceRes.rows[0];
-        if (!existing) return { error: "invoice_not_found" as const };
+        )
+        const existing = existingInvoiceRes.rows[0]
+        if (!existing) return { error: "invoice_not_found" as const }
+
+        const oldValuesJson = JSON.stringify({
+          member_id: existing.member_id,
+          client_id: existing.client_id,
+          invoice_date: existing.invoice_date,
+          invoice_due: existing.invoice_due,
+          subtotal: Number(existing.subtotal || 0),
+          vat: Number(existing.vat || 0),
+          total_amount: Number(existing.total_amount || 0),
+          inwords: existing.inwords,
+          invoice_type: existing.invoice_type,
+          status: existing.status,
+          item_count: Number(existing.item_count || 0),
+        })
 
         if (memberId) {
           const memberRes = await client.query<{ id: string }>(
@@ -369,27 +408,30 @@ export async function PUT(req: Request,
           }
 
           await client.query("COMMIT");
+          const newValuesJson = JSON.stringify({
+            member_id: memberId || null,
+            client_id: clientId || null,
+            invoice_date: invoiceDate,
+            invoice_due: invoiceDue,
+            status,
+            invoice_type: invoiceType,
+            subtotal: computedSubtotal,
+            vat: round2(vat),
+            total_amount: totalAmount,
+            inwords,
+            item_count: normalizedItems.length,
+          })
           await client.query(
             `INSERT INTO senteloans_audit_logs
-              (institution_id, branch_id, user_id, table_name, category, operation, record_id, new_values)
-             VALUES ($1, $2, $3, 'senteloans_invoices', 'invoices', 'UPDATE', $4, $5)`,
+              (institution_id, branch_id, user_id, table_name, category, operation, record_id, old_values, new_values)
+             VALUES ($1, $2, $3, 'senteloans_invoices', 'invoices', 'UPDATE', $4, $5, $6)`,
             [
               actor.institution_id,
               existing.branch_id ?? actor.branch_id,
               actor.id,
               invoiceId,
-              JSON.stringify({
-                member_id: memberId || null,
-                client_id: clientId || null,
-                invoice_date: invoiceDate,
-                invoice_due: invoiceDue,
-                status,
-                invoice_type: invoiceType,
-                subtotal: computedSubtotal,
-                vat: round2(vat),
-                total_amount: totalAmount,
-                item_count: normalizedItems.length,
-              }),
+              oldValuesJson,
+              newValuesJson,
             ],
           );
           return {
@@ -465,6 +507,17 @@ export async function PATCH(
       const isSuperAdmin = String(actor.role || "").trim().toLowerCase() === "super_admin"
       if (!isSuperAdmin && !actor.branch_id) return { error: "actor_branch_missing" as const }
 
+      const prevRes = await client.query<{ status: string; branch_id: string }>(
+        `SELECT status, branch_id
+         FROM senteloans_invoices
+         WHERE id = $1 AND institution_id = $2
+         ${isSuperAdmin ? "" : "AND branch_id = $3"}`,
+        isSuperAdmin ? [id, actor.institution_id] : [id, actor.institution_id, actor.branch_id],
+      )
+      if (prevRes.rowCount === 0) return { error: "invoice_not_found" as const }
+      const previousStatus = String(prevRes.rows[0]?.status || "").trim().toLowerCase()
+      const invoiceBranchId = prevRes.rows[0]?.branch_id || actor.branch_id
+
       const updateRes = await client.query<{ id: string; branch_id: string }>(
         `UPDATE senteloans_invoices
          SET status = $1, modified_by = $2, updated_at = NOW()
@@ -477,17 +530,17 @@ export async function PATCH(
       );
       if (updateRes.rows.length === 0) return { error: "invoice_not_found" as const };
 
-      const invoiceBranchId = updateRes.rows[0]?.branch_id || actor.branch_id
       await client.query(
         `INSERT INTO senteloans_audit_logs
-          (institution_id, branch_id, user_id, table_name, category, operation, record_id, new_values)
+          (institution_id, branch_id, user_id, table_name, category, operation, record_id, old_values, new_values)
          VALUES
-          ($1, $2, $3, 'senteloans_invoices', 'invoices', 'UPDATE', $4, $5)`,
+          ($1, $2, $3, 'senteloans_invoices', 'invoices', 'UPDATE', $4, $5, $6)`,
         [
           actor.institution_id,
           invoiceBranchId,
           actor.id,
           id,
+          JSON.stringify({ status: previousStatus }),
           JSON.stringify({ status: nextStatus }),
         ],
       )

@@ -106,6 +106,13 @@ type RolePermissionsPayload = {
   actorIsSuperAdmin?: boolean
 }
 
+type SettingsPermissions = {
+  editInstitutionSettings: boolean
+  editInstitutionInfo: boolean
+  editBranchInfo: boolean
+  editRolePermissions: boolean
+}
+
 export default function SettingsPage() {
   const { toast } = useToast()
   const [session, setSession] = useState<any>(null)
@@ -125,12 +132,17 @@ export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState<
     "general" | "loan" | "penalties" | "shares" | "organization" | "admin" | "permissions"
   >("general")
-  // TODO(permissions): Gate this workspace with `edit_role_permissions` (or equivalent) again once RBAC is finalized.
   const [rolePermPayload, setRolePermPayload] = useState<RolePermissionsPayload | null>(null)
   const [rolePermLoading, setRolePermLoading] = useState(false)
   const [selectedRoleId, setSelectedRoleId] = useState("")
   const [draftRolePermissionIds, setDraftRolePermissionIds] = useState<string[]>([])
   const [isSavingRolePermissions, setIsSavingRolePermissions] = useState(false)
+  const [settingsPermissions, setSettingsPermissions] = useState<SettingsPermissions>({
+    editInstitutionSettings: false,
+    editInstitutionInfo: false,
+    editBranchInfo: false,
+    editRolePermissions: false,
+  })
   const selectedRoleIdRef = useRef("")
   const [workspaceSearch, setWorkspaceSearch] = useState("")
   const [workspaceCategory, setWorkspaceCategory] = useState<"All" | "Core" | "Profile">("All")
@@ -148,11 +160,12 @@ export default function SettingsPage() {
     setSession(sessionData)
     ;(async () => {
       try {
-        const [instRes, orgRes, staffRes, branchRes] = await Promise.all([
+        const [instRes, orgRes, staffRes, branchRes, settingsPermRes] = await Promise.all([
           fetch("/api/institution/settings", { cache: "no-store" }),
           fetch("/api/institution/organization", { cache: "no-store" }),
           fetch("/api/institution/staff?limit=200", { cache: "no-store" }),
           fetch("/api/institution/branch", { cache: "no-store" }),
+          fetch("/api/institution/settings/permissions", { cache: "no-store" }),
         ])
         if (instRes.ok) {
           const inst = await instRes.json()
@@ -189,6 +202,15 @@ export default function SettingsPage() {
               status: String(b.status || ""),
             })
           }
+        }
+        if (settingsPermRes.ok) {
+          const permsData = await settingsPermRes.json().catch(() => ({}))
+          setSettingsPermissions({
+            editInstitutionSettings: !!permsData?.permissions?.editInstitutionSettings,
+            editInstitutionInfo: !!permsData?.permissions?.editInstitutionInfo,
+            editBranchInfo: !!permsData?.permissions?.editBranchInfo,
+            editRolePermissions: !!permsData?.permissions?.editRolePermissions,
+          })
         }
       } catch (_) {
         // swallow
@@ -375,6 +397,13 @@ export default function SettingsPage() {
     },
   }
   const isSaccoOrMfi = institution?.type === "SACCO" || institution?.type === "MFI"
+  const canEditInstitutionConfig = settingsPermissions.editInstitutionSettings
+  const canEditOrganizationProfile = settingsPermissions.editInstitutionInfo && settingsPermissions.editBranchInfo
+  const canEditTab = (tab: "general" | "loan" | "penalties" | "shares" | "organization" | "permissions"): boolean => {
+    if (tab === "organization") return canEditOrganizationProfile
+    if (tab === "permissions") return settingsPermissions.editRolePermissions
+    return canEditInstitutionConfig
+  }
   const workspaceItems: Array<{
     key: "general" | "loan" | "penalties" | "shares" | "organization" | "admin" | "permissions"
     title: string
@@ -395,7 +424,7 @@ export default function SettingsPage() {
       subtitle: "Branch access, roles, and permission catalog",
       category: "Core",
       icon: Shield,
-      // TODO(permissions): Set `visible: canEditRolePermissions` again when RBAC gates this tab.
+      visible: settingsPermissions.editRolePermissions,
     },
   ]
 
@@ -582,6 +611,10 @@ export default function SettingsPage() {
   }
 
   const handleSaveRolePermissions = async () => {
+    if (!settingsPermissions.editRolePermissions) {
+      toast({ title: "Access denied", description: "You do not have permission to edit role permissions.", variant: "warning" })
+      return
+    }
     if (!selectedRoleId || rolePermLoading || isSavingRolePermissions) return
     setIsSavingRolePermissions(true)
     try {
@@ -611,12 +644,17 @@ export default function SettingsPage() {
     return null
   }
 
-  const canEditInstitutionWorkspace = (workspace: InstitutionSettingsWorkspace): boolean => institutionEditWorkspace === workspace
+  const canEditInstitutionWorkspace = (workspace: InstitutionSettingsWorkspace): boolean =>
+    institutionEditWorkspace === workspace && canEditTab(workspace)
 
   const handleStartInstitutionEdit = () => {
     if (!config) return
     const workspace = getActiveInstitutionWorkspace()
     if (!workspace) return
+    if (!canEditTab(workspace)) {
+      toast({ title: "Access denied", description: "You do not have permission to edit this settings section.", variant: "warning" })
+      return
+    }
     setInstitutionConfigDraftBackup(cloneConfig(config))
     if (branchProfile) setBranchProfileDraftBackup(JSON.parse(JSON.stringify(branchProfile)) as BranchProfile)
     setInstitutionEditWorkspace(workspace)
@@ -634,8 +672,8 @@ export default function SettingsPage() {
   const handleSaveInstitutionEdit = async () => {
     let ok = await handleSaveInstitution()
     if (ok && activeTab === "general") {
-      if (org) ok = await handleSaveOrg()
-      if (ok && branchProfile) ok = await handleSaveBranch()
+      if (settingsPermissions.editInstitutionInfo && org) ok = await handleSaveOrg()
+      if (ok && settingsPermissions.editBranchInfo && branchProfile) ok = await handleSaveBranch()
     }
     if (ok) {
       setInstitutionEditWorkspace(null)
@@ -730,6 +768,10 @@ export default function SettingsPage() {
 
   const handleStartOrgEdit = () => {
     if (!org) return
+    if (!canEditOrganizationProfile) {
+      toast({ title: "Access denied", description: "You do not have permission to edit organization profile.", variant: "warning" })
+      return
+    }
     setOrgDraftBackup(cloneOrg(org))
     if (branchProfile) setBranchProfileOrgTabBackup(JSON.parse(JSON.stringify(branchProfile)) as BranchProfile)
     setIsOrgEditMode(true)
@@ -745,6 +787,10 @@ export default function SettingsPage() {
   }
 
   const handleSaveOrgEdit = async () => {
+    if (!canEditOrganizationProfile) {
+      toast({ title: "Access denied", description: "You do not have permission to edit organization profile.", variant: "warning" })
+      return
+    }
     let ok = await handleSaveOrg()
     if (ok && branchProfile) ok = await handleSaveBranch()
     if (ok) {
@@ -1053,6 +1099,7 @@ export default function SettingsPage() {
                             variant="ghost"
                             size="icon"
                             onClick={handleStartInstitutionEdit}
+                            disabled={!canEditTab(activeTab as "general" | "loan" | "penalties" | "shares")}
                             className="h-8 w-8 text-muted-foreground hover:text-foreground"
                             aria-label="Edit institution settings"
                           >
@@ -1663,6 +1710,7 @@ export default function SettingsPage() {
                             variant="ghost"
                             size="icon"
                             onClick={handleStartOrgEdit}
+                            disabled={!canEditOrganizationProfile}
                             className="h-8 w-8 text-muted-foreground hover:text-foreground"
                             aria-label="Edit organization profile"
                           >
@@ -1855,15 +1903,12 @@ export default function SettingsPage() {
                           {rolePermPayload?.branch?.name
                             ? `Applies to branch “${rolePermPayload.branch.name}” only.`
                             : "Applies to your branch only."}{" "}
-                          <span className="text-amber-900/90">
-                            (Permission checks are temporarily off; we will lock this down again in a later pass.)
-                          </span>
                         </CardDescription>
                       </div>
                       <Button
                         type="button"
                         className="bg-[#f08c2b] hover:bg-[#c06107] text-white shrink-0"
-                        disabled={!rolePermDirty || rolePermLoading || isSavingRolePermissions || !selectedRoleId}
+                        disabled={!settingsPermissions.editRolePermissions || !rolePermDirty || rolePermLoading || isSavingRolePermissions || !selectedRoleId}
                         onClick={() => void handleSaveRolePermissions()}
                       >
                         {isSavingRolePermissions ? "Saving…" : "Save role"}
