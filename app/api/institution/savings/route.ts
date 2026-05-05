@@ -147,6 +147,18 @@ export async function GET(req: Request) {
       )
       const total = countRes.rows[0]?.c ?? 0
 
+      const statsRes = await client.query(
+        `SELECT
+           COALESCE(SUM(sa.total_balance), 0)::numeric AS total_savings,
+           COALESCE(AVG(sa.total_balance), 0)::numeric AS average_balance,
+           COUNT(*) FILTER (WHERE sa.status = 'Active')::int AS active_accounts
+         FROM senteloans_savings_accounts sa
+         LEFT JOIN senteloans_members m ON m.id = sa.member_id
+         WHERE ${where}`,
+        params
+      )
+      const statsRow = statsRes.rows[0] || {}
+
       const from = (page - 1) * pageSize
       params.push(pageSize, from)
       const dataRes = await client.query(
@@ -220,7 +232,18 @@ export async function GET(req: Request) {
         accountNumber: accountMap[t.account_id as string] || "",
       }))
 
-      return { items, total, recentTransactions: recent, page, pageSize }
+      return {
+        items,
+        total,
+        recentTransactions: recent,
+        page,
+        pageSize,
+        stats: {
+          totalSavings: Number(statsRow.total_savings || 0),
+          averageBalance: Number(statsRow.average_balance || 0),
+          activeAccounts: Number(statsRow.active_accounts || 0),
+        },
+      }
     })
 
     if (result && "error" in result) {

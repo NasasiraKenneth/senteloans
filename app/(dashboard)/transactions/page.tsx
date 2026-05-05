@@ -33,6 +33,7 @@ import { ActionButtons } from "@/components/datatables/ActionButtons";
 import { useToast } from "@/components/ui/toast";
 import { withBranchFilterFirst } from "@/lib/filters/branch-first-filter";
 import { downloadTransactionsExport } from "./export/export";
+import AddTransactionModal from "./components/add/new";
 
 type TransactionRow = {
   id: string;
@@ -89,6 +90,7 @@ export default function TransactionsPage() {
     {},
   );
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [isAddOpen, setIsAddOpen] = useState(false);
   const [exporting, setExporting] = useState<"excel" | "pdf" | null>(null);
   const [txPermissions, setTxPermissions] = useState({
     viewTransactions: false,
@@ -517,12 +519,10 @@ export default function TransactionsPage() {
             </p>
           </div>
           {txPermissions.createTransaction ? (
-            <Link href="/transactions/new">
-              <Button>
-                <Plus className="h-4 w-4 mr-2" />
-                Add New Transaction
-              </Button>
-            </Link>
+            <Button onClick={() => setIsAddOpen(true)}>
+              <Plus className="h-4 w-4 mr-2" />
+              Add New Transaction
+            </Button>
           ) : (
             <Tooltip
               title="Missing create_transaction permission"
@@ -703,6 +703,11 @@ export default function TransactionsPage() {
           </div>
         </div>
       </div>
+      <AddTransactionModal
+        isOpen={isAddOpen}
+        onClose={() => setIsAddOpen(false)}
+        onSuccess={() => void loadTransactions(activeQueryParams, page, rowsPerPage)}
+      />
     </>
   );
 }

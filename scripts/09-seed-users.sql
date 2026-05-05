@@ -52,7 +52,7 @@ VALUES
   ('create_loan', 'loans'),
   ('disburse_loan', 'loans'),
   ('record_payment', 'loans'),
-  ('review_eligibilites', 'loans'),
+  ('review_eligibilities', 'loans'),
   ('reject_loan', 'loans'),
   ('close_loan', 'loans'),
   ('view_loan_products', 'loan_products'),

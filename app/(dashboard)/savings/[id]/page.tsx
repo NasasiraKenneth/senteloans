@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button"
 import DataTable, { DataTableColumn } from "@/components/datatables/DataTable"
 import { useToast } from "@/components/ui/toast"
 import EditAccount from "../edit_account/edit"
+import SavingsAddTransactionModal from "../add_transaction/add"
 import type { SavingsAccountFormValues } from "../forms/accountForm"
 import type { FilterField } from "@/components/datatables/TableFilter"
 import { downloadAccountStatementExport } from "./export/export"
@@ -19,6 +20,7 @@ import Link from "next/link"
 const TRANSACTION_TYPE_OPTIONS = [
   { value: "Deposit", label: "Deposit" },
   { value: "Withdrawal", label: "Withdrawal" },
+  { value: "Transfer", label: "Transfer" },
   { value: "Opening Balance", label: "Opening Balance" },
   { value: "Loan Repayment", label: "Loan Repayment" },
   { value: "Membership Fee", label: "Membership Fee" },
@@ -36,6 +38,7 @@ const TRANSACTION_MODE_OPTIONS = [
 const TRANSACTION_TYPE_STYLES: Record<string, string> = {
   Deposit: "bg-green-100 text-green-700 border border-green-200",
   Withdrawal: "bg-red-100 text-red-700 border border-red-200",
+  Transfer: "bg-red-100 text-red-700 border border-red-200",
   "Opening Balance": "bg-emerald-100 text-emerald-700 border border-emerald-200",
   "Loan Repayment": "bg-indigo-100 text-indigo-700 border border-indigo-200",
   "Loan Disbursement": "bg-amber-100 text-amber-700 border border-amber-200",
@@ -58,6 +61,7 @@ export default function AccountDetailsPage() {
   const [activeTxQueryParams, setActiveTxQueryParams] = useState<Record<string, unknown>>({})
   const [activeTxFilters, setActiveTxFilters] = useState<Record<string, string>>({})
   const [editOpen, setEditOpen] = useState(false)
+  const [addTransactionOpen, setAddTransactionOpen] = useState(false)
   const [savingEdit, setSavingEdit] = useState(false)
   const [exporting, setExporting] = useState<"excel" | "pdf" | null>(null)
   const [detailPermissions, setDetailPermissions] = useState({
@@ -174,10 +178,10 @@ export default function AccountDetailsPage() {
       header: "Type",
       render: (row) => (
         <div className="flex items-center">
-          {row.type === "Deposit" || row.type === "Opening Balance" ? (
-            <TrendingUp className="h-4 w-4 text-green-600 mr-2" />
-          ) : (
+          {row.type === "Withdrawal" || row.type === "Transfer" || row.type === "Loan Repayment" ? (
             <ArrowUpDown className="h-4 w-4 text-red-600 mr-2" />
+          ) : (
+            <TrendingUp className="h-4 w-4 text-green-600 mr-2" />
           )}
           <Badge
             className={
@@ -578,12 +582,10 @@ export default function AccountDetailsPage() {
 
             {/* Action Buttons */}
             <div className="flex justify-end space-x-4 pt-6 border-t">
-              <Link href="/transactions/new">
-                <Button variant="outline">
-                  <ArrowUpDown className="h-4 w-4 mr-2" />
-                  New Transaction
-                </Button>
-              </Link>
+              <Button variant="outline" onClick={() => setAddTransactionOpen(true)}>
+                <ArrowUpDown className="h-4 w-4 mr-2" />
+                New Transaction
+              </Button>
               <Button
                 disabled={!detailPermissions.editAccount}
                 onClick={() => {
@@ -612,6 +614,13 @@ export default function AccountDetailsPage() {
         }}
         onClose={() => setEditOpen(false)}
         onSubmit={handleEditSubmit}
+      />
+      <SavingsAddTransactionModal
+        isOpen={addTransactionOpen}
+        onClose={() => setAddTransactionOpen(false)}
+        onSuccess={() => void loadAccountDetails(activeTxQueryParams, txPage, txRowsPerPage)}
+        memberId={String(account?.member_id || "")}
+        accountId={String(account?.id || "")}
       />
     </>
   )

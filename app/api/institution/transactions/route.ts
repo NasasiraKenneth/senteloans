@@ -282,6 +282,7 @@ export async function POST(req: Request) {
     const member_id = String(body.member_id || body.client_id || "").trim()
     const account_id = String(body.account_id || "").trim()
     const type = body.type as string
+    const transferred_to_id = String(body.transferred_to_id || "").trim()
     const amount = Number(body.amount)
     const mode = body.mode as string
     const description = typeof body.description === "string" ? body.description : ""
@@ -296,9 +297,13 @@ export async function POST(req: Request) {
       apiLog("warn", "transactions.create.invalid", { method: "POST", apiPath, status: 400, error: "account_id_required" })
       return NextResponse.json({ error: "account_id_required" }, { status: 400 })
     }
-    if (!type || !["Deposit", "Withdrawal"].includes(String(type))) {
+    if (!type || !["Deposit", "Withdrawal", "Transfer"].includes(String(type))) {
       apiLog("warn", "transactions.create.invalid", { method: "POST", apiPath, status: 400, error: "invalid_type" })
       return NextResponse.json({ error: "invalid_type" }, { status: 400 })
+    }
+    if (String(type) === "Transfer" && !transferred_to_id) {
+      apiLog("warn", "transactions.create.invalid", { method: "POST", apiPath, status: 400, error: "transferred_to_id_required" })
+      return NextResponse.json({ error: "transferred_to_id_required" }, { status: 400 })
     }
     if (!Number.isFinite(amount) || amount <= 0) {
       apiLog("warn", "transactions.create.invalid", { method: "POST", apiPath, status: 400, error: "invalid_amount" })
@@ -319,12 +324,26 @@ export async function POST(req: Request) {
       const actorRole = String(actor.role || "").trim().toLowerCase()
       if (actorRole !== "super_admin" && !actor.branch_id) return { error: "actor_branch_missing" as const }
 
-      const [memberRes, accountRes] = await Promise.all([
+      const sourceQuery = client.query(
+        `SELECT id, institution_id, branch_id, member_id, status, available_balance, total_balance FROM senteloans_savings_accounts WHERE id = $1`,
+        [account_id],
+      )
+      const transferDestQuery =
+        String(type) === "Transfer"
+          ? client.query(
+              `SELECT id, institution_id, branch_id, member_id, status, available_balance, total_balance FROM senteloans_savings_accounts WHERE id = $1`,
+              [transferred_to_id],
+            )
+          : Promise.resolve({ rows: [] as any[] })
+
+      const [memberRes, accountRes, transferDestRes] = await Promise.all([
         client.query(`SELECT id, institution_id, branch_id, status FROM senteloans_members WHERE id = $1`, [member_id]),
-        client.query(`SELECT id, institution_id, branch_id, member_id, status, available_balance, total_balance FROM senteloans_savings_accounts WHERE id = $1`, [account_id]),
+        sourceQuery,
+        transferDestQuery,
       ])
       const memberRow = memberRes.rows[0]
       const account = accountRes.rows[0]
+      const transferDest = transferDestRes.rows[0]
       if (!memberRow) return { error: "member_not_found" as const }
       if (!account) return { error: "account_not_found" as const }
       if (memberRow.institution_id !== actor.institution_id || account.institution_id !== actor.institution_id) {
@@ -335,6 +354,15 @@ export async function POST(req: Request) {
         return { error: "cross_branch_operation_forbidden" as const }
       }
       if (String(account.status) !== "Active") return { error: "account_not_active" as const }
+      if (String(type) === "Transfer") {
+        if (!transferDest) return { error: "transferred_to_account_not_found" as const }
+        if (String(transferDest.id) === String(account.id)) return { error: "transfer_to_same_account_forbidden" as const }
+        if (transferDest.institution_id !== actor.institution_id) return { error: "cross_tenant_operation_forbidden" as const }
+        if (actorRole !== "super_admin" && transferDest.branch_id !== actor.branch_id) {
+          return { error: "cross_branch_operation_forbidden" as const }
+        }
+        if (String(transferDest.status) !== "Active") return { error: "transferred_to_account_not_active" as const }
+      }
 
       const balance_before = Number(account.available_balance || 0)
       let balance_after = balance_before
@@ -342,52 +370,133 @@ export async function POST(req: Request) {
       else if (type === "Withdrawal") {
         if (amount > balance_before) return { error: "insufficient_funds" as const }
         balance_after = balance_before - amount
+      } else if (type === "Transfer") {
+        if (amount > balance_before) return { error: "insufficient_funds" as const }
+        balance_after = balance_before - amount
       }
 
       const txDate = transaction_date ? new Date(transaction_date).toISOString() : new Date().toISOString()
 
-      await client.query(
-        `UPDATE senteloans_savings_accounts SET available_balance = $1, total_balance = $2, last_transaction_date = $3 WHERE id = $4`,
-        [balance_after, balance_after, txDate.slice(0, 10), account_id]
-      )
+      await client.query("BEGIN")
+      try {
+        await client.query(
+          `UPDATE senteloans_savings_accounts SET available_balance = $1, total_balance = $2, last_transaction_date = $3 WHERE id = $4`,
+          [balance_after, balance_after, txDate.slice(0, 10), account_id]
+        )
+        if (String(type) === "Transfer") {
+          const destBefore = Number(transferDest.available_balance || 0)
+          const destAfter = destBefore + amount
+          await client.query(
+            `UPDATE senteloans_savings_accounts SET available_balance = $1, total_balance = $2, last_transaction_date = $3 WHERE id = $4`,
+            [destAfter, destAfter, txDate.slice(0, 10), transferred_to_id],
+          )
+        }
 
-      const inserted = await insertWithTransactionNumberRetry(
-        (transaction_number) =>
-          client.query(
-            `INSERT INTO senteloans_transactions (institution_id, branch_id, member_id, account_id, loan_id, transaction_number, type, amount, mode, description, reference_number, balance_before, balance_after, processed_by, transaction_date, status)
-             VALUES ($1, $2, $3, $4, NULL, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'Completed') RETURNING id`,
-            [
-              actor.institution_id,
-              account.branch_id,
-              member_id,
-              account_id,
-              transaction_number,
-              type,
+        const inserted = await insertWithTransactionNumberRetry(
+          (transaction_number) =>
+            client.query(
+              `INSERT INTO senteloans_transactions (institution_id, branch_id, member_id, account_id, transferred_to_id, loan_id, transaction_number, type, amount, mode, description, reference_number, balance_before, balance_after, processed_by, transaction_date, status)
+               VALUES ($1, $2, $3, $4, $5, NULL, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, 'Completed') RETURNING id`,
+              [
+                actor.institution_id,
+                account.branch_id,
+                member_id,
+                account_id,
+                transferred_to_id || null,
+                transaction_number,
+                type,
+                amount,
+                mode,
+                description,
+                reference_number || transaction_number,
+                balance_before,
+                balance_after,
+                actor.id,
+                txDate,
+              ],
+            ),
+          { prefix: "TXN" },
+        )
+        if (!inserted) throw new Error("transaction_number_generation_failed")
+
+        const { row: txRow, transactionNumber } = inserted
+
+        await insertTransactionInsertAuditLog(client, {
+          institutionId: actor.institution_id,
+          branchId: account.branch_id,
+          userId: actor.id,
+          transactionId: txRow.id,
+          newValues: { transaction_number: transactionNumber, type, amount, member_id, account_id, transferred_to_id: transferred_to_id || null },
+        })
+
+        let destinationTx: { id: string; transaction_number: string } | null = null
+        if (String(type) === "Transfer") {
+          const destBefore = Number(transferDest.available_balance || 0)
+          const destAfter = destBefore + amount
+          const destinationDescription =
+            description && String(description).trim().length > 0
+              ? `Transfer deposit: ${description}`
+              : "Transfer deposit"
+
+          const destInserted = await insertWithTransactionNumberRetry(
+            (transaction_number) =>
+              client.query(
+                `INSERT INTO senteloans_transactions (institution_id, branch_id, member_id, account_id, transferred_to_id, loan_id, transaction_number, type, amount, mode, description, reference_number, balance_before, balance_after, processed_by, transaction_date, status)
+                 VALUES ($1, $2, $3, $4, NULL, NULL, $5, 'Deposit', $6, $7, $8, $9, $10, $11, $12, $13, 'Completed') RETURNING id`,
+                [
+                  actor.institution_id,
+                  transferDest.branch_id,
+                  transferDest.member_id,
+                  transferDest.id,
+                  transaction_number,
+                  amount,
+                  mode,
+                  destinationDescription,
+                  reference_number || transaction_number,
+                  destBefore,
+                  destAfter,
+                  actor.id,
+                  txDate,
+                ],
+              ),
+            { prefix: "TXN" },
+          )
+          if (!destInserted) throw new Error("transaction_number_generation_failed")
+          destinationTx = { id: destInserted.row.id, transaction_number: destInserted.transactionNumber }
+
+          await insertTransactionInsertAuditLog(client, {
+            institutionId: actor.institution_id,
+            branchId: transferDest.branch_id,
+            userId: actor.id,
+            transactionId: destInserted.row.id,
+            newValues: {
+              transaction_number: destInserted.transactionNumber,
+              type: "Deposit",
               amount,
-              mode,
-              description,
-              reference_number,
-              balance_before,
-              balance_after,
-              actor.id,
-              txDate,
-            ],
-          ),
-        { prefix: "TXN" },
-      )
-      if (!inserted) return { error: "transaction_number_generation_failed" as const }
+              member_id: transferDest.member_id,
+              account_id: transferDest.id,
+              transferred_to_id: null,
+            },
+          })
+        }
 
-      const { row: txRow, transactionNumber } = inserted
-
-      await insertTransactionInsertAuditLog(client, {
-        institutionId: actor.institution_id,
-        branchId: account.branch_id,
-        userId: actor.id,
-        transactionId: txRow.id,
-        newValues: { transaction_number: transactionNumber, type, amount, member_id, account_id },
-      })
-
-      return { ok: true, id: txRow.id, transaction_number: transactionNumber, balance_after }
+        await client.query("COMMIT")
+        return {
+          ok: true,
+          id: txRow.id,
+          transaction_number: transactionNumber,
+          balance_after,
+          destination_transaction_id: destinationTx?.id || null,
+          destination_transaction_number: destinationTx?.transaction_number || null,
+        }
+      } catch (e: unknown) {
+        await client.query("ROLLBACK")
+        const message = String((e as Error)?.message || "")
+        if (message === "transaction_number_generation_failed") {
+          return { error: "transaction_number_generation_failed" as const }
+        }
+        throw e
+      }
     })
 
     if (result && "error" in result) {
@@ -395,7 +504,7 @@ export async function POST(req: Request) {
       const status =
         errorCode.startsWith("missing_permission:") ? 403 :
         errorCode === "cross_tenant_operation_forbidden" || errorCode === "cross_branch_operation_forbidden" ? 403 :
-        errorCode === "member_not_found" || errorCode === "account_not_found" ? 404 : 400
+        errorCode === "member_not_found" || errorCode === "account_not_found" || errorCode === "transferred_to_account_not_found" ? 404 : 400
       apiLog("warn", "transactions.create.denied", { method: "POST", apiPath, status, error: errorCode })
       return NextResponse.json({ error: errorCode }, { status })
     }

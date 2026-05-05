@@ -40,6 +40,11 @@ export default function SavingsPage() {
   const [accounts, setAccounts] = useState<SavingsRow[]>([])
   const [transactions, setTransactions] = useState<Array<any>>([])
   const [total, setTotal] = useState<number>(0)
+  const [summaryStats, setSummaryStats] = useState({
+    totalSavings: 0,
+    averageBalance: 0,
+    activeAccounts: 0,
+  })
   const [loading, setLoading] = useState<boolean>(true)
   const [error, setError] = useState<string>("")
   const [page, setPage] = useState(0)
@@ -90,6 +95,11 @@ export default function SavingsPage() {
       setAccounts(data.items || [])
       setTransactions(data.recentTransactions || [])
       setTotal(data.total || 0)
+      setSummaryStats({
+        totalSavings: Number(data?.stats?.totalSavings || 0),
+        averageBalance: Number(data?.stats?.averageBalance || 0),
+        activeAccounts: Number(data?.stats?.activeAccounts || 0),
+      })
       permissionToastShown.current = false
     } catch (e: any) {
       const message = e?.message || "Failed to load savings"
@@ -250,9 +260,9 @@ export default function SavingsPage() {
 
   // Calculate statistics
   const totalAccounts = total
-  const activeAccounts = accounts.filter((a) => a.status === "Active").length
-  const totalSavings = accounts.reduce((sum, account) => sum + Number(account.total_balance || 0), 0)
-  const averageBalance = totalAccounts > 0 ? totalSavings / totalAccounts : 0
+  const activeAccounts = summaryStats.activeAccounts
+  const totalSavings = summaryStats.totalSavings
+  const averageBalance = summaryStats.averageBalance
   const recentTransactions = transactions
 
   // DataTable columns
@@ -407,7 +417,7 @@ export default function SavingsPage() {
                 </p>
               </div>
               {savingsPermissions.createTransaction ? (
-                <Link href="/transactions/new">
+                <Link href="/transactions">
                   <Button>
                     <Plus className="h-4 w-4 mr-2" />
                     New Transaction

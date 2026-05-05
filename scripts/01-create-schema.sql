@@ -519,6 +519,7 @@ CREATE TABLE IF NOT EXISTS senteloans_transactions (
     member_id UUID REFERENCES senteloans_members(id) ON DELETE RESTRICT,
     client_id UUID REFERENCES senteloans_clients(id) ON DELETE RESTRICT,
     account_id UUID REFERENCES senteloans_savings_accounts(id) ON DELETE RESTRICT,
+    transferred_to_id UUID REFERENCES senteloans_savings_accounts(id) ON DELETE RESTRICT,
     loan_id UUID REFERENCES senteloans_loans(id) ON DELETE RESTRICT,
     sacco_loan_id UUID REFERENCES senteloans_institution_loans(id) ON DELETE RESTRICT,
     transaction_number VARCHAR(50) NOT NULL,
@@ -545,6 +546,12 @@ CREATE TABLE IF NOT EXISTS senteloans_transactions (
       ON DELETE RESTRICT,
     CONSTRAINT fk_transactions_account_institution
       FOREIGN KEY (account_id, institution_id)
+      REFERENCES senteloans_savings_accounts (id, institution_id)
+      ON UPDATE CASCADE
+      ON DELETE RESTRICT,
+    -- Keep transfer destination account in same institution/tenant
+    CONSTRAINT fk_transactions_transferred_to_institution
+      FOREIGN KEY (transferred_to_id, institution_id)
       REFERENCES senteloans_savings_accounts (id, institution_id)
       ON UPDATE CASCADE
       ON DELETE RESTRICT,
@@ -634,6 +641,7 @@ CREATE INDEX IF NOT EXISTS idx_loans_client_id ON senteloans_loans(member_id);
 CREATE INDEX IF NOT EXISTS idx_transactions_client_id ON senteloans_transactions(member_id);
 CREATE INDEX IF NOT EXISTS idx_transactions_date ON senteloans_transactions(institution_id, transaction_date DESC);
 CREATE INDEX IF NOT EXISTS idx_transactions_account_id ON senteloans_transactions(account_id);
+CREATE INDEX IF NOT EXISTS idx_transactions_transferred_to_id ON senteloans_transactions(transferred_to_id);
 CREATE INDEX IF NOT EXISTS idx_transactions_loan_id ON senteloans_transactions(loan_id);
 -- Additional indexes for common filters on transactions
 CREATE INDEX IF NOT EXISTS idx_transactions_institution_type ON senteloans_transactions(institution_id, type);
