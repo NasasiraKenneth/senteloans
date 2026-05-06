@@ -68,7 +68,10 @@ export async function GET(req: Request) {
       if (!actor) return null
       const role = String(actor.role || "").trim().toLowerCase()
 
-      const viewInvoices = await hasPermission(client, actor, "view_invoices")
+      const [viewInvoices, downloadInvoice] = await Promise.all([
+        hasPermission(client, actor, "view_invoices"),
+        hasPermission(client, actor, "download_invoice"),
+      ])
 
       const branches =
         role === "super_admin"
@@ -85,6 +88,7 @@ export async function GET(req: Request) {
 
       return {
         viewInvoices,
+        downloadInvoice,
         isSuperAdmin: role === "super_admin",
         branches,
       }

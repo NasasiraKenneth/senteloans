@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { ArrowLeft, Calendar, CreditCard, User, Receipt, Hash, CheckCircle2, AlertTriangle, Download } from "lucide-react"
+import { useToast } from "@/components/ui/toast"
 
 export default function TransactionDetailPage() {
   const params = useParams()
@@ -16,6 +17,7 @@ export default function TransactionDetailPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string>("")
   const [tx, setTx] = useState<any | null>(null)
+  const { toast } = useToast()
 
   useEffect(() => {
     let abort = false
@@ -45,113 +47,131 @@ export default function TransactionDetailPage() {
 
   const downloadAsCSV = () => {
     if (!tx) return
-    const headers = [
-      "Transaction Number",
-      "Type",
-      "Amount",
-      "Mode",
-      "Description",
-      "Reference",
-      "Balance Before",
-      "Balance After",
-      "Date",
-      "Status",
-      "Client Name",
-      "Member No.",
-      "Account Number",
-      "Processed By",
-    ]
-    const values = [
-      tx.transaction_number || "",
-      tx.type || "",
-      String(tx.amount ?? ""),
-      tx.mode || "",
-      (tx.description || "").replace(/\r?\n|\r/g, " "),
-      tx.reference_number || "",
-      String(tx.balance_before ?? ""),
-      String(tx.balance_after ?? ""),
-      tx.transaction_date ? new Date(tx.transaction_date).toISOString() : "",
-      tx.status || "",
-      tx.client_name || "",
-      tx.client_number || "",
-      tx.account_number || "",
-      tx.processed_by_name || "",
-    ]
-    const csv = [headers.join(","), values.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(",")].join("\n")
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement("a")
-    a.href = url
-    a.download = `transaction_${tx.transaction_number || tx.id}.csv`
-    document.body.appendChild(a)
-    a.click()
-    a.remove()
-    URL.revokeObjectURL(url)
+    const run = async () => {
+      toast({
+        variant: "warning",
+        title: "Generating Excel",
+        description: "Preparing transaction export...",
+      })
+      try {
+        const headers = [
+          "Transaction Number",
+          "Type",
+          "Amount",
+          "Mode",
+          "Description",
+          "Reference",
+          "Balance Before",
+          "Balance After",
+          "Date",
+          "Status",
+          "Client Name",
+          "Member No.",
+          "Account Number",
+          "Processed By",
+        ]
+        const values = [
+          tx.transaction_number || "",
+          tx.type || "",
+          String(tx.amount ?? ""),
+          tx.mode || "",
+          (tx.description || "").replace(/\r?\n|\r/g, " "),
+          tx.reference_number || "",
+          String(tx.balance_before ?? ""),
+          String(tx.balance_after ?? ""),
+          tx.transaction_date ? new Date(tx.transaction_date).toISOString() : "",
+          tx.status || "",
+          tx.client_name || "",
+          tx.client_number || "",
+          tx.account_number || "",
+          tx.processed_by_name || "",
+        ]
+        const csv = [headers.join(","), values.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(",")].join("\n")
+        const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" })
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement("a")
+        a.href = url
+        a.download = `transaction_${tx.transaction_number || tx.id}.csv`
+        document.body.appendChild(a)
+        a.click()
+        a.remove()
+        URL.revokeObjectURL(url)
+
+        toast({
+          variant: "success",
+          title: "Excel downloaded",
+          description: `Transaction ${tx.transaction_number || ""} exported.`,
+        })
+      } catch (e: unknown) {
+        toast({
+          variant: "destructive",
+          title: "Excel download failed",
+          description: String((e as Error)?.message || "Unexpected error"),
+        })
+      }
+    }
+    void run()
   }
 
   const downloadAsPDF = () => {
     if (!tx) return
-    const win = window.open("", "_blank")
-    if (!win) return
-    const styles = `
-      <style>
-        body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; padding: 24px; }
-        h1 { font-size: 20px; margin: 0 0 8px; }
-        .muted { color: #6b7280; font-size: 12px; }
-        table { width: 100%; border-collapse: collapse; margin-top: 16px; }
-        th, td { text-align: left; padding: 8px; border-bottom: 1px solid #e5e7eb; font-size: 12px; }
-        .amount { font-weight: 700; }
-      </style>
-    `
-    const html = `
-      <!doctype html>
-      <html>
-        <head>
-          <meta charset="utf-8" />
-          <title>Transaction ${tx.transaction_number || tx.id}</title>
-          ${styles}
-        </head>
-        <body>
-          <h1>Transaction Receipt</h1>
-          <div class="muted">Transaction #${tx.transaction_number || tx.id}</div>
-          <table>
-            <tbody>
-              <tr><th>Type</th><td>${tx.type || ""}</td></tr>
-              <tr><th>Amount</th><td class="amount">${formatCurrency(Number(tx.amount || 0))}</td></tr>
-              <tr><th>Mode</th><td>${tx.mode || ""}</td></tr>
-              <tr><th>Date</th><td>${formatDateTime(tx.transaction_date)}</td></tr>
-              <tr><th>Status</th><td>${tx.status || ""}</td></tr>
-              <tr><th>Description</th><td>${(tx.description || "").replace(/</g, "&lt;")}</td></tr>
-              <tr><th>Reference</th><td>${tx.reference_number || ""}</td></tr>
-              <tr><th>Balance Before</th><td>${formatCurrency(Number(tx.balance_before || 0))}</td></tr>
-              <tr><th>Balance After</th><td>${formatCurrency(Number(tx.balance_after || 0))}</td></tr>
-              <tr><th>Client</th><td>${tx.client_name || ""} (${tx.client_number || ""})</td></tr>
-              <tr><th>Account</th><td>${tx.account_number || ""}</td></tr>
-              <tr><th>Processed By</th><td>${tx.processed_by_name || ""}</td></tr>
-            </tbody>
-          </table>
-          <script>
-            window.onload = () => { window.print(); }
-          </script>
-        </body>
-      </html>
-    `
-    win.document.open()
-    win.document.write(html)
-    win.document.close()
+    const run = async () => {
+      toast({
+        variant: "warning",
+        title: "Generating PDF",
+        description: "Preparing transaction PDF...",
+      })
+      try {
+        const res = await fetch(`/api/institution/transactions/${id}/pdf`, { method: "GET" })
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}))
+          throw new Error(body?.error || "Failed to generate transaction PDF")
+        }
+        const blob = await res.blob()
+        const contentDisposition = res.headers.get("content-disposition") || ""
+        const fileNameMatch =
+          contentDisposition.match(/filename\*=UTF-8''([^;]+)/i) ||
+          contentDisposition.match(/filename="([^"]+)"/i) ||
+          contentDisposition.match(/filename=([^;]+)/i)
+        const fileName = decodeURIComponent(
+          (fileNameMatch?.[1] || "").trim().replace(/^["']|["']$/g, ""),
+        ) || `${String(tx.transaction_number || tx.id || "transaction")}.pdf`
+
+        const href = URL.createObjectURL(blob)
+        const a = document.createElement("a")
+        a.href = href
+        a.download = fileName
+        document.body.appendChild(a)
+        a.click()
+        a.remove()
+        URL.revokeObjectURL(href)
+        toast({
+          variant: "success",
+          title: "PDF downloaded",
+          description: `Transaction ${tx.transaction_number || ""} downloaded.`,
+        })
+      } catch (e: unknown) {
+        toast({
+          variant: "destructive",
+          title: "Download failed",
+          description: String((e as Error)?.message || "Unexpected error"),
+        })
+      }
+    }
+    void run()
   }
 
-  const statusVariant = (status?: string) => {
+  const statusBadgeClass = (status?: string) => {
     switch (status) {
       case "Completed":
-        return "default"
+        return "bg-green-100 text-green-700 border border-green-200 hover:bg-green-100"
       case "Pending":
-        return "secondary"
+        return "bg-amber-100 text-amber-700 border border-amber-200 hover:bg-amber-100"
       case "Failed":
       case "Reversed":
-        return "destructive"
+        return "bg-red-100 text-red-700 border border-red-200 hover:bg-red-100"
       default:
-        return "outline"
+        return "bg-gray-100 text-gray-700 border border-gray-200 hover:bg-gray-100"
     }
   }
 
@@ -208,7 +228,7 @@ export default function TransactionDetailPage() {
                     <Button variant="outline" size="sm" onClick={downloadAsCSV} title="Download Excel (CSV)">
                       <Download className="h-4 w-4 mr-2" /> Excel
                     </Button>
-                    <Badge variant={statusVariant(tx.status)}>{tx.status}</Badge>
+                    <Badge className={statusBadgeClass(tx.status)}>{tx.status}</Badge>
                   </div>
                 </div>
                 <p className="text-muted-foreground">Read-only view with full details</p>

@@ -30,6 +30,7 @@ import DataTable, { DataTableColumn } from "@/components/datatables/DataTable";
 import { FilterField } from "@/components/datatables/TableFilter";
 import AddNewInvoice from "./components/add/addNewInvoice";
 import EditInvoice from "./components/edit/editInvoice";
+import ViewInvoicePdf from "./components/view-pdf/viewPdf";
 import { getInitials } from "@/lib/invoices/utils";
 import { FaRobot, FaUserCheck } from "react-icons/fa";
 import { ActionSelect, SelectOption } from "@/components/datatables/actions";
@@ -37,6 +38,7 @@ import { Filter } from "@/types";
 import { useToast } from "@/components/ui/toast"
 import { withBranchFilterFirst } from "@/lib/filters/branch-first-filter"
 import { downloadInvoicesExport } from "./export/export"
+import { downloadInvoicePdfFile } from "@/lib/invoices/download"
 
 type InvoiceRow = {
   id: string;
@@ -168,12 +170,15 @@ export default function InvoicesPage() {
   const [rowsPerPage, setRowsPerPage] = useState(10);
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [isEditOpen, setIsEditOpen] = useState(false);
+  const [isViewOpen, setIsViewOpen] = useState(false);
   const [editInvoiceId, setEditInvoiceId] = useState<string | null>(null);
+  const [viewInvoiceId, setViewInvoiceId] = useState<string | null>(null);
   const [activeQueryParams, setActiveQueryParams] = useState<Record<string, unknown>>({});
   const [activeFilters, setActiveFilters] = useState<Record<string, string>>({});
   const [exporting, setExporting] = useState<"excel" | "pdf" | null>(null);
   const [invoicePermissions, setInvoicePermissions] = useState({
     viewInvoices: false,
+    downloadInvoice: false,
     isSuperAdmin: false,
     branches: [] as Array<{ value: string; label: string }>,
   });
@@ -251,12 +256,14 @@ export default function InvoicesPage() {
         const data = (await res.json()) as {
           permissions?: {
             viewInvoices?: boolean;
+            downloadInvoice?: boolean;
             isSuperAdmin?: boolean;
             branches?: Array<{ id: string; name: string }>;
           };
         };
         setInvoicePermissions({
           viewInvoices: !!data.permissions?.viewInvoices,
+          downloadInvoice: !!data.permissions?.downloadInvoice,
           isSuperAdmin: !!data.permissions?.isSuperAdmin,
           branches: (data.permissions?.branches || []).map((b) => ({ value: b.id, label: b.name })),
         });
@@ -353,13 +360,62 @@ export default function InvoicesPage() {
   const draftCount = invoices.filter((i) => normalizeStatus(i.status) === "draft").length;
 
   const handleView = (row: InvoiceRow) => {
-    setEditInvoiceId(row.id);
-    setIsEditOpen(true);
+    setViewInvoiceId(row.id);
+    setIsViewOpen(true);
   };
 
   const handleEdit = (row: InvoiceRow) => {
     setEditInvoiceId(row.id);
     setIsEditOpen(true);
+  };
+
+  const handleDownloadInvoicePdf = (row: InvoiceRow) => {
+    const download = async () => {
+      if (!invoicePermissions.downloadInvoice) {
+        toast({
+          variant: "warning",
+          title: "Access denied",
+          description: "You do not have permission to download invoices.",
+        });
+        return;
+      }
+
+      toast({
+        variant: "warning",
+        title: "Generating PDF",
+        description: `Preparing invoice ${row.invoice_number || ""}...`,
+      });
+
+      try {
+        await downloadInvoicePdfFile({
+          invoiceId: row.id,
+          fallbackName: `${String(row.invoice_number || "invoice").replace(/[^a-zA-Z0-9._-]/g, "_")}.pdf`,
+        })
+
+        toast({
+          variant: "success",
+          title: "Download invoice PDF successfully",
+          description: `${row.invoice_number || "Invoice"} downloaded.`,
+        });
+      } catch (e: unknown) {
+        const message = String((e as Error)?.message || "Unexpected error")
+        if (message === "missing_permission:download_invoice") {
+          toast({
+            variant: "warning",
+            title: "Access denied",
+            description: "You do not have permission to download invoices.",
+          })
+          return
+        }
+        toast({
+          variant: "destructive",
+          title: "Download invoice PDF failed",
+          description: message,
+        });
+      }
+    };
+
+    void download();
   };
 
   // Handle invoice status change (efficient - only sends id and status)
@@ -538,13 +594,15 @@ export default function InvoicesPage() {
             icon: <Edit className="h-4 w-4" />,
             onClick: () => handleEdit(row),
           },
-          {
+        ];
+        if (invoicePermissions.downloadInvoice) {
+          actions.push({
             value: "download",
             label: "Download PDF",
             icon: <Download className="h-4 w-4" />,
-            onClick: () => console.log(row),
-          },
-        ];
+            onClick: () => handleDownloadInvoicePdf(row),
+          });
+        }
 
         const statusOptions = getAvailableStatuses(
           row.status || "draft",
@@ -734,6 +792,21 @@ export default function InvoicesPage() {
           setEditInvoiceId(null);
         }}
         onSuccess={() => void loadInvoices(activeQueryParams, page, rowsPerPage)}
+      />
+
+      <ViewInvoicePdf
+        isOpen={isViewOpen}
+        invoiceId={viewInvoiceId}
+        onClose={() => {
+          setIsViewOpen(false);
+          setViewInvoiceId(null);
+        }}
+        onEdit={() => {
+          if (!viewInvoiceId) return;
+          setIsViewOpen(false);
+          setEditInvoiceId(viewInvoiceId);
+          setIsEditOpen(true);
+        }}
       />
     </div>
   );

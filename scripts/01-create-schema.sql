@@ -122,6 +122,23 @@ CREATE TABLE IF NOT EXISTS senteloans_config (
     UNIQUE (branch_id)
 );
 
+CREATE TABLE IF NOT EXISTS senteloans_bank_accounts (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    institution_id UUID NOT NULL
+        REFERENCES senteloans_institutions(id) ON DELETE CASCADE,
+    branch_id UUID NOT NULL
+        REFERENCES senteloans_branches(id) ON DELETE CASCADE,
+    bank_name TEXT NOT NULL,
+    bank_account_number TEXT NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    -- Added as plain UUID first to avoid forward-reference before senteloans_users exists.
+    modified_by UUID,
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    CONSTRAINT chk_bank_accounts_name_not_blank CHECK (btrim(bank_name) <> ''),
+    CONSTRAINT chk_bank_accounts_number_not_blank CHECK (btrim(bank_account_number) <> ''),
+    CONSTRAINT uk_bank_account_per_institution UNIQUE (institution_id, bank_name, bank_account_number)
+);
+
 -- 24-create-roles.sql
 -- Adds permissions and role permissions tables
 
@@ -182,6 +199,22 @@ BEGIN
     ) THEN
         ALTER TABLE senteloans_config
             ADD CONSTRAINT fk_config_modified_by_user
+            FOREIGN KEY (modified_by)
+            REFERENCES senteloans_users(id)
+            ON DELETE RESTRICT;
+    END IF;
+END $$;
+
+-- Add senteloans_bank_accounts.modified_by FK after senteloans_users exists.
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'fk_bank_accounts_modified_by_user'
+    ) THEN
+        ALTER TABLE senteloans_bank_accounts
+            ADD CONSTRAINT fk_bank_accounts_modified_by_user
             FOREIGN KEY (modified_by)
             REFERENCES senteloans_users(id)
             ON DELETE RESTRICT;
@@ -621,6 +654,8 @@ CREATE TABLE IF NOT EXISTS senteloans_audit_logs (
 CREATE INDEX IF NOT EXISTS idx_role_permissions_role_branch ON senteloans_role_permissions(role_id, branch_id);
 CREATE INDEX IF NOT EXISTS idx_role_permissions_permission ON senteloans_role_permissions(permission_id);
 CREATE INDEX IF NOT EXISTS idx_users_institution_id ON senteloans_users(institution_id);
+CREATE INDEX IF NOT EXISTS idx_bank_accounts_institution_id ON senteloans_bank_accounts(institution_id);
+CREATE INDEX IF NOT EXISTS idx_bank_accounts_branch_id ON senteloans_bank_accounts(branch_id);
 CREATE INDEX IF NOT EXISTS idx_clients_institution_id ON senteloans_members(institution_id);
 CREATE INDEX IF NOT EXISTS idx_loans_institution_id ON senteloans_loans(institution_id);
 CREATE INDEX IF NOT EXISTS idx_savings_accounts_institution_id ON senteloans_savings_accounts(institution_id);
