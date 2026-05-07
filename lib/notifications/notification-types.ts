@@ -40,6 +40,7 @@ export interface NotificationMetadata {
 
 export interface CreateNotificationInput {
   institutionId: string
+  branchId: string
   recipientType: RecipientType
   recipientId: string
   type: NotificationType

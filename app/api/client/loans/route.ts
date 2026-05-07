@@ -79,7 +79,7 @@ export async function POST(req: Request) {
 
     const result = await runWithAuth(session.user.authUserId, async (client) => {
       const clientRes = await client.query(
-        `SELECT id, institution_id, full_name, status, kyc_status FROM senteloans_clients WHERE supabase_user_id = $1`,
+        `SELECT id, institution_id, branch_id, full_name, status, kyc_status FROM senteloans_clients WHERE supabase_user_id = $1`,
         [session!.user!.authUserId]
       )
       const clientRow = clientRes.rows[0]
@@ -185,7 +185,15 @@ export async function POST(req: Request) {
         }
       }
 
-      await auditLogger.logInsert("senteloans_loans", loan.id, loanInsert as Record<string, unknown>, clientRow.institution_id, undefined, undefined, client)
+      await auditLogger.logInsert(
+        "senteloans_loans",
+        loan.id,
+        loanInsert as Record<string, unknown>,
+        clientRow.institution_id,
+        undefined,
+        { branch_id: String(clientRow.branch_id || "") },
+        client
+      )
 
       const adminsRes = await client.query(
         `SELECT id FROM senteloans_users WHERE institution_id = $1 AND role IN ('institution_admin', 'manager')`,
@@ -196,6 +204,7 @@ export async function POST(req: Request) {
         await notificationService.createBulk(
           adminsRes.rows.map((a: Record<string, unknown>) => ({
             institutionId: clientRow.institution_id,
+            branchId: String(clientRow.branch_id || ""),
             recipientType: "institution_user" as const,
             recipientId: a.id as string,
             type: "pending_loan_approval" as const,

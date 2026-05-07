@@ -393,15 +393,20 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       if (!actorRow) return { error: "user_not_linked" as const }
       if (loan.institution_id !== actorRow.institution_id) return { error: "cross_tenant_operation_forbidden" as const }
       if (!isSuperAdmin && String(loan.branch_id) !== String(actorRow.branch_id)) return { error: "cross_branch_operation_forbidden" as const }
+      const loanBranchId = String(loan.branch_id || "")
+      if (!loanBranchId) return { error: "loan_branch_missing" as const }
 
-      const updates: Record<string, unknown> = {}
-      if (typeof purpose !== "undefined") updates.purpose = purpose
-      if (typeof collateral_description !== "undefined") updates.collateral_description = collateral_description
-      let eligibilityUpdatesApplied = false
+      let txCommitted = false
+      await client.query("BEGIN")
+      try {
+        const updates: Record<string, unknown> = {}
+        if (typeof purpose !== "undefined") updates.purpose = purpose
+        if (typeof collateral_description !== "undefined") updates.collateral_description = collateral_description
+        let eligibilityUpdatesApplied = false
 
-      if (eligibility_reviews.length > 0) {
-        const reviewEligibilityPermission = await hasPermission(client, actor, "review_eligibilities")
-        if (!reviewEligibilityPermission) return { error: "missing_permission:review_eligibilities" as const }
+        if (eligibility_reviews.length > 0) {
+          const reviewEligibilityPermission = await hasPermission(client, actor, "review_eligibilities")
+          if (!reviewEligibilityPermission) return { error: "missing_permission:review_eligibilities" as const }
 
         for (const row of eligibility_reviews) {
           const reviewId = String(row?.id || "").trim()
@@ -435,15 +440,15 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
           }
         }
       }
-      let completeDisbursementAmount = 0
-      let disbursementContext: null | {
+        let completeDisbursementAmount = 0
+        let disbursementContext: null | {
         amount: number
         balanceBefore: number
         balanceAfter: number
         disbursementTypeLabel: string
         notes: string
       } = null
-      if (typeof newStatus !== "undefined") {
+        if (typeof newStatus !== "undefined") {
         const current = String(loan.status)
         if (!Object.prototype.hasOwnProperty.call(allowedTargets, current)) return { error: "invalid_current_status" as const }
         if (!allowedTargets[current].includes(newStatus)) return { error: "invalid_status_transition" as const }
@@ -573,16 +578,16 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
         }
       }
 
-      if (Object.keys(updates).length === 0 && !eligibilityUpdatesApplied) return { error: "no_updates" as const }
+        if (Object.keys(updates).length === 0 && !eligibilityUpdatesApplied) return { error: "no_updates" as const }
 
-      if (Object.keys(updates).length > 0) {
+        if (Object.keys(updates).length > 0) {
         const setClause = Object.keys(updates).map((k, i) => `${k} = $${i + 2}`).join(", ")
         await client.query(`UPDATE senteloans_loans SET ${setClause} WHERE id = $1`, [id, ...Object.values(updates)])
-      } else {
-        await client.query(`UPDATE senteloans_loans SET updated_at = NOW() WHERE id = $1`, [id])
-      }
+        } else {
+          await client.query(`UPDATE senteloans_loans SET updated_at = NOW() WHERE id = $1`, [id])
+        }
 
-      if (newStatus === "Fully Disbursed") {
+        if (newStatus === "Fully Disbursed") {
         const loanDetailRes = await client.query(
           `SELECT l.principal_amount, l.interest_rate, l.tenure_months, l.disbursement_date, lp.interest_calculation_method
            FROM senteloans_loans l
@@ -629,14 +634,14 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
             [id]
           )
         }
-      } else if (newStatus === "Partially Disbursed") {
+        } else if (newStatus === "Partially Disbursed") {
         await client.query(
           `UPDATE senteloans_loans SET updated_at = NOW() WHERE id = $1`,
           [id]
         )
       }
 
-      if (disbursementContext) {
+        if (disbursementContext) {
         const amount = Number(disbursementContext.amount || 0)
         let txRes: { rows: Array<{ id: string }> } | null = null
         let disburseTxNumber = ""
@@ -690,7 +695,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
           },
           actor.institution_id,
           actor.id,
-          undefined,
+          { branch_id: loanBranchId },
           client
         )
 
@@ -726,28 +731,28 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
             },
             actor.institution_id,
             actor.id,
-            undefined,
+            { branch_id: loanBranchId },
             client
           )
         }
       }
 
-      const oldValues: Record<string, unknown> = {}
-      Object.keys(updates).forEach((k) => {
-        oldValues[k] = (loan as Record<string, unknown>)[k]
-      })
-      await auditLogger.logUpdate(
-        "senteloans_loans",
-        id,
-        oldValues,
-        updates,
-        actor.institution_id,
-        actor.id,
-        undefined,
-        client
-      )
+        const oldValues: Record<string, unknown> = {}
+        Object.keys(updates).forEach((k) => {
+          oldValues[k] = (loan as Record<string, unknown>)[k]
+        })
+        await auditLogger.logUpdate(
+          "senteloans_loans",
+          id,
+          oldValues,
+          updates,
+          actor.institution_id,
+          actor.id,
+          { branch_id: loanBranchId },
+          client
+        )
 
-      if (newStatus) {
+        if (newStatus) {
         const loanWithMemberRes = await client.query(`SELECT member_id, principal_amount FROM senteloans_loans WHERE id = $1`, [id])
         const loanWithMember = loanWithMemberRes.rows[0]
         if (loanWithMember?.member_id) {
@@ -759,6 +764,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
           if (tpl) {
             await notificationService.create({
               institutionId: actor.institution_id,
+              branchId: loanBranchId,
               recipientType: "client",
               recipientId: loanWithMember.member_id,
               type: notifType as "loan_approved" | "loan_rejected" | "loan_disbursed" | "loan_status_change",
@@ -769,8 +775,15 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
             }).catch((e) => console.error("Failed to create loan status notification:", e))
           }
         }
+        }
+        await client.query("COMMIT")
+        txCommitted = true
+        return { ok: true }
+      } finally {
+        if (!txCommitted) {
+          await client.query("ROLLBACK").catch(() => undefined)
+        }
       }
-      return { ok: true }
     })
 
     if (result && "error" in result) {

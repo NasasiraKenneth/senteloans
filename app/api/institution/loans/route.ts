@@ -548,7 +548,7 @@ export async function POST(req: Request) {
               },
               actor.institution_id,
               actor.id,
-              undefined,
+              { branch_id: String(actor.branch_id || "") },
               client
             )
           }
@@ -591,6 +591,7 @@ export async function POST(req: Request) {
         await notificationService.createBulk(
           adminsRes.rows.map((a: { id: string }) => ({
             institutionId: actor.institution_id,
+            branchId: String(actor.branch_id || ""),
             recipientType: "institution_user" as const,
             recipientId: a.id,
             type: "pending_loan_approval" as const,

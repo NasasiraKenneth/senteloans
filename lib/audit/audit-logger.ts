@@ -10,6 +10,7 @@ export interface AuditLogEntry {
   new_values?: Record<string, unknown>
   user_id?: string
   institution_id: string
+  branch_id?: string
   ip_address?: string
   user_agent?: string
   timestamp?: Date
@@ -35,8 +36,8 @@ function deriveCategory(tableName: string): string {
 async function runInsert(client: PoolClient, entry: AuditLogEntry): Promise<void> {
   await client.query(
     `INSERT INTO senteloans_audit_logs (
-      table_name, category, operation, record_id, old_values, new_values, user_id, institution_id, ip_address, user_agent
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+      table_name, category, operation, record_id, old_values, new_values, user_id, institution_id, branch_id, ip_address, user_agent
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
     [
       entry.table_name,
       entry.category || deriveCategory(entry.table_name),
@@ -46,6 +47,7 @@ async function runInsert(client: PoolClient, entry: AuditLogEntry): Promise<void
       entry.new_values ? JSON.stringify(entry.new_values) : null,
       entry.user_id ?? null,
       entry.institution_id,
+      entry.branch_id ?? null,
       entry.ip_address ?? null,
       entry.user_agent ?? null,
     ]
@@ -71,7 +73,7 @@ export class AuditLogger {
     newValues: Record<string, unknown>,
     institutionId: string,
     userId?: string,
-    metadata?: { ip_address?: string; user_agent?: string },
+    metadata?: { branch_id?: string; ip_address?: string; user_agent?: string },
     client?: PoolClient
   ): Promise<void> {
     await this.logOperation(
@@ -81,6 +83,7 @@ export class AuditLogger {
         record_id: recordId,
         new_values: newValues,
         institution_id: institutionId,
+        branch_id: metadata?.branch_id,
         user_id: userId,
         ip_address: metadata?.ip_address,
         user_agent: metadata?.user_agent,
@@ -96,7 +99,7 @@ export class AuditLogger {
     newValues: Record<string, unknown>,
     institutionId: string,
     userId?: string,
-    metadata?: { ip_address?: string; user_agent?: string },
+    metadata?: { branch_id?: string; ip_address?: string; user_agent?: string },
     client?: PoolClient
   ): Promise<void> {
     await this.logOperation(
@@ -107,6 +110,7 @@ export class AuditLogger {
         old_values: oldValues,
         new_values: newValues,
         institution_id: institutionId,
+        branch_id: metadata?.branch_id,
         user_id: userId,
         ip_address: metadata?.ip_address,
         user_agent: metadata?.user_agent,
@@ -121,7 +125,7 @@ export class AuditLogger {
     oldValues: Record<string, unknown>,
     institutionId: string,
     userId?: string,
-    metadata?: { ip_address?: string; user_agent?: string },
+    metadata?: { branch_id?: string; ip_address?: string; user_agent?: string },
     client?: PoolClient
   ): Promise<void> {
     await this.logOperation(
@@ -131,6 +135,7 @@ export class AuditLogger {
         record_id: recordId,
         old_values: oldValues,
         institution_id: institutionId,
+        branch_id: metadata?.branch_id,
         user_id: userId,
         ip_address: metadata?.ip_address,
         user_agent: metadata?.user_agent,

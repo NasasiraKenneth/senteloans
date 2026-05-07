@@ -66,7 +66,7 @@ export async function POST(req: Request) {
 
     const result = await runWithAuth(session.user.authUserId, async (client) => {
       const clientRes = await client.query(
-        `SELECT id, institution_id FROM senteloans_clients WHERE supabase_user_id = $1`,
+        `SELECT id, institution_id, branch_id FROM senteloans_clients WHERE supabase_user_id = $1`,
         [session!.user!.authUserId]
       )
       const row = clientRes.rows[0]
@@ -80,7 +80,15 @@ export async function POST(req: Request) {
       if (!inserted) return null
 
       const insertPayload = { institution_id: row.institution_id, client_id: row.id, doc_type: docType, url, status: "pending_review" }
-      await auditLogger.logInsert("senteloans_client_kyc_docs", inserted.id, insertPayload, row.institution_id, undefined, undefined, client)
+      await auditLogger.logInsert(
+        "senteloans_client_kyc_docs",
+        inserted.id,
+        insertPayload,
+        row.institution_id,
+        undefined,
+        { branch_id: String(row.branch_id || "") },
+        client
+      )
 
       const clientInfoRes = await client.query(`SELECT full_name FROM senteloans_clients WHERE id = $1`, [row.id])
       const clientInfo = clientInfoRes.rows[0]
@@ -94,6 +102,7 @@ export async function POST(req: Request) {
         await notificationService.createBulk(
           admins.map((a: { id: string }) => ({
             institutionId: row.institution_id,
+            branchId: String(row.branch_id || ""),
             recipientType: "institution_user" as const,
             recipientId: a.id,
             type: "pending_kyc_review" as const,

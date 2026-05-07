@@ -149,7 +149,7 @@ export function DashboardSidebar() {
         href: "/loans",
         icon: CreditCard,
         submenu: [
-          { name: "All Loans", href: "/loans" },
+          { name: "Member Loans", href: "/loans" },
           { name: "Sacco Loans", href: "/sacco-loans" },
           { name: "Loan Products", href: "/loan-products" },
         ],

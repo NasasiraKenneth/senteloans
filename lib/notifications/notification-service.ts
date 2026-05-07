@@ -19,11 +19,12 @@ export class NotificationService {
       const row = await withClient(client, async (c) => {
         const res = await c.query(
           `INSERT INTO senteloans_notifications (
-            institution_id, recipient_type, recipient_id, type, title, message, action_url, metadata
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            institution_id, branch_id, recipient_type, recipient_id, type, title, message, action_url, metadata
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
           RETURNING id`,
           [
             input.institutionId,
+            input.branchId,
             input.recipientType,
             input.recipientId,
             input.type,
@@ -52,10 +53,11 @@ export class NotificationService {
         for (const input of inputs) {
           await c.query(
             `INSERT INTO senteloans_notifications (
-              institution_id, recipient_type, recipient_id, type, title, message, action_url, metadata
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+              institution_id, branch_id, recipient_type, recipient_id, type, title, message, action_url, metadata
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
             [
               input.institutionId,
+              input.branchId,
               input.recipientType,
               input.recipientId,
               input.type,

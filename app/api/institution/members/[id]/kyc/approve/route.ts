@@ -34,6 +34,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         `SELECT
            u.id,
            u.institution_id,
+           u.branch_id,
           CASE
             WHEN r.name = 'System Admin' THEN 'system_admin'
             WHEN r.name = 'Super Admin' THEN 'super_admin'
@@ -96,13 +97,14 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         { [column]: pending.url },
         appUser.institution_id,
         appUser.id,
-        undefined,
+        { branch_id: String(appUser.branch_id || "") },
         client
       )
 
       const tpl = NotificationTemplates.kycApproved(pending.doc_type as string)
       await notificationService.create({
         institutionId: appUser.institution_id,
+        branchId: String(appUser.branch_id || ""),
         recipientType: "member",
         recipientId: memberId,
         type: "kyc_approved",
