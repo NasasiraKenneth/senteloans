@@ -5,72 +5,23 @@ import { runWithAuth } from "@/lib/db"
 import { insertTransactionInsertAuditLog } from "@/lib/audit/transaction-insert-audit"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
 import { insertWithTransactionNumberRetry } from "@/lib/transactions/transaction-number-retry"
-
-type ActorContext = {
-  id: string
-  institution_id: string
-  branch_id: string | null
-  role_id: string | null
-  role: string | null
-}
-
-async function resolveActorContext(client: any, authUserId: string): Promise<ActorContext | null> {
-  const actorRes = await client.query(
-    `SELECT
-       u.id,
-       u.institution_id,
-       u.branch_id,
-       u.role_id,
-       CASE
-         WHEN r.name = 'System Admin' THEN 'system_admin'
-         WHEN r.name = 'Super Admin' THEN 'super_admin'
-         WHEN r.name = 'Admin' THEN 'institution_admin'
-         WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
-         ELSE NULL
-       END AS role
-     FROM senteloans_users u
-     LEFT JOIN senteloans_roles r ON r.id = u.role_id
-     WHERE u.supabase_user_id = $1
-     LIMIT 1`,
-    [authUserId]
-  )
-  return actorRes.rows[0] || null
-}
-
-async function hasPermission(client: any, actor: ActorContext, permission: string): Promise<boolean> {
-  const role = String(actor.role || "").trim().toLowerCase()
-  if (role === "super_admin") return true
-  if (!actor.role_id || !actor.branch_id) return false
-
-  const permRes = await client.query(
-    `SELECT 1
-     FROM senteloans_role_permissions rp
-     JOIN senteloans_permissions p ON p.id = rp.permission_id
-     WHERE rp.role_id = $1
-       AND rp.branch_id = $2
-       AND p.name = $3
-     LIMIT 1`,
-    [actor.role_id, actor.branch_id, permission]
-  )
-  return permRes.rowCount > 0
-}
+import { requireStaffSession, resolveActorContext, hasPermission, scopeWhere, isSuperAdmin, normalizeRole } from "@/lib/api/rbac"
+import { decodeCursor, encodeCursor } from "@/lib/api/keyset"
 
 export async function GET(req: Request) {
   const apiPath = getApiPath(req)
   try {
-    const session = await getServerSession(authOptions)
-    if (!session?.user?.authUserId) {
+    const sess = await requireStaffSession()
+    if (!sess.ok) {
       apiLog("warn", "transactions.list.denied", { method: "GET", apiPath, status: 401, error: "unauthorized" })
-      return NextResponse.json({ error: "unauthorized" }, { status: 401 })
-    }
-    if (session.user.type !== "staff") {
-      apiLog("warn", "transactions.list.denied", { method: "GET", apiPath, status: 403, error: "no_app_user_profile" })
-      return NextResponse.json({ error: "no_app_user_profile" }, { status: 403 })
+      return NextResponse.json({ error: sess.error }, { status: sess.status })
     }
 
     const url = new URL(req.url)
     const page = Math.max(parseInt(url.searchParams.get("page") || "1", 10), 1)
     const pageSize = Math.min(Math.max(parseInt(url.searchParams.get("pageSize") || "10", 10), 1), 100)
+    const cursor = decodeCursor(url.searchParams.get("cursor"))
+    const limit = Math.min(Math.max(parseInt(url.searchParams.get("limit") || "", 10) || pageSize, 1), 100)
     const type = (url.searchParams.get("type") || "").trim()
     const mode = (url.searchParams.get("mode") || "").trim()
     const dateFrom = (url.searchParams.get("date_from") || "").trim()
@@ -81,28 +32,19 @@ export async function GET(req: Request) {
     const branchesRaw = (url.searchParams.get("branches") || "").trim()
     const selectedBranchIds = branchesRaw ? branchesRaw.split(",").map((v) => v.trim()).filter(Boolean) : []
 
-    const result = await runWithAuth(session.user.authUserId, async (client) => {
-      const actor = await resolveActorContext(client, session.user.authUserId as string)
+    const result = await runWithAuth(sess.authUserId, async (client) => {
+      const actor = await resolveActorContext(client, sess.authUserId)
       if (!actor?.institution_id) return { error: "no_app_user_profile" as const }
       const allowed = await hasPermission(client, actor, "view_transactions")
       if (!allowed) return { error: "missing_permission:view_transactions" as const }
 
-      const actorRole = String(actor.role || "").trim().toLowerCase()
-      if (actorRole !== "super_admin" && !actor.branch_id) return { error: "actor_branch_missing" as const }
+      const actorRole = normalizeRole(actor.role)
+      if (!isSuperAdmin(actor) && !actor.branch_id) return { error: "actor_branch_missing" as const }
 
-      let where = "t.institution_id = $1"
-      const params: unknown[] = [actor.institution_id]
-      let idx = 2
-
-      if (actorRole !== "super_admin") {
-        where += ` AND t.branch_id = $${idx}`
-        params.push(actor.branch_id)
-        idx++
-      } else if (selectedBranchIds.length > 0) {
-        where += ` AND t.branch_id = ANY($${idx}::uuid[])`
-        params.push(selectedBranchIds)
-        idx++
-      }
+      const scoped = scopeWhere({ tableAlias: "t", actor, selectedBranchIds, startIndex: 1 })
+      let where = scoped.where
+      const params: unknown[] = [...scoped.values]
+      let idx = scoped.nextIndex
 
       if (memberId) {
         where += ` AND t.member_id = $${idx++}`
@@ -142,6 +84,13 @@ export async function GET(req: Request) {
         idx++
       }
 
+      if (cursor) {
+        // keyset pagination: created_at desc, id desc
+        where += ` AND (t.created_at, t.id) < ($${idx}::timestamptz, $${idx + 1}::uuid)`
+        params.push(cursor.t, cursor.id)
+        idx += 2
+      }
+
       const countRes = await client.query(
         `SELECT COUNT(*)::int AS c
          FROM senteloans_transactions t
@@ -153,7 +102,9 @@ export async function GET(req: Request) {
       const total = countRes.rows[0]?.c ?? 0
 
       const from = (page - 1) * pageSize
-      params.push(pageSize, from)
+      const take = cursor ? limit : pageSize
+      if (!cursor) params.push(take, from)
+      else params.push(take)
       const dataRes = await client.query(
         `SELECT
            t.id,
@@ -175,8 +126,8 @@ export async function GET(req: Request) {
          LEFT JOIN senteloans_members m ON m.id = t.member_id
          LEFT JOIN senteloans_clients c ON c.id = t.client_id
          WHERE ${where}
-         ORDER BY t.created_at DESC
-         LIMIT $${idx} OFFSET $${idx + 1}`,
+         ORDER BY t.created_at DESC, t.id DESC
+         LIMIT $${idx}${cursor ? "" : ` OFFSET $${idx + 1}`}`,
         params
       )
       const data = dataRes.rows
@@ -200,6 +151,14 @@ export async function GET(req: Request) {
         balance: row.balance_after,
         accountNumber: accountMap[row.account_id as string] || "",
       }))
+
+      const last = data[data.length - 1] as Record<string, unknown> | undefined
+      const nextCursor =
+        cursor && last?.created_at && last?.id
+          ? encodeCursor({ t: String(last.created_at), id: String(last.id) })
+          : !cursor && last?.created_at && last?.id
+            ? encodeCursor({ t: String(last.created_at), id: String(last.id) })
+            : null
 
       const recentWhereParts = ["t.institution_id = $1"] as string[]
       const recentParams: unknown[] = [actor.institution_id]
@@ -244,7 +203,7 @@ export async function GET(req: Request) {
         accountNumber: recentAccountMap[t.account_id as string] || "",
       }))
 
-      return { items, total, page, pageSize, recentTransactions: recent }
+      return { items, total, page, pageSize: take, nextCursor, recentTransactions: recent }
     })
 
     if (result && "error" in result) {

@@ -143,12 +143,12 @@ The application will be at [http://localhost:3000](http://localhost:3000).
 
 ### 9. Access the Application
 
-| Entry point | URL |
-|-------------|-----|
-| **Landing** | [http://localhost:3000](http://localhost:3000) |
-| **Institution login** | [http://localhost:3000/login](http://localhost:3000/login) |
-| **System admin** | [http://localhost:3000/admin-login](http://localhost:3000/admin-login) |
-| **Client portal** | [http://localhost:3000/client-login](http://localhost:3000/client-login) |
+| Entry point           | URL                                                                      |
+| --------------------- | ------------------------------------------------------------------------ |
+| **Landing**           | [http://localhost:3000](http://localhost:3000)                           |
+| **Institution login** | [http://localhost:3000/login](http://localhost:3000/login)               |
+| **System admin**      | [http://localhost:3000/admin-login](http://localhost:3000/admin-login)   |
+| **Client portal**     | [http://localhost:3000/client-login](http://localhost:3000/client-login) |
 
 ### 10. First Admin / Client Logins
 
@@ -201,15 +201,15 @@ Or in the [Vercel Dashboard](https://vercel.com): New Project → Import your re
 
 In the project → **Settings** → **Environment Variables**, add:
 
-| Variable | Description |
-|----------|-------------|
-| `DATABASE_URL` | Production Postgres connection string |
-| `NEXTAUTH_SECRET` | Strong secret (e.g. `openssl rand -base64 32`) |
-| `NEXTAUTH_URL` | Full app URL (e.g. `https://your-app.vercel.app`) |
-| `NEXT_PUBLIC_APP_URL` | Same as `NEXTAUTH_URL` for callbacks/emails |
-| `NODE_ENV` | `production` |
-| `BLOB_READ_WRITE_TOKEN` | Optional; for KYC uploads (Vercel Blob) |
-| `MAILGUN_*` / `CONTACT_EMAIL` | Optional; for email |
+| Variable                      | Description                                       |
+| ----------------------------- | ------------------------------------------------- |
+| `DATABASE_URL`                | Production Postgres connection string             |
+| `NEXTAUTH_SECRET`             | Strong secret (e.g. `openssl rand -base64 32`)    |
+| `NEXTAUTH_URL`                | Full app URL (e.g. `https://your-app.vercel.app`) |
+| `NEXT_PUBLIC_APP_URL`         | Same as `NEXTAUTH_URL` for callbacks/emails       |
+| `NODE_ENV`                    | `production`                                      |
+| `BLOB_READ_WRITE_TOKEN`       | Optional; for KYC uploads (Vercel Blob)           |
+| `MAILGUN_*` / `CONTACT_EMAIL` | Optional; for email                               |
 
 #### 4. Custom Domain (Optional)
 
@@ -316,13 +316,10 @@ npm run db:migrate   # run any new migrations
 
 **Happy coding! 🚀**
 
-
-
-
 Auth seeding finished. All listed staff users are linked to app_auth_users and can sign in.
 You can start the app and log in:
 Start the dev server (if it’s not already running):
-   npm run dev
+npm run dev
 System admin
 URL: http://localhost:3000/admin-login
 Email: admin@senteloans.com

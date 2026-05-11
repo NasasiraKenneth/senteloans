@@ -8,73 +8,23 @@ import { auditLogger } from "@/lib/audit/audit-logger"
 import { calculateLoanTerms } from "@/lib/loans/calculations"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
 import { makePrefixedNumber } from "@/lib/ids/prefixed-number"
-
-type ActorContext = {
-  id: string
-  institution_id: string
-  branch_id: string | null
-  role_id: string | null
-  role: string | null
-}
-
-async function resolveActorContext(client: any, authUserId: string): Promise<ActorContext | null> {
-  const actorRes = await client.query(
-    `SELECT
-       u.id,
-       u.institution_id,
-       u.branch_id,
-       u.role_id,
-       CASE
-         WHEN r.name = 'System Admin' THEN 'system_admin'
-         WHEN r.name = 'Super Admin' THEN 'super_admin'
-         WHEN r.name = 'Admin' THEN 'institution_admin'
-         WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
-         ELSE NULL
-       END AS role
-     FROM senteloans_users u
-     LEFT JOIN senteloans_roles r ON r.id = u.role_id
-     WHERE u.supabase_user_id = $1
-       AND u.status = 'Active'
-     LIMIT 1`,
-    [authUserId]
-  )
-  return actorRes.rows[0] || null
-}
-
-async function hasPermission(client: any, actor: ActorContext, permission: string): Promise<boolean> {
-  const role = String(actor.role || "").trim().toLowerCase()
-  if (role === "super_admin") return true
-  if (!actor.role_id || !actor.branch_id) return false
-
-  const permRes = await client.query(
-    `SELECT 1
-     FROM senteloans_role_permissions rp
-     JOIN senteloans_permissions p ON p.id = rp.permission_id
-     WHERE rp.role_id = $1
-       AND rp.branch_id = $2
-       AND p.name = $3
-     LIMIT 1`,
-    [actor.role_id, actor.branch_id, permission]
-  )
-  return permRes.rowCount > 0
-}
+import { requireStaffSession, resolveActorContext, hasPermission, scopeWhere, isSuperAdmin, normalizeRole } from "@/lib/api/rbac"
+import { decodeCursor, encodeCursor } from "@/lib/api/keyset"
 
 export async function GET(req: Request) {
   const apiPath = getApiPath(req)
   try {
-    const session = await getServerSession(authOptions)
-    if (!session?.user?.authUserId) {
-      apiLog("warn", "loans.list.denied", { method: "GET", apiPath, status: 401, error: "unauthorized" })
-      return NextResponse.json({ error: "unauthorized" }, { status: 401 })
-    }
-    if (session.user.type !== "staff") {
-      apiLog("warn", "loans.list.denied", { method: "GET", apiPath, status: 403, error: "not_staff" })
-      return NextResponse.json({ error: "not_staff" }, { status: 403 })
+    const sess = await requireStaffSession()
+    if (!sess.ok) {
+      apiLog("warn", "loans.list.denied", { method: "GET", apiPath, status: sess.status, error: sess.error })
+      return NextResponse.json({ error: sess.error }, { status: sess.status })
     }
 
     const url = new URL(req.url)
     const page = Math.max(parseInt(url.searchParams.get("page") || "1", 10), 1)
     const pageSize = Math.min(Math.max(parseInt(url.searchParams.get("pageSize") || "10", 10), 1), 100)
+    const cursor = decodeCursor(url.searchParams.get("cursor"))
+    const limit = Math.min(Math.max(parseInt(url.searchParams.get("limit") || "", 10) || pageSize, 1), 100)
     const status = (url.searchParams.get("status") || "").trim()
     const productIdRaw = (url.searchParams.get("product_id") || "").trim()
     const selectedProductIds = productIdRaw
@@ -91,15 +41,15 @@ export async function GET(req: Request) {
     const nextPaymentDateStart = (url.searchParams.get("nextPaymentDateStart") || "").trim()
     const nextPaymentDateEnd = (url.searchParams.get("nextPaymentDateEnd") || "").trim()
 
-    const result = await runWithAuth(session.user.authUserId, async (client) => {
-      const actor = await resolveActorContext(client, session.user.authUserId as string)
+    const result = await runWithAuth(sess.authUserId, async (client) => {
+      const actor = await resolveActorContext(client, sess.authUserId)
       if (!actor?.institution_id) return { error: "user_not_linked" as const }
       const allowed = await hasPermission(client, actor, "view_loans")
       if (!allowed) return { error: "missing_permission:view_loans" as const }
 
-      const role = String(actor.role || "").trim().toLowerCase()
-      const isSuperAdmin = role === "super_admin"
-      if (!isSuperAdmin && !actor.branch_id) return { error: "actor_branch_missing" as const }
+      const role = normalizeRole(actor.role)
+      const isSA = role === "super_admin"
+      if (!isSA && !actor.branch_id) return { error: "actor_branch_missing" as const }
 
       let matchedMemberIds: string[] = []
       if (memberId) {
@@ -121,16 +71,10 @@ export async function GET(req: Request) {
       }
 
       const from = (page - 1) * pageSize
-      let where = "l.institution_id = $1"
-      const params: unknown[] = [actor.institution_id]
-      let idx = 2
-      if (!isSuperAdmin) {
-        where += ` AND l.branch_id = $${idx++}`
-        params.push(actor.branch_id)
-      } else if (selectedBranchIds.length > 0) {
-        where += ` AND l.branch_id = ANY($${idx++}::uuid[])`
-        params.push(selectedBranchIds)
-      }
+      const scoped = scopeWhere({ tableAlias: "l", actor, selectedBranchIds, startIndex: 1 })
+      let where = scoped.where
+      const params: unknown[] = [...scoped.values]
+      let idx = scoped.nextIndex
       if (status) {
         where += ` AND l.status = $${idx++}`
         params.push(status)
@@ -180,16 +124,25 @@ export async function GET(req: Request) {
         idx++
       }
 
+      if (cursor) {
+        // keyset pagination: application_date desc, id desc
+        where += ` AND (l.application_date, l.id) < (($${idx}::timestamp AT TIME ZONE 'Africa/Nairobi')::date, $${idx + 1}::uuid)`
+        params.push(cursor.t, cursor.id)
+        idx += 2
+      }
+
       const countRes = await client.query(
         `SELECT COUNT(*)::int AS c FROM senteloans_loans l WHERE ${where}`,
         params
       )
       const total = countRes.rows[0]?.c ?? 0
 
-      params.push(pageSize, from)
+      const take = cursor ? limit : pageSize
+      if (!cursor) params.push(take, from)
+      else params.push(take)
       const dataRes = await client.query(
         `SELECT l.id, l.application_id, l.member_id, l.loan_product_id, l.principal_amount, l.interest_rate, l.tenure_months, l.outstanding_balance, l.status, l.loan_type, l.approved_at, l.disbursement_date, l.application_date, l.next_payment_date
-         FROM senteloans_loans l WHERE ${where} ORDER BY l.application_date DESC LIMIT $${idx} OFFSET $${idx + 1}`,
+         FROM senteloans_loans l WHERE ${where} ORDER BY l.application_date DESC, l.id DESC LIMIT $${idx}${cursor ? "" : ` OFFSET $${idx + 1}`}`,
         params
       )
       const data = dataRes.rows
@@ -224,7 +177,14 @@ export async function GET(req: Request) {
         application_date: row.application_date,
         next_payment_date: row.next_payment_date ?? null,
       }))
-      return { items, total, page, pageSize }
+
+      const last = data[data.length - 1] as Record<string, unknown> | undefined
+      const nextCursor =
+        last?.application_date && last?.id
+          ? encodeCursor({ t: String(last.application_date), id: String(last.id) })
+          : null
+
+      return { items, total, page, pageSize: take, nextCursor }
     })
 
     if (result && "error" in result) {
@@ -232,10 +192,10 @@ export async function GET(req: Request) {
         result.error === "missing_permission:view_loans" ? 403 :
         result.error === "user_not_linked" ? 403 :
         result.error === "actor_branch_missing" ? 400 : 400
-      apiLog("warn", "loans.list.denied", { method: "GET", apiPath, status: statusCode, error: result.error, authUserId: session.user.authUserId })
+      apiLog("warn", "loans.list.denied", { method: "GET", apiPath, status: statusCode, error: result.error, authUserId: sess.authUserId })
       return NextResponse.json({ error: result.error }, { status: statusCode })
     }
-    apiLog("info", "loans.list.success", { method: "GET", apiPath, status: 200, count: result.items?.length || 0, authUserId: session.user.authUserId })
+    apiLog("info", "loans.list.success", { method: "GET", apiPath, status: 200, count: result.items?.length || 0, authUserId: sess.authUserId })
     return NextResponse.json(result)
   } catch (e: unknown) {
     const err = e as Error

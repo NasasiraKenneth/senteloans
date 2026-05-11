@@ -80,7 +80,8 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       if (!isSuperAdmin && String(loan.branch_id) !== String(actor.branch_id)) return null
 
       const res = await client.query(
-        `SELECT installment_number, due_date, principal_amount, interest_amount, total_amount, amount_paid, status
+        `SELECT installment_number, due_date, principal_amount, interest_amount, total_amount,
+                amount_paid, payment_date, penalty_amount, amount_due, days_overdue, status
          FROM senteloans_loan_repayments WHERE loan_id = $1 ORDER BY installment_number ASC`,
         [id]
       )
@@ -91,6 +92,10 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
         interest: Number(r.interest_amount || 0),
         total: Number(r.total_amount || 0),
         amount_paid: Number(r.amount_paid || 0),
+        payment_date: r.payment_date ?? null,
+        penalty_amount: Number(r.penalty_amount || 0),
+        amount_due: Number(r.amount_due || 0),
+        days_overdue: Number(r.days_overdue || 0),
         status: String(r.status || "Pending"),
       }))
       return { repayments }

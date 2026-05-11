@@ -38,6 +38,7 @@ import NewPayment from "../components/add/newPayment";
 import SellOff from "../components/add/sellOff";
 import TooltipButton from "@/components/newUI/tooltip_button";
 import { BsFileEarmarkPdf } from "react-icons/bs";
+import { downloadRepaymentScheduleExport } from "./export/repayment-schedule-export";
 
 type LoanUI = {
   id: string;
@@ -90,7 +91,26 @@ type RepaymentApiRow = {
   interest_amount?: number;
   total?: number;
   total_amount?: number;
+  amount_paid?: number;
+  payment_date?: string | null;
+  penalty_amount?: number;
+  amount_due?: number;
+  days_overdue?: number;
   status?: string;
+};
+
+type RepaymentScheduleRow = {
+  installment: number;
+  dueDate: string;
+  principal: number;
+  interest: number;
+  totalPayment: number;
+  amountPaid: number;
+  paymentDate: string | null;
+  penaltyAmount: number;
+  amountDue: number;
+  daysOverdue: number;
+  status: string;
 };
 
 type LoanDetailApiRow = {
@@ -195,20 +215,21 @@ function mapLoanFromApi(l: LoanDetailApiRow): LoanUI {
   };
 }
 
-function mapRepaymentsFromApi(rows: RepaymentApiRow[]): Array<{
-  installment: number;
-  dueDate: string;
-  principal: number;
-  interest: number;
-  totalPayment: number;
-  status: string;
-}> {
+function mapRepaymentsFromApi(rows: RepaymentApiRow[]): RepaymentScheduleRow[] {
   return rows.map((r) => ({
     installment: Number(r.installment ?? 0),
     dueDate: r.due_date ?? "",
     principal: Number(r.principal ?? r.principal_amount ?? 0),
     interest: Number(r.interest ?? r.interest_amount ?? 0),
     totalPayment: Number(r.total ?? r.total_amount ?? 0),
+    amountPaid: Number(r.amount_paid ?? 0),
+    paymentDate:
+      r.payment_date != null && String(r.payment_date).trim() !== ""
+        ? String(r.payment_date).slice(0, 10)
+        : null,
+    penaltyAmount: Number(r.penalty_amount ?? 0),
+    amountDue: Number(r.amount_due ?? 0),
+    daysOverdue: Number(r.days_overdue ?? 0),
     status: String(r.status ?? "Pending"),
   }));
 }
@@ -219,14 +240,7 @@ export default function LoanDetailsPage() {
 
   const [loan, setLoan] = useState<LoanUI | null>(null);
   const [repaymentSchedule, setRepaymentSchedule] = useState<
-    {
-      installment: number;
-      dueDate: string;
-      principal: number;
-      interest: number;
-      totalPayment: number;
-      status: string;
-    }[]
+    RepaymentScheduleRow[]
   >([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [actionLoading, setActionLoading] = useState<boolean>(false);
@@ -239,6 +253,9 @@ export default function LoanDetailsPage() {
   const [reviewSavingIds, setReviewSavingIds] = useState<string[]>([]);
   const [markReviewedLoading, setMarkReviewedLoading] =
     useState<boolean>(false);
+  const [repaymentExporting, setRepaymentExporting] = useState<
+    "excel" | "pdf" | null
+  >(null);
   const { toast } = useToast();
 
   async function loadLoanAndRepayments(options?: { strictDetail?: boolean }) {
@@ -280,6 +297,28 @@ export default function LoanDetailsPage() {
       // ignore
     }
   }
+
+  const downloadRepaymentSchedule = async (format: "excel" | "pdf") => {
+    if (!loanId || repaymentSchedule.length === 0) return;
+    setRepaymentExporting(format);
+    try {
+      await downloadRepaymentScheduleExport(loanId, format);
+      toast({
+        variant: "success",
+        title: format === "excel" ? "Excel downloaded" : "PDF downloaded",
+        description: "Repayment schedule export completed.",
+      });
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : "Export failed";
+      toast({
+        variant: "destructive",
+        title: "Export failed",
+        description: message,
+      });
+    } finally {
+      setRepaymentExporting(null);
+    }
+  };
 
   useEffect(() => {
     let ignore = false;
@@ -406,6 +445,10 @@ export default function LoanDetailsPage() {
 
   type DataRepaymentRow = (typeof repaymentSchedule)[number];
 
+  /** First installment not yet fully paid — drives "next payment" highlight on amount due. */
+  const nextUnpaidInstallment =
+    repaymentSchedule.find((r) => r.status !== "Paid")?.installment ?? null;
+
   const repaymentColumns: DataTableColumn<DataRepaymentRow>[] = [
     {
       key: "installment",
@@ -445,10 +488,83 @@ export default function LoanDetailsPage() {
     },
     {
       key: "totalPayment",
-      header: "Total Payment",
+      header: "Monthly Payment",
       render: (row) => (
         <span className="text-sm font-semibold text-gray-900">
           {formatCurrency(row.totalPayment)}
+        </span>
+      ),
+    },
+    {
+      key: "amountPaid",
+      header: "Amount Paid",
+      render: (row) => (
+        <span
+          className={
+            row.amountPaid > 0
+              ? "text-sm font-medium text-green-700"
+              : "text-sm text-gray-900"
+          }
+        >
+          {formatCurrency(row.amountPaid)}
+        </span>
+      ),
+    },
+    {
+      key: "paymentDate",
+      header: "Payment Date",
+      render: (row) => (
+        <span className="text-sm text-gray-700">
+          {row.paymentDate ? formatDate(row.paymentDate) : ""}
+        </span>
+      ),
+    },
+    {
+      key: "penaltyAmount",
+      header: "Penalty",
+      render: (row) => (
+        <span
+          className={
+            row.penaltyAmount > 0
+              ? "text-sm font-medium text-red-700"
+              : "text-sm text-gray-900"
+          }
+        >
+          {formatCurrency(row.penaltyAmount)}
+        </span>
+      ),
+    },
+    {
+      key: "amountDue",
+      header: "Total payment",
+      render: (row) => {
+        const isNextPayment =
+          nextUnpaidInstallment !== null &&
+          row.installment === nextUnpaidInstallment;
+        const className = isNextPayment
+          ? "text-sm font-semibold text-green-700"
+          : row.amountDue > 0
+            ? "text-sm font-semibold text-gray-900"
+            : "text-sm text-gray-900";
+        return (
+          <span className={className}>
+            {formatCurrency(row.amountDue)}
+          </span>
+        );
+      },
+    },
+    {
+      key: "daysOverdue",
+      header: "Days Overdue",
+      render: (row) => (
+        <span
+          className={
+            row.daysOverdue > 0
+              ? "text-sm font-medium tabular-nums text-red-700"
+              : "text-sm tabular-nums text-gray-700"
+          }
+        >
+          {row.daysOverdue}
         </span>
       ),
     },
@@ -494,6 +610,16 @@ export default function LoanDetailsPage() {
   const remainingTenureMonths =
     repaymentSchedule.length > 0 ? remainingInstallments : loan.tenure;
   const canEditLoanReview = loan.status === "Under Review";
+  /** Verified review PDF is only meaningful once review is complete (Reviewed → lifecycle end). */
+  const canShowVerifiedReviewPdf = [
+    "Reviewed",
+    "Approved",
+    "Partially Disbursed",
+    "Fully Disbursed",
+    "Active",
+    "Closed",
+    "Defaulted",
+  ].includes(loan.status);
   const allEligibilityReviewed =
     Array.isArray(loan.eligibilityReviews) &&
     loan.eligibilityReviews.every((r) => r.isEligible);
@@ -1049,13 +1175,15 @@ export default function LoanDetailsPage() {
                     >
                       <FileText className="h-4 w-4" />
                     </TooltipButton>
-                    <TooltipButton
-                      tooltip="Export Verifed PDF"
-                      className="inline-flex h-8 w-9 items-center justify-center rounded-md border border-red-200 bg-background text-red-600 hover:bg-red-50 hover:text-red-700 transition-colors"
-                      onClick={() => void handleDownloadVerifiedReviewPdf()}
-                    >
-                      <BsFileEarmarkPdf className="h-4 w-4" />
-                    </TooltipButton>
+                    {canShowVerifiedReviewPdf && (
+                      <TooltipButton
+                        tooltip="Export Verified PDF"
+                        className="inline-flex h-8 w-9 items-center justify-center rounded-md border border-red-200 bg-background text-red-600 hover:bg-red-50 hover:text-red-700 transition-colors"
+                        onClick={() => void handleDownloadVerifiedReviewPdf()}
+                      >
+                        <BsFileEarmarkPdf className="h-4 w-4" />
+                      </TooltipButton>
+                    )}
                     {canEditLoanReview && allEligibilityReviewed && (
                       <Button
                         type="button"
@@ -1247,6 +1375,18 @@ export default function LoanDetailsPage() {
           title="Repayment Schedule"
           emptyMessage="No repayment schedule available"
           getRowId={(row) => row.installment}
+          exportActions={{
+            onExcel: () => void downloadRepaymentSchedule("excel"),
+            onPdf: () => void downloadRepaymentSchedule("pdf"),
+            excelDisabled:
+              loading ||
+              repaymentSchedule.length === 0 ||
+              repaymentExporting !== null,
+            pdfDisabled:
+              loading ||
+              repaymentSchedule.length === 0 ||
+              repaymentExporting !== null,
+          }}
           pagination={{
             page: schedPage,
             rowsPerPage: schedRowsPerPage,

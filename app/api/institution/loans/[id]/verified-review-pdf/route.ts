@@ -156,4 +156,3 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     return NextResponse.json({ error: err?.message || "Unexpected error" }, { status: 500 })
   }
 }
-
