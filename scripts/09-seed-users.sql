@@ -3,6 +3,25 @@
 -- Admin gets full branch-scoped permission catalog; Super Admin access is role-driven by app/RLS.
 
 -- 1) Seed role catalog
+
+INSERT INTO senteloans_expense_categories (category, description)
+VALUES
+    ('Utilities', 'Expenses incurred for essential services required to operate SACCO offices and branches, such as electricity, water, and waste management services.'),
+    ('Fuel', 'Costs related to fuel consumption for SACCO vehicles, generators, field operations, and official travel activities.'),
+    ('Salaries', 'Payments made to employees and staff members as compensation for their work, including wages, salaries, bonuses, and related payroll costs.'),
+    ('Stationery', 'Expenses for office supplies and materials used in daily operations, such as paper, pens, files, books, printing materials, and other consumables.'),
+    ('Airtime', 'Costs for mobile phone airtime, call credits, SMS services, and communication allowances used for official SACCO operations.'),
+    ('Loan Recovery Costs', 'Expenses incurred during the process of loan follow-up and recovery, including field visits, legal fees, auctioneer charges, and debt collection activities.'),
+    ('Maintenance', 'Costs associated with repairing, servicing, and maintaining SACCO assets, equipment, buildings, vehicles, and office infrastructure.'),
+    ('Transport', 'Expenses related to transportation services, travel facilitation, staff movement, delivery services, and official operational travel.'),
+    ('Marketing', 'Costs incurred in promoting SACCO products and services through advertising, branding, campaigns, events, promotions, and public awareness activities.'),
+    ('Allowances', 'Payments provided to staff, board members, or agents for facilitation, travel, meals, accommodation, sitting allowances, or other approved operational activities.'),
+    ('Rent', 'Payments made for leasing office premises, branch spaces, equipment, or other rented properties used by the SACCO.'),
+    ('Internet', 'Expenses for internet connectivity, broadband subscriptions, data bundles, networking services, and online communication systems used in SACCO operations.'),
+    ('Insurance', 'Costs paid for insurance coverage and protection of SACCO assets, vehicles, employees, deposits, or other operational risks against potential losses.')
+ON CONFLICT (category) DO NOTHING;
+
+
 INSERT INTO senteloans_roles (name, description)
 VALUES
   ('Manager', 'Department manager'),
@@ -55,6 +74,12 @@ VALUES
   ('review_eligibilities', 'loans'),
   ('reject_loan', 'loans'),
   ('close_loan', 'loans'),
+  ('view_expenses', 'expenses'),
+  ('create_expense', 'expenses'),
+  ('edit_expense', 'expenses'),
+  ('view_expense', 'expenses'),
+  ('edit_expense_status', 'expenses'),
+  ('download_expense', 'expenses'),
   ('view_loan_products', 'loan_products'),
   ('create_loan_product', 'loan_products'),
   ('edit_loan_product', 'loan_products'),

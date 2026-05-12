@@ -56,6 +56,13 @@ CREATE TABLE IF NOT EXISTS senteloans_institutions (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS senteloans_expense_categories (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    category VARCHAR(100) NOT NULL UNIQUE,
+    description TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- 2. BRANCH TYPES TABLE (Keeps system flexible if new branch types are introduced later)
 CREATE TABLE IF NOT EXISTS senteloans_branch_types (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -137,6 +144,21 @@ CREATE TABLE IF NOT EXISTS senteloans_bank_accounts (
     CONSTRAINT chk_bank_accounts_name_not_blank CHECK (btrim(bank_name) <> ''),
     CONSTRAINT chk_bank_accounts_number_not_blank CHECK (btrim(bank_account_number) <> ''),
     CONSTRAINT uk_bank_account_per_institution UNIQUE (institution_id, bank_name, bank_account_number)
+);
+
+CREATE TABLE IF NOT EXISTS senteloans_finances (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    institution_id UUID NOT NULL REFERENCES senteloans_institutions(id) ON DELETE RESTRICT,
+    branch_id UUID NOT NULL REFERENCES senteloans_branches(id) ON DELETE RESTRICT,
+    bank_id UUID REFERENCES senteloans_bank_accounts(id) ON DELETE RESTRICT,
+    account_number VARCHAR(50) NOT NULL,
+    account_type account_type NOT NULL,
+    available_balance DECIMAL(15,2) DEFAULT 0 CHECK (available_balance >= 0),
+    total_balance DECIMAL(15,2) DEFAULT 0 CHECK (total_balance >= 0),
+    open_date DATE NOT NULL,
+    last_transaction_date DATE,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ,
 );
 
 -- 24-create-roles.sql
@@ -555,6 +577,7 @@ CREATE TABLE IF NOT EXISTS senteloans_transactions (
     transferred_to_id UUID REFERENCES senteloans_savings_accounts(id) ON DELETE RESTRICT,
     loan_id UUID REFERENCES senteloans_loans(id) ON DELETE RESTRICT,
     sacco_loan_id UUID REFERENCES senteloans_institution_loans(id) ON DELETE RESTRICT,
+    expense_id UUID REFERENCES senteloans_expenses(id) ON DELETE RESTRICT,
     transaction_number VARCHAR(50) NOT NULL,
     type transaction_type NOT NULL,
     amount DECIMAL(15,2) NOT NULL CHECK (amount > 0),
@@ -850,6 +873,30 @@ CREATE TABLE IF NOT EXISTS senteloans_investment_funding_sources (
     loan_id UUID NULL REFERENCES senteloans_institution_loans(id) ON DELETE CASCADE, -- only if source_type = 'loan'
     amount NUMERIC(18,2) NOT NULL CHECK (amount > 0),
     created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS senteloans_expenses (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    institution_id UUID NOT NULL
+    REFERENCES senteloans_institutions(id) ON DELETE CASCADE,
+    branch_id UUID NOT NULL REFERENCES senteloans_branch_types(id) ON DELETE CASCADE,
+    member_id UUID REFERENCES senteloans_members(id) ON DELETE CASCADE,
+    client_id UUID REFERENCES senteloans_clients(id) ON DELETE CASCADE,
+    category_id UUID NOT NULL REFERENCES senteloans_expense_categories(id) ON DELETE CASCADE,
+    expense_number VARCHAR(50) NOT NULL,
+    description TEXT NOT NULL,
+    total_amount  DECIMAL(15,2) NOT NULL,
+    payment_method payment_mode,
+    expense_date TIMESTAMPTZ DEFAULT NOW(),
+    status VARCHAR(30) DEFAULT 'Pending',
+    notes TEXT,
+    created_by UUID NOT NULL REFERENCES senteloans_users(id) ON DELETE CASCADE,
+    approved_by UUID,
+    approved_at TIMESTAMPTZ,
+    completed_by UUID,
+    completed_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ
 );
 
 -- Indexes for investments

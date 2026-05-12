@@ -85,7 +85,7 @@ export async function renderRepaymentSchedulePdfBuffer(payload: Payload): Promis
               <Text style={styles.cell}>{fmt(row.interest)}</Text>
               <Text style={styles.cell}>{fmt(row.monthly_payment)}</Text>
               <Text style={styles.cell}>{fmt(row.amount_paid)}</Text>
-              <Text style={styles.cell}>{row.payment_date ? formatIsoDate(row.payment_date) : "—"}</Text>
+              <Text style={styles.cell}>{row.payment_date ? formatIsoDate(row.payment_date) : ""}</Text>
               <Text style={styles.cell}>{fmt(row.penalty)}</Text>
               <Text style={styles.cell}>{fmt(row.amount_due)}</Text>
               <Text style={styles.cell}>{String(row.days_overdue ?? 0)}</Text>

@@ -21,6 +21,8 @@ import {
   ArrowUpDown,
   Building2,
   LogOut,
+  Landmark,
+  ReceiptText,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { getSession, setSession as persistSession } from "@/lib/session"
@@ -203,6 +205,13 @@ export function DashboardSidebar() {
       {
         label: "Finance",
         items: financeItems,
+      },
+      {
+        label: "Treasury",
+        items: [
+          { name: "Financial Accounts", href: "/treasury/financial-accounts", icon: Landmark },
+          { name: "Expenses", href: "/treasury/expenses", icon: ReceiptText },
+        ],
       },
       {
         label: "Insights",
