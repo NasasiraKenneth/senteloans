@@ -137,6 +137,7 @@ CREATE TABLE IF NOT EXISTS senteloans_bank_accounts (
         REFERENCES senteloans_branches(id) ON DELETE CASCADE,
     bank_name TEXT NOT NULL,
     bank_account_number TEXT NOT NULL,
+    total_amount DECIMAL(15,2),
     created_at TIMESTAMPTZ DEFAULT NOW(),
     -- Added as plain UUID first to avoid forward-reference before senteloans_users exists.
     modified_by UUID,
@@ -150,15 +151,13 @@ CREATE TABLE IF NOT EXISTS senteloans_finances (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     institution_id UUID NOT NULL REFERENCES senteloans_institutions(id) ON DELETE RESTRICT,
     branch_id UUID NOT NULL REFERENCES senteloans_branches(id) ON DELETE RESTRICT,
-    bank_id UUID REFERENCES senteloans_bank_accounts(id) ON DELETE RESTRICT,
-    account_number VARCHAR(50) NOT NULL,
-    account_type account_type NOT NULL,
+    bank_total_amount DECIMAL(15,2),
+    mobile_money_amount DECIMAL(15,2),
+    cash_amount DECIMAL(15,2),
+    total_amount DECIMAL(15,2) DEFAULT 0 CHECK (total_amount >= 0),
     available_balance DECIMAL(15,2) DEFAULT 0 CHECK (available_balance >= 0),
-    total_balance DECIMAL(15,2) DEFAULT 0 CHECK (total_balance >= 0),
-    open_date DATE NOT NULL,
-    last_transaction_date DATE,
     created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ,
+    updated_at TIMESTAMPTZ
 );
 
 -- 24-create-roles.sql
@@ -257,6 +256,17 @@ CREATE TABLE IF NOT EXISTS senteloans_clients (
     created_at TIMESTAMPTZ DEFAULT NOW(),
     modified_by UUID REFERENCES senteloans_users(id) ON DELETE SET NULL,
     updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS senteloans_grants (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    institution_id UUID NOT NULL REFERENCES senteloans_institutions(id) ON DELETE RESTRICT,
+    branch_id UUID NOT NULL REFERENCES senteloans_branches(id) ON DELETE RESTRICT,
+    client_id UUID NOT NULL REFERENCES senteloans_clients(id) ON DELETE RESTRICT,
+    total_amount DECIMAL(15,2) DEFAULT 0 CHECK (total_amount >= 0),
+    available_balance DECIMAL(15,2) DEFAULT 0 CHECK (available_balance >= 0),
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ
 );
 
 -- 5. CLIENTS TABLE (Customer/Member records)
@@ -577,7 +587,6 @@ CREATE TABLE IF NOT EXISTS senteloans_transactions (
     transferred_to_id UUID REFERENCES senteloans_savings_accounts(id) ON DELETE RESTRICT,
     loan_id UUID REFERENCES senteloans_loans(id) ON DELETE RESTRICT,
     sacco_loan_id UUID REFERENCES senteloans_institution_loans(id) ON DELETE RESTRICT,
-    expense_id UUID REFERENCES senteloans_expenses(id) ON DELETE RESTRICT,
     transaction_number VARCHAR(50) NOT NULL,
     type transaction_type NOT NULL,
     amount DECIMAL(15,2) NOT NULL CHECK (amount > 0),
@@ -708,6 +717,16 @@ CREATE INDEX IF NOT EXISTS idx_repayments_loan_id ON senteloans_loan_repayments(
 CREATE INDEX IF NOT EXISTS idx_repayments_due_date ON senteloans_loan_repayments(due_date);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_institution_id ON senteloans_audit_logs(institution_id);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON senteloans_audit_logs(created_at DESC);
+
+-- Treasury: branch-level finance aggregates & grants
+CREATE INDEX IF NOT EXISTS idx_finances_institution_id ON senteloans_finances(institution_id);
+CREATE INDEX IF NOT EXISTS idx_finances_branch_id ON senteloans_finances(branch_id);
+CREATE INDEX IF NOT EXISTS idx_finances_institution_branch ON senteloans_finances(institution_id, branch_id);
+
+CREATE INDEX IF NOT EXISTS idx_grants_institution_id ON senteloans_grants(institution_id);
+CREATE INDEX IF NOT EXISTS idx_grants_branch_id ON senteloans_grants(branch_id);
+CREATE INDEX IF NOT EXISTS idx_grants_client_id ON senteloans_grants(client_id);
+CREATE INDEX IF NOT EXISTS idx_grants_institution_branch ON senteloans_grants(institution_id, branch_id);
 
 -- 16. CLIENT KYC DOCS TABLE (Pending/review documents uploaded by clients)
 CREATE TABLE IF NOT EXISTS senteloans_member_kyc_docs (
@@ -879,25 +898,70 @@ CREATE TABLE IF NOT EXISTS senteloans_expenses (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     institution_id UUID NOT NULL
     REFERENCES senteloans_institutions(id) ON DELETE CASCADE,
-    branch_id UUID NOT NULL REFERENCES senteloans_branch_types(id) ON DELETE CASCADE,
-    member_id UUID REFERENCES senteloans_members(id) ON DELETE CASCADE,
-    client_id UUID REFERENCES senteloans_clients(id) ON DELETE CASCADE,
+    branch_id UUID NOT NULL REFERENCES senteloans_branches(id) ON DELETE CASCADE,
     category_id UUID NOT NULL REFERENCES senteloans_expense_categories(id) ON DELETE CASCADE,
     expense_number VARCHAR(50) NOT NULL,
     description TEXT NOT NULL,
-    total_amount  DECIMAL(15,2) NOT NULL,
-    payment_method payment_mode,
-    expense_date TIMESTAMPTZ DEFAULT NOW(),
     status VARCHAR(30) DEFAULT 'Pending',
     notes TEXT,
     created_by UUID NOT NULL REFERENCES senteloans_users(id) ON DELETE CASCADE,
     approved_by UUID,
     approved_at TIMESTAMPTZ,
-    completed_by UUID,
-    completed_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ
 );
+
+CREATE TABLE IF NOT EXISTS senteloans_expense_funding_sources (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    expense_id UUID NOT NULL
+        REFERENCES senteloans_expenses(id) ON DELETE CASCADE,
+    source_type VARCHAR(10) NOT NULL CHECK (
+        source_type IN ('savings', 'shares', 'reserves', 'loan', 'grant')
+    ),
+    loan_id UUID NULL REFERENCES senteloans_institution_loans(id) ON DELETE CASCADE, -- only if source_type = 'loan'
+    amount NUMERIC(18,2) NOT NULL CHECK (amount > 0),
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS senteloans_expense_cashflows (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    expense_id UUID NOT NULL
+        REFERENCES senteloans_expenses(id) ON DELETE RESTRICT,
+    transaction_id UUID
+        REFERENCES senteloans_transactions(id) ON DELETE RESTRICT,
+    member_id UUID REFERENCES senteloans_members(id) ON DELETE CASCADE,
+    client_id UUID REFERENCES senteloans_clients(id) ON DELETE CASCADE,
+    payment_method payment_mode,
+    amount NUMERIC(18,2) NOT NULL CHECK (amount > 0),
+    description TEXT,
+    status VARCHAR(10) DEFAULT 'Pending',
+    date DATE,
+    completed_by UUID,
+    completed_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Indexes for expenses & expense sub-tables
+CREATE INDEX IF NOT EXISTS idx_expenses_institution_id ON senteloans_expenses(institution_id);
+CREATE INDEX IF NOT EXISTS idx_expenses_branch_id ON senteloans_expenses(branch_id);
+CREATE INDEX IF NOT EXISTS idx_expenses_institution_branch ON senteloans_expenses(institution_id, branch_id);
+CREATE INDEX IF NOT EXISTS idx_expenses_category_id ON senteloans_expenses(category_id);
+CREATE INDEX IF NOT EXISTS idx_expenses_status ON senteloans_expenses(institution_id, status);
+CREATE INDEX IF NOT EXISTS idx_expenses_created_by ON senteloans_expenses(created_by);
+CREATE INDEX IF NOT EXISTS idx_expenses_created_at ON senteloans_expenses(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_expenses_institution_expense_number ON senteloans_expenses(institution_id, expense_number);
+
+CREATE INDEX IF NOT EXISTS idx_expense_funding_sources_expense_id ON senteloans_expense_funding_sources(expense_id);
+CREATE INDEX IF NOT EXISTS idx_expense_funding_sources_source_type ON senteloans_expense_funding_sources(source_type);
+CREATE INDEX IF NOT EXISTS idx_expense_funding_sources_loan_id ON senteloans_expense_funding_sources(loan_id);
+
+CREATE INDEX IF NOT EXISTS idx_expense_cashflows_expense_id ON senteloans_expense_cashflows(expense_id);
+CREATE INDEX IF NOT EXISTS idx_expense_cashflows_transaction_id ON senteloans_expense_cashflows(transaction_id);
+CREATE INDEX IF NOT EXISTS idx_expense_cashflows_member_id ON senteloans_expense_cashflows(member_id);
+CREATE INDEX IF NOT EXISTS idx_expense_cashflows_client_id ON senteloans_expense_cashflows(client_id);
+CREATE INDEX IF NOT EXISTS idx_expense_cashflows_status ON senteloans_expense_cashflows(status);
+CREATE INDEX IF NOT EXISTS idx_expense_cashflows_date ON senteloans_expense_cashflows(date);
+CREATE INDEX IF NOT EXISTS idx_expense_cashflows_expense_date ON senteloans_expense_cashflows(expense_id, date);
 
 -- Indexes for investments
 CREATE INDEX IF NOT EXISTS idx_investments_institution_branch_status
