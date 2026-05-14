@@ -374,7 +374,7 @@ export async function POST(req: Request) {
                 txDate,
               ],
             ),
-          { prefix: "TXN" },
+          { prefix: "TXN", client },
         )
         if (!inserted) throw new Error("transaction_number_generation_failed")
 
@@ -418,7 +418,7 @@ export async function POST(req: Request) {
                   txDate,
                 ],
               ),
-            { prefix: "TXN" },
+            { prefix: "TXN", client },
           )
           if (!destInserted) throw new Error("transaction_number_generation_failed")
           destinationTx = { id: destInserted.row.id, transaction_number: destInserted.transactionNumber }

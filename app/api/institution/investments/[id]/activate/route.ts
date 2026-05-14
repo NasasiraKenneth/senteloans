@@ -113,7 +113,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
               txDate,
             ],
           ),
-        { prefix: "TXN" },
+        { prefix: "TXN", client },
       )
       if (!inserted) {
         await client.query("ROLLBACK")

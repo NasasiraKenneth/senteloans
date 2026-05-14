@@ -9,6 +9,7 @@ export interface SelectOption {
   icon?: React.ReactNode
   onClick?: () => void
   color?: string
+  disabled?: boolean
 }
 
 interface ActionSelectProps {
@@ -57,19 +58,25 @@ export function ActionSelect({
         <div className="p-2">
           {/* Actions Section */}
           <div className="text-xs font-semibold text-gray-500 px-3 py-1">Actions</div>
-          {actions.map((opt) => (
-            <div
-              key={opt.value}
-              onClick={() => {
-                opt.onClick?.()
-                setAnchor(null)
-              }}
-              className="flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-gray-50 rounded-lg transition-colors"
-            >
-              {opt.icon}
-              <span className="text-sm text-gray-800">{opt.label}</span>
-            </div>
-          ))}
+          {actions.map((opt) => {
+            const dis = Boolean(opt.disabled)
+            return (
+              <div
+                key={opt.value}
+                onClick={() => {
+                  if (dis) return
+                  opt.onClick?.()
+                  setAnchor(null)
+                }}
+                className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-colors ${
+                  dis ? "cursor-not-allowed opacity-45" : "cursor-pointer hover:bg-gray-50"
+                }`}
+              >
+                {opt.icon}
+                <span className="text-sm text-gray-800">{opt.label}</span>
+              </div>
+            )
+          })}
 
           {/* Status Section */}
           {statusOptions && statusOptions.length > 0 && (

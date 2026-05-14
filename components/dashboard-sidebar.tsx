@@ -209,8 +209,8 @@ export function DashboardSidebar() {
       {
         label: "Treasury",
         items: [
-          { name: "Financial Accounts", href: "/treasury/financial-accounts", icon: Landmark },
-          { name: "Expenses", href: "/treasury/expenses", icon: ReceiptText },
+          { name: "Financial Accounts", href: "/financial-accounts", icon: Landmark },
+          { name: "Expenses", href: "/expenses", icon: ReceiptText },
         ],
       },
       {

@@ -19,7 +19,7 @@ DECLARE
         {"name": "kyc_status_type", "values": ["Pending", "Verified", "Rejected"]},
         {"name": "loan_status_type", "values": ["Applied", "Under Review", "Reviewed", "Approved", "Partially Disbursed", "Fully Disbursed", "Active", "Closed", "Defaulted", "Rejected"]},
         {"name": "account_type", "values": ["Voluntary", "Fixed", "Shares", "Current"]},
-        {"name": "transaction_type", "values": ["Deposit", "Withdrawal", "Transfer", "Loan Disbursement", "Loan Repayment", "Interest Payment", "Fee Payment", "Shares Purchase","Shares Dividend","Investment Deposit","Investment Withdrawal"]},
+        {"name": "transaction_type", "values": ["Deposit", "Withdrawal", "Transfer", "Loan Disbursement", "Loan Repayment", "Interest Payment", "Expense Payment", "Fee Payment", "Shares Purchase","Shares Dividend","Investment Deposit","Investment Withdrawal"]},
         {"name": "payment_mode", "values": ["Cash", "Mobile Money", "Bank Transfer", "Cheque", "Card"]},
         {"name": "transaction_status", "values": ["Pending", "Completed", "Failed", "Reversed"]},
         {"name": "settlement_status", "values": ["Pending", "Completed", "Failed", "Reversed"]},
@@ -583,6 +583,7 @@ CREATE TABLE IF NOT EXISTS senteloans_transactions (
     branch_id UUID NOT NULL REFERENCES senteloans_branches(id) ON DELETE RESTRICT,
     member_id UUID REFERENCES senteloans_members(id) ON DELETE RESTRICT,
     client_id UUID REFERENCES senteloans_clients(id) ON DELETE RESTRICT,
+    staff_id UUID REFERENCES senteloans_users(id) ON DELETE RESTRICT,
     account_id UUID REFERENCES senteloans_savings_accounts(id) ON DELETE RESTRICT,
     transferred_to_id UUID REFERENCES senteloans_savings_accounts(id) ON DELETE RESTRICT,
     loan_id UUID REFERENCES senteloans_loans(id) ON DELETE RESTRICT,
@@ -623,6 +624,15 @@ CREATE TABLE IF NOT EXISTS senteloans_transactions (
 
     CONSTRAINT chk_transactions_reference CHECK (
         account_id IS NULL OR loan_id IS NULL OR (account_id IS NOT NULL AND loan_id IS NOT NULL) OR (account_id IS NULL AND loan_id IS NULL)
+    ),
+
+    -- Expense payments from expense cashflows: exactly one of staff or client (not both, not neither)
+    CONSTRAINT chk_expense_payment_staff_or_client CHECK (
+        type != 'Expense Payment'::transaction_type
+        OR (
+          (staff_id IS NOT NULL AND client_id IS NULL)
+          OR (staff_id IS NULL AND client_id IS NOT NULL)
+        )
     )
 );
 
@@ -901,12 +911,17 @@ CREATE TABLE IF NOT EXISTS senteloans_expenses (
     branch_id UUID NOT NULL REFERENCES senteloans_branches(id) ON DELETE CASCADE,
     category_id UUID NOT NULL REFERENCES senteloans_expense_categories(id) ON DELETE CASCADE,
     expense_number VARCHAR(50) NOT NULL,
-    description TEXT NOT NULL,
+    name TEXT NOT NULL,
     status VARCHAR(30) DEFAULT 'Pending',
-    notes TEXT,
+    type VARCHAR(30) DEFAULT 'Short-term',
+    description TEXT,
     created_by UUID NOT NULL REFERENCES senteloans_users(id) ON DELETE CASCADE,
     approved_by UUID,
     approved_at TIMESTAMPTZ,
+    completed_by UUID,
+    completed_at TIMESTAMPTZ,
+    rejected_by UUID,
+    rejected_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ
 );
@@ -929,7 +944,7 @@ CREATE TABLE IF NOT EXISTS senteloans_expense_cashflows (
         REFERENCES senteloans_expenses(id) ON DELETE RESTRICT,
     transaction_id UUID
         REFERENCES senteloans_transactions(id) ON DELETE RESTRICT,
-    member_id UUID REFERENCES senteloans_members(id) ON DELETE CASCADE,
+    staff_id UUID REFERENCES senteloans_users(id) ON DELETE CASCADE,
     client_id UUID REFERENCES senteloans_clients(id) ON DELETE CASCADE,
     payment_method payment_mode,
     amount NUMERIC(18,2) NOT NULL CHECK (amount > 0),
@@ -950,6 +965,7 @@ CREATE INDEX IF NOT EXISTS idx_expenses_status ON senteloans_expenses(institutio
 CREATE INDEX IF NOT EXISTS idx_expenses_created_by ON senteloans_expenses(created_by);
 CREATE INDEX IF NOT EXISTS idx_expenses_created_at ON senteloans_expenses(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_expenses_institution_expense_number ON senteloans_expenses(institution_id, expense_number);
+CREATE INDEX IF NOT EXISTS idx_expenses_institution_type ON senteloans_expenses(institution_id, type);
 
 CREATE INDEX IF NOT EXISTS idx_expense_funding_sources_expense_id ON senteloans_expense_funding_sources(expense_id);
 CREATE INDEX IF NOT EXISTS idx_expense_funding_sources_source_type ON senteloans_expense_funding_sources(source_type);
@@ -957,7 +973,7 @@ CREATE INDEX IF NOT EXISTS idx_expense_funding_sources_loan_id ON senteloans_exp
 
 CREATE INDEX IF NOT EXISTS idx_expense_cashflows_expense_id ON senteloans_expense_cashflows(expense_id);
 CREATE INDEX IF NOT EXISTS idx_expense_cashflows_transaction_id ON senteloans_expense_cashflows(transaction_id);
-CREATE INDEX IF NOT EXISTS idx_expense_cashflows_member_id ON senteloans_expense_cashflows(member_id);
+CREATE INDEX IF NOT EXISTS idx_expense_cashflows_staff_id ON senteloans_expense_cashflows(staff_id);
 CREATE INDEX IF NOT EXISTS idx_expense_cashflows_client_id ON senteloans_expense_cashflows(client_id);
 CREATE INDEX IF NOT EXISTS idx_expense_cashflows_status ON senteloans_expense_cashflows(status);
 CREATE INDEX IF NOT EXISTS idx_expense_cashflows_date ON senteloans_expense_cashflows(date);
