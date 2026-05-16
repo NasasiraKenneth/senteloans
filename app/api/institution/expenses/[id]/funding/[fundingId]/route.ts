@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { runWithAuth } from "@/lib/db"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
 import { expenseFundingStatusBlock } from "@/lib/api/expense-funding-guard"
+import { auditFundingDelete, auditFundingUpdate, fundingSnapshot } from "@/lib/audit/expense-audit"
 import { hasPermission, isSuperAdmin, requireStaffSession, resolveActorContext } from "@/lib/api/rbac"
 
 function singleExpenseWhere(actor: NonNullable<Awaited<ReturnType<typeof resolveActorContext>>>, expenseId: string): { where: string; values: unknown[] } {
@@ -58,12 +59,13 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       if (!isSuperAdmin(actor) && !actor.branch_id) return { error: "actor_branch_missing" as const }
 
       const { where, values } = singleExpenseWhere(actor, expenseId)
-      const ex = await client.query<{ id: string; status: string }>(
-        `SELECT e.id, e.status FROM senteloans_expenses e WHERE ${where} LIMIT 1`,
+      const ex = await client.query<{ id: string; status: string; branch_id: string }>(
+        `SELECT e.id, e.status, e.branch_id FROM senteloans_expenses e WHERE ${where} LIMIT 1`,
         values,
       )
       const expense = ex.rows[0]
       if (!expense) return { error: "not_found" as const }
+      const expenseBranchId = String(expense.branch_id || "")
       const blocked = expenseFundingStatusBlock(String(expense.status || ""))
       if (blocked) return blocked
 
@@ -76,6 +78,25 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         )
         if ((lr.rowCount ?? 0) === 0) return { error: "invalid_loan" as const }
       }
+
+      const prevBranchJoin = isSuperAdmin(actor) ? "" : " AND e.branch_id = $4::uuid"
+      const prevParams: unknown[] = isSuperAdmin(actor)
+        ? [fundingId, expenseId, actor.institution_id]
+        : [fundingId, expenseId, actor.institution_id, actor.branch_id]
+      const prev = await client.query(
+        `SELECT f.id, f.expense_id, f.source_type, f.loan_id, f.amount
+         FROM senteloans_expense_funding_sources f
+         JOIN senteloans_expenses e ON e.id = f.expense_id
+         WHERE f.id = $1::uuid
+           AND f.expense_id = $2::uuid
+           AND e.institution_id = $3::uuid
+           ${prevBranchJoin}
+         LIMIT 1`,
+        prevParams,
+      )
+      const prevRow = prev.rows[0] as Record<string, unknown> | undefined
+      if (!prevRow) return { error: "funding_not_found" as const }
+      const oldFunding = fundingSnapshot(prevRow)
 
       const branchJoin = isSuperAdmin(actor) ? "" : " AND e.branch_id = $7::uuid"
       const updParams: unknown[] = [
@@ -99,11 +120,12 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
            AND e.id = f.expense_id
            AND e.institution_id = $6::uuid
            ${branchJoin}
-         RETURNING f.id, f.source_type, f.loan_id, f.amount::float, f.created_at`,
+         RETURNING f.id, f.expense_id, f.source_type, f.loan_id, f.amount::float, f.created_at`,
         updParams,
       )
       if ((upd.rowCount ?? 0) === 0) return { error: "funding_not_found" as const }
       const row = upd.rows[0] as Record<string, unknown>
+      await auditFundingUpdate(client, actor, fundingId, oldFunding, fundingSnapshot(row), expenseBranchId)
       return {
         id: String(row.id),
         source_type: String(row.source_type || ""),
@@ -163,12 +185,13 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
       if (!isSuperAdmin(actor) && !actor.branch_id) return { error: "actor_branch_missing" as const }
 
       const { where, values } = singleExpenseWhere(actor, expenseId)
-      const ex = await client.query<{ id: string; status: string }>(
-        `SELECT e.id, e.status FROM senteloans_expenses e WHERE ${where} LIMIT 1`,
+      const ex = await client.query<{ id: string; status: string; branch_id: string }>(
+        `SELECT e.id, e.status, e.branch_id FROM senteloans_expenses e WHERE ${where} LIMIT 1`,
         values,
       )
       const expense = ex.rows[0]
       if (!expense) return { error: "not_found" as const }
+      const expenseBranchId = String(expense.branch_id || "")
       const blocked = expenseFundingStatusBlock(String(expense.status || ""))
       if (blocked) return blocked
 
@@ -176,6 +199,21 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
       const delParams: unknown[] = isSuperAdmin(actor)
         ? [fundingId, expenseId, actor.institution_id]
         : [fundingId, expenseId, actor.institution_id, actor.branch_id]
+
+      const prev = await client.query(
+        `SELECT f.id, f.expense_id, f.source_type, f.loan_id, f.amount
+         FROM senteloans_expense_funding_sources f
+         JOIN senteloans_expenses e ON e.id = f.expense_id
+         WHERE f.id = $1::uuid
+           AND f.expense_id = $2::uuid
+           AND e.institution_id = $3::uuid
+           ${branchJoin}
+         LIMIT 1`,
+        delParams,
+      )
+      const prevRow = prev.rows[0] as Record<string, unknown> | undefined
+      if (!prevRow) return { error: "funding_not_found" as const }
+      const oldFunding = fundingSnapshot(prevRow)
 
       const del = await client.query(
         `DELETE FROM senteloans_expense_funding_sources f
@@ -189,6 +227,7 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
         delParams,
       )
       if ((del.rowCount ?? 0) === 0) return { error: "funding_not_found" as const }
+      await auditFundingDelete(client, actor, fundingId, oldFunding, expenseBranchId)
       return { ok: true as const }
     })
 

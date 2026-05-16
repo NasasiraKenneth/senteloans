@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { runWithAuth } from "@/lib/db"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
+import { auditExpenseUpdate, expenseSnapshot } from "@/lib/audit/expense-audit"
 import { hasPermission, isSuperAdmin, requireStaffSession, resolveActorContext } from "@/lib/api/rbac"
 
 function singleExpenseWhere(actor: NonNullable<Awaited<ReturnType<typeof resolveActorContext>>>, expenseId: string): { where: string; values: unknown[] } {
@@ -238,19 +239,24 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
       const { where, values } = singleExpenseWhere(actor, expenseId)
       const existing = await client.query(
-        `SELECT e.id, e.status, e.branch_id FROM senteloans_expenses e WHERE ${where} LIMIT 1`,
+        `SELECT e.id, e.expense_number, e.name, e.description, e.status, e.type, e.category_id, e.branch_id,
+                e.approved_by, e.approved_at, e.rejected_by, e.rejected_at, e.completed_by, e.completed_at
+         FROM senteloans_expenses e WHERE ${where} LIMIT 1`,
         values,
       )
-      const ex = existing.rows[0] as { id: string; status: string; branch_id: string } | undefined
+      const ex = existing.rows[0] as Record<string, unknown> | undefined
       if (!ex) return { error: "not_found" as const }
       if (String(ex.status || "").trim().toLowerCase() !== "pending") {
-        return { error: "expense_not_editable" as const }
+        return {
+          error: "expense_not_editable" as const,
+          message: "Only expenses in Pending status can be edited." as const,
+        }
       }
 
       const cat = await client.query(`SELECT id FROM senteloans_expense_categories WHERE id = $1::uuid LIMIT 1`, [category_id])
       if ((cat.rowCount ?? 0) === 0) return { error: "invalid_category" as const }
 
-      let nextBranchId: string = ex.branch_id
+      let nextBranchId: string = String(ex.branch_id || "")
       if (isSuperAdmin(actor) && branch_id_input) {
         const br = await client.query(
           `SELECT id FROM senteloans_branches WHERE id = $1::uuid AND institution_id = $2::uuid LIMIT 1`,
@@ -277,12 +283,22 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
              branch_id = $5::uuid,
              updated_at = NOW()
          WHERE ${w}
-         RETURNING e.id, e.expense_number, e.name, e.type, e.status, e.updated_at`,
+         RETURNING e.id, e.expense_number, e.name, e.description, e.type, e.status, e.category_id, e.branch_id,
+                   e.approved_by, e.approved_at, e.rejected_by, e.rejected_at, e.completed_by, e.completed_at, e.updated_at`,
         setParams,
       )
 
       const row = upd.rows[0] as Record<string, unknown> | undefined
       if (!row) return { error: "update_failed" as const }
+
+      await auditExpenseUpdate(
+        client,
+        actor,
+        expenseId,
+        expenseSnapshot(ex),
+        expenseSnapshot(row),
+        nextBranchId,
+      )
 
       return {
         id: String(row.id),
@@ -305,7 +321,11 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         : code === "invalid_category" || code === "invalid_branch" ? 400
         : 400
       apiLog("warn", "expenses.update.denied", { method: "PATCH", apiPath, status: statusCode, error: code })
-      return NextResponse.json({ error: result.error }, { status: statusCode })
+      const payload: { error: string; message?: string } = { error: code }
+      if ("message" in result && typeof result.message === "string" && result.message.trim()) {
+        payload.message = result.message.trim()
+      }
+      return NextResponse.json(payload, { status: statusCode })
     }
 
     apiLog("info", "expenses.update.success", { method: "PATCH", apiPath, status: 200 })

@@ -14,6 +14,7 @@ import { getInitials } from "@/lib/invoices/utils"
 import { ActionButtons } from "@/components/datatables/ActionButtons"
 import AddNewExpense from "./components/add/add"
 import EditExpense from "./components/edit/edit"
+import ExpenseExpandableContent from "./components/ExpenseExpandableContent"
 
 type ExpenseRow = {
   id: string
@@ -87,6 +88,7 @@ export default function ExpensesPage() {
   const [isAddOpen, setIsAddOpen] = useState(false)
   const [isEditOpen, setIsEditOpen] = useState(false)
   const [activeEditId, setActiveEditId] = useState<string | null>(null)
+  const [expandedRowIds, setExpandedRowIds] = useState<Set<string | number>>(new Set())
   const [expensePermissions, setExpensePermissions] = useState({
     viewExpenses: false,
     createExpense: false,
@@ -225,14 +227,34 @@ export default function ExpensesPage() {
     router.push(`/expenses/${row.id}`)
   }
 
-  const handleEdit = useCallback((row: ExpenseRow) => {
-    setActiveEditId(row.id)
-    setIsEditOpen(true)
-  }, [])
+  const handleEdit = useCallback(
+    (row: ExpenseRow) => {
+      if (String(row.status || "").trim().toLowerCase() !== "pending") {
+        toast({
+          variant: "destructive",
+          title: "Cannot edit",
+          description: "Only expenses in Pending status can be edited.",
+        })
+        return
+      }
+      setActiveEditId(row.id)
+      setIsEditOpen(true)
+    },
+    [toast],
+  )
 
   const handleCloseEdit = useCallback(() => {
     setIsEditOpen(false)
     setActiveEditId(null)
+  }, [])
+
+  const toggleRowExpand = useCallback((rowId: string | number) => {
+    setExpandedRowIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(rowId)) next.delete(rowId)
+      else next.add(rowId)
+      return next
+    })
   }, [])
 
   const columns: DataTableColumn<ExpenseRow>[] = [
@@ -246,12 +268,7 @@ export default function ExpensesPage() {
               <Receipt className="h-4 w-4 text-[#f08c2b]" />
             </div>
           </div>
-          <div>
-            <div className="font-medium">{row.expense_number}</div>
-            {row.description ? (
-              <div className="line-clamp-1 max-w-[240px] text-xs text-muted-foreground">{row.description}</div>
-            ) : null}
-          </div>
+          <div className="font-medium">{row.expense_number}</div>
         </div>
       ),
     },
@@ -460,6 +477,18 @@ export default function ExpensesPage() {
         onQueryParamsChange={handleQueryParamsChange}
         emptyMessage="No expenses found"
         getRowId={(row) => row.id}
+        renderDetail={(row) => (
+          <ExpenseExpandableContent
+            expense={{
+              expense_number: row.expense_number,
+              name: row.name,
+              description: row.description,
+            }}
+          />
+        )}
+        expandedRowIds={expandedRowIds}
+        onToggleExpand={toggleRowExpand}
+        onRowClick={(row) => toggleRowExpand(row.id)}
         pagination={{
           page,
           rowsPerPage,

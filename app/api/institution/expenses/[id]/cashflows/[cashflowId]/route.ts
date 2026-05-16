@@ -1,5 +1,11 @@
 import { NextResponse } from "next/server"
 import { runWithAuth } from "@/lib/db"
+import {
+  auditCashflowUpdate,
+  auditExpenseUpdate,
+  cashflowSnapshot,
+  expenseSnapshot,
+} from "@/lib/audit/expense-audit"
 import { insertTransactionInsertAuditLog } from "@/lib/audit/transaction-insert-audit"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
 import { insertWithTransactionNumberRetry } from "@/lib/transactions/transaction-number-retry"
@@ -83,12 +89,16 @@ export async function PATCH(
       if (!isSuperAdmin(actor) && !actor.branch_id) return { error: "actor_branch_missing" as const }
 
       const { where, values } = singleExpenseWhere(actor, expenseId)
-      const ex = await client.query<{ id: string; status: string }>(
-        `SELECT e.id, e.status FROM senteloans_expenses e WHERE ${where} LIMIT 1`,
+      const ex = await client.query(
+        `SELECT e.id, e.expense_number, e.name, e.description, e.status, e.type, e.category_id, e.branch_id,
+                e.approved_by, e.approved_at, e.rejected_by, e.rejected_at, e.completed_by, e.completed_at
+         FROM senteloans_expenses e WHERE ${where} LIMIT 1`,
         values,
       )
-      const expenseRow = ex.rows[0]
+      const expenseRow = ex.rows[0] as Record<string, unknown> | undefined
       if (!expenseRow) return { error: "not_found" as const }
+      const expenseBranchId = String(expenseRow.branch_id || "")
+      const oldExpenseSnapshot = expenseSnapshot(expenseRow)
       const expenseStatusNorm = normalizeExpenseStatus(String(expenseRow.status || ""))
       if (expenseStatusNorm !== "approved" && expenseStatusNorm !== "active") {
         return {
@@ -103,6 +113,7 @@ export async function PATCH(
       try {
         const lockRes = await client.query<{
           id: string
+          expense_id: string
           status: string
           amount: string | number
           description: string | null
@@ -110,12 +121,16 @@ export async function PATCH(
           payment_method: string | null
           client_id: string | null
           staff_id: string | null
+          transaction_id: string | null
+          completed_by: string | null
+          completed_at: string | null
           expense_number: string
           branch_id: string
           institution_id: string
         }>(
-          `SELECT cf.id, cf.status, cf.amount, cf.description, cf.date::text AS date, cf.payment_method::text AS payment_method,
-                  cf.client_id, cf.staff_id, e.expense_number, e.branch_id, e.institution_id
+          `SELECT cf.id, cf.expense_id, cf.status, cf.amount, cf.description, cf.date::text AS date,
+                  cf.payment_method::text AS payment_method, cf.client_id, cf.staff_id, cf.transaction_id,
+                  cf.completed_by, cf.completed_at, e.expense_number, e.branch_id, e.institution_id
            FROM senteloans_expense_cashflows cf
            JOIN senteloans_expenses e ON e.id = cf.expense_id
            WHERE cf.id = $1::uuid AND cf.expense_id = $2::uuid
@@ -126,6 +141,7 @@ export async function PATCH(
         if (!cf) {
           return { error: "cashflow_not_found" as const }
         }
+        const oldCashflow = cashflowSnapshot(cf as unknown as Record<string, unknown>)
         const current = normalizeCashflowStatus(String(cf.status || ""))
         if (current !== "pending") {
           return cashflowNonPendingError(current)
@@ -154,13 +170,16 @@ export async function PATCH(
                  completed_by = $2::uuid,
                  completed_at = NOW()
              WHERE id = $3::uuid AND expense_id = $4::uuid
-             RETURNING id, status, completed_at, completed_by`,
+             RETURNING id, expense_id, status, amount, description, date::text AS date,
+                       payment_method::text AS payment_method, staff_id, client_id, transaction_id,
+                       completed_by, completed_at`,
             [nextLabel, actor.id, cashflowId, expenseId],
           )
           const out = upd.rows[0] as Record<string, unknown> | undefined
           if (!out) {
             return { error: "update_failed" as const }
           }
+          await auditCashflowUpdate(client, actor, cashflowId, oldCashflow, cashflowSnapshot(out), expenseBranchId)
           await client.query("COMMIT")
           committed = true
           return {
@@ -253,23 +272,39 @@ export async function PATCH(
                completed_at = NOW(),
                transaction_id = $3::uuid
            WHERE id = $4::uuid AND expense_id = $5::uuid
-           RETURNING id, status, completed_at, completed_by`,
+           RETURNING id, expense_id, status, amount, description, date::text AS date,
+                     payment_method::text AS payment_method, staff_id, client_id, transaction_id,
+                     completed_by, completed_at`,
           [nextLabel, actor.id, txRow.id, cashflowId, expenseId],
         )
         const out = upd.rows[0] as Record<string, unknown> | undefined
         if (!out) {
           return { error: "update_failed" as const }
         }
+        await auditCashflowUpdate(client, actor, cashflowId, oldCashflow, cashflowSnapshot(out), expenseBranchId)
 
         if (priorCompletedCashflowCount === 0) {
-          await client.query(
+          const expUpd = await client.query(
             `UPDATE senteloans_expenses e
              SET status = 'Active', updated_at = NOW()
              WHERE e.id = $1::uuid
                AND e.institution_id = $2::uuid
-               AND LOWER(TRIM(COALESCE(e.status::text, ''))) = 'approved'`,
+               AND LOWER(TRIM(COALESCE(e.status::text, ''))) = 'approved'
+             RETURNING e.id, e.expense_number, e.name, e.description, e.status, e.type, e.category_id, e.branch_id,
+                       e.approved_by, e.approved_at, e.rejected_by, e.rejected_at, e.completed_by, e.completed_at`,
             [expenseId, actor.institution_id],
           )
+          const newExpRow = expUpd.rows[0] as Record<string, unknown> | undefined
+          if (newExpRow) {
+            await auditExpenseUpdate(
+              client,
+              actor,
+              expenseId,
+              oldExpenseSnapshot,
+              expenseSnapshot(newExpRow),
+              expenseBranchId,
+            )
+          }
         }
 
         await client.query("COMMIT")
@@ -410,12 +445,15 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       const expense = exRes.rows[0]
       if (!expense) return { error: "not_found" as const }
 
-      const cur = await client.query<{ status: string }>(
-        `SELECT status FROM senteloans_expense_cashflows WHERE id = $1::uuid AND expense_id = $2::uuid LIMIT 1`,
+      const cur = await client.query(
+        `SELECT id, expense_id, staff_id, client_id, payment_method::text AS payment_method, amount,
+                description, status, date::text AS date, transaction_id, completed_by, completed_at
+         FROM senteloans_expense_cashflows WHERE id = $1::uuid AND expense_id = $2::uuid LIMIT 1`,
         [cashflowId, expenseId],
       )
-      const cfRow = cur.rows[0]
+      const cfRow = cur.rows[0] as Record<string, unknown> | undefined
       if (!cfRow) return { error: "cashflow_not_found" as const }
+      const oldCashflow = cashflowSnapshot(cfRow)
       const statusNorm = normalizeCashflowStatus(String(cfRow.status || ""))
       if (statusNorm !== "pending") {
         return cashflowNonPendingError(statusNorm)
@@ -450,7 +488,9 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
              description = $5,
              date = $6::date
          WHERE id = $7::uuid AND expense_id = $8::uuid
-         RETURNING id, amount::float, description, status, date::text AS date, payment_method::text AS payment_method, staff_id, client_id`,
+         RETURNING id, expense_id, amount::float, description, status, date::text AS date,
+                   payment_method::text AS payment_method, staff_id, client_id, transaction_id,
+                   completed_by, completed_at`,
         [
           assigneeRaw === "staff" ? staffId : null,
           assigneeRaw === "clients" ? clientId : null,
@@ -464,6 +504,8 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       )
       const out = upd.rows[0] as Record<string, unknown> | undefined
       if (!out) return { error: "update_failed" as const }
+
+      await auditCashflowUpdate(client, actor, cashflowId, oldCashflow, cashflowSnapshot(out), branchId)
 
       const sid = out.staff_id != null ? String(out.staff_id) : null
       const cid = out.client_id != null ? String(out.client_id) : null

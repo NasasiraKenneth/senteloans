@@ -36,5 +36,11 @@ export function describeExpenseCashflowApiError(body: Record<string, unknown>): 
   if (code === "missing_permission:record_cashflow") {
     return "You do not have permission to record cashflows."
   }
+  if (code === "expense_already_completed") {
+    return "Expense already completed."
+  }
+  if (code === "expense_already_rejected") {
+    return "Expense already rejected."
+  }
   return code || "Something went wrong"
 }

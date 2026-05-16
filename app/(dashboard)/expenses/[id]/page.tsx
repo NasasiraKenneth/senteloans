@@ -31,6 +31,7 @@ import EditFunding from "../components/funding/edit"
 import RecordExpenseCashflow from "../components/cashFlows/add"
 import EditExpenseCashflow from "../components/cashFlows/edit"
 import { describeExpenseCashflowApiError } from "../components/cashFlows/cashflowApiErrors"
+import { describeExpenseApiError } from "../components/expenseApiErrors"
 import { describeExpenseFundingApiError } from "../components/funding/fundingApiErrors"
 import ExpenseCashflowExpandableContent from "../components/cashFlows/ExpenseCashflowExpandableContent"
 import type { FundingFormRow, FundingType } from "../components/forms/fundingForm"
@@ -144,6 +145,10 @@ export default function ExpenseDetailsPage() {
   const [editCashflowRow, setEditCashflowRow] = useState<ExpenseCashflowRow | null>(null)
   const [cashflowFilters, setCashflowFilters] = useState<Record<string, unknown>>({})
   const [expandedCashflowRowIds, setExpandedCashflowRowIds] = useState<Set<string | number>>(new Set())
+  const [editExpenseStatus, setEditExpenseStatus] = useState(false)
+  const [approving, setApproving] = useState(false)
+  const [cancelling, setCancelling] = useState(false)
+  const [completing, setCompleting] = useState(false)
 
   const toggleCashflowRowExpand = useCallback((rowId: string | number) => {
     setExpandedCashflowRowIds((prev) => {
@@ -231,6 +236,105 @@ export default function ExpenseDetailsPage() {
     }
   }
 
+  const approveExpense = async () => {
+    if (!expenseId) return
+    try {
+      setApproving(true)
+      const res = await fetch(`/api/institution/expenses/${expenseId}/status`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "Approved" }),
+      })
+      const body = (await res.json().catch(() => ({}))) as Record<string, unknown>
+      if (!res.ok) {
+        toast({
+          variant: "destructive",
+          title: "Could not approve expense",
+          description: describeExpenseApiError(body),
+        })
+        return
+      }
+      toast({ title: "Expense approved", description: "Status updated to Approved." })
+      await load()
+    } catch (e: unknown) {
+      toast({
+        variant: "destructive",
+        title: "Could not approve expense",
+        description: String((e as Error)?.message || "Please try again."),
+      })
+    } finally {
+      setApproving(false)
+    }
+  }
+
+  const completeExpense = async () => {
+    if (!expenseId) return
+    try {
+      setCompleting(true)
+      const res = await fetch(`/api/institution/expenses/${expenseId}/status`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "Completed" }),
+      })
+      const body = (await res.json().catch(() => ({}))) as Record<string, unknown>
+      if (!res.ok) {
+        toast({
+          variant: "destructive",
+          title: "Could not complete expense",
+          description: describeExpenseApiError(body),
+        })
+        return
+      }
+      toast({ title: "Expense completed", description: "Status updated to Completed." })
+      await load()
+    } catch (e: unknown) {
+      toast({
+        variant: "destructive",
+        title: "Could not complete expense",
+        description: String((e as Error)?.message || "Please try again."),
+      })
+    } finally {
+      setCompleting(false)
+    }
+  }
+
+  const cancelExpense = async () => {
+    if (!expenseId) return
+    try {
+      setCancelling(true)
+      const res = await fetch(`/api/institution/expenses/${expenseId}/status`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "Rejected" }),
+      })
+      const body = (await res.json().catch(() => ({}))) as Record<string, unknown>
+      if (!res.ok) {
+        toast({
+          variant: "destructive",
+          title: "Could not cancel expense",
+          description: describeExpenseApiError(body),
+        })
+        return
+      }
+      const expenseResult = body.expense as { cashflows_rejected?: number } | undefined
+      const n = Number(expenseResult?.cashflows_rejected ?? 0)
+      toast({
+        title: "Expense cancelled",
+        description:
+          n > 0 ? `Status updated to Rejected. ${n} cashflow line${n === 1 ? "" : "s"} marked rejected.` : "Status updated to Rejected.",
+      })
+      await load()
+    } catch (e: unknown) {
+      toast({
+        variant: "destructive",
+        title: "Could not cancel expense",
+        description: String((e as Error)?.message || "Please try again."),
+      })
+    } finally {
+      setCancelling(false)
+    }
+  }
+
   const patchCashflowStatus = async (row: ExpenseCashflowRow, status: "completed" | "rejected") => {
     try {
       const res = await fetch(`/api/institution/expenses/${expenseId}/cashflows/${row.id}`, {
@@ -263,6 +367,16 @@ export default function ExpenseDetailsPage() {
     setCashflowPage(0)
     setExpandedCashflowRowIds(new Set())
     void load()
+    void (async () => {
+      try {
+        const res = await fetch("/api/institution/expenses/permissions", { cache: "no-store" })
+        const body = await res.json().catch(() => ({}))
+        const p = body?.permissions as { editExpenseStatus?: boolean } | undefined
+        if (res.ok && p) setEditExpenseStatus(!!p.editExpenseStatus)
+      } catch {
+        setEditExpenseStatus(false)
+      }
+    })()
   }, [expenseId])
 
   const cashflowDisplayDate = (r: ExpenseCashflowRow) => (r.date ? formatDate(r.date) : formatDate(r.created_at))
@@ -414,7 +528,7 @@ export default function ExpenseDetailsPage() {
 
   const statusLower = String(expense?.status || "").toLowerCase()
   const showApproveButton = statusLower === "pending"
-  const showCompleteButton = statusLower === "approved"
+  const showCompleteButton = statusLower === "active"
   const showCancelButton = statusLower === "pending" || statusLower === "approved"
   const showCloseButton =
     !!expense && statusLower !== "pending" && statusLower !== "approved" && statusLower !== "closed" && statusLower !== "cancelled"
@@ -428,16 +542,16 @@ export default function ExpenseDetailsPage() {
             Back to Expenses
           </Link>
           <div className="flex flex-wrap items-center gap-2">
-            {showApproveButton ? (
-              <Button type="button" variant="outline" onClick={() => comingSoon("Approve expense")}>
+            {showApproveButton && editExpenseStatus ? (
+              <Button type="button" variant="outline" onClick={() => void approveExpense()} disabled={approving}>
                 <CheckCircle2 className="mr-2 h-4 w-4" />
-                Approve
+                {approving ? "Approving…" : "Approve"}
               </Button>
             ) : null}
-            {showCompleteButton ? (
-              <Button type="button" variant="outline" onClick={() => comingSoon("Complete expense")}>
+            {showCompleteButton && editExpenseStatus ? (
+              <Button type="button" variant="outline" onClick={() => void completeExpense()} disabled={completing}>
                 <CheckCircle2 className="mr-2 h-4 w-4" />
-                Complete
+                {completing ? "Completing…" : "Complete"}
               </Button>
             ) : null}
             {showCloseButton ? (
@@ -446,10 +560,10 @@ export default function ExpenseDetailsPage() {
                 Close
               </Button>
             ) : null}
-            {showCancelButton ? (
-              <Button type="button" variant="outline" onClick={() => comingSoon("Cancel expense")}>
+            {showCancelButton && editExpenseStatus ? (
+              <Button type="button" variant="outline" onClick={() => void cancelExpense()} disabled={cancelling}>
                 <X className="mr-2 h-4 w-4 text-red-600" />
-                Cancel
+                {cancelling ? "Cancelling…" : "Cancel"}
               </Button>
             ) : null}
             <Button type="button" variant="outline" onClick={() => comingSoon("Expense summary")}>

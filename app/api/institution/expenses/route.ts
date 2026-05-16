@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { runWithAuth } from "@/lib/db"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
 import { hasPermission, isSuperAdmin, requireStaffSession, resolveActorContext, scopeWhere } from "@/lib/api/rbac"
+import { auditExpenseInsert, expenseSnapshot } from "@/lib/audit/expense-audit"
 import { insertWithTransactionNumberRetry } from "@/lib/transactions/transaction-number-retry"
 
 function buildExpenseWhere(params: {
@@ -272,6 +273,21 @@ export async function POST(req: Request) {
       if (!inserted) return { error: "expense_number_generation_failed" as const }
 
       const row = inserted.row
+      await auditExpenseInsert(
+        client,
+        actor,
+        String(row.id),
+        expenseSnapshot({
+          expense_number: row.expense_number,
+          name: row.name,
+          status: row.status,
+          type: row.type,
+          description,
+          category_id,
+          branch_id,
+        }),
+        branch_id,
+      )
       return {
         id: String(row.id),
         expense_number: String(row.expense_number || inserted.transactionNumber),

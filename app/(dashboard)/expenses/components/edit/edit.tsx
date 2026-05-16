@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import { ReeveModal } from "@/components/modals/ReeveModal"
 import ExpenseForm, { type ExpenseFormData } from "../forms/expenseForm"
 import { useToast } from "@/components/ui/toast"
+import { describeExpenseApiError } from "../expenseApiErrors"
 
 type ExpenseDetail = {
   id: string
@@ -80,6 +81,17 @@ export default function EditExpense({ isOpen, expenseId, onClose, onSuccess }: E
         if (!res.ok) throw new Error(body?.error || "Failed to load expense")
         const exp = body?.expense as ExpenseDetail | undefined
         if (!exp) throw new Error("Invalid response")
+        if (!exp.can_edit) {
+          if (!cancelled) {
+            toast({
+              variant: "destructive",
+              title: "Cannot edit",
+              description: "Only expenses in Pending status can be edited.",
+            })
+            onClose()
+          }
+          return
+        }
         if (!cancelled) setDetail(exp)
       } catch (e: unknown) {
         if (cancelled) return
@@ -128,37 +140,27 @@ export default function EditExpense({ isOpen, expenseId, onClose, onSuccess }: E
           branch_id: data.branch_id || null,
         }),
       })
-      const body = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(body?.error || "Failed to update expense")
+      const body = (await res.json().catch(() => ({}))) as Record<string, unknown>
+      if (!res.ok) {
+        toast({
+          variant: "destructive",
+          title: "Failed to update expense",
+          description: describeExpenseApiError(body),
+        })
+        return
+      }
 
       toast({
         title: "Expense updated",
-        description: `${body?.expense_number || detail?.expense_number || ""} saved.`,
+        description: `${String(body?.expense_number || detail?.expense_number || "")} saved.`,
         variant: "success",
       })
       onSuccess()
       onClose()
     } catch (e: unknown) {
-      const message = String((e as Error)?.message || "")
-      if (message === "missing_permission:edit_expense") {
-        toast({
-          title: "Access denied",
-          description: "You do not have permission to edit expenses.",
-          variant: "warning",
-        })
-        return
-      }
-      if (message === "expense_not_editable") {
-        toast({
-          title: "Cannot edit",
-          description: "Only expenses in Pending status can be edited.",
-          variant: "warning",
-        })
-        return
-      }
       toast({
         title: "Failed to update expense",
-        description: message || "Something went wrong. Please try again.",
+        description: String((e as Error)?.message || "Something went wrong. Please try again."),
         variant: "destructive",
       })
     } finally {

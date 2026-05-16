@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server"
 import { runWithAuth } from "@/lib/db"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
+import { expenseFundingStatusBlock } from "@/lib/api/expense-funding-guard"
+import { auditCashflowInsert, cashflowSnapshot } from "@/lib/audit/expense-audit"
 import { hasPermission, isSuperAdmin, requireStaffSession, resolveActorContext } from "@/lib/api/rbac"
 
 const PAYMENT_MODES = ["Cash", "Mobile Money", "Bank Transfer", "Cheque", "Card"] as const
@@ -85,12 +87,14 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       if (!isSuperAdmin(actor) && !actor.branch_id) return { error: "actor_branch_missing" as const }
 
       const { where, values } = singleExpenseWhere(actor, expenseId)
-      const exRes = await client.query<{ id: string; branch_id: string }>(
-        `SELECT e.id, e.branch_id FROM senteloans_expenses e WHERE ${where} LIMIT 1`,
+      const exRes = await client.query<{ id: string; branch_id: string; status: string }>(
+        `SELECT e.id, e.branch_id, e.status FROM senteloans_expenses e WHERE ${where} LIMIT 1`,
         values,
       )
       const expense = exRes.rows[0]
       if (!expense) return { error: "not_found" as const }
+      const blocked = expenseFundingStatusBlock(String(expense.status || ""))
+      if (blocked) return blocked
 
       const branchId = String(expense.branch_id || "")
       const instId = actor.institution_id
@@ -135,6 +139,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
          )
          RETURNING
            id,
+           expense_id,
            amount::float,
            description,
            status,
@@ -157,6 +162,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       )
       const row = ins.rows[0] as Record<string, unknown> | undefined
       if (!row) return { error: "insert_failed" as const }
+
+      await auditCashflowInsert(client, actor, String(row.id), cashflowSnapshot(row), branchId)
 
       const sid = row.staff_id != null ? String(row.staff_id) : null
       const cid = row.client_id != null ? String(row.client_id) : null
@@ -201,11 +208,16 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         : code === "user_not_linked" ? 403
         : code === "actor_branch_missing" ? 400
         : code === "not_found" ? 404
+        : code === "expense_already_completed" || code === "expense_already_rejected" ? 409
         : code === "invalid_staff" || code === "invalid_client" ? 400
         : code === "insert_failed" ? 500
         : 400
       apiLog("warn", "expenses.cashflows.create.denied", { method: "POST", apiPath, status: statusCode, error: code })
-      return NextResponse.json({ error: result.error }, { status: statusCode })
+      const payload: { error: string; message?: string } = { error: code }
+      if ("message" in result && typeof result.message === "string" && result.message.trim()) {
+        payload.message = result.message.trim()
+      }
+      return NextResponse.json(payload, { status: statusCode })
     }
 
     apiLog("info", "expenses.cashflows.create.success", { method: "POST", apiPath, status: 201 })
