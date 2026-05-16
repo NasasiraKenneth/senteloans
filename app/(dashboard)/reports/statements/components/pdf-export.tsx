@@ -1,6 +1,12 @@
 "use client"
 
 import { exportPdfTables } from "@/components/export/pdf/pdf"
+import {
+  statementAssignedLabel,
+  statementAssignedNumber,
+  statementAssigneeSectionTitle,
+  type StatementAssigneeMode,
+} from "@/lib/reports/statement-assignee"
 
 type StatementRow = {
   transaction_date?: string | null
@@ -9,6 +15,7 @@ type StatementRow = {
   member_name: string
   member_number: string
   client_name?: string
+  staff_name?: string
   account_number: string
   mode: string
   debit: number
@@ -19,7 +26,7 @@ type StatementRow = {
 type ExportStatementsPdfParams = {
   items: StatementRow[]
   statementType: string
-  assignedTo?: "members" | "clients"
+  assignedTo?: StatementAssigneeMode
 }
 
 export async function exportStatementsPdf({ items, statementType, assignedTo = "members" }: ExportStatementsPdfParams): Promise<number> {
@@ -35,21 +42,21 @@ export async function exportStatementsPdf({ items, statementType, assignedTo = "
     { key: "credit", header: "Credit" },
     { key: "balance_after", header: "Balance" },
   ]
-  if (assignedTo !== "clients") {
+  if (assignedTo === "members") {
     columns.splice(5, 0, { key: "account_number", header: "Account" })
   }
   await exportPdfTables({
     filename: `${assignedTo}-statement-${statementType || "full"}-${stamp}.pdf`,
     sections: [
       {
-        title: `${assignedTo === "clients" ? "Client" : "Member"} Statement`,
+        title: `${statementAssigneeSectionTitle(assignedTo)} Statement`,
         columns,
         rows: items.map((r) => ({
           transaction_date: String(r.transaction_date || "").slice(0, 10),
           transaction_number: String(r.transaction_number || ""),
           type: String(r.type || ""),
-          assigned_to: String(assignedTo === "clients" ? r.client_name || "" : r.member_name || ""),
-          assigned_no: String(assignedTo === "clients" ? "" : r.member_number || ""),
+          assigned_to: String(statementAssignedLabel(r, assignedTo)),
+          assigned_no: String(statementAssignedNumber(r, assignedTo)),
           account_number: String(r.account_number || ""),
           mode: String(r.mode || ""),
           debit: Number(r.debit || 0),

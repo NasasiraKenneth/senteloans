@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { runWithAuth } from "@/lib/db"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
+import { resolveTransactionAssignedParty } from "@/lib/transactions/resolve-assigned-party"
 
 type ActorContext = {
   id: string
@@ -95,6 +96,8 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
            t.id,
            t.institution_id,
            t.member_id,
+           t.client_id,
+           t.staff_id,
            t.account_id,
            t.loan_id,
            t.transaction_number,
@@ -116,13 +119,9 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       const tx = txRes.rows[0]
       if (!tx) return { error: "transaction_not_found" as const }
 
-      let clientName = ""
-      let clientNumber = ""
-      if (tx.member_id) {
-        const cRes = await client.query(`SELECT id, full_name, member_number FROM senteloans_members WHERE id = $1`, [tx.member_id])
-        clientName = cRes.rows[0]?.full_name || ""
-        clientNumber = cRes.rows[0]?.member_number || ""
-      }
+      const assigned = await resolveTransactionAssignedParty(client, tx)
+      const clientName = assigned.assigned_to
+      const clientNumber = assigned.assigned_to_number
       let accountNumber = ""
       if (tx.account_id) {
         const aRes = await client.query(`SELECT id, account_number FROM senteloans_savings_accounts WHERE id = $1`, [tx.account_id])
@@ -157,6 +156,9 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
           member_id: tx.member_id,
           client_number: clientNumber,
           client_name: clientName,
+          assigned_to: assigned.assigned_to,
+          assigned_to_type: assigned.assigned_to_type,
+          assigned_to_number: assigned.assigned_to_number,
           account_id: tx.account_id,
           account_number: accountNumber,
           loan_id: tx.loan_id,

@@ -14,11 +14,18 @@ function singleExpenseWhere(actor: NonNullable<Awaited<ReturnType<typeof resolve
   return { where, values }
 }
 
-function expenseUpdateWhere(actor: NonNullable<Awaited<ReturnType<typeof resolveActorContext>>>, expenseId: string): { where: string; params: unknown[] } {
+/** WHERE clause placeholders start at `paramStart` (use 2 when SET already uses $1). */
+function expenseUpdateWhere(
+  actor: NonNullable<Awaited<ReturnType<typeof resolveActorContext>>>,
+  expenseId: string,
+  paramStart = 1,
+): { where: string; params: unknown[] } {
   const params: unknown[] = [expenseId, actor.institution_id]
-  let where = `e.id = $1::uuid AND e.institution_id = $2::uuid`
+  let idx = paramStart
+  let where = `e.id = $${idx}::uuid AND e.institution_id = $${idx + 1}::uuid`
+  idx += 2
   if (!isSuperAdmin(actor)) {
-    where += ` AND e.branch_id = $3::uuid`
+    where += ` AND e.branch_id = $${idx}::uuid`
     params.push(actor.branch_id)
   }
   return { where, params }
@@ -108,7 +115,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         }
       }
 
-      const { where: updWhere, params: updBase } = expenseUpdateWhere(actor, expenseId)
+      const { where: updWhere, params: updBase } = expenseUpdateWhere(actor, expenseId, 2)
 
       await client.query("BEGIN")
       let committed = false

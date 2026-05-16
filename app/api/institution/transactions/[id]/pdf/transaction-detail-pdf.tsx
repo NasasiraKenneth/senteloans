@@ -29,6 +29,9 @@ export type TransactionPdfData = {
   balance_after: number;
   transaction_date: string | null;
   status: string;
+  assigned_to: string;
+  assigned_to_type: "member" | "client" | "staff" | null;
+  assigned_to_number: string;
   client_name: string;
   client_number: string;
   account_type: string;
@@ -223,6 +226,15 @@ export async function renderTransactionDetailPdfBuffer(
     String(tx.type || "")
       .trim()
       .toUpperCase() === "TRANSFER";
+  const assignedLabel =
+    tx.assigned_to_type === "staff"
+      ? "Staff"
+      : tx.assigned_to_type === "client"
+        ? "Client"
+        : "Member";
+  const assignedName = tx.assigned_to || tx.client_name || "—";
+  const assignedNumber = tx.assigned_to_number || tx.client_number || "—";
+  const showAssignedNumber = tx.assigned_to_type === "member";
   const postedAt = tx.transaction_date
     ? new Date(tx.transaction_date).toLocaleString("en-UG", {
         year: "numeric",
@@ -260,14 +272,20 @@ export async function renderTransactionDetailPdfBuffer(
           <Text style={styles.value}>{postedAt}</Text>
         </View>
 
-        <Text style={styles.blockTitle}>Member</Text>
+        <Text style={styles.blockTitle}>Assigned to</Text>
         <View style={styles.row}>
-          <Text style={styles.label}>Member no.</Text>
-          <Text style={styles.value}>{tx.client_number || "—"}</Text>
+          <Text style={styles.label}>Party</Text>
+          <Text style={styles.value}>{assignedLabel}</Text>
         </View>
+        {showAssignedNumber && (
+          <View style={styles.row}>
+            <Text style={styles.label}>Member no.</Text>
+            <Text style={styles.value}>{assignedNumber}</Text>
+          </View>
+        )}
         <View style={styles.row}>
           <Text style={styles.label}>Name</Text>
-          <Text style={styles.value}>{tx.client_name || "—"}</Text>
+          <Text style={styles.value}>{assignedName}</Text>
         </View>
 
         <Text style={styles.blockTitle}>Account</Text>

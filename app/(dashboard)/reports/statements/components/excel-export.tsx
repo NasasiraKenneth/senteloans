@@ -1,6 +1,11 @@
 "use client"
 
 import { exportExcelWorkbook } from "@/components/export/excel/excel"
+import {
+  statementAssignedLabel,
+  statementAssignedNumber,
+  type StatementAssigneeMode,
+} from "@/lib/reports/statement-assignee"
 
 type StatementRow = {
   transaction_date?: string | null
@@ -9,6 +14,7 @@ type StatementRow = {
   member_name: string
   member_number: string
   client_name?: string
+  staff_name?: string
   account_number: string
   mode: string
   debit: number
@@ -21,8 +27,10 @@ type StatementRow = {
 type ExportStatementsExcelParams = {
   items: StatementRow[]
   statementType: string
-  assignedTo?: "members" | "clients"
+  assignedTo?: StatementAssigneeMode
 }
+
+const showsAccountColumn = (mode: StatementAssigneeMode) => mode === "members"
 
 export async function exportStatementsExcel({ items, statementType, assignedTo = "members" }: ExportStatementsExcelParams): Promise<number> {
   const headers = [
@@ -38,13 +46,13 @@ export async function exportStatementsExcel({ items, statementType, assignedTo =
     "Reference",
     "Description",
   ]
-  if (assignedTo !== "clients") headers.splice(5, 0, "Account")
+  if (showsAccountColumn(assignedTo)) headers.splice(5, 0, "Account")
   const rows = items.map((r) => [
     String(r.transaction_date || "").slice(0, 10),
     String(r.transaction_number || ""),
     String(r.type || ""),
-    String(assignedTo === "clients" ? r.client_name || "" : r.member_name || ""),
-    String(assignedTo === "clients" ? "" : r.member_number || ""),
+    String(statementAssignedLabel(r, assignedTo)),
+    String(statementAssignedNumber(r, assignedTo)),
     String(r.mode || ""),
     Number(r.debit || 0),
     Number(r.credit || 0),
@@ -52,7 +60,7 @@ export async function exportStatementsExcel({ items, statementType, assignedTo =
     String(r.reference_number || ""),
     String(r.description || ""),
   ])
-  if (assignedTo !== "clients") {
+  if (showsAccountColumn(assignedTo)) {
     rows.forEach((row, index) => {
       row.splice(5, 0, String(items[index]?.account_number || ""))
     })

@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth"
 import { runWithAuth } from "@/lib/db"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
 import { renderTransactionDetailPdfBuffer } from "./transaction-detail-pdf"
+import { resolveTransactionAssignedParty } from "@/lib/transactions/resolve-assigned-party"
 
 type ActorContext = {
   id: string
@@ -85,7 +86,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       const txRes = await client.query(
         `SELECT
            t.id, t.transaction_number, t.type, t.amount, t.mode, t.description, t.reference_number,
-           t.balance_before, t.balance_after, t.transaction_date, t.status, t.member_id, t.account_id, t.transferred_to_id, t.processed_by,
+           t.balance_before, t.balance_after, t.transaction_date, t.status, t.member_id, t.client_id, t.staff_id, t.account_id, t.transferred_to_id, t.processed_by,
            COALESCE(ins.name, '') AS sacco_name,
            COALESCE(ins.logo, '') AS sacco_logo,
            COALESCE(b.name, '') AS branch_name,
@@ -100,13 +101,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       const tx = txRes.rows[0]
       if (!tx) return { error: "transaction_not_found" as const }
 
-      let clientName = ""
-      let clientNumber = ""
-      if (tx.member_id) {
-        const cRes = await client.query(`SELECT full_name, member_number FROM senteloans_members WHERE id = $1`, [tx.member_id])
-        clientName = cRes.rows[0]?.full_name || ""
-        clientNumber = cRes.rows[0]?.member_number || ""
-      }
+      const assigned = await resolveTransactionAssignedParty(client, tx)
       let accountNumber = ""
       let accountType = ""
       if (tx.account_id) {
@@ -152,8 +147,11 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
         balance_after: Number(tx.balance_after || 0),
         transaction_date: tx.transaction_date || null,
         status: String(tx.status || ""),
-        client_name: clientName,
-        client_number: clientNumber,
+        assigned_to: assigned.assigned_to,
+        assigned_to_type: assigned.assigned_to_type,
+        assigned_to_number: assigned.assigned_to_number,
+        client_name: assigned.assigned_to,
+        client_number: assigned.assigned_to_number,
         account_type: accountType,
         account_number: accountNumber,
         transfer_to_account_number: transferToAccountNumber,

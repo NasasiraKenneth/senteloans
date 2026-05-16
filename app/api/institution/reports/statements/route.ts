@@ -61,8 +61,11 @@ export async function GET(req: Request) {
     const clientId = (url.searchParams.get("client_id") || "").trim()
     const memberIdsRaw = (url.searchParams.get("member_ids") || "").trim()
     const clientIdsRaw = (url.searchParams.get("client_ids") || "").trim()
+    const staffId = (url.searchParams.get("staff_id") || "").trim()
+    const staffIdsRaw = (url.searchParams.get("staff_ids") || "").trim()
     const memberIds = memberIdsRaw ? memberIdsRaw.split(",").map((v) => v.trim()).filter(Boolean) : []
     const clientIds = clientIdsRaw ? clientIdsRaw.split(",").map((v) => v.trim()).filter(Boolean) : []
+    const staffIds = staffIdsRaw ? staffIdsRaw.split(",").map((v) => v.trim()).filter(Boolean) : []
     const assignedTo = (url.searchParams.get("assigned_to") || "members").trim().toLowerCase()
     const statementType = (url.searchParams.get("statement_type") || "full").trim().toLowerCase()
     const dateStart = (url.searchParams.get("dateStart") || "").trim()
@@ -91,10 +94,12 @@ export async function GET(req: Request) {
         params.push(selectedBranchIds)
       }
       // Apply assignee mode first so all downstream filters are scoped correctly.
-      if (assignedTo === "clients") {
+      if (assignedTo === "staff") {
+        where += ` AND t.staff_id IS NOT NULL AND su.id IS NOT NULL`
+      } else if (assignedTo === "clients") {
         where += ` AND (t.client_id IS NOT NULL OR COALESCE(c.name, '') <> '')`
       } else {
-        where += ` AND t.member_id IS NOT NULL AND t.client_id IS NULL AND m.id IS NOT NULL`
+        where += ` AND t.member_id IS NOT NULL AND t.client_id IS NULL AND t.staff_id IS NULL AND m.id IS NOT NULL`
       }
       if (memberId) {
         where += ` AND t.member_id = $${idx++}`
@@ -109,6 +114,13 @@ export async function GET(req: Request) {
       } else if (clientIds.length > 0) {
         where += ` AND t.client_id = ANY($${idx++}::uuid[])`
         params.push(clientIds)
+      }
+      if (staffId) {
+        where += ` AND t.staff_id = $${idx++}`
+        params.push(staffId)
+      } else if (staffIds.length > 0) {
+        where += ` AND t.staff_id = ANY($${idx++}::uuid[])`
+        params.push(staffIds)
       }
       if (dateStart) {
         where += ` AND t.transaction_date >= (($${idx++}::timestamp AT TIME ZONE 'Africa/Nairobi')::date)`
@@ -131,6 +143,8 @@ export async function GET(req: Request) {
         where += ` AND t.type = 'Shares Purchase'`
       } else if (statementType === "membership_fee") {
         where += ` AND (t.type = 'Fee Payment' AND t.description ILIKE '%membership%')`
+      } else if (statementType === "expense") {
+        where += ` AND t.type = 'Expense Payment'`
       }
 
       params.push(pageSize)
@@ -148,6 +162,7 @@ export async function GET(req: Request) {
            t.transaction_date,
            t.member_id,
            t.client_id,
+           t.staff_id,
            t.account_id,
            t.loan_id,
            t.sacco_loan_id,
@@ -155,10 +170,12 @@ export async function GET(req: Request) {
            m.member_number,
            c.name AS client_name,
            c.phone AS client_number,
+           su.full_name AS staff_name,
            sa.account_number
          FROM senteloans_transactions t
          LEFT JOIN senteloans_members m ON m.id = t.member_id
          LEFT JOIN senteloans_clients c ON c.id = t.client_id
+         LEFT JOIN senteloans_users su ON su.id = t.staff_id
          LEFT JOIN senteloans_savings_accounts sa ON sa.id = t.account_id
          WHERE ${where}
          ORDER BY t.transaction_date DESC
@@ -187,10 +204,12 @@ export async function GET(req: Request) {
           transaction_date: r.transaction_date,
           member_id: String(r.member_id || ""),
           client_id: String(r.client_id || ""),
+          staff_id: String(r.staff_id || ""),
           member_name: String(r.member_name || ""),
           member_number: String(r.member_number || ""),
           client_name: String(r.client_name || ""),
           client_number: String(r.client_number || ""),
+          staff_name: String(r.staff_name || ""),
           account_number: String(r.account_number || ""),
         }
       })

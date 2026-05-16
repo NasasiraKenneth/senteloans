@@ -58,8 +58,6 @@ interface InstitutionConfig {
   invoicePeriodDays?: number
   defaultedAfterDays?: number
   savingsOverduePeriod?: number
-  mtnMobileMoneyContact?: string
-  airtelMobileMoneyContact?: string
 }
 
 interface InstitutionOrg {
@@ -446,28 +444,10 @@ export default function SettingsPage() {
 
   const operationalSnapshot = useMemo(() => {
     if (!config) return null
-    const mtn = (config.mtnMobileMoneyContact ?? "").trim()
-    const airtel = (config.airtelMobileMoneyContact ?? "").trim()
-    const wallets = (mtn ? 1 : 0) + (airtel ? 1 : 0)
     const mmOn = config.modules.mobile_money
-    let mmStatus = "Inactive"
-    let mmDetail = "Turn on Mobile Money in General, then add operator numbers."
-    let mmPct = 12
-    if (mmOn) {
-      if (wallets === 2) {
-        mmStatus = "Ready"
-        mmDetail = "MTN + Airtel numbers on file"
-        mmPct = 100
-      } else if (wallets === 1) {
-        mmStatus = "Partial"
-        mmDetail = "Add the second operator number for full coverage"
-        mmPct = 58
-      } else {
-        mmStatus = "Needs setup"
-        mmDetail = "No mobile money numbers saved yet"
-        mmPct = 32
-      }
-    }
+    const mmStatus = mmOn ? "Active" : "Inactive"
+    const mmDetail = mmOn ? "Mobile Money module enabled" : "Turn on Mobile Money in General settings."
+    const mmPct = mmOn ? 100 : 12
 
     const adminRows = staffMembers.filter((s) => s.role === "institution_admin")
     const adminsWithEmail = adminRows.filter((s) => s.email && String(s.email).trim()).length
@@ -1630,38 +1610,6 @@ export default function SettingsPage() {
                     </div>
                     )}
 
-                    {activeTab === "general" && (
-                      <div className="rounded-lg border border-[#111111]/10 bg-white p-4 space-y-3">
-                        <div className="flex items-center gap-2 text-sm font-semibold text-[#1f1f1f]">
-                          <Zap className="h-4 w-4 text-[#f08c2b]" />
-                          Mobile Money Contacts
-                        </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          <div className="space-y-2">
-                            <Label htmlFor="mtnMobileMoneyContact">MTN Mobile Money Contact</Label>
-                            <Input
-                              id="mtnMobileMoneyContact"
-                              value={config.mtnMobileMoneyContact || ""}
-                              onChange={(e) => setConfigField("mtnMobileMoneyContact", e.target.value)}
-                              disabled={!canEditInstitutionWorkspace("general")}
-                              className={memberInputClass}
-                              placeholder="e.g. +2567XXXXXXXX"
-                            />
-                          </div>
-                          <div className="space-y-2">
-                            <Label htmlFor="airtelMobileMoneyContact">Airtel Money Contact</Label>
-                            <Input
-                              id="airtelMobileMoneyContact"
-                              value={config.airtelMobileMoneyContact || ""}
-                              onChange={(e) => setConfigField("airtelMobileMoneyContact", e.target.value)}
-                              disabled={!canEditInstitutionWorkspace("general")}
-                              className={memberInputClass}
-                              placeholder="e.g. +2567XXXXXXXX"
-                            />
-                          </div>
-                        </div>
-                      </div>
-                    )}
                   </CardContent>
                 </Card>
                 )}

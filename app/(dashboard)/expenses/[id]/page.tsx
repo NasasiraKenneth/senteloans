@@ -530,8 +530,6 @@ export default function ExpenseDetailsPage() {
   const showApproveButton = statusLower === "pending"
   const showCompleteButton = statusLower === "active"
   const showCancelButton = statusLower === "pending" || statusLower === "approved"
-  const showCloseButton =
-    !!expense && statusLower !== "pending" && statusLower !== "approved" && statusLower !== "closed" && statusLower !== "cancelled"
 
   return (
     <div className="relative">
@@ -552,12 +550,6 @@ export default function ExpenseDetailsPage() {
               <Button type="button" variant="outline" onClick={() => void completeExpense()} disabled={completing}>
                 <CheckCircle2 className="mr-2 h-4 w-4" />
                 {completing ? "Completing…" : "Complete"}
-              </Button>
-            ) : null}
-            {showCloseButton ? (
-              <Button type="button" variant="outline" onClick={() => comingSoon("Close expense")}>
-                <Lock className="mr-2 h-4 w-4" />
-                Close
               </Button>
             ) : null}
             {showCancelButton && editExpenseStatus ? (

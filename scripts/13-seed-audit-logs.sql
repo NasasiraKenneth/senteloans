@@ -66,6 +66,7 @@ BEGIN
         user_id,
         operation,
         table_name,
+        category,
         record_id,
         old_values,
         new_values,
@@ -73,18 +74,18 @@ BEGIN
         user_agent
     ) VALUES 
     -- SACCO member registrations
-    (uuid_generate_v4(), kampala_sacco_id, kampala_sacco_branch_id, kampala_staff_id, 'INSERT', 'senteloans_members', sarah_id, '{}'::jsonb, '{"member_number": "SL001", "full_name": "Sarah Nakamya", "status": "Active"}'::jsonb, '192.168.1.10', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'),
-    (uuid_generate_v4(), kampala_sacco_id, kampala_sacco_branch_id, kampala_staff_id, 'INSERT', 'senteloans_members', david_id, '{}'::jsonb, '{"member_number": "SL002", "full_name": "David Ssemakula", "status": "Active"}'::jsonb, '192.168.1.11', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'),
-    (uuid_generate_v4(), kampala_sacco_id, kampala_sacco_branch_id, kampala_staff_id, 'INSERT', 'senteloans_members', grace_id, '{}'::jsonb, '{"member_number": "SL003", "full_name": "Grace Namugga", "status": "Active"}'::jsonb, '192.168.1.12', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'),
-    (uuid_generate_v4(), kampala_sacco_id, kampala_sacco_branch_id, kampala_staff_id, 'INSERT', 'senteloans_members', patricia_id, '{}'::jsonb, '{"member_number": "SL004", "full_name": "Patricia Nabirye", "status": "Active"}'::jsonb, '192.168.1.13', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'),
+    (uuid_generate_v4(), kampala_sacco_id, kampala_sacco_branch_id, kampala_staff_id, 'INSERT', 'senteloans_members', 'members', sarah_id, '{}'::jsonb, '{"member_number": "SL001", "full_name": "Sarah Nakamya", "status": "Active"}'::jsonb, '192.168.1.10', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'),
+    (uuid_generate_v4(), kampala_sacco_id, kampala_sacco_branch_id, kampala_staff_id, 'INSERT', 'senteloans_members', 'members', david_id, '{}'::jsonb, '{"member_number": "SL002", "full_name": "David Ssemakula", "status": "Active"}'::jsonb, '192.168.1.11', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'),
+    (uuid_generate_v4(), kampala_sacco_id, kampala_sacco_branch_id, kampala_staff_id, 'INSERT', 'senteloans_members', 'members', grace_id, '{}'::jsonb, '{"member_number": "SL003", "full_name": "Grace Namugga", "status": "Active"}'::jsonb, '192.168.1.12', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'),
+    (uuid_generate_v4(), kampala_sacco_id, kampala_sacco_branch_id, kampala_staff_id, 'INSERT', 'senteloans_members', 'members', patricia_id, '{}'::jsonb, '{"member_number": "SL004", "full_name": "Patricia Nabirye", "status": "Active"}'::jsonb, '192.168.1.13', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'),
     
     -- Money lender member registrations
-    (uuid_generate_v4(), quick_cash_id, quick_cash_branch_id, quick_cash_staff_id, 'INSERT', 'senteloans_members', moses_id, '{}'::jsonb, '{"member_number": "QC001", "full_name": "Moses Kiprotich", "status": "Active"}'::jsonb, '192.168.1.20', 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'),
-    (uuid_generate_v4(), quick_cash_id, quick_cash_branch_id, quick_cash_staff_id, 'INSERT', 'senteloans_members', betty_id, '{}'::jsonb, '{"member_number": "QC002", "full_name": "Betty Nakato", "status": "Active"}'::jsonb, '192.168.1.21', 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'),
-    (uuid_generate_v4(), quick_cash_id, quick_cash_branch_id, quick_cash_staff_id, 'INSERT', 'senteloans_members', james_id, '{}'::jsonb, '{"member_number": "QC003", "full_name": "James Okello", "status": "Active"}'::jsonb, '192.168.1.22', 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'),
+    (uuid_generate_v4(), quick_cash_id, quick_cash_branch_id, quick_cash_staff_id, 'INSERT', 'senteloans_members', 'members', moses_id, '{}'::jsonb, '{"member_number": "QC001", "full_name": "Moses Kiprotich", "status": "Active"}'::jsonb, '192.168.1.20', 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'),
+    (uuid_generate_v4(), quick_cash_id, quick_cash_branch_id, quick_cash_staff_id, 'INSERT', 'senteloans_members', 'members', betty_id, '{}'::jsonb, '{"member_number": "QC002", "full_name": "Betty Nakato", "status": "Active"}'::jsonb, '192.168.1.21', 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'),
+    (uuid_generate_v4(), quick_cash_id, quick_cash_branch_id, quick_cash_staff_id, 'INSERT', 'senteloans_members', 'members', james_id, '{}'::jsonb, '{"member_number": "QC003", "full_name": "James Okello", "status": "Active"}'::jsonb, '192.168.1.22', 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'),
     
     -- MFI member registration
-    (uuid_generate_v4(), opportunity_mfi_id, opportunity_mfi_branch_id, opportunity_staff_id, 'INSERT', 'senteloans_members', agnes_id, '{}'::jsonb, '{"member_number": "OM001", "full_name": "Agnes Namutebi", "status": "Active"}'::jsonb, '192.168.1.30', 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36');
+    (uuid_generate_v4(), opportunity_mfi_id, opportunity_mfi_branch_id, opportunity_staff_id, 'INSERT', 'senteloans_members', 'members', agnes_id, '{}'::jsonb, '{"member_number": "OM001", "full_name": "Agnes Namutebi", "status": "Active"}'::jsonb, '192.168.1.30', 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36');
 
 END $$;
 

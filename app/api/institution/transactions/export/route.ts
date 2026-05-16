@@ -155,6 +155,7 @@ export async function GET(req: Request) {
           OR m.full_name ILIKE $${idx}
           OR m.member_number ILIKE $${idx}
           OR c.name ILIKE $${idx}
+          OR su.full_name ILIKE $${idx}
         )`
           params.push(`%${search}%`)
           idx++
@@ -163,7 +164,7 @@ export async function GET(req: Request) {
         const txRes = await client.query(
           `SELECT
              t.transaction_number,
-             COALESCE(m.full_name, c.name, '') AS assigned_to,
+             COALESCE(m.full_name, c.name, su.full_name, '') AS assigned_to,
              COALESCE(sa.account_number, '') AS account_number,
              t.type,
              t.amount,
@@ -173,6 +174,7 @@ export async function GET(req: Request) {
            FROM senteloans_transactions t
            LEFT JOIN senteloans_members m ON m.id = t.member_id
            LEFT JOIN senteloans_clients c ON c.id = t.client_id
+           LEFT JOIN senteloans_users su ON su.id = t.staff_id
            LEFT JOIN senteloans_savings_accounts sa ON sa.id = t.account_id
            WHERE ${where}
            ORDER BY t.created_at DESC`,

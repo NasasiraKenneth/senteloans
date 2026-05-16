@@ -163,8 +163,6 @@ export async function GET(req: Request) {
         invoicePeriodDays: readNumber(cfg, "invoice_overdue_period") ?? 30,
         defaultedAfterDays: readNumber(cfg, "loan_default_period") ?? 90,
         savingsOverduePeriod: readNumber(cfg, "savings_overdue_period") ?? 30,
-        mtnMobileMoneyContact: readString(cfg, "mtn_mobile_money_contact") || "",
-        airtelMobileMoneyContact: readString(cfg, "airtel_mobile_money_contact") || "",
       },
     }
     apiLog("info", "institution.settings.success", { method: "GET", apiPath, status: 200, authUserId: session.user.authUserId })
@@ -208,8 +206,6 @@ export async function PUT(req: Request) {
         invoicePeriodDays?: number
         defaultedAfterDays?: number
         savingsOverduePeriod?: number
-        mtnMobileMoneyContact?: string
-        airtelMobileMoneyContact?: string
       }
     }
     const payload = body?.config || {}
@@ -271,14 +267,6 @@ export async function PUT(req: Request) {
       const membershipOverduePeriod = Number(payload.membershipLatePenaltyPeriodDays ?? current.membership_overdue_period ?? 30)
       const membershipOverdueInterest = Number(payload.membershipLatePenalty ?? current.membership_overdue_interest ?? 0)
       const membershipOverdueInterestPer = String(payload.membershipLatePenaltyPeriodUnit ?? current.membership_overdue_interest_per ?? "day")
-      const mtnMobileMoneyContact =
-        typeof payload.mtnMobileMoneyContact === "string"
-          ? payload.mtnMobileMoneyContact.trim() || null
-          : String(current.mtn_mobile_money_contact ?? "") || null
-      const airtelMobileMoneyContact =
-        typeof payload.airtelMobileMoneyContact === "string"
-          ? payload.airtelMobileMoneyContact.trim() || null
-          : String(current.airtel_mobile_money_contact ?? "") || null
 
       if (enforcedShares === "true") {
         if (!shareValue || Number.isNaN(shareValue) || shareValue <= 0) throw new Error("share_value_required")
@@ -319,8 +307,6 @@ export async function PUT(req: Request) {
         membershipOverduePeriod,
         membershipOverdueInterest,
         membershipOverdueInterestPer,
-        mtnMobileMoneyContact,
-        airtelMobileMoneyContact,
         profile.user_id,
       ]
 
@@ -331,14 +317,14 @@ export async function PUT(req: Request) {
            loan_overdue_period, loan_overdue_interest, loan_overdue_interest_per,
            loan_default_period, invoice_overdue_period, savings_overdue_period,
            membership_overdue_period, membership_overdue_interest, membership_overdue_interest_per,
-           mtn_mobile_money_contact, airtel_mobile_money_contact, modified_by, updated_at
+           modified_by, updated_at
          ) VALUES (
            $1,$2,$3,$4,$5,$6,$7,
            $8,$9,$10,$11,$12,
            $13,$14,$15,
            $16,$17,$18,
            $19,$20,$21,
-           $22,$23,$24,NOW()
+           $22,NOW()
          )
          ON CONFLICT (branch_id) DO UPDATE SET
            loans = EXCLUDED.loans,
@@ -361,8 +347,6 @@ export async function PUT(req: Request) {
            membership_overdue_period = EXCLUDED.membership_overdue_period,
            membership_overdue_interest = EXCLUDED.membership_overdue_interest,
            membership_overdue_interest_per = EXCLUDED.membership_overdue_interest_per,
-           mtn_mobile_money_contact = EXCLUDED.mtn_mobile_money_contact,
-           airtel_mobile_money_contact = EXCLUDED.airtel_mobile_money_contact,
            modified_by = EXCLUDED.modified_by,
            updated_at = NOW()`,
         params,
@@ -415,8 +399,6 @@ export async function PUT(req: Request) {
         invoicePeriodDays: readNumber(s2, "invoice_overdue_period") ?? 30,
         defaultedAfterDays: readNumber(s2, "loan_default_period") ?? 90,
         savingsOverduePeriod: readNumber(s2, "savings_overdue_period") ?? 30,
-        mtnMobileMoneyContact: readString(s2, "mtn_mobile_money_contact") || "",
-        airtelMobileMoneyContact: readString(s2, "airtel_mobile_money_contact") || "",
       },
     }
     apiLog("info", "institution.settings.success", { method: "PUT", apiPath, status: 200, authUserId: session.user.authUserId })

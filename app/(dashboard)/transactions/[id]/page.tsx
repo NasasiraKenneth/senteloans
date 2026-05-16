@@ -65,7 +65,8 @@ export default function TransactionDetailPage() {
           "Balance After",
           "Date",
           "Status",
-          "Client Name",
+          "Assigned To",
+          "Party",
           "Member No.",
           "Account Number",
           "Processed By",
@@ -81,8 +82,9 @@ export default function TransactionDetailPage() {
           String(tx.balance_after ?? ""),
           tx.transaction_date ? new Date(tx.transaction_date).toISOString() : "",
           tx.status || "",
-          tx.client_name || "",
-          tx.client_number || "",
+          tx.assigned_to || tx.client_name || "",
+          tx.assigned_to_type === "staff" ? "Staff" : tx.assigned_to_type === "client" ? "Client" : tx.assigned_to_type === "member" ? "Member" : "",
+          tx.assigned_to_number || tx.client_number || "",
           tx.account_number || "",
           tx.processed_by_name || "",
         ]
@@ -204,6 +206,10 @@ export default function TransactionDetailPage() {
 
   const isFeePayment = tx.type === "Fee Payment"
   const isWithdrawal = tx.type === "Withdrawal"
+  const assignedLabel =
+    tx.assigned_to_type === "staff" ? "Staff" : tx.assigned_to_type === "client" ? "Client" : "Member"
+  const assignedName = tx.assigned_to || tx.client_name || "-"
+  const showMemberNumber = tx.assigned_to_type === "member" || (!tx.assigned_to_type && !!tx.client_number)
 
   return (
     <>
@@ -274,18 +280,24 @@ export default function TransactionDetailPage() {
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
-                    <User className="h-4 w-4" /> Client
+                    <User className="h-4 w-4" /> Assigned to
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-2 text-sm">
                   <div className="flex items-center justify-between">
-                    <span>Name</span>
-                    <span className="font-medium">{tx.client_name || "-"}</span>
+                    <span>Party</span>
+                    <span className="font-medium">{tx.assigned_to_type ? assignedLabel : "—"}</span>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span>Member No.</span>
-                    <span className="font-mono text-xs">{tx.client_number || "-"}</span>
+                    <span>Name</span>
+                    <span className="font-medium">{assignedName}</span>
                   </div>
+                  {showMemberNumber && (
+                  <div className="flex items-center justify-between">
+                    <span>Member No.</span>
+                    <span className="font-mono text-xs">{tx.assigned_to_number || tx.client_number || "-"}</span>
+                  </div>
+                  )}
                   <div className="flex items-center justify-between">
                     <span>Account</span>
                     <span className="font-medium">{tx.account_number || "-"}</span>

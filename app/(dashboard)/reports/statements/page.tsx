@@ -16,6 +16,11 @@ import DataTable, { type DataTableColumn } from "@/components/datatables/DataTab
 import { exportStatementsExcel } from "./components/excel-export"
 import { exportStatementsPdf } from "./components/pdf-export"
 import { exportStatementsSummaryPdf } from "./components/summaryPdf"
+import {
+  statementAssignedLabel,
+  statementAssignedNumber,
+  type StatementAssigneeMode,
+} from "@/lib/reports/statement-assignee"
 
 type BranchOption = { id: string; name: string }
 type StatementRow = {
@@ -37,6 +42,8 @@ type StatementRow = {
   member_number: string
   client_name?: string
   client_number?: string
+  staff_id?: string
+  staff_name?: string
   account_number: string
 }
 type StatementSummary = {
@@ -47,6 +54,7 @@ type StatementSummary = {
 }
 type MemberOption = { id: string; label: string }
 type ClientOption = { id: string; label: string }
+type StaffOption = { id: string; label: string }
 
 const CLIENT_STATEMENT_TYPES = [
   { value: "full", label: "Full statement" },
@@ -62,6 +70,11 @@ const MEMBER_STATEMENT_TYPES = [
   { value: "membership_fee", label: "Membership fee statement" },
 ]
 
+const STAFF_STATEMENT_TYPES = [
+  { value: "full", label: "Full statement" },
+  { value: "expense", label: "Expense payment statement" },
+]
+
 export default function StatementsPage() {
   const { toast } = useToast()
   const [items, setItems] = useState<StatementRow[]>([])
@@ -70,6 +83,7 @@ export default function StatementsPage() {
   const [branches, setBranches] = useState<BranchOption[]>([])
   const [members, setMembers] = useState<MemberOption[]>([])
   const [clients, setClients] = useState<ClientOption[]>([])
+  const [staffList, setStaffList] = useState<StaffOption[]>([])
   const [summary, setSummary] = useState<StatementSummary>({
     opening_balance: 0,
     closing_balance: 0,
@@ -78,9 +92,10 @@ export default function StatementsPage() {
   })
 
   const [statementType, setStatementType] = useState("full")
-  const [assignedTo, setAssignedTo] = useState<"members" | "clients">("members")
+  const [assignedTo, setAssignedTo] = useState<StatementAssigneeMode>("members")
   const [memberIds, setMemberIds] = useState<string[]>([])
   const [clientIds, setClientIds] = useState<string[]>([])
+  const [staffIds, setStaffIds] = useState<string[]>([])
   const [branchIds, setBranchIds] = useState<string[]>([])
   const [dateRange, setDateRange] = useState<DateRangeValue>({ start: "", end: "" })
   const [summaryDateRange, setSummaryDateRange] = useState<DateRangeValue>({ start: "", end: "" })
@@ -90,10 +105,12 @@ export default function StatementsPage() {
   const branchOptions = useMemo(() => branches.map((b) => ({ value: b.id, label: b.name })), [branches])
   const memberSelectOptions = useMemo(() => members.map((m) => ({ value: m.id, label: m.label })), [members])
   const clientSelectOptions = useMemo(() => clients.map((c) => ({ value: c.id, label: c.label })), [clients])
-  const statementTypeOptions = useMemo(
-    () => (assignedTo === "clients" ? CLIENT_STATEMENT_TYPES : MEMBER_STATEMENT_TYPES),
-    [assignedTo]
-  )
+  const staffSelectOptions = useMemo(() => staffList.map((s) => ({ value: s.id, label: s.label })), [staffList])
+  const statementTypeOptions = useMemo(() => {
+    if (assignedTo === "clients") return CLIENT_STATEMENT_TYPES
+    if (assignedTo === "staff") return STAFF_STATEMENT_TYPES
+    return MEMBER_STATEMENT_TYPES
+  }, [assignedTo])
 
   const loadBranches = useCallback(async () => {
     try {
@@ -143,6 +160,25 @@ export default function StatementsPage() {
     }
   }, [])
 
+  const loadStaff = useCallback(async () => {
+    try {
+      const res = await fetch("/api/institution/staff?limit=200", { cache: "no-store" })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) return setStaffList([])
+      const raw = Array.isArray(data.staff) ? data.staff : []
+      setStaffList(
+        raw
+          .map((s: { id?: string; full_name?: string; email?: string }) => ({
+            id: String(s.id || ""),
+            label: String(s.full_name || s.email || "Staff"),
+          }))
+          .filter((s: StaffOption) => Boolean(s.id))
+      )
+    } catch {
+      setStaffList([])
+    }
+  }, [])
+
   const buildQuery = useCallback(() => {
     const p = new URLSearchParams()
     p.set("pageSize", "5000")
@@ -150,11 +186,12 @@ export default function StatementsPage() {
     p.set("assigned_to", assignedTo)
     if (assignedTo === "members" && memberIds.length > 0) p.set("member_ids", memberIds.join(","))
     if (assignedTo === "clients" && clientIds.length > 0) p.set("client_ids", clientIds.join(","))
+    if (assignedTo === "staff" && staffIds.length > 0) p.set("staff_ids", staffIds.join(","))
     if (dateRange.start.trim()) p.set("dateStart", dateRange.start.trim())
     if (dateRange.end.trim()) p.set("dateEnd", dateRange.end.trim())
     if (isSuperAdmin && branchIds.length > 0) p.set("branches", branchIds.join(","))
     return p
-  }, [statementType, assignedTo, memberIds, clientIds, dateRange.start, dateRange.end, isSuperAdmin, branchIds])
+  }, [statementType, assignedTo, memberIds, clientIds, staffIds, dateRange.start, dateRange.end, isSuperAdmin, branchIds])
 
   const loadReport = useCallback(async () => {
     setLoading(true)
@@ -167,8 +204,11 @@ export default function StatementsPage() {
         const hasMember = Boolean(String(row.member_id || "").trim())
         const hasClient = Boolean(String(row.client_id || "").trim())
         const hasClientName = Boolean(String(row.client_name || "").trim())
-        // Classify rows with client_id as client-side first.
-        return assignedTo === "clients" ? (hasClient || hasClientName) : hasMember && !hasClient
+        const hasStaff = Boolean(String(row.staff_id || "").trim())
+        const hasStaffName = Boolean(String(row.staff_name || "").trim())
+        if (assignedTo === "clients") return hasClient || hasClientName
+        if (assignedTo === "staff") return hasStaff || hasStaffName
+        return hasMember && !hasClient && !hasStaff
       })
       setItems(scopedItems)
       setSummary({
@@ -184,7 +224,7 @@ export default function StatementsPage() {
     } finally {
       setLoading(false)
     }
-  }, [buildQuery, toast])
+  }, [buildQuery, assignedTo, toast])
 
   useEffect(() => {
     const s = getSession()
@@ -194,7 +234,8 @@ export default function StatementsPage() {
     if (superAdmin) void loadBranches()
     void loadMembers()
     void loadClients()
-  }, [loadBranches, loadMembers, loadClients])
+    void loadStaff()
+  }, [loadBranches, loadMembers, loadClients, loadStaff])
 
   useEffect(() => {
     void loadReport()
@@ -207,6 +248,7 @@ export default function StatementsPage() {
     setAssignedTo("members")
     setMemberIds([])
     setClientIds([])
+    setStaffIds([])
     setBranchIds([])
     setDateRange({ start: "", end: "" })
     setSummaryDateRange({ start: "", end: "" })
@@ -219,8 +261,18 @@ export default function StatementsPage() {
   }, [resetVersion, loadReport])
 
   useEffect(() => {
-    if (assignedTo === "members") setClientIds([])
-    if (assignedTo === "clients") setMemberIds([])
+    if (assignedTo === "members") {
+      setClientIds([])
+      setStaffIds([])
+    }
+    if (assignedTo === "clients") {
+      setMemberIds([])
+      setStaffIds([])
+    }
+    if (assignedTo === "staff") {
+      setMemberIds([])
+      setClientIds([])
+    }
   }, [assignedTo])
 
   useEffect(() => {
@@ -240,7 +292,7 @@ export default function StatementsPage() {
   useEffect(() => {
     if (!assigneeModeInitialized.current) return
     void loadReport()
-  }, [statementType, memberIds, clientIds, branchIds, dateRange.start, dateRange.end, loadReport])
+  }, [statementType, memberIds, clientIds, staffIds, branchIds, dateRange.start, dateRange.end, loadReport])
 
   const handleExportExcel = async () => {
     const rows = await exportStatementsExcel({ items, statementType, assignedTo })
@@ -262,6 +314,7 @@ export default function StatementsPage() {
       summaryQuery.set("assigned_to", assignedTo)
       if (assignedTo === "members" && memberIds.length > 0) summaryQuery.set("member_ids", memberIds.join(","))
       if (assignedTo === "clients" && clientIds.length > 0) summaryQuery.set("client_ids", clientIds.join(","))
+      if (assignedTo === "staff" && staffIds.length > 0) summaryQuery.set("staff_ids", staffIds.join(","))
       if (summaryDateRange.start.trim()) summaryQuery.set("dateStart", summaryDateRange.start.trim())
       if (summaryDateRange.end.trim()) summaryQuery.set("dateEnd", summaryDateRange.end.trim())
       if (isSuperAdmin && branchIds.length > 0) summaryQuery.set("branches", branchIds.join(","))
@@ -289,12 +342,10 @@ export default function StatementsPage() {
         { key: "date", header: "Date", render: (r) => String(r.transaction_date || "").slice(0, 10) || "—" },
         { key: "transaction_number", header: "Transaction #", render: (r) => r.transaction_number || "—" },
         { key: "type", header: "Type", render: (r) => r.type || "—" },
-        { key: "assigned_to", header: "Assigned to", render: (r) => (assignedTo === "clients" ? r.client_name || "—" : r.member_name || "—") },
+        { key: "assigned_to", header: "Assigned to", render: (r) => statementAssignedLabel(r, assignedTo) || "—" },
       ]
-      if (assignedTo !== "clients") {
-        base.push({ key: "assigned_no", header: "Assigned No", render: (r) => r.member_number || "—" })
-      }
-      if (assignedTo !== "clients") {
+      if (assignedTo === "members") {
+        base.push({ key: "assigned_no", header: "Assigned No", render: (r) => statementAssignedNumber(r, assignedTo) || "—" })
         base.push({ key: "account", header: "Account", render: (r) => r.account_number || "—" })
       }
       base.push(
@@ -312,7 +363,7 @@ export default function StatementsPage() {
     <>
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-foreground">Statements</h1>
-        <p className="text-muted-foreground">Generate detailed member statements with export-ready transaction timelines.</p>
+        <p className="text-muted-foreground">Generate member, client, or staff statements with export-ready transaction timelines.</p>
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 mb-8">
@@ -329,11 +380,15 @@ export default function StatementsPage() {
               <CardTitle className="flex items-center gap-2"><Filter className="h-5 w-5" />Filters &amp; export</CardTitle>
               <CardDescription>Refine statement scope by assignee, type, dates, and branch before exporting.</CardDescription>
             </div>
-            <div className="space-y-2 min-w-[220px]">
-              <div className="relative inline-grid grid-cols-2 rounded-full border border-[#f08c2b]/30 bg-[#f08c2b]/10 p-1 min-w-[220px]">
+            <div className="space-y-2 min-w-[320px]">
+              <div className="relative inline-grid grid-cols-3 rounded-full border border-[#f08c2b]/30 bg-[#f08c2b]/10 p-1 min-w-[320px]">
                 <div
-                  className={`absolute top-1 bottom-1 w-[calc(50%-0.25rem)] rounded-full bg-[#f08c2b] shadow-sm transition-transform duration-200 ${
-                    assignedTo === "clients" ? "translate-x-[calc(100%+0.25rem)]" : "translate-x-0"
+                  className={`absolute top-1 bottom-1 w-[calc(33.333%-0.2rem)] rounded-full bg-[#f08c2b] shadow-sm transition-transform duration-200 ${
+                    assignedTo === "staff"
+                      ? "translate-x-[calc(200%+0.35rem)]"
+                      : assignedTo === "clients"
+                        ? "translate-x-[calc(100%+0.2rem)]"
+                        : "translate-x-0"
                   }`}
                 />
                 <button
@@ -353,6 +408,15 @@ export default function StatementsPage() {
                   }`}
                 >
                   Clients
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAssignedTo("staff")}
+                  className={`relative z-10 px-3 py-1.5 text-sm rounded-full transition-colors ${
+                    assignedTo === "staff" ? "text-white font-medium" : "text-[#a85a16] hover:text-[#8f4b12]"
+                  }`}
+                >
+                  Staff
                 </button>
               </div>
             </div>
@@ -375,10 +439,15 @@ export default function StatementsPage() {
                 <Label>Members</Label>
                 <StyledMultiSelect value={memberIds} onChange={setMemberIds} placeholder="All members" options={memberSelectOptions} searchable />
               </div>
-            ) : (
+            ) : assignedTo === "clients" ? (
               <div className="space-y-2 w-auto min-w-[300px]">
                 <Label>Clients</Label>
                 <StyledMultiSelect value={clientIds} onChange={setClientIds} placeholder="All clients" options={clientSelectOptions} searchable />
+              </div>
+            ) : (
+              <div className="space-y-2 w-auto min-w-[300px]">
+                <Label>Staff</Label>
+                <StyledMultiSelect value={staffIds} onChange={setStaffIds} placeholder="All staff" options={staffSelectOptions} searchable />
               </div>
             )}
             <div className="space-y-2 w-auto min-w-[300px]">

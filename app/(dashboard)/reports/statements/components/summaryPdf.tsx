@@ -2,6 +2,12 @@
 
 import React from "react"
 import { Document, Page, StyleSheet, Text, View, pdf } from "@react-pdf/renderer"
+import {
+  statementAssignedLabel,
+  statementTopAssigneeColumnHeader,
+  statementTopAssigneesTitle,
+  type StatementAssigneeMode,
+} from "@/lib/reports/statement-assignee"
 
 type StatementRow = {
   transaction_date?: string | null
@@ -10,6 +16,7 @@ type StatementRow = {
   member_name: string
   member_number: string
   client_name?: string
+  staff_name?: string
   debit: number
   credit: number
   balance_after: number
@@ -18,7 +25,7 @@ type StatementRow = {
 type ExportStatementsSummaryPdfParams = {
   items: StatementRow[]
   statementType: string
-  assignedTo?: "members" | "clients"
+  assignedTo?: StatementAssigneeMode
 }
 
 const styles = StyleSheet.create({
@@ -57,9 +64,10 @@ export async function exportStatementsSummaryPdf({
 
   items.forEach((row) => {
     const type = String(row.type || "Other")
-    const member = assignedTo === "clients"
-      ? String(row.client_name || "Unknown")
-      : `${String(row.member_name || "Unknown")} (${String(row.member_number || "")})`
+    const member =
+      assignedTo === "members"
+        ? `${String(row.member_name || "Unknown")} (${String(row.member_number || "")})`
+        : String(statementAssignedLabel(row, assignedTo) || "Unknown")
     const month = monthKey(row.transaction_date)
     const debit = toNum(row.debit)
     const credit = toNum(row.credit)
@@ -160,9 +168,9 @@ export async function exportStatementsSummaryPdf({
           </View>
         ))}
 
-        <Text style={styles.sectionTitle}>Top 10 {assignedTo === "clients" ? "Clients" : "Members"} by Net Movement</Text>
+        <Text style={styles.sectionTitle}>Top 10 {statementTopAssigneesTitle(assignedTo)} by Net Movement</Text>
         <View style={styles.hrow}>
-          <Text style={styles.cellWide}>{assignedTo === "clients" ? "Client" : "Member"}</Text>
+          <Text style={styles.cellWide}>{statementTopAssigneeColumnHeader(assignedTo)}</Text>
           <Text style={styles.cell}>Txns</Text>
           <Text style={styles.cell}>Debit</Text>
           <Text style={styles.cell}>Credit</Text>
