@@ -256,6 +256,24 @@ CREATE TABLE IF NOT EXISTS senteloans_clients (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS senteloans_unclaimed_deposits (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    institution_id UUID NOT NULL REFERENCES senteloans_institutions(id) ON DELETE RESTRICT,
+    branch_id UUID NOT NULL REFERENCES senteloans_branches(id) ON DELETE RESTRICT,
+    member_id UUID REFERENCES senteloans_members(id) ON DELETE RESTRICT,
+    client_id UUID REFERENCES senteloans_clients(id) ON DELETE RESTRICT,
+    transaction_number VARCHAR(50),
+    amount DECIMAL(15,2) NOT NULL CHECK (amount > 0),
+    mode payment_mode NOT NULL,
+    date DATE,
+    status VARCHAR(15) DEFAULT 'unclaimed',
+    notes TEXT,
+    created_by UUID REFERENCES senteloans_users(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    modified_by UUID REFERENCES senteloans_users(id) ON DELETE SET NULL,
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 CREATE TABLE IF NOT EXISTS senteloans_grants (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     institution_id UUID NOT NULL REFERENCES senteloans_institutions(id) ON DELETE RESTRICT,

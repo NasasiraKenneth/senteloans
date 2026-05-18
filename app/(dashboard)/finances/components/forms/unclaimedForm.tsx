@@ -1,0 +1,245 @@
+"use client"
+
+import { useEffect, useState } from "react"
+import { Button } from "@/components/ui/button"
+import StyledSelect from "@/components/newUI/styled_select"
+import ReeveDatePicker from "@/components/newUI/date_picker"
+import { toDateOnlyString } from "@/lib/finances/date-only"
+import { PAYMENT_MODE_OPTIONS } from "@/lib/finances/payment-mode"
+
+export type UnclaimedFormData = {
+  amount: string
+  mode: string
+  date: string
+  transaction_number: string
+  status: string
+  notes: string
+  branch_id: string
+}
+
+type BranchOption = { value: string; label: string }
+
+interface UnclaimedFormProps {
+  onSubmit: (data: UnclaimedFormData) => void
+  onCancel: () => void
+  loading?: boolean
+  showBranchPicker: boolean
+  branchOptions: BranchOption[]
+  mode?: "create" | "edit"
+  initialValues?: Partial<UnclaimedFormData>
+  formDisabled?: boolean
+}
+
+const defaultValues: UnclaimedFormData = {
+  amount: "",
+  mode: "Cash",
+  date: "",
+  transaction_number: "",
+  status: "unclaimed",
+  notes: "",
+  branch_id: "",
+}
+
+const STATUS_OPTIONS = [
+  { value: "unclaimed", label: "Unclaimed" },
+  { value: "claimed", label: "Claimed" },
+]
+
+const inputClass = (hasError: boolean) =>
+  `w-full px-3 py-2.5 text-sm border rounded-md transition-all duration-200 focus:ring-[1.5px] focus:ring-[#f08c2b] focus:border-transparent focus:outline-none ${
+    hasError ? "border-red-500" : "border-gray-300 hover:border-gray-400"
+  }`
+
+function mergeInitialValues(initialValues?: Partial<UnclaimedFormData>): UnclaimedFormData {
+  return {
+    ...defaultValues,
+    amount: initialValues?.amount ?? "",
+    mode: initialValues?.mode ?? "Cash",
+    date: toDateOnlyString(initialValues?.date),
+    transaction_number: initialValues?.transaction_number ?? "",
+    status: initialValues?.status ?? "unclaimed",
+    notes: initialValues?.notes ?? "",
+    branch_id: initialValues?.branch_id ?? "",
+  }
+}
+
+export default function UnclaimedForm({
+  onSubmit,
+  onCancel,
+  loading = false,
+  showBranchPicker,
+  branchOptions,
+  mode = "create",
+  initialValues,
+  formDisabled = false,
+}: UnclaimedFormProps) {
+  const [form, setForm] = useState<UnclaimedFormData>(() =>
+    mode === "edit" && initialValues ? mergeInitialValues(initialValues) : { ...defaultValues },
+  )
+  const [errors, setErrors] = useState<Partial<Record<keyof UnclaimedFormData, string>>>({})
+  const disabled = loading || formDisabled
+
+  useEffect(() => {
+    if (mode === "edit") return
+    if (!showBranchPicker) {
+      setForm((prev) => ({ ...prev, branch_id: "" }))
+    }
+  }, [showBranchPicker, mode])
+
+  useEffect(() => {
+    if (mode !== "edit" || !initialValues) return
+    setForm(mergeInitialValues(initialValues))
+    setErrors({})
+  }, [mode, initialValues])
+
+  const set = (field: keyof UnclaimedFormData, value: string) => {
+    setForm((prev) => ({ ...prev, [field]: value }))
+    if (errors[field]) setErrors((prev) => ({ ...prev, [field]: undefined }))
+  }
+
+  const validate = (): boolean => {
+    const e: Partial<Record<keyof UnclaimedFormData, string>> = {}
+    const amount = Number(form.amount)
+    if (!Number.isFinite(amount) || amount <= 0) e.amount = "Enter an amount greater than zero"
+    if (!form.mode.trim()) e.mode = "Select a payment mode"
+    if (showBranchPicker && !form.branch_id.trim()) e.branch_id = "Select a branch"
+    if (!["unclaimed", "claimed"].includes(form.status)) e.status = "Select a status"
+    setErrors(e)
+    return Object.keys(e).length === 0
+  }
+
+  const handleSubmit = (ev: React.FormEvent) => {
+    ev.preventDefault()
+    if (disabled) return
+    if (!validate()) return
+    onSubmit({
+      amount: form.amount.trim(),
+      mode: form.mode.trim(),
+      date: form.date.trim(),
+      transaction_number: form.transaction_number.trim(),
+      status: form.status.trim().toLowerCase(),
+      notes: form.notes.trim(),
+      branch_id: form.branch_id.trim(),
+    })
+  }
+
+  const selectWrap = (hasError: boolean) => (hasError ? "rounded-md ring-1 ring-red-500" : "")
+
+  return (
+    <form onSubmit={handleSubmit} className="flex max-h-[calc(100vh-12rem)] flex-col gap-4 overflow-y-auto p-4">
+      {showBranchPicker && (
+        <div>
+          <label className="mb-1 block text-sm font-medium text-gray-700">Branch</label>
+          <select
+            className={inputClass(!!errors.branch_id)}
+            value={form.branch_id}
+            onChange={(ev) => set("branch_id", ev.target.value)}
+            disabled={disabled || branchOptions.length === 0}
+          >
+            <option value="">Select branch</option>
+            {branchOptions.map((b) => (
+              <option key={b.value} value={b.value}>
+                {b.label}
+              </option>
+            ))}
+          </select>
+          {errors.branch_id ? <p className="mt-1 text-xs text-red-600">{errors.branch_id}</p> : null}
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div>
+          <label className="mb-1 block text-sm font-medium text-gray-700">
+            Amount <span className="text-red-500">*</span>
+          </label>
+          <input
+            type="number"
+            min={0}
+            step="0.01"
+            className={inputClass(!!errors.amount)}
+            value={form.amount}
+            onChange={(ev) => set("amount", ev.target.value)}
+            placeholder="0.00"
+            disabled={disabled}
+          />
+          {errors.amount ? <p className="mt-1 text-xs text-red-600">{errors.amount}</p> : null}
+        </div>
+
+        <div>
+          <label className="mb-1 block text-sm font-medium text-gray-700">
+            Payment mode <span className="text-red-500">*</span>
+          </label>
+          <div className={`${selectWrap(!!errors.mode)} ${disabled ? "pointer-events-none opacity-60" : ""}`}>
+            <StyledSelect
+              value={form.mode}
+              onChange={(v) => set("mode", v)}
+              placeholder="Select mode"
+              options={PAYMENT_MODE_OPTIONS}
+            />
+          </div>
+          {errors.mode ? <p className="mt-1 text-xs text-red-600">{errors.mode}</p> : null}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div>
+          <label className="mb-1 block text-sm font-medium text-gray-700">Deposit date</label>
+          <ReeveDatePicker
+            key={form.date || "empty-date"}
+            value={form.date}
+            onChange={(v) => set("date", v)}
+            placeholder="Select date"
+          />
+        </div>
+
+        <div>
+          <label className="mb-1 block text-sm font-medium text-gray-700">Status</label>
+          <div className={disabled ? "pointer-events-none opacity-60" : ""}>
+            <StyledSelect
+              value={form.status}
+              onChange={(v) => set("status", v)}
+              placeholder="Select status"
+              options={STATUS_OPTIONS}
+            />
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <label className="mb-1 block text-sm font-medium text-gray-700">Transaction reference</label>
+        <input
+          type="text"
+          className={inputClass(false)}
+          value={form.transaction_number}
+          onChange={(ev) => set("transaction_number", ev.target.value)}
+          placeholder="Optional reference"
+          disabled={disabled}
+        />
+      </div>
+
+      <div>
+        <label className="mb-1 block text-sm font-medium text-gray-700">Notes</label>
+        <textarea
+          className={`${inputClass(false)} min-h-[80px] resize-y`}
+          value={form.notes}
+          onChange={(ev) => set("notes", ev.target.value)}
+          placeholder="Optional notes"
+          disabled={disabled}
+        />
+      </div>
+
+      <div className="flex justify-end gap-2 border-t border-gray-100 pt-4">
+        <Button type="button" variant="outline" onClick={onCancel} disabled={disabled}>
+          Cancel
+        </Button>
+        <Button
+          type="submit"
+          disabled={disabled}
+          className="bg-[#f08c2b] text-white transition-colors hover:!bg-[#f08c2b] hover:!text-black"
+        >
+          {loading ? "Saving…" : mode === "edit" ? "Save changes" : "Add deposit"}
+        </Button>
+      </div>
+    </form>
+  )
+}

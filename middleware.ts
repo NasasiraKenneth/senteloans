@@ -14,6 +14,8 @@ const INSTITUTION_PROTECTED_PREFIXES = [
   "/transactions",
   "/savings",
   "/reports",
+  "/finances",
+  "/expenses",
 ]
 
 function isAdminRoute(pathname: string) {
@@ -95,6 +97,8 @@ export const config = {
     "/transactions/:path*",
     "/savings/:path*",
     "/reports/:path*",
+    "/finances/:path*",
+    "/expenses/:path*",
     "/client-login",
     "/client-portal/:path*",
   ],

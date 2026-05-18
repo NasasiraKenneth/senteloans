@@ -38,6 +38,7 @@ export default function ReeveDatePicker({
 
   return (
     <DatePicker
+      key={value || "empty"}
       className="orange"
       value={parsed}
       onOpenPickNewDate={false}
