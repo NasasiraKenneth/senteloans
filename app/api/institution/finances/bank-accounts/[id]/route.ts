@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
 import { hasPermission, isSuperAdmin, requireStaffSession, resolveActorContext } from "@/lib/api/rbac"
 import { runWithAuth } from "@/lib/db"
+import { auditBankAccountUpdate, bankAccountSnapshot } from "@/lib/audit/finances-audit"
 import { FINANCE_PERMISSIONS } from "@/lib/finances/permissions"
 
 function singleBankAccountWhere(
@@ -102,14 +103,10 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     const body = await req.json().catch(() => ({}))
     const bankName = String(body?.bank_name || "").trim()
     const accountNumber = String(body?.bank_account_number || "").trim()
-    const totalAmount = Number(body?.total_amount)
     const branchId = String(body?.branch_id || "").trim()
 
     if (!bankName || !accountNumber) {
       return NextResponse.json({ error: "bank_name_and_account_required" }, { status: 400 })
-    }
-    if (!Number.isFinite(totalAmount) || totalAmount < 0) {
-      return NextResponse.json({ error: "invalid_total_amount" }, { status: 400 })
     }
 
     const updated = await runWithAuth(sess.authUserId, async (client) => {
@@ -120,8 +117,15 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       if (!isSuperAdmin(actor) && !actor.branch_id) return { error: "actor_branch_missing" as const }
 
       const { where, values } = singleBankAccountWhere(actor, accountId)
-      const existing = await client.query(`SELECT id, branch_id FROM senteloans_bank_accounts ba WHERE ${where} LIMIT 1`, values)
+      const existing = await client.query(
+        `SELECT id, branch_id, bank_name, bank_account_number, total_amount
+         FROM senteloans_bank_accounts ba
+         WHERE ${where}
+         LIMIT 1`,
+        values,
+      )
       if ((existing.rowCount ?? 0) === 0) return { error: "not_found" as const }
+      const oldRow = existing.rows[0] as Record<string, unknown>
 
       const targetBranchId = isSuperAdmin(actor)
         ? branchId || String(existing.rows[0]?.branch_id || "")
@@ -137,11 +141,11 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         if ((branchCheck.rowCount ?? 0) === 0) return { error: "invalid_branch" as const }
       }
 
-      const setParams: unknown[] = [bankName, accountNumber, totalAmount, targetBranchId, actor.id]
-      let scopedWhere = `ba.id = $6::uuid AND ba.institution_id = $7::uuid`
+      const setParams: unknown[] = [bankName, accountNumber, targetBranchId, actor.id]
+      let scopedWhere = `ba.id = $5::uuid AND ba.institution_id = $6::uuid`
       setParams.push(accountId, actor.institution_id)
       if (!isSuperAdmin(actor)) {
-        scopedWhere += ` AND ba.branch_id = $8::uuid`
+        scopedWhere += ` AND ba.branch_id = $7::uuid`
         setParams.push(actor.branch_id)
       }
 
@@ -149,17 +153,27 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         `UPDATE senteloans_bank_accounts ba
          SET bank_name = $1,
              bank_account_number = $2,
-             total_amount = $3,
-             branch_id = $4::uuid,
-             modified_by = $5::uuid,
+             branch_id = $3::uuid,
+             modified_by = $4::uuid,
              updated_at = NOW()
          WHERE ${scopedWhere}
-         RETURNING id`,
+         RETURNING id, bank_name, bank_account_number, total_amount, branch_id`,
         setParams,
       )
 
       if ((updateRes.rowCount ?? 0) === 0) return { error: "not_found" as const }
-      return { id: String(updateRes.rows[0]?.id || "") }
+      const newRow = updateRes.rows[0] as Record<string, unknown>
+
+      await auditBankAccountUpdate(
+        client,
+        actor,
+        accountId,
+        bankAccountSnapshot(oldRow),
+        bankAccountSnapshot(newRow),
+        (newRow.branch_id as string | null | undefined) ?? targetBranchId,
+      )
+
+      return { id: String(newRow.id || "") }
     })
 
     if (updated && "error" in updated) {

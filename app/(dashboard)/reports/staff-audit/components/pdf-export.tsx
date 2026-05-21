@@ -13,7 +13,6 @@ type AuditRow = {
   new_values_resolved?: Record<string, unknown> | null
   old_values?: Record<string, unknown> | null
   new_values?: Record<string, unknown> | null
-  ip_address?: string | null
 }
 
 type ExportStaffAuditPdfParams = {

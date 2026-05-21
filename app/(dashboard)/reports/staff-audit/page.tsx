@@ -34,8 +34,6 @@ type AuditRow = {
   new_values?: Record<string, unknown> | null
   old_values_resolved?: Record<string, unknown> | null
   new_values_resolved?: Record<string, unknown> | null
-  ip_address?: string | null
-  user_agent?: string | null
 }
 type AuditSummary = { total_logs: number; inserts: number; updates: number; deletes: number }
 
@@ -245,7 +243,6 @@ export default function StaffAuditReportsPage() {
           return changedKeys.length > 4 ? `${preview} +${changedKeys.length - 4} more` : preview
         },
       },
-      { key: "ip_address", header: "IP", render: (r) => r.ip_address || "—" },
     ],
     []
   )

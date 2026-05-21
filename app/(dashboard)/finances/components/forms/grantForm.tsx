@@ -207,7 +207,7 @@ export default function GrantForm({
       </div>
 
       <div>
-        <label className="mb-1 block text-sm font-medium text-gray-700">Available balance</label>
+        <label className="mb-1 block text-sm font-medium text-gray-700">Amount received</label>
         <div className="relative">
           <Wallet className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
           <input
@@ -217,14 +217,14 @@ export default function GrantForm({
             className={inputClass(!!errors.available_balance)}
             value={form.available_balance}
             onChange={(ev) => set("available_balance", ev.target.value)}
-            placeholder="Defaults to total grant amount"
+            placeholder="0.00"
             disabled={disabled}
           />
         </div>
         {errors.available_balance ? (
           <p className="mt-1 text-xs text-red-600">{errors.available_balance}</p>
         ) : (
-          <p className="mt-1 text-xs text-muted-foreground">Leave blank to make the full grant amount available.</p>
+          <p className="mt-1 text-xs text-muted-foreground">Leave blank if the full grant has already been received.</p>
         )}
       </div>
 

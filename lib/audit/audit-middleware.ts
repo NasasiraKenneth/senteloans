@@ -1,18 +1,8 @@
-import type { NextRequest } from "next/server"
 import { auditLogger } from "./audit-logger"
 
 export interface AuditContext {
   userId?: string
   institutionId: string
-  ipAddress?: string
-  userAgent?: string
-}
-
-export function createAuditContext(request: NextRequest): Partial<AuditContext> {
-  return {
-    ipAddress: request.ip || request.headers.get("x-forwarded-for") || "unknown",
-    userAgent: request.headers.get("user-agent") || "unknown",
-  }
 }
 
 export async function withAudit<T>(
@@ -38,8 +28,6 @@ export async function withAudit<T>(
       new_values: auditInfo.newValues,
       institution_id: auditInfo.context.institutionId,
       user_id: auditInfo.context.userId,
-      ip_address: auditInfo.context.ipAddress,
-      user_agent: auditInfo.context.userAgent,
     })
 
     return result
@@ -53,8 +41,6 @@ export async function withAudit<T>(
       new_values: { ...auditInfo.newValues, _error: String(error) },
       institution_id: auditInfo.context.institutionId,
       user_id: auditInfo.context.userId,
-      ip_address: auditInfo.context.ipAddress,
-      user_agent: auditInfo.context.userAgent,
     })
 
     throw error

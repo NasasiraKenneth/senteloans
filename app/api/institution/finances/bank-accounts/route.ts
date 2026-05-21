@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
 import { hasPermission, isSuperAdmin, requireStaffSession, resolveActorContext, scopeWhere } from "@/lib/api/rbac"
 import { runWithAuth } from "@/lib/db"
+import { auditBankAccountInsert, bankAccountSnapshot } from "@/lib/audit/finances-audit"
 import { FINANCE_PERMISSIONS } from "@/lib/finances/permissions"
 
 export async function GET(req: Request) {
@@ -15,7 +16,12 @@ export async function GET(req: Request) {
     const url = new URL(req.url)
     const branchesRaw = (url.searchParams.get("branches") || "").trim()
     const selectedBranchIds = branchesRaw ? branchesRaw.split(",").map((v) => v.trim()).filter(Boolean) : []
-    const limit = Math.min(Math.max(parseInt(url.searchParams.get("limit") || "200", 10), 1), 500)
+    const search = (url.searchParams.get("q") || "").trim()
+    const pageRaw = parseInt(url.searchParams.get("page") || "0", 10)
+    const rowsPerPageRaw = parseInt(url.searchParams.get("rowsPerPage") || "10", 10)
+    const page = Number.isFinite(pageRaw) && pageRaw >= 0 ? pageRaw : 0
+    const rowsPerPage = Math.min(Math.max(Number.isFinite(rowsPerPageRaw) ? rowsPerPageRaw : 10, 1), 200)
+    const offset = page * rowsPerPage
 
     const result = await runWithAuth(sess.authUserId, async (client) => {
       const actor = await resolveActorContext(client, sess.authUserId)
@@ -25,8 +31,19 @@ export async function GET(req: Request) {
       if (!isSuperAdmin(actor) && !actor.branch_id) return { error: "actor_branch_missing" as const }
 
       const scoped = scopeWhere({ tableAlias: "ba", actor, selectedBranchIds })
-      const values = [...scoped.values, limit]
-      const limitIdx = scoped.nextIndex
+      let where = scoped.where
+      const values: unknown[] = [...scoped.values]
+      let idx = scoped.nextIndex
+
+      if (search) {
+        where += ` AND (ba.bank_name ILIKE $${idx} OR ba.bank_account_number ILIKE $${idx})`
+        values.push(`%${search}%`)
+        idx++
+      }
+
+      const limitIdx = idx
+      const offsetIdx = idx + 1
+      values.push(rowsPerPage, offset)
 
       const listRes = await client.query(
         `SELECT
@@ -35,14 +52,17 @@ export async function GET(req: Request) {
            ba.bank_account_number,
            COALESCE(ba.total_amount, 0)::numeric AS total_amount,
            b.name AS branch_name,
-           ba.updated_at
+           ba.updated_at,
+           COUNT(*) OVER()::int AS total_count
          FROM senteloans_bank_accounts ba
          LEFT JOIN senteloans_branches b ON b.id = ba.branch_id
-         WHERE ${scoped.where}
+         WHERE ${where}
          ORDER BY ba.updated_at DESC NULLS LAST, ba.created_at DESC
-         LIMIT $${limitIdx}`,
+         LIMIT $${limitIdx} OFFSET $${offsetIdx}`,
         values,
       )
+
+      const total = listRes.rows[0]?.total_count != null ? Number(listRes.rows[0].total_count) : 0
 
       return {
         rows: listRes.rows.map((row) => ({
@@ -53,6 +73,7 @@ export async function GET(req: Request) {
           branch_name: String(row.branch_name || ""),
           updated_at: row.updated_at ? String(row.updated_at) : "",
         })),
+        total,
       }
     })
 
@@ -61,7 +82,7 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: result.error }, { status: statusCode })
     }
 
-    return NextResponse.json({ rows: result?.rows || [] })
+    return NextResponse.json({ rows: result?.rows || [], total: result?.total || 0 })
   } catch (e: unknown) {
     const err = e as Error
     apiLog("error", "finances.bank_accounts.list.error", { method: "GET", apiPath, status: 500, error: err?.message })
@@ -109,11 +130,23 @@ export async function POST(req: Request) {
         `INSERT INTO senteloans_bank_accounts (
            institution_id, branch_id, bank_name, bank_account_number, total_amount, modified_by
          ) VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6::uuid)
-         RETURNING id`,
+         RETURNING id, bank_name, bank_account_number, total_amount, branch_id`,
         [actor.institution_id, targetBranchId, bankName, accountNumber, totalAmount, actor.id],
       )
 
-      return { id: String(insertRes.rows[0]?.id || "") }
+      const newRow = insertRes.rows[0] as Record<string, unknown> | undefined
+      const newId = String(newRow?.id || "")
+      if (newRow && newId) {
+        await auditBankAccountInsert(
+          client,
+          actor,
+          newId,
+          bankAccountSnapshot(newRow),
+          (newRow.branch_id as string | null | undefined) ?? targetBranchId,
+        )
+      }
+
+      return { id: newId }
     })
 
     if (created && "error" in created) {

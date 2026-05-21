@@ -179,7 +179,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     headers.set("Content-Disposition", `attachment; filename="${filename}"`)
     headers.set("Cache-Control", "no-store")
     apiLog("info", "transactions.detail.pdf.success", { method: "GET", apiPath, status: 200, transactionId: id })
-    return new NextResponse(result.buffer, { status: 200, headers })
+    return new NextResponse(new Uint8Array(result.buffer), { status: 200, headers })
   } catch (e: unknown) {
     const err = e as Error
     apiLog("error", "transactions.detail.pdf.error", { method: "GET", apiPath, status: 500, error: err?.message || "Unexpected error" })

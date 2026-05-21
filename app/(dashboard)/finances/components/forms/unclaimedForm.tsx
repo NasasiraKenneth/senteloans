@@ -12,7 +12,6 @@ export type UnclaimedFormData = {
   mode: string
   date: string
   transaction_number: string
-  status: string
   notes: string
   branch_id: string
 }
@@ -35,15 +34,9 @@ const defaultValues: UnclaimedFormData = {
   mode: "Cash",
   date: "",
   transaction_number: "",
-  status: "unclaimed",
   notes: "",
   branch_id: "",
 }
-
-const STATUS_OPTIONS = [
-  { value: "unclaimed", label: "Unclaimed" },
-  { value: "claimed", label: "Claimed" },
-]
 
 const inputClass = (hasError: boolean) =>
   `w-full px-3 py-2.5 text-sm border rounded-md transition-all duration-200 focus:ring-[1.5px] focus:ring-[#f08c2b] focus:border-transparent focus:outline-none ${
@@ -57,7 +50,6 @@ function mergeInitialValues(initialValues?: Partial<UnclaimedFormData>): Unclaim
     mode: initialValues?.mode ?? "Cash",
     date: toDateOnlyString(initialValues?.date),
     transaction_number: initialValues?.transaction_number ?? "",
-    status: initialValues?.status ?? "unclaimed",
     notes: initialValues?.notes ?? "",
     branch_id: initialValues?.branch_id ?? "",
   }
@@ -93,9 +85,17 @@ export default function UnclaimedForm({
   }, [mode, initialValues])
 
   const set = (field: keyof UnclaimedFormData, value: string) => {
-    setForm((prev) => ({ ...prev, [field]: value }))
+    setForm((prev) => {
+      const next = { ...prev, [field]: value }
+      if (field === "mode" && value.trim().toLowerCase() === "cash") {
+        next.transaction_number = ""
+      }
+      return next
+    })
     if (errors[field]) setErrors((prev) => ({ ...prev, [field]: undefined }))
   }
+
+  const isCash = form.mode.trim().toLowerCase() === "cash"
 
   const validate = (): boolean => {
     const e: Partial<Record<keyof UnclaimedFormData, string>> = {}
@@ -103,7 +103,6 @@ export default function UnclaimedForm({
     if (!Number.isFinite(amount) || amount <= 0) e.amount = "Enter an amount greater than zero"
     if (!form.mode.trim()) e.mode = "Select a payment mode"
     if (showBranchPicker && !form.branch_id.trim()) e.branch_id = "Select a branch"
-    if (!["unclaimed", "claimed"].includes(form.status)) e.status = "Select a status"
     setErrors(e)
     return Object.keys(e).length === 0
   }
@@ -116,8 +115,7 @@ export default function UnclaimedForm({
       amount: form.amount.trim(),
       mode: form.mode.trim(),
       date: form.date.trim(),
-      transaction_number: form.transaction_number.trim(),
-      status: form.status.trim().toLowerCase(),
+      transaction_number: isCash ? "" : form.transaction_number.trim(),
       notes: form.notes.trim(),
       branch_id: form.branch_id.trim(),
     })
@@ -181,41 +179,29 @@ export default function UnclaimedForm({
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <div>
-          <label className="mb-1 block text-sm font-medium text-gray-700">Deposit date</label>
-          <ReeveDatePicker
-            key={form.date || "empty-date"}
-            value={form.date}
-            onChange={(v) => set("date", v)}
-            placeholder="Select date"
-          />
-        </div>
-
-        <div>
-          <label className="mb-1 block text-sm font-medium text-gray-700">Status</label>
-          <div className={disabled ? "pointer-events-none opacity-60" : ""}>
-            <StyledSelect
-              value={form.status}
-              onChange={(v) => set("status", v)}
-              placeholder="Select status"
-              options={STATUS_OPTIONS}
-            />
-          </div>
-        </div>
-      </div>
-
       <div>
-        <label className="mb-1 block text-sm font-medium text-gray-700">Transaction reference</label>
-        <input
-          type="text"
-          className={inputClass(false)}
-          value={form.transaction_number}
-          onChange={(ev) => set("transaction_number", ev.target.value)}
-          placeholder="Optional reference"
-          disabled={disabled}
+        <label className="mb-1 block text-sm font-medium text-gray-700">Deposit date</label>
+        <ReeveDatePicker
+          key={form.date || "empty-date"}
+          value={form.date}
+          onChange={(v) => set("date", v)}
+          placeholder="Select date"
         />
       </div>
+
+      {!isCash && (
+        <div>
+          <label className="mb-1 block text-sm font-medium text-gray-700">Transaction reference</label>
+          <input
+            type="text"
+            className={inputClass(false)}
+            value={form.transaction_number}
+            onChange={(ev) => set("transaction_number", ev.target.value)}
+            placeholder="Optional reference"
+            disabled={disabled}
+          />
+        </div>
+      )}
 
       <div>
         <label className="mb-1 block text-sm font-medium text-gray-700">Notes</label>

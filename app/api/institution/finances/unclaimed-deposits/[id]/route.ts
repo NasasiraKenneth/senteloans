@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
 import { hasPermission, isSuperAdmin, requireStaffSession, resolveActorContext } from "@/lib/api/rbac"
 import { runWithAuth } from "@/lib/db"
+import { auditUnclaimedDepositUpdate, unclaimedDepositSnapshot } from "@/lib/audit/finances-audit"
 import { FINANCE_PERMISSIONS } from "@/lib/finances/permissions"
 import { toDateOnlyString } from "@/lib/finances/date-only"
 import { normalizePaymentMode } from "@/lib/finances/payment-mode"
@@ -45,6 +46,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       const res = await client.query(
         `SELECT
            ud.id,
+           ud.unclaimed_deposit_number,
            ud.transaction_number,
            ud.amount,
            ud.mode,
@@ -53,11 +55,14 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
            ud.member_id,
            ud.client_id,
            ud.branch_id,
+           ud.transaction_id,
            ud.notes,
-           COALESCE(m.full_name, c.name, '') AS assignee_name
+           COALESCE(m.full_name, c.name, '') AS assignee_name,
+           t.transaction_number AS linked_transaction_number
          FROM senteloans_unclaimed_deposits ud
          LEFT JOIN senteloans_members m ON m.id = ud.member_id
          LEFT JOIN senteloans_clients c ON c.id = ud.client_id
+         LEFT JOIN senteloans_transactions t ON t.id = ud.transaction_id
          WHERE ${where}
          LIMIT 1`,
         values,
@@ -75,6 +80,9 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       return {
         deposit: {
           id: String(row.id),
+          unclaimed_deposit_number: row.unclaimed_deposit_number
+            ? String(row.unclaimed_deposit_number)
+            : "",
           transaction_number: row.transaction_number ? String(row.transaction_number) : "",
           amount: Number(row.amount || 0),
           mode: String(row.mode || ""),
@@ -85,6 +93,10 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
           assignee_type: assigneeType as "" | "member" | "client",
           assignee_name: String(row.assignee_name || ""),
           branch_id: row.branch_id ? String(row.branch_id) : "",
+          transaction_id: row.transaction_id ? String(row.transaction_id) : "",
+          linked_transaction_number: row.linked_transaction_number
+            ? String(row.linked_transaction_number)
+            : "",
           notes: row.notes ? String(row.notes) : "",
           can_edit: canEdit && !isClaimed,
         },
@@ -124,7 +136,6 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     const depositDate = String(body?.date || "").trim() || null
     const transactionNumber = String(body?.transaction_number || "").trim() || null
     const notes = String(body?.notes || "").trim() || null
-    const status = String(body?.status || "unclaimed").trim().toLowerCase()
     const branchId = String(body?.branch_id || "").trim()
 
     if (!Number.isFinite(amount) || amount <= 0) {
@@ -132,9 +143,6 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     }
     if (!mode) {
       return NextResponse.json({ error: "invalid_payment_mode" }, { status: 400 })
-    }
-    if (!["unclaimed", "claimed"].includes(status)) {
-      return NextResponse.json({ error: "invalid_status" }, { status: 400 })
     }
 
     const updated = await runWithAuth(sess.authUserId, async (client) => {
@@ -146,12 +154,17 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
       const { where, values } = singleUnclaimedWhere(actor, depositId)
       const existing = await client.query(
-        `SELECT id, branch_id, status FROM senteloans_unclaimed_deposits ud WHERE ${where} LIMIT 1`,
+        `SELECT id, branch_id, status, unclaimed_deposit_number, transaction_number, amount, mode, date,
+                member_id, client_id, transaction_id, notes
+         FROM senteloans_unclaimed_deposits ud
+         WHERE ${where}
+         LIMIT 1`,
         values,
       )
       if ((existing.rowCount ?? 0) === 0) return { error: "not_found" as const }
+      const oldRow = existing.rows[0] as Record<string, unknown>
 
-      const currentStatus = String(existing.rows[0]?.status || "").trim().toLowerCase()
+      const currentStatus = String(oldRow.status || "").trim().toLowerCase()
       if (currentStatus === "claimed") {
         return {
           error: "deposit_not_editable" as const,
@@ -160,8 +173,8 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       }
 
       const targetBranchId = isSuperAdmin(actor)
-        ? branchId || String(existing.rows[0]?.branch_id || "")
-        : String(existing.rows[0]?.branch_id || actor.branch_id)
+        ? branchId || String(oldRow.branch_id || "")
+        : String(oldRow.branch_id || actor.branch_id)
 
       if (!targetBranchId) return { error: "branch_id_required" as const }
 
@@ -178,16 +191,17 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         amount,
         mode,
         depositDate,
-        status,
         notes,
         targetBranchId,
         actor.id,
       ]
-      let scopedWhere = `ud.id = $9::uuid AND ud.institution_id = $10::uuid`
+      let scopedWhere = `ud.id = $8::uuid AND ud.institution_id = $9::uuid`
       setParams.push(depositId, actor.institution_id)
       if (!isSuperAdmin(actor)) {
-        scopedWhere += ` AND ud.branch_id = $11::uuid`
+        scopedWhere += ` AND ud.branch_id = $10::uuid AND lower(trim(ud.status)) = 'unclaimed'`
         setParams.push(actor.branch_id)
+      } else {
+        scopedWhere += ` AND lower(trim(ud.status)) = 'unclaimed'`
       }
 
       const updateRes = await client.query(
@@ -196,18 +210,34 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
              amount = $2,
              mode = $3::payment_mode,
              date = $4::date,
-             status = $5,
-             notes = $6,
-             branch_id = $7::uuid,
-             modified_by = $8::uuid,
+             notes = $5,
+             branch_id = $6::uuid,
+             modified_by = $7::uuid,
              updated_at = NOW()
          WHERE ${scopedWhere}
-         RETURNING id`,
+         RETURNING id, unclaimed_deposit_number, transaction_number, amount, mode, date, status,
+                   member_id, client_id, transaction_id, branch_id, notes`,
         setParams,
       )
 
-      if ((updateRes.rowCount ?? 0) === 0) return { error: "not_found" as const }
-      return { id: String(updateRes.rows[0]?.id || "") }
+      if ((updateRes.rowCount ?? 0) === 0) {
+        return {
+          error: "deposit_not_editable" as const,
+          message: "This deposit has been claimed and can no longer be edited." as const,
+        }
+      }
+      const newRow = updateRes.rows[0] as Record<string, unknown>
+
+      await auditUnclaimedDepositUpdate(
+        client,
+        actor,
+        depositId,
+        unclaimedDepositSnapshot(oldRow),
+        unclaimedDepositSnapshot(newRow),
+        (newRow.branch_id as string | null | undefined) ?? targetBranchId,
+      )
+
+      return { id: String(newRow.id || "") }
     })
 
     if (updated && "error" in updated) {

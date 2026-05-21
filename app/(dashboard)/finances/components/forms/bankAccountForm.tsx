@@ -80,13 +80,15 @@ export default function BankAccountForm({
     if (!form.bank_account_number.trim()) e.bank_account_number = "Account number is required"
     if (showBranchPicker && !form.branch_id.trim()) e.branch_id = "Select a branch"
 
-    const amountRaw = form.total_amount.trim()
-    if (amountRaw === "") {
-      e.total_amount = "Opening balance is required"
-    } else {
-      const amount = Number(amountRaw)
-      if (!Number.isFinite(amount) || amount < 0) {
-        e.total_amount = "Enter a valid amount (0 or greater)"
+    if (mode !== "edit") {
+      const amountRaw = form.total_amount.trim()
+      if (amountRaw === "") {
+        e.total_amount = "Opening balance is required"
+      } else {
+        const amount = Number(amountRaw)
+        if (!Number.isFinite(amount) || amount < 0) {
+          e.total_amount = "Enter a valid amount (0 or greater)"
+        }
       }
     }
 
@@ -101,7 +103,7 @@ export default function BankAccountForm({
     onSubmit({
       bank_name: form.bank_name.trim(),
       bank_account_number: form.bank_account_number.trim(),
-      total_amount: form.total_amount.trim(),
+      total_amount: mode === "edit" ? "" : form.total_amount.trim(),
       branch_id: form.branch_id.trim(),
     })
   }
@@ -168,26 +170,30 @@ export default function BankAccountForm({
         ) : null}
       </div>
 
-      <div>
-        <label className="mb-1 block text-sm font-medium text-gray-700">
-          Opening / total amount <span className="text-red-500">*</span>
-        </label>
-        <div className="relative">
-          <Building2 className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-          <input
-            type="number"
-            min={0}
-            step="0.01"
-            className={inputClass(!!errors.total_amount)}
-            value={form.total_amount}
-            onChange={(ev) => set("total_amount", ev.target.value)}
-            placeholder="0.00"
-            disabled={disabled}
-          />
+      {mode !== "edit" && (
+        <div>
+          <label className="mb-1 block text-sm font-medium text-gray-700">
+            Opening / total amount <span className="text-red-500">*</span>
+          </label>
+          <div className="relative">
+            <Building2 className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+            <input
+              type="number"
+              min={0}
+              step="0.01"
+              className={inputClass(!!errors.total_amount)}
+              value={form.total_amount}
+              onChange={(ev) => set("total_amount", ev.target.value)}
+              placeholder="0.00"
+              disabled={disabled}
+            />
+          </div>
+          {errors.total_amount ? <p className="mt-1 text-xs text-red-600">{errors.total_amount}</p> : null}
+          <p className="mt-1 text-xs text-muted-foreground">
+            Ledger balance held in this account at registration. This cannot be edited later.
+          </p>
         </div>
-        {errors.total_amount ? <p className="mt-1 text-xs text-red-600">{errors.total_amount}</p> : null}
-        <p className="mt-1 text-xs text-muted-foreground">Ledger balance held in this account at registration.</p>
-      </div>
+      )}
 
       <div className="flex justify-end gap-2 border-t border-gray-100 pt-4">
         <Button type="button" variant="outline" onClick={onCancel} disabled={disabled}>

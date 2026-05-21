@@ -16,9 +16,9 @@ interface EditUnclaimedDepositProps {
 const ERROR_MESSAGES: Record<string, string> = {
   invalid_amount: "Enter an amount greater than zero.",
   invalid_payment_mode: "Select a valid payment mode.",
-  invalid_status: "Select a valid status.",
   "missing_permission:edit_unclaimed_deposit": "You do not have permission to edit unclaimed deposits.",
   branch_id_required: "Select a branch for this deposit.",
+  invalid_branch: "The selected branch is invalid.",
   not_found: "This deposit no longer exists.",
   deposit_not_editable: "This deposit has been claimed and can no longer be edited.",
 }
@@ -34,7 +34,6 @@ function toApiBody(data: UnclaimedFormData) {
     mode: data.mode,
     date: data.date || null,
     transaction_number: data.transaction_number || null,
-    status: data.status,
     notes: data.notes || null,
     branch_id: data.branch_id || null,
   }
@@ -88,7 +87,6 @@ export default function EditUnclaimedDeposit({ isOpen, depositId, onClose, onSuc
           mode: d?.mode || "Cash",
           date: toDateOnlyString(d?.date),
           transaction_number: d?.transaction_number || "",
-          status: d?.status || "unclaimed",
           notes: d?.notes || "",
           branch_id: d?.branch_id || "",
         })

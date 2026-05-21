@@ -17,6 +17,9 @@ const ERROR_MESSAGES: Record<string, string> = {
   assignee_required: "Select a member or client to assign this deposit to.",
   invalid_member: "The selected member is invalid for this branch.",
   invalid_client: "The selected client is invalid for this branch.",
+  invalid_transaction: "The selected transaction is invalid for this assignee.",
+  transaction_already_linked: "This transaction is already linked to another deposit.",
+  transaction_amount_mismatch: "The transaction amount does not match the deposit amount.",
   member_and_client_conflict: "Assign either a member or a client, not both.",
   deposit_already_claimed: "This deposit has already been claimed.",
   "missing_permission:edit_unclaimed_deposit": "You do not have permission to claim deposits.",
@@ -40,6 +43,7 @@ export default function ClaimDeposit({ isOpen, depositId, onClose, onSuccess }: 
   const [fetching, setFetching] = useState(false)
   const [fetchError, setFetchError] = useState<string | null>(null)
   const [depositSummary, setDepositSummary] = useState<DepositSummary | null>(null)
+  const [branchId, setBranchId] = useState<string>("")
   const [formKey, setFormKey] = useState(0)
   const { toast } = useToast()
 
@@ -47,6 +51,7 @@ export default function ClaimDeposit({ isOpen, depositId, onClose, onSuccess }: 
     if (!isOpen || !depositId) {
       setDepositSummary(null)
       setFetchError(null)
+      setBranchId("")
       return
     }
 
@@ -74,10 +79,12 @@ export default function ClaimDeposit({ isOpen, depositId, onClose, onSuccess }: 
           date: toDateOnlyString(d?.date),
           mode: d?.mode || "",
         })
+        setBranchId(String(d?.branch_id || ""))
       } catch (e: unknown) {
         const message = String((e as Error)?.message || "")
         setFetchError(message)
         setDepositSummary(null)
+        setBranchId("")
         toast({
           title: message === "deposit_already_claimed" ? "Already claimed" : "Failed to load deposit",
           description: formatError(message),
@@ -101,16 +108,33 @@ export default function ClaimDeposit({ isOpen, depositId, onClose, onSuccess }: 
         body: JSON.stringify({
           member_id: data.assignee_type === "member" ? data.member_id : null,
           client_id: data.assignee_type === "client" ? data.client_id : null,
+          transaction_id: data.transaction_id || null,
         }),
       })
       const body = await res.json().catch(() => ({}))
       if (!res.ok) {
         const errCode = String(body?.error || "")
         const errMessage = typeof body?.message === "string" ? body.message : undefined
+        const warningCodes = new Set([
+          "deposit_already_claimed",
+          "transaction_already_linked",
+          "transaction_amount_mismatch",
+          "invalid_transaction",
+        ])
+        const title =
+          errCode === "deposit_already_claimed"
+            ? "Already claimed"
+            : errCode === "transaction_already_linked"
+              ? "Transaction in use"
+              : errCode === "transaction_amount_mismatch"
+                ? "Amount mismatch"
+                : errCode === "invalid_transaction"
+                  ? "Invalid transaction"
+                  : "Failed to claim deposit"
         toast({
-          title: errCode === "deposit_already_claimed" ? "Already claimed" : "Failed to claim deposit",
+          title,
           description: formatError(errCode, errMessage),
-          variant: errCode === "deposit_already_claimed" ? "warning" : "destructive",
+          variant: warningCodes.has(errCode) ? "warning" : "destructive",
         })
         return
       }
@@ -143,6 +167,7 @@ export default function ClaimDeposit({ isOpen, depositId, onClose, onSuccess }: 
         <ClaimForm
           key={`${depositId}-${formKey}`}
           depositSummary={depositSummary}
+          branchId={branchId}
           onSubmit={handleClaim}
           onCancel={onClose}
           loading={loading}

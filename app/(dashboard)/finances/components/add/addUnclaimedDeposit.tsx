@@ -14,9 +14,11 @@ interface AddUnclaimedDepositProps {
 const ERROR_MESSAGES: Record<string, string> = {
   invalid_amount: "Enter an amount greater than zero.",
   invalid_payment_mode: "Select a valid payment mode.",
-  invalid_status: "Select a valid status.",
   "missing_permission:add_unclaimed_deposit": "You do not have permission to add unclaimed deposits.",
   branch_id_required: "Select a branch for this deposit.",
+  invalid_branch: "The selected branch is invalid.",
+  unclaimed_deposit_number_generation_failed:
+    "Could not generate a unique deposit number. Please try again.",
 }
 
 function formatError(code: string): string {
@@ -29,9 +31,6 @@ function toApiBody(data: UnclaimedFormData) {
     mode: data.mode,
     date: data.date || null,
     transaction_number: data.transaction_number || null,
-    status: data.status,
-    member_id: null,
-    client_id: null,
     notes: data.notes || null,
     branch_id: data.branch_id || null,
   }

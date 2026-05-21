@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
 import { hasPermission, isSuperAdmin, requireStaffSession, resolveActorContext, scopeWhere } from "@/lib/api/rbac"
 import { runWithAuth } from "@/lib/db"
+import { auditGrantInsert, grantSnapshot } from "@/lib/audit/finances-audit"
 import { FINANCE_PERMISSIONS } from "@/lib/finances/permissions"
 
 export async function GET(req: Request) {
@@ -15,7 +16,21 @@ export async function GET(req: Request) {
     const url = new URL(req.url)
     const branchesRaw = (url.searchParams.get("branches") || "").trim()
     const selectedBranchIds = branchesRaw ? branchesRaw.split(",").map((v) => v.trim()).filter(Boolean) : []
-    const limit = Math.min(Math.max(parseInt(url.searchParams.get("limit") || "200", 10), 1), 500)
+    const search = (url.searchParams.get("q") || "").trim()
+    const isIsoDate = (s: string) => /^\d{4}-\d{2}-\d{2}$/.test(s)
+    const readIsoDate = (key: string) => {
+      const raw = (url.searchParams.get(key) || "").trim()
+      return isIsoDate(raw) ? raw : ""
+    }
+    const createdFrom = readIsoDate("created_from")
+    const createdTo = readIsoDate("created_to")
+    const updatedFrom = readIsoDate("updated_from")
+    const updatedTo = readIsoDate("updated_to")
+    const pageRaw = parseInt(url.searchParams.get("page") || "0", 10)
+    const rowsPerPageRaw = parseInt(url.searchParams.get("rowsPerPage") || "10", 10)
+    const page = Number.isFinite(pageRaw) && pageRaw >= 0 ? pageRaw : 0
+    const rowsPerPage = Math.min(Math.max(Number.isFinite(rowsPerPageRaw) ? rowsPerPageRaw : 10, 1), 200)
+    const offset = page * rowsPerPage
 
     const result = await runWithAuth(sess.authUserId, async (client) => {
       const actor = await resolveActorContext(client, sess.authUserId)
@@ -25,7 +40,40 @@ export async function GET(req: Request) {
       if (!isSuperAdmin(actor) && !actor.branch_id) return { error: "actor_branch_missing" as const }
 
       const scoped = scopeWhere({ tableAlias: "g", actor, selectedBranchIds })
-      const values = [...scoped.values, limit]
+      let where = scoped.where
+      const values: unknown[] = [...scoped.values]
+      let idx = scoped.nextIndex
+
+      if (search) {
+        where += ` AND c.name ILIKE $${idx}`
+        values.push(`%${search}%`)
+        idx++
+      }
+
+      if (createdFrom) {
+        where += ` AND g.created_at >= $${idx}::date`
+        values.push(createdFrom)
+        idx++
+      }
+      if (createdTo) {
+        where += ` AND g.created_at < ($${idx}::date + INTERVAL '1 day')`
+        values.push(createdTo)
+        idx++
+      }
+      if (updatedFrom) {
+        where += ` AND g.updated_at >= $${idx}::date`
+        values.push(updatedFrom)
+        idx++
+      }
+      if (updatedTo) {
+        where += ` AND g.updated_at < ($${idx}::date + INTERVAL '1 day')`
+        values.push(updatedTo)
+        idx++
+      }
+
+      const limitIdx = idx
+      const offsetIdx = idx + 1
+      values.push(rowsPerPage, offset)
 
       const listRes = await client.query(
         `SELECT
@@ -33,16 +81,26 @@ export async function GET(req: Request) {
            c.name AS client_name,
            COALESCE(g.total_amount, 0)::numeric AS total_amount,
            COALESCE(g.available_balance, 0)::numeric AS available_balance,
+           GREATEST(COALESCE(g.total_amount, 0) - COALESCE(g.available_balance, 0), 0)::numeric AS remaining_amount,
+           CASE
+             WHEN COALESCE(g.total_amount, 0) > 0
+               THEN ROUND((COALESCE(g.available_balance, 0) / g.total_amount) * 100, 2)
+             ELSE 0
+           END::numeric AS percentage_received,
            b.name AS branch_name,
-           g.updated_at
+           g.created_at,
+           g.updated_at,
+           COUNT(*) OVER()::int AS total_count
          FROM senteloans_grants g
          JOIN senteloans_clients c ON c.id = g.client_id
          LEFT JOIN senteloans_branches b ON b.id = g.branch_id
-         WHERE ${scoped.where}
+         WHERE ${where}
          ORDER BY g.updated_at DESC NULLS LAST, g.created_at DESC
-         LIMIT $${scoped.nextIndex}`,
+         LIMIT $${limitIdx} OFFSET $${offsetIdx}`,
         values,
       )
+
+      const total = listRes.rows[0]?.total_count != null ? Number(listRes.rows[0].total_count) : 0
 
       return {
         rows: listRes.rows.map((row) => ({
@@ -50,9 +108,13 @@ export async function GET(req: Request) {
           client_name: String(row.client_name || ""),
           total_amount: Number(row.total_amount || 0),
           available_balance: Number(row.available_balance || 0),
+          remaining_amount: Number(row.remaining_amount || 0),
+          percentage_received: Number(row.percentage_received || 0),
           branch_name: String(row.branch_name || ""),
+          created_at: row.created_at ? String(row.created_at) : "",
           updated_at: row.updated_at ? String(row.updated_at) : "",
         })),
+        total,
       }
     })
 
@@ -61,7 +123,7 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: result.error }, { status: statusCode })
     }
 
-    return NextResponse.json({ rows: result?.rows || [] })
+    return NextResponse.json({ rows: result?.rows || [], total: result?.total || 0 })
   } catch (e: unknown) {
     const err = e as Error
     apiLog("error", "finances.grants.list.error", { method: "GET", apiPath, status: 500, error: err?.message })
@@ -119,11 +181,23 @@ export async function POST(req: Request) {
       const insertRes = await client.query(
         `INSERT INTO senteloans_grants (institution_id, branch_id, client_id, total_amount, available_balance)
          VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5)
-         RETURNING id`,
+         RETURNING id, client_id, total_amount, available_balance, branch_id`,
         [actor.institution_id, targetBranchId, clientId, totalAmount, availableBalance],
       )
 
-      return { id: String(insertRes.rows[0]?.id || "") }
+      const newRow = insertRes.rows[0] as Record<string, unknown> | undefined
+      const newId = String(newRow?.id || "")
+      if (newRow && newId) {
+        await auditGrantInsert(
+          client,
+          actor,
+          newId,
+          grantSnapshot(newRow),
+          (newRow.branch_id as string | null | undefined) ?? targetBranchId,
+        )
+      }
+
+      return { id: newId }
     })
 
     if (created && "error" in created) {

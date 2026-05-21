@@ -29,6 +29,7 @@ export const ReeveModal: React.FC<ModalProps> = ({
         <AnimatePresence>
             {isOpen && (
                 <motion.div
+                    key="reeve-modal-panel"
                     variants={modalVariants}
                     initial="hidden"
                     animate="visible"

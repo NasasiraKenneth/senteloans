@@ -64,8 +64,6 @@ type AuditRow = {
   new_values: Record<string, unknown> | null
   old_values_resolved?: Record<string, unknown> | null
   new_values_resolved?: Record<string, unknown> | null
-  ip_address: string | null
-  user_agent: string | null
 }
 
 type IdKeySpec = {
@@ -277,9 +275,7 @@ export async function GET(req: Request) {
            a.category,
            a.operation,
            a.old_values,
-           a.new_values,
-           a.ip_address::text AS ip_address,
-           a.user_agent
+           a.new_values
          FROM senteloans_audit_logs a
          LEFT JOIN senteloans_branches b ON b.id = a.branch_id
          LEFT JOIN senteloans_users u ON u.id = a.user_id

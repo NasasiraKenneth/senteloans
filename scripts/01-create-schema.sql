@@ -145,7 +145,7 @@ CREATE TABLE IF NOT EXISTS senteloans_bank_accounts (
     CONSTRAINT uk_bank_account_per_institution UNIQUE (institution_id, bank_name, bank_account_number)
 );
 
-CREATE TABLE IF NOT EXISTS senteloans_finances (
+CREATE TABLE IF NOT EXISTS senteloans_daily_finances (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     institution_id UUID NOT NULL REFERENCES senteloans_institutions(id) ON DELETE RESTRICT,
     branch_id UUID NOT NULL REFERENCES senteloans_branches(id) ON DELETE RESTRICT,
@@ -250,24 +250,6 @@ CREATE TABLE IF NOT EXISTS senteloans_clients (
     email VARCHAR(255),
     address VARCHAR(250),
     phone VARCHAR(20),
-    created_by UUID REFERENCES senteloans_users(id) ON DELETE SET NULL,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    modified_by UUID REFERENCES senteloans_users(id) ON DELETE SET NULL,
-    updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE TABLE IF NOT EXISTS senteloans_unclaimed_deposits (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    institution_id UUID NOT NULL REFERENCES senteloans_institutions(id) ON DELETE RESTRICT,
-    branch_id UUID NOT NULL REFERENCES senteloans_branches(id) ON DELETE RESTRICT,
-    member_id UUID REFERENCES senteloans_members(id) ON DELETE RESTRICT,
-    client_id UUID REFERENCES senteloans_clients(id) ON DELETE RESTRICT,
-    transaction_number VARCHAR(50),
-    amount DECIMAL(15,2) NOT NULL CHECK (amount > 0),
-    mode payment_mode NOT NULL,
-    date DATE,
-    status VARCHAR(15) DEFAULT 'unclaimed',
-    notes TEXT,
     created_by UUID REFERENCES senteloans_users(id) ON DELETE SET NULL,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     modified_by UUID REFERENCES senteloans_users(id) ON DELETE SET NULL,
@@ -668,6 +650,32 @@ BEGIN
     END IF;
 END $$;
 
+
+CREATE TABLE IF NOT EXISTS senteloans_unclaimed_deposits (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    institution_id UUID NOT NULL REFERENCES senteloans_institutions(id) ON DELETE RESTRICT,
+    branch_id UUID NOT NULL REFERENCES senteloans_branches(id) ON DELETE RESTRICT,
+    member_id UUID REFERENCES senteloans_members(id) ON DELETE RESTRICT,
+    client_id UUID REFERENCES senteloans_clients(id) ON DELETE RESTRICT,
+    transaction_id UUID REFERENCES senteloans_transactions(id) ON DELETE RESTRICT,
+    unclaimed_deposit_number VARCHAR(50),
+    transaction_number VARCHAR(50),
+    amount DECIMAL(15,2) NOT NULL CHECK (amount > 0),
+    mode payment_mode NOT NULL,
+    date DATE,
+    status VARCHAR(15) DEFAULT 'unclaimed',
+    notes TEXT,
+    created_by UUID REFERENCES senteloans_users(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    modified_by UUID REFERENCES senteloans_users(id) ON DELETE SET NULL,
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+
+    CONSTRAINT uk_unclaimed_deposits_number UNIQUE (branch_id, unclaimed_deposit_number)
+);
+
+CREATE INDEX IF NOT EXISTS idx_unclaimed_deposits_transaction_id
+  ON senteloans_unclaimed_deposits(transaction_id);
+
 -- 14. LOAN REPAYMENTS TABLE (Repayment schedule and tracking)
 -- Updated field names to match seed data structure
 CREATE TABLE IF NOT EXISTS senteloans_loan_repayments (
@@ -702,8 +710,6 @@ CREATE TABLE IF NOT EXISTS senteloans_audit_logs (
     record_id UUID NOT NULL,
     old_values JSONB,
     new_values JSONB,
-    ip_address INET,
-    user_agent TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 

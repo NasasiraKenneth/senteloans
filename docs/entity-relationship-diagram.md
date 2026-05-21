@@ -194,8 +194,6 @@ erDiagram
         varchar operation
         jsonb old_values
         jsonb new_values
-        varchar ip_address
-        varchar user_agent
         timestamptz created_at
     }
 \`\`\`

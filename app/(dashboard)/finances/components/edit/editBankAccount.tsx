@@ -14,7 +14,6 @@ interface EditBankAccountProps {
 
 const ERROR_MESSAGES: Record<string, string> = {
   bank_name_and_account_required: "Bank name and account number are required.",
-  invalid_total_amount: "Enter a valid opening balance (0 or greater).",
   "missing_permission:edit_bank_account": "You do not have permission to edit bank accounts.",
   branch_id_required: "Select a branch for this account.",
   invalid_branch: "The selected branch is invalid.",
@@ -98,7 +97,6 @@ export default function EditBankAccount({ isOpen, accountId, onClose, onSuccess 
         body: JSON.stringify({
           bank_name: data.bank_name,
           bank_account_number: data.bank_account_number,
-          total_amount: Number(data.total_amount),
           branch_id: data.branch_id || null,
         }),
       })
@@ -126,9 +124,12 @@ export default function EditBankAccount({ isOpen, accountId, onClose, onSuccess 
 
   const seededInitial = useMemo(() => initialValues ?? undefined, [initialValues])
 
+  const showPanel = isOpen && !!accountId
+  const showLoading = showPanel && !fetchError && (fetching || !seededInitial)
+
   return (
     <ReeveModal isOpen={isOpen} onClose={onClose} title="Edit bank account" className="z-[1000] w-[28rem]">
-      {fetching ? (
+      {!showPanel ? null : showLoading ? (
         <p className="p-4 text-sm text-muted-foreground">Loading bank account…</p>
       ) : fetchError ? (
         <p className="p-4 text-sm text-red-600">{formatError(fetchError)}</p>

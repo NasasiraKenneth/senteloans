@@ -3,6 +3,7 @@ import type { PoolClient } from "pg"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
 import { hasPermission, isSuperAdmin, requireStaffSession, resolveActorContext } from "@/lib/api/rbac"
 import { runWithAuth } from "@/lib/db"
+import { auditUnclaimedDepositUpdate, unclaimedDepositSnapshot } from "@/lib/audit/finances-audit"
 import { FINANCE_PERMISSIONS } from "@/lib/finances/permissions"
 
 function singleUnclaimedWhere(
@@ -64,6 +65,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const body = await req.json().catch(() => ({}))
     const memberId = String(body?.member_id || "").trim() || null
     const clientId = String(body?.client_id || "").trim() || null
+    const transactionId = String(body?.transaction_id || "").trim() || null
 
     const result = await runWithAuth(sess.authUserId, async (client) => {
       const actor = await resolveActorContext(client, sess.authUserId)
@@ -74,12 +76,17 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
       const { where, values } = singleUnclaimedWhere(actor, depositId)
       const existing = await client.query(
-        `SELECT id, branch_id, status FROM senteloans_unclaimed_deposits ud WHERE ${where} LIMIT 1`,
+        `SELECT id, branch_id, status, amount, unclaimed_deposit_number, transaction_number, mode, date,
+                member_id, client_id, transaction_id, notes
+         FROM senteloans_unclaimed_deposits ud
+         WHERE ${where}
+         LIMIT 1`,
         values,
       )
       if ((existing.rowCount ?? 0) === 0) return { error: "not_found" as const }
+      const oldRow = existing.rows[0] as Record<string, unknown>
 
-      const currentStatus = String(existing.rows[0]?.status || "").trim().toLowerCase()
+      const currentStatus = String(oldRow.status || "").trim().toLowerCase()
       if (currentStatus !== "unclaimed") {
         return {
           error: "deposit_already_claimed" as const,
@@ -90,17 +97,66 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         }
       }
 
-      const branchId = String(existing.rows[0]?.branch_id || actor.branch_id || "")
+      const branchId = String(oldRow.branch_id || actor.branch_id || "")
       if (!branchId) return { error: "branch_id_required" as const }
+
+      const depositAmount = Number(oldRow.amount || 0)
 
       const assigneeError = await validateAssignees(client, actor, branchId, memberId, clientId)
       if (assigneeError) return { error: assigneeError as "assignee_required" | "invalid_member" | "invalid_client" | "member_and_client_conflict" }
 
-      const setParams: unknown[] = ["claimed", memberId, clientId, actor.id]
-      let scopedWhere = `ud.id = $4::uuid AND ud.institution_id = $5::uuid`
+      if (transactionId) {
+        const linkCheck = await client.query(
+          `SELECT 1 FROM senteloans_unclaimed_deposits
+           WHERE transaction_id = $1::uuid
+             AND id <> $2::uuid
+           LIMIT 1`,
+          [transactionId, depositId],
+        )
+        if ((linkCheck.rowCount ?? 0) > 0) {
+          return {
+            error: "transaction_already_linked" as const,
+            message: "This transaction is already linked to another deposit." as const,
+          }
+        }
+
+        let txQuery =
+          `SELECT t.amount FROM senteloans_transactions t
+           WHERE t.id = $1::uuid
+             AND t.institution_id = $2::uuid
+             AND t.branch_id = $3::uuid`
+        const txParams: unknown[] = [transactionId, actor.institution_id, branchId]
+        if (memberId) {
+          txQuery += ` AND t.member_id = $4::uuid`
+          txParams.push(memberId)
+        } else if (clientId) {
+          txQuery += ` AND t.client_id = $4::uuid`
+          txParams.push(clientId)
+        }
+        txQuery += ` LIMIT 1`
+
+        const txRes = await client.query(txQuery, txParams)
+        if ((txRes.rowCount ?? 0) === 0) return { error: "invalid_transaction" as const }
+
+        const txAmount = Number(txRes.rows[0]?.amount || 0)
+        if (
+          !Number.isFinite(txAmount) ||
+          !Number.isFinite(depositAmount) ||
+          Math.abs(txAmount - depositAmount) > 0.005
+        ) {
+          return {
+            error: "transaction_amount_mismatch" as const,
+            message:
+              `Transaction amount (${txAmount.toFixed(2)}) does not match the deposit amount (${depositAmount.toFixed(2)}).` as const,
+          }
+        }
+      }
+
+      const setParams: unknown[] = ["claimed", memberId, clientId, transactionId, actor.id]
+      let scopedWhere = `ud.id = $6::uuid AND ud.institution_id = $7::uuid`
       setParams.push(depositId, actor.institution_id)
       if (!isSuperAdmin(actor)) {
-        scopedWhere += ` AND ud.branch_id = $6::uuid AND lower(trim(ud.status)) = 'unclaimed'`
+        scopedWhere += ` AND ud.branch_id = $8::uuid AND lower(trim(ud.status)) = 'unclaimed'`
         setParams.push(actor.branch_id)
       } else {
         scopedWhere += ` AND lower(trim(ud.status)) = 'unclaimed'`
@@ -111,10 +167,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
          SET status = $1,
              member_id = $2::uuid,
              client_id = $3::uuid,
-             modified_by = $4::uuid,
+             transaction_id = $4::uuid,
+             modified_by = $5::uuid,
              updated_at = NOW()
          WHERE ${scopedWhere}
-         RETURNING id`,
+         RETURNING id, unclaimed_deposit_number, transaction_number, amount, mode, date, status,
+                   member_id, client_id, transaction_id, branch_id, notes`,
         setParams,
       )
 
@@ -125,7 +183,18 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         }
       }
 
-      return { id: String(updateRes.rows[0]?.id || "") }
+      const newRow = updateRes.rows[0] as Record<string, unknown>
+
+      await auditUnclaimedDepositUpdate(
+        client,
+        actor,
+        depositId,
+        unclaimedDepositSnapshot(oldRow),
+        { ...unclaimedDepositSnapshot(newRow), _action: "claim" },
+        (newRow.branch_id as string | null | undefined) ?? branchId,
+      )
+
+      return { id: String(newRow.id || "") }
     })
 
     if (result && "error" in result) {
@@ -133,11 +202,13 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       const statusCode =
         code === "not_found"
           ? 404
-          : code === "deposit_already_claimed"
+          : code === "deposit_already_claimed" || code === "transaction_already_linked"
             ? 409
             : code === "assignee_required" ||
                 code === "invalid_member" ||
                 code === "invalid_client" ||
+                code === "invalid_transaction" ||
+                code === "transaction_amount_mismatch" ||
                 code === "member_and_client_conflict" ||
                 code === "branch_id_required" ||
                 code === "actor_branch_missing"

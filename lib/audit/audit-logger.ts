@@ -11,8 +11,6 @@ export interface AuditLogEntry {
   user_id?: string
   institution_id: string
   branch_id?: string
-  ip_address?: string
-  user_agent?: string
   timestamp?: Date
 }
 
@@ -36,8 +34,8 @@ function deriveCategory(tableName: string): string {
 async function runInsert(client: PoolClient, entry: AuditLogEntry): Promise<void> {
   await client.query(
     `INSERT INTO senteloans_audit_logs (
-      table_name, category, operation, record_id, old_values, new_values, user_id, institution_id, branch_id, ip_address, user_agent
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+      table_name, category, operation, record_id, old_values, new_values, user_id, institution_id, branch_id
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
     [
       entry.table_name,
       entry.category || deriveCategory(entry.table_name),
@@ -48,8 +46,6 @@ async function runInsert(client: PoolClient, entry: AuditLogEntry): Promise<void
       entry.user_id ?? null,
       entry.institution_id,
       entry.branch_id ?? null,
-      entry.ip_address ?? null,
-      entry.user_agent ?? null,
     ]
   )
 }
@@ -73,7 +69,7 @@ export class AuditLogger {
     newValues: Record<string, unknown>,
     institutionId: string,
     userId?: string,
-    metadata?: { branch_id?: string; ip_address?: string; user_agent?: string },
+    metadata?: { branch_id?: string },
     client?: PoolClient
   ): Promise<void> {
     await this.logOperation(
@@ -85,8 +81,6 @@ export class AuditLogger {
         institution_id: institutionId,
         branch_id: metadata?.branch_id,
         user_id: userId,
-        ip_address: metadata?.ip_address,
-        user_agent: metadata?.user_agent,
       },
       client
     )
@@ -99,7 +93,7 @@ export class AuditLogger {
     newValues: Record<string, unknown>,
     institutionId: string,
     userId?: string,
-    metadata?: { branch_id?: string; ip_address?: string; user_agent?: string },
+    metadata?: { branch_id?: string },
     client?: PoolClient
   ): Promise<void> {
     await this.logOperation(
@@ -112,8 +106,6 @@ export class AuditLogger {
         institution_id: institutionId,
         branch_id: metadata?.branch_id,
         user_id: userId,
-        ip_address: metadata?.ip_address,
-        user_agent: metadata?.user_agent,
       },
       client
     )
@@ -125,7 +117,7 @@ export class AuditLogger {
     oldValues: Record<string, unknown>,
     institutionId: string,
     userId?: string,
-    metadata?: { branch_id?: string; ip_address?: string; user_agent?: string },
+    metadata?: { branch_id?: string },
     client?: PoolClient
   ): Promise<void> {
     await this.logOperation(
@@ -137,8 +129,6 @@ export class AuditLogger {
         institution_id: institutionId,
         branch_id: metadata?.branch_id,
         user_id: userId,
-        ip_address: metadata?.ip_address,
-        user_agent: metadata?.user_agent,
       },
       client
     )

@@ -13,7 +13,6 @@ type AuditRow = {
   new_values_resolved?: Record<string, unknown> | null
   old_values?: Record<string, unknown> | null
   new_values?: Record<string, unknown> | null
-  ip_address?: string | null
 }
 
 type ExportStaffAuditExcelParams = {
@@ -53,7 +52,6 @@ function toRows(rows: AuditRow[]): Array<Array<string>> {
     getChanges(row),
     stringifyPayload(row.old_values_resolved || row.old_values || null),
     stringifyPayload(row.new_values_resolved || row.new_values || null),
-    String(row.ip_address || "—"),
   ])
 }
 
@@ -65,7 +63,7 @@ export async function exportStaffAuditExcel({
   buildQuery,
   apiPath = "/api/institution/reports/staff-audit",
 }: ExportStaffAuditExcelParams): Promise<number> {
-  const headers = ["Date", "Staff", "Branch", "Category", "Operation", "Changes", "Old values", "New values", "IP"]
+  const headers = ["Date", "Staff", "Branch", "Category", "Operation", "Changes", "Old values", "New values"]
   const sheets: ExcelSheet[] = []
   let exportedRows = 0
 

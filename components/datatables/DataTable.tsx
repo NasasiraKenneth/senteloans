@@ -10,6 +10,7 @@ import TableFilters from "@/components/datatables/TableFilters";
 import {convertDate} from "@/app/lib/utils";
 import { RiFileExcel2Line } from "react-icons/ri"
 import { BsFileEarmarkPdf, BsFiletypePdf } from "react-icons/bs"
+import { Loader2 } from "lucide-react"
 import TooltipButton from "@/components/newUI/tooltip_button";
 
 export interface DataTableColumn<Row> {
@@ -56,6 +57,9 @@ export interface DataTableProps<Row> {
         excelDisabled?: boolean
         pdfDisabled?: boolean
         summaryPdfDisabled?: boolean
+        excelLoading?: boolean
+        pdfLoading?: boolean
+        summaryPdfLoading?: boolean
     }
     className?: string
 }
@@ -186,32 +190,44 @@ export default function DataTable<Row>({
       <div className="flex items-center gap-2">
         {exportActions.onExcel ? (
           <TooltipButton
-            tooltip="Export XLS"
+            tooltip={exportActions.excelLoading ? "Preparing XLS…" : "Export XLS"}
             onClick={() => exportActions.onExcel?.()}
-            disabled={!!exportActions.excelDisabled}
-            className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-green-200 bg-background text-green-600 hover:bg-green-50 hover:text-green-700 transition-colors"
+            disabled={!!exportActions.excelDisabled || !!exportActions.excelLoading}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-green-200 bg-background text-green-600 hover:bg-green-50 hover:text-green-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
           >
-            <RiFileExcel2Line className="h-4 w-4" />
+            {exportActions.excelLoading ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <RiFileExcel2Line className="h-4 w-4" />
+            )}
           </TooltipButton>
         ) : null}
         {exportActions.onPdf ? (
           <TooltipButton
-            tooltip="Export PDF"
+            tooltip={exportActions.pdfLoading ? "Preparing PDF…" : "Export PDF"}
             onClick={() => exportActions.onPdf?.()}
-            disabled={!!exportActions.pdfDisabled}
-            className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-red-200 bg-background text-red-600 hover:bg-red-50 hover:text-red-700 transition-colors"
+            disabled={!!exportActions.pdfDisabled || !!exportActions.pdfLoading}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-red-200 bg-background text-red-600 hover:bg-red-50 hover:text-red-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
           >
-            <BsFileEarmarkPdf className="h-4 w-4" />
+            {exportActions.pdfLoading ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <BsFileEarmarkPdf className="h-4 w-4" />
+            )}
           </TooltipButton>
         ) : null}
         {exportActions.onSummaryPdf ? (
           <TooltipButton
-            tooltip="Summary PDF"
+            tooltip={exportActions.summaryPdfLoading ? "Preparing PDF…" : "Summary PDF"}
             onClick={() => exportActions.onSummaryPdf?.()}
-            disabled={!!exportActions.summaryPdfDisabled}
-            className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-red-200 bg-background text-red-600 hover:bg-red-50 hover:text-red-700 transition-colors"
+            disabled={!!exportActions.summaryPdfDisabled || !!exportActions.summaryPdfLoading}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-red-200 bg-background text-red-600 hover:bg-red-50 hover:text-red-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
           >
-            <BsFiletypePdf className="h-4 w-4" />
+            {exportActions.summaryPdfLoading ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <BsFiletypePdf className="h-4 w-4" />
+            )}
           </TooltipButton>
         ) : null}
       </div>

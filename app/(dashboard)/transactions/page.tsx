@@ -641,6 +641,8 @@ export default function TransactionsPage() {
                 onPdf: () => void downloadExport("pdf"),
                 excelDisabled: loading || total === 0 || exporting !== null,
                 pdfDisabled: loading || total === 0 || exporting !== null,
+                excelLoading: exporting === "excel",
+                pdfLoading: exporting === "pdf",
               }}
             />
           </div>

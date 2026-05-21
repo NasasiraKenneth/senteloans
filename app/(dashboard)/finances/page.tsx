@@ -137,7 +137,12 @@ export default function FinancesPage() {
           />
         )
       case "grants":
-        return <GrantsView refreshKey={dataRefreshKey} />
+        return (
+          <GrantsView
+            refreshKey={dataRefreshKey}
+            onRefresh={() => setDataRefreshKey((k) => k + 1)}
+          />
+        )
     }
   }
 
@@ -208,7 +213,7 @@ export default function FinancesPage() {
           </motion.div>
         </motion.div>
 
-        <motion.div className="overflow-hidden p-6">
+        <motion.div className="overflow-visible p-6">
           <AnimatePresence mode="wait">
             <motion.div
               key={activeTab}

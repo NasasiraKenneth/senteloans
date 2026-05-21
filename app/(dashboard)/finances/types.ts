@@ -16,8 +16,20 @@ export type BankAccountRow = {
   updated_at: string
 }
 
+export type LinkedTransactionSummary = {
+  id: string
+  transaction_number: string
+  type: string
+  amount: number
+  mode: string
+  date: string
+  reference_number: string
+  description: string
+}
+
 export type UnclaimedDepositRow = {
   id: string
+  unclaimed_deposit_number: string
   transaction_number: string
   amount: number
   mode: string
@@ -26,6 +38,12 @@ export type UnclaimedDepositRow = {
   assigned_to: string
   assigned_type: "Member" | "Client" | "—"
   notes: string
+  branch_name: string
+  created_at: string
+  updated_at: string
+  created_by_name: string
+  modified_by_name: string
+  linked_transaction: LinkedTransactionSummary | null
 }
 
 export type GrantRow = {
@@ -33,6 +51,9 @@ export type GrantRow = {
   client_name: string
   total_amount: number
   available_balance: number
+  remaining_amount: number
+  percentage_received: number
   branch_name: string
+  created_at: string
   updated_at: string
 }
