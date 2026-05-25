@@ -145,19 +145,6 @@ CREATE TABLE IF NOT EXISTS senteloans_bank_accounts (
     CONSTRAINT uk_bank_account_per_institution UNIQUE (institution_id, bank_name, bank_account_number)
 );
 
-CREATE TABLE IF NOT EXISTS senteloans_daily_finances (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    institution_id UUID NOT NULL REFERENCES senteloans_institutions(id) ON DELETE RESTRICT,
-    branch_id UUID NOT NULL REFERENCES senteloans_branches(id) ON DELETE RESTRICT,
-    bank_total_amount DECIMAL(15,2),
-    mobile_money_amount DECIMAL(15,2),
-    cash_amount DECIMAL(15,2),
-    total_amount DECIMAL(15,2) DEFAULT 0 CHECK (total_amount >= 0),
-    available_balance DECIMAL(15,2) DEFAULT 0 CHECK (available_balance >= 0),
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ
-);
-
 -- 24-create-roles.sql
 -- Adds permissions and role permissions tables
 
@@ -264,6 +251,25 @@ CREATE TABLE IF NOT EXISTS senteloans_grants (
     total_amount DECIMAL(15,2) DEFAULT 0 CHECK (total_amount >= 0),
     available_balance DECIMAL(15,2) DEFAULT 0 CHECK (available_balance >= 0),
     created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ
+);
+
+CREATE TABLE IF NOT EXISTS senteloans_daily_finances (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    institution_id UUID NOT NULL REFERENCES senteloans_institutions(id) ON DELETE RESTRICT,
+    branch_id UUID NOT NULL REFERENCES senteloans_branches(id) ON DELETE RESTRICT,
+    auto_bank_total_amount DECIMAL(15,2),
+    auto_mobile_money_amount DECIMAL(15,2),
+    auto_cash_amount DECIMAL(15,2),
+    auto_total_amount DECIMAL(15,2) DEFAULT 0 CHECK (total_amount >= 0),
+    bank_total_amount DECIMAL(15,2),
+    mobile_money_amount DECIMAL(15,2),
+    cash_amount DECIMAL(15,2),
+    total_amount DECIMAL(15,2) DEFAULT 0 CHECK (total_amount >= 0),
+    available_balance DECIMAL(15,2) DEFAULT 0 CHECK (available_balance >= 0),
+    created_by UUID REFERENCES senteloans_users(id) ON DELETE RESTRICT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    modified_by UUID REFERENCES senteloans_users(id) ON DELETE RESTRICT,
     updated_at TIMESTAMPTZ
 );
 
@@ -750,10 +756,12 @@ CREATE INDEX IF NOT EXISTS idx_repayments_due_date ON senteloans_loan_repayments
 CREATE INDEX IF NOT EXISTS idx_audit_logs_institution_id ON senteloans_audit_logs(institution_id);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON senteloans_audit_logs(created_at DESC);
 
--- Treasury: branch-level finance aggregates & grants
-CREATE INDEX IF NOT EXISTS idx_finances_institution_id ON senteloans_finances(institution_id);
-CREATE INDEX IF NOT EXISTS idx_finances_branch_id ON senteloans_finances(branch_id);
-CREATE INDEX IF NOT EXISTS idx_finances_institution_branch ON senteloans_finances(institution_id, branch_id);
+-- Treasury: branch-level daily finance aggregates & grants
+CREATE INDEX IF NOT EXISTS idx_daily_finances_institution_id ON senteloans_daily_finances(institution_id);
+CREATE INDEX IF NOT EXISTS idx_daily_finances_branch_id ON senteloans_daily_finances(branch_id);
+CREATE INDEX IF NOT EXISTS idx_daily_finances_institution_branch ON senteloans_daily_finances(institution_id, branch_id);
+CREATE INDEX IF NOT EXISTS idx_daily_finances_branch_created_at ON senteloans_daily_finances(branch_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_daily_finances_created_by ON senteloans_daily_finances(created_by);
 
 CREATE INDEX IF NOT EXISTS idx_grants_institution_id ON senteloans_grants(institution_id);
 CREATE INDEX IF NOT EXISTS idx_grants_branch_id ON senteloans_grants(branch_id);
@@ -935,7 +943,7 @@ CREATE TABLE IF NOT EXISTS senteloans_expenses (
     expense_number VARCHAR(50) NOT NULL,
     name TEXT NOT NULL,
     status VARCHAR(30) DEFAULT 'Pending',
-    type VARCHAR(30) DEFAULT 'Short-term',
+    type VARCHAR(30),
     description TEXT,
     created_by UUID NOT NULL REFERENCES senteloans_users(id) ON DELETE CASCADE,
     approved_by UUID,
@@ -947,6 +955,10 @@ CREATE TABLE IF NOT EXISTS senteloans_expenses (
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS uk_daily_finances_branch_per_day
+  ON senteloans_daily_finances (institution_id, branch_id, (created_at::date))
+  WHERE total_amount > 0;
 
 CREATE TABLE IF NOT EXISTS senteloans_expense_funding_sources (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),

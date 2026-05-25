@@ -50,6 +50,7 @@ VALUES
   ('view_users', 'users'),
   ('create_user', 'users'),
   ('edit_user', 'users'),
+  ('edit_daily_report', 'finances'),
   ('view_bank_accouts', 'finances'),
   ('add_bank_account', 'finances'),
   ('edit_bank_account', 'finances'),

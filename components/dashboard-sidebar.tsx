@@ -187,6 +187,8 @@ export function DashboardSidebar() {
       { name: "Sacco Loan Reports", href: "/reports/sacco-loans" },
       { name: "Invoice Reports", href: "/reports/invoices" },
       { name: "Staff Audit Reports", href: "/reports/staff-audit" },
+      { name: "Financial Reports", href: "/reports/financial" },
+      { name: "Treasury Reports", href: "/reports/treasury" },
     )
 
     return [

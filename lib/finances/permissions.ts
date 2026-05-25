@@ -14,6 +14,7 @@ export const FINANCE_PERMISSIONS = {
   viewUnclaimedDeposits: "view_unclaimed_deposits",
   addUnclaimedDeposit: "add_unclaimed_deposit",
   editUnclaimedDeposit: "edit_unclaimed_deposit",
+  editDailyReport: "edit_daily_report",
 } as const
 
 export async function canViewAnyFinanceModule(client: PoolClient, actor: ActorContext): Promise<boolean> {

@@ -362,6 +362,11 @@ export default function ExpensesPage() {
     },
   ]
 
+// Fixed expenses — stay relatively constant (rent, salaries)
+// Variable expenses — change depending on activity (fuel, utilities)
+// Capital expenses (CAPEX) — long-term assets
+// Operating expenses (OPEX) — day-to-day running costs
+
   const filterFields: FilterField[] = useMemo(() => {
     const fields: FilterField[] = [
       { field: "q", label: "Search by expense number, name, or description", type: "text" },
@@ -371,8 +376,10 @@ export default function ExpensesPage() {
         type: "select",
         multiple: false,
         options: [
-          { value: "Short-term", label: "Short-term" },
-          { value: "Long-term", label: "Long-term" },
+          { value: "Fixed-expenses", label: "Fixed-expenses" },
+          { value: "Variable-expenses", label: "Variable-expenses" },
+          { value: "Capital-expenses", label: "Capital-expenses" },
+          { value: "Operating-expenses", label: "Operating-expenses" },
         ],
       },
       {

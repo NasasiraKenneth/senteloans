@@ -5,6 +5,7 @@ import type { ActorContext } from "@/lib/api/rbac"
 export const BANK_ACCOUNTS_TABLE = "senteloans_bank_accounts"
 export const UNCLAIMED_DEPOSITS_TABLE = "senteloans_unclaimed_deposits"
 export const GRANTS_TABLE = "senteloans_grants"
+export const DAILY_FINANCES_TABLE = "senteloans_daily_finances"
 
 const FINANCES_CATEGORY = "finances"
 
@@ -46,6 +47,17 @@ export function unclaimedDepositSnapshot(row: Record<string, unknown>): Record<s
 export function grantSnapshot(row: Record<string, unknown>): Record<string, unknown> {
   return {
     client_id: row.client_id ?? null,
+    total_amount: row.total_amount ?? null,
+    available_balance: row.available_balance ?? null,
+    branch_id: row.branch_id ?? null,
+  }
+}
+
+export function dailyFinanceSnapshot(row: Record<string, unknown>): Record<string, unknown> {
+  return {
+    bank_total_amount: row.bank_total_amount ?? null,
+    mobile_money_amount: row.mobile_money_amount ?? null,
+    cash_amount: row.cash_amount ?? null,
     total_amount: row.total_amount ?? null,
     available_balance: row.available_balance ?? null,
     branch_id: row.branch_id ?? null,
@@ -171,4 +183,16 @@ export async function auditGrantUpdate(
   rowBranchId?: string | null,
 ): Promise<void> {
   await logUpdate(client, GRANTS_TABLE, actor, recordId, oldValues, newValues, rowBranchId)
+}
+
+/* ------------------------------------------------------------------ daily finances */
+
+export async function auditDailyFinanceInsert(
+  client: PoolClient,
+  actor: ActorForAudit,
+  recordId: string,
+  newValues: Record<string, unknown>,
+  rowBranchId?: string | null,
+): Promise<void> {
+  await logInsert(client, DAILY_FINANCES_TABLE, actor, recordId, newValues, rowBranchId)
 }

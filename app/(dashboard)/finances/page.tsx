@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import FinancesKpiSection, { type FinancesKpiStats } from "./components/FinancesKpiSection"
 import AddBankAccount from "./components/add/addBankAccount"
+import AddDailyReport from "./components/add/addDailyReport"
 import AddGrant from "./components/add/addGrant"
 import AddUnclaimedDeposit from "./components/add/addUnclaimedDeposit"
 import FinancesTabNavigation from "./components/FinancesTabNavigation"
@@ -60,6 +61,7 @@ export default function FinancesPage() {
   const [addBankOpen, setAddBankOpen] = useState(false)
   const [addUnclaimedOpen, setAddUnclaimedOpen] = useState(false)
   const [addGrantOpen, setAddGrantOpen] = useState(false)
+  const [addDailyReportOpen, setAddDailyReportOpen] = useState(false)
   const [dataRefreshKey, setDataRefreshKey] = useState(0)
   const [kpiStats, setKpiStats] = useState<FinancesKpiStats>(EMPTY_KPI)
   const [tabCounts, setTabCounts] = useState<FinanceTabCounts>(EMPTY_TAB_COUNTS)
@@ -148,7 +150,17 @@ export default function FinancesPage() {
 
   return (
     <motion.div className="space-y-6">
-      <FinancesKpiSection stats={kpiStats} formatCurrency={formatCurrency} />
+      <FinancesKpiSection
+        stats={kpiStats}
+        formatCurrency={formatCurrency}
+        onAddDailyReport={() => setAddDailyReportOpen(true)}
+      />
+
+      <AddDailyReport
+        isOpen={addDailyReportOpen}
+        onClose={() => setAddDailyReportOpen(false)}
+        onSuccess={() => setDataRefreshKey((k) => k + 1)}
+      />
 
       <motion.div className="rounded-2xl border border-gray-100 bg-white shadow-xl">
         <motion.div className="overflow-visible border-b border-gray-200 bg-gradient-to-r from-gray-50 to-gray-100/50 p-6">

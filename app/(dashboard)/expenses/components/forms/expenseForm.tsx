@@ -13,15 +13,17 @@ export type ExpenseFormData = {
 }
 
 export const EXPENSE_TYPE_OPTIONS = [
-  { value: "Short-term", label: "Short-term" },
-  { value: "Long-term", label: "Long-term" },
+  { value: "Fixed-expenses", label: "Fixed-expenses" },
+  { value: "Variable-expenses", label: "Variable-expenses" },
+  { value: "Capital-expenses", label: "Capital-expenses" },
+  { value: "Operating-expenses", label: "Operating-expenses" },
 ] as const
 
 const defaultValues: ExpenseFormData = {
   name: "",
   description: "",
   category_id: "",
-  type: "Short-term",
+  type: "",
   branch_id: "",
 }
 
@@ -84,7 +86,7 @@ export default function ExpenseForm({
       name: initialValues.name ?? "",
       description: initialValues.description ?? "",
       category_id: initialValues.category_id ?? "",
-      type: initialValues.type ?? "Short-term",
+      type: initialValues.type ?? "",
       branch_id: initialValues.branch_id ?? "",
     })
     setErrors({})
