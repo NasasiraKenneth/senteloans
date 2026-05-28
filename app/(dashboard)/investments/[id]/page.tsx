@@ -32,7 +32,7 @@ type InvestmentDetails = {
   initial_amount: number
   current_value: number
   expected_percentage: number
-  expected_returns: number
+  extracted_returns: number
   risk_level: string
   start_date: string
   maturity_date: string | null
@@ -115,7 +115,7 @@ export default function InvestmentDetailsPage() {
 
   const activeModalLabel = (() => {
     if (addReportOpen) return "Monthly Report"
-    if (activateOpen) return "Activate Investment"
+    if (activateOpen) return "Start Development"
     if (recordCashflowOpen) return "Record Cashflow"
     if (addFundingOpen) return "Add Funding"
     if (editFundingOpen) return "Edit Funding"
@@ -142,7 +142,7 @@ export default function InvestmentDetailsPage() {
         : target === "record-cashflow"
           ? "Record Cashflow"
           : target === "activate"
-            ? "Activate Investment"
+            ? "Start Development"
           : target === "add-funding"
             ? "Add Funding"
             : target === "edit-funding"
@@ -196,7 +196,7 @@ export default function InvestmentDetailsPage() {
         initial_amount: Number(i.initial_amount || 0),
         current_value: Number(i.current_value || 0),
         expected_percentage: Number(i.expected_percentage || 0),
-        expected_returns: Number(i.expected_returns || 0),
+        extracted_returns: Number(i.extracted_returns ?? i.expected_returns ?? 0),
         risk_level: String(i.risk_level || ""),
         start_date: String(i.start_date || ""),
         maturity_date: i.maturity_date ? String(i.maturity_date) : null,
@@ -504,6 +504,20 @@ export default function InvestmentDetailsPage() {
     return best
   }, [incomeInflowCashflows])
 
+  const activateInitialValues = useMemo<ActivateFormData>(() => {
+    const periodInYears = Number(investment?.period_in_years || 0)
+    const periodInMonths = Number(investment?.period_in_months || 0)
+    return {
+      principalAmount: Number(investment?.initial_amount || 0),
+      transactionMode: "",
+      periodUnit: periodInYears > 0 ? "years" : "months",
+      periodValue: periodInYears > 0 ? periodInYears : Math.max(1, periodInMonths || 1),
+      startDate: toDateOnly(investment?.start_date),
+      endDate: toDateOnly(investment?.maturity_date),
+      description: "",
+    }
+  }, [investment])
+
   if (!investment && !loading) {
     return (
       <div className="max-w-6xl mx-auto py-10">
@@ -538,22 +552,11 @@ export default function InvestmentDetailsPage() {
   const statusLower = String(investment?.status || "").toLowerCase()
   const showApproveButton = statusLower === "pending"
   const showActivateButton = statusLower === "approved"
+  const showMarkActiveButton = statusLower === "under_development"
   const showCancelButton = statusLower === "pending" || statusLower === "approved"
   const showCloseButton =
     !!investment && statusLower !== "pending" && statusLower !== "approved" && statusLower !== "closed" && statusLower !== "cancelled"
-  const activateInitialValues = useMemo<ActivateFormData>(() => {
-    const periodInYears = Number(investment?.period_in_years || 0)
-    const periodInMonths = Number(investment?.period_in_months || 0)
-    return {
-      principalAmount: Number(investment?.initial_amount || 0),
-      transactionMode: "",
-      periodUnit: periodInYears > 0 ? "years" : "months",
-      periodValue: periodInYears > 0 ? periodInYears : Math.max(1, periodInMonths || 1),
-      startDate: toDateOnly(investment?.start_date),
-      endDate: toDateOnly(investment?.maturity_date),
-      description: "",
-    }
-  }, [investment])
+  const canRecordCashflow = statusLower === "active" || statusLower === "under_development"
 
   return (
     <div className="relative">
@@ -573,7 +576,13 @@ export default function InvestmentDetailsPage() {
           {showActivateButton && (
             <Button type="button" variant="outline" disabled={statusSaving} onClick={() => tryOpenModal("activate")}>
               <CheckCircle2 className="mr-2 h-4 w-4" />
-              Activate
+              Start Development
+            </Button>
+          )}
+          {showMarkActiveButton && (
+            <Button type="button" variant="outline" disabled={statusSaving} onClick={() => updateInvestmentStatus("active")}>
+              <CheckCircle2 className="mr-2 h-4 w-4 text-emerald-600" />
+              Mark as Active
             </Button>
           )}
           {showCloseButton && (
@@ -622,7 +631,7 @@ export default function InvestmentDetailsPage() {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <MetricCard icon={<Banknote className="h-4 w-4 text-blue-600" />} label="Principal" value={formatCurrency(Number(investment?.initial_amount || 0))} />
         <MetricCard icon={<DollarSign className="h-4 w-4 text-green-600" />} label="Current Value" value={formatCurrency(Number(investment?.current_value || 0))} />
-        <MetricCard icon={<Calendar className="h-4 w-4 text-amber-600" />} label="Expected Returns" value={formatCurrency(Number(investment?.expected_returns || 0))} />
+        <MetricCard icon={<Calendar className="h-4 w-4 text-amber-600" />} label="Extracted Returns" value={formatCurrency(Number(investment?.extracted_returns || 0))} />
         <MetricCard icon={<Percent className="h-4 w-4 text-purple-600" />} label="Expected % P.A" value={`${Number(investment?.expected_percentage || 0).toFixed(2)}%`} />
       </div>
 
@@ -927,7 +936,21 @@ export default function InvestmentDetailsPage() {
       </Card>
 
       <div className="flex justify-end pt-4 border-t">
-        <Button type="button" variant="outline" onClick={() => tryOpenModal("record-cashflow")}>
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => {
+            if (!canRecordCashflow) {
+              toast({
+                variant: "warning",
+                title: "Investment not in operation",
+                description: "Cashflows can only be recorded against active or under-development investments.",
+              })
+              return
+            }
+            tryOpenModal("record-cashflow")
+          }}
+        >
           <DollarSign className="h-4 w-4 mr-2" />
           Record Cashflow
         </Button>
@@ -959,7 +982,6 @@ export default function InvestmentDetailsPage() {
             body: JSON.stringify({
               report_period: reportPeriod,
               opening_value: Number(form.openingValue || 0),
-              capital_added: Number(form.capitalAdded || 0),
               income: Number(form.income || 0),
               expenses: Number(form.expenses || 0),
               closing_value: Number(form.closingValue || 0),
@@ -969,10 +991,17 @@ export default function InvestmentDetailsPage() {
           })
           const body = await res.json().catch(() => ({}))
           if (!res.ok) {
+            const errCode = String(body?.error || "")
             const msg =
-              body?.error === "report_period_exists"
+              errCode === "report_period_exists"
                 ? `A report already exists for ${reportPeriod}.`
-                : body?.error || "Failed to save report"
+                : errCode === "invalid_closing_value"
+                  ? "Closing value does not match opening, capital flows, income, expenses, and adjustments."
+                  : errCode === "cashflow_already_reported"
+                    ? "One or more selected cashflows are already linked to another report."
+                    : errCode.startsWith("missing_permission:")
+                      ? "You do not have permission to record monthly reports."
+                      : errCode || "Failed to save report"
             throw new Error(msg)
           }
           await load()

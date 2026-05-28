@@ -26,7 +26,7 @@ export async function GET(req: Request) {
       const bankScope = scopeWhere({ tableAlias: "ba", actor, selectedBranchIds })
       const unclaimedScope = scopeWhere({ tableAlias: "ud", actor, selectedBranchIds })
       const grantsScope = scopeWhere({ tableAlias: "g", actor, selectedBranchIds })
-      const floatScope = scopeWhere({ tableAlias: "f", actor, selectedBranchIds })
+      const dailyScope = scopeWhere({ tableAlias: "df", actor, selectedBranchIds })
 
       const bankRes = await client.query(
         `SELECT
@@ -59,13 +59,16 @@ export async function GET(req: Request) {
 
       const floatRes = await client.query(
         `SELECT
-           COALESCE(SUM(f.cash_amount), 0)::numeric AS cash,
-           COALESCE(SUM(f.mobile_money_amount), 0)::numeric AS mobile_money,
-           COALESCE(SUM(f.bank_total_amount), 0)::numeric AS bank,
-           COALESCE(SUM(f.available_balance), 0)::numeric AS available
-         FROM senteloans_finances f
-         WHERE ${floatScope.where}`,
-        floatScope.values,
+           COALESCE(SUM(df.cash_amount), 0)::numeric AS cash,
+           COALESCE(SUM(df.mobile_money_amount), 0)::numeric AS mobile_money,
+           COALESCE(SUM(df.bank_total_amount), 0)::numeric AS bank,
+           COALESCE(SUM(df.available_balance), 0)::numeric AS available
+         FROM senteloans_daily_finances df
+         WHERE ${dailyScope.where}
+           AND df.total_amount > 0
+           AND df.created_at >= date_trunc('day', NOW())
+           AND df.created_at < date_trunc('day', NOW()) + INTERVAL '1 day'`,
+        dailyScope.values,
       )
 
       const bankTotal = Number(bankRes.rows[0]?.bank_total || 0)

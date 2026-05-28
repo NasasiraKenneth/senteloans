@@ -172,7 +172,7 @@ export default function ActivateForm({ initialValues, onClose, onSubmit, loading
           Cancel
         </Button>
         <Button type="button" onClick={() => void handleSubmit()} disabled={loading}>
-          {loading ? "Saving..." : "Activate"}
+          {loading ? "Saving..." : "Start Development"}
         </Button>
       </div>
     </div>

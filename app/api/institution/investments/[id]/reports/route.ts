@@ -14,7 +14,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const body = (await req.json().catch(() => ({}))) as Record<string, unknown>
   const reportPeriod = String(body.report_period || "").trim().toLowerCase()
   const openingValue = Number(body.opening_value || 0)
-  const capitalAdded = Number(body.capital_added || 0)
   const income = Number(body.income || 0)
   const expenses = Number(body.expenses || 0)
   const closingValue = Number(body.closing_value || 0)
@@ -22,7 +21,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const cashflowIds = Array.isArray(body.cashflow_ids) ? body.cashflow_ids.map((v) => String(v || "").trim()).filter(Boolean) : []
 
   if (!/^[a-z]+-\d{4}$/.test(reportPeriod)) return NextResponse.json({ error: "invalid_report_period" }, { status: 400 })
-  if ([openingValue, capitalAdded, income, expenses, closingValue].some((n) => Number.isNaN(n) || n < 0)) {
+  if ([openingValue, income, expenses, closingValue].some((n) => Number.isNaN(n) || n < 0)) {
     return NextResponse.json({ error: "invalid_report_values" }, { status: 400 })
   }
 
@@ -38,7 +37,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     await client.query("BEGIN")
     try {
       const invRes = await client.query(
-        `SELECT id, current_value
+        `SELECT id, current_value, branch_id
          FROM senteloans_investments
          WHERE id = $1 AND institution_id = $2
          ${isSuperAdmin ? "" : "AND branch_id = $3"}
@@ -50,9 +49,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         return NextResponse.json({ error: "investment_not_found" }, { status: 404 })
       }
       const previousCurrentValue = invRes.rows[0]?.current_value
+      const investmentBranchId = String(invRes.rows[0]?.branch_id || actor.branch_id || "")
 
       let adjustmentInflow = 0
       let adjustmentOutflow = 0
+      let capitalInflow = 0
+      let capitalOutflow = 0
       if (cashflowIds.length > 0) {
         const selectedCashflowsRes = await client.query(
           `SELECT id, type, category, amount, report_id
@@ -77,9 +79,16 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         adjustmentOutflow = selectedCashflowsRes.rows
           .filter((r) => String(r.category) === "adjustment" && String(r.type) === "outflow")
           .reduce((sum, r) => sum + Number(r.amount || 0), 0)
+        capitalInflow = selectedCashflowsRes.rows
+          .filter((r) => String(r.category) === "capital" && String(r.type) === "inflow")
+          .reduce((sum, r) => sum + Number(r.amount || 0), 0)
+        capitalOutflow = selectedCashflowsRes.rows
+          .filter((r) => String(r.category) === "capital" && String(r.type) === "outflow")
+          .reduce((sum, r) => sum + Number(r.amount || 0), 0)
       }
 
-      const expected = openingValue + capitalAdded + income - expenses + adjustmentInflow - adjustmentOutflow
+      const expected =
+        openingValue + capitalInflow - capitalOutflow + income - expenses + adjustmentInflow - adjustmentOutflow
       if (Math.abs(closingValue - expected) > 0.01) {
         await client.query("ROLLBACK")
         return NextResponse.json({ error: "invalid_closing_value" }, { status: 400 })
@@ -90,12 +99,24 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       try {
         const reportRes = await client.query(
           `INSERT INTO senteloans_investment_reports (
-             investment_id, report_number, report_period, opening_value, capital_added, income, expenses, closing_value,
-             notes, created_by, modified_by, updated_at
+             investment_id, report_number, report_period, opening_value, capital_inflow, capital_outflow,
+             income, expenses, closing_value, notes, created_by, modified_by, updated_at
            )
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$10,NOW())
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$11,NOW())
            RETURNING id`,
-          [id, reportNumber, reportPeriod, openingValue, capitalAdded, income, expenses, closingValue, notes, actor.id],
+          [
+            id,
+            reportNumber,
+            reportPeriod,
+            openingValue,
+            capitalInflow,
+            capitalOutflow,
+            income,
+            expenses,
+            closingValue,
+            notes,
+            actor.id,
+          ],
         )
         reportId = String(reportRes.rows[0]?.id || "")
       } catch (e: any) {
@@ -114,7 +135,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
           report_number: reportNumber,
           report_period: reportPeriod,
           opening_value: openingValue,
-          capital_added: capitalAdded,
+          capital_inflow: capitalInflow,
+          capital_outflow: capitalOutflow,
           income,
           expenses,
           closing_value: closingValue,
@@ -123,7 +145,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         },
         actor.institution_id,
         actor.id,
-        undefined,
+        { branch_id: investmentBranchId },
         client,
       )
 
@@ -137,29 +159,62 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         )
       }
 
+      const reportValuationNotes = `${reportPeriod} report valuation`
+      const existingValRes = await client.query(
+        `SELECT id, value, notes, valuation_date
+         FROM senteloans_investment_valuations
+         WHERE investment_id = $1 AND valuation_date = CURRENT_DATE
+         LIMIT 1`,
+        [id],
+      )
+      const existingVal = existingValRes.rows[0] as
+        | { id: string; value: string | number; notes: string | null; valuation_date: string }
+        | undefined
+
       const valIns = await client.query(
         `INSERT INTO senteloans_investment_valuations (investment_id, valuation_date, value, notes)
          VALUES ($1, CURRENT_DATE, $2, $3)
+         ON CONFLICT (investment_id, valuation_date)
+         DO UPDATE SET value = EXCLUDED.value, notes = EXCLUDED.notes
          RETURNING id, valuation_date`,
-        [id, closingValue, `${reportPeriod} report valuation`],
+        [id, closingValue, reportValuationNotes],
       )
       const valRow = valIns.rows[0] as { id: string; valuation_date: string } | undefined
       const valuationId = String(valRow?.id || "")
       if (valuationId) {
-        await auditLogger.logInsert(
-          "senteloans_investment_valuations",
-          valuationId,
-          {
-            investment_id: id,
-            valuation_date: valRow?.valuation_date,
-            value: closingValue,
-            notes: `${reportPeriod} report valuation`,
-          },
-          actor.institution_id,
-          actor.id,
-          undefined,
-          client,
-        )
+        if (existingVal) {
+          await auditLogger.logUpdate(
+            "senteloans_investment_valuations",
+            valuationId,
+            {
+              value: Number(existingVal.value || 0),
+              notes: existingVal.notes,
+            },
+            {
+              value: closingValue,
+              notes: reportValuationNotes,
+            },
+            actor.institution_id,
+            actor.id,
+            { branch_id: investmentBranchId },
+            client,
+          )
+        } else {
+          await auditLogger.logInsert(
+            "senteloans_investment_valuations",
+            valuationId,
+            {
+              investment_id: id,
+              valuation_date: valRow?.valuation_date,
+              value: closingValue,
+              notes: reportValuationNotes,
+            },
+            actor.institution_id,
+            actor.id,
+            { branch_id: investmentBranchId },
+            client,
+          )
+        }
       }
 
       await client.query(
@@ -177,7 +232,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         { current_value: closingValue },
         actor.institution_id,
         actor.id,
-        undefined,
+        { branch_id: investmentBranchId },
         client,
       )
 

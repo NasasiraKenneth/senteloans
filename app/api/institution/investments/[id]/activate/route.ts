@@ -90,7 +90,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       const amount = principalAmount
       const txDate = `${startDate}T00:00:00.000Z`
       const txDesc =
-        description || `Investment activation deposit (${inv.investment_number || inv.id})`
+        description || `Investment development start deposit (${inv.investment_number || inv.id})`
       const inserted = await insertWithTransactionNumberRetry(
         (transactionNumber) =>
           client.query(
@@ -132,13 +132,13 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
           mode,
           client_id: inv.provider_id,
           investment_id: id,
-          source: "investment_activate",
+          source: "investment_start_development",
         },
       })
 
       await client.query(
         `UPDATE senteloans_investments
-         SET status = 'active',
+         SET status = 'under_development',
              start_date = $1::date,
              maturity_date = $2::date,
              modified_by = $3,
@@ -156,13 +156,13 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
           maturity_date: inv.maturity_date,
         },
         {
-          status: "active",
+          status: "under_development",
           start_date: startDate,
           maturity_date: maturityDate,
         },
         inv.institution_id,
         actor.id,
-        undefined,
+        { branch_id: inv.branch_id },
         client,
       )
 

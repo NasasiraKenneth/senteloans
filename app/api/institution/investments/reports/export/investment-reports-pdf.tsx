@@ -9,7 +9,8 @@ export type InvestmentReportExportRow = {
   investment_name: string
   provider_name: string
   opening_value: number
-  capital_added: number
+  capital_inflow: number
+  capital_outflow: number
   income: number
   expenses: number
   closing_value: number
@@ -36,7 +37,8 @@ export async function renderInvestmentReportsPdfBuffer(payload: Payload): Promis
     "Investment",
     "Provider",
     "Opening",
-    "Capital",
+    "Cap In",
+    "Cap Out",
     "Income",
     "Expenses",
     "Closing",
@@ -66,7 +68,8 @@ export async function renderInvestmentReportsPdfBuffer(payload: Payload): Promis
                 <Text style={styles.cell}>{(row.investment_name || "").slice(0, 40)}</Text>
                 <Text style={styles.cell}>{(row.provider_name || "").slice(0, 24)}</Text>
                 <Text style={styles.cell}>{Number(row.opening_value || 0).toLocaleString("en-UG")}</Text>
-                <Text style={styles.cell}>{Number(row.capital_added || 0).toLocaleString("en-UG")}</Text>
+                <Text style={styles.cell}>{Number(row.capital_inflow || 0).toLocaleString("en-UG")}</Text>
+                <Text style={styles.cell}>{Number(row.capital_outflow || 0).toLocaleString("en-UG")}</Text>
                 <Text style={styles.cell}>{Number(row.income || 0).toLocaleString("en-UG")}</Text>
                 <Text style={styles.cell}>{Number(row.expenses || 0).toLocaleString("en-UG")}</Text>
                 <Text style={styles.cell}>{Number(row.closing_value || 0).toLocaleString("en-UG")}</Text>

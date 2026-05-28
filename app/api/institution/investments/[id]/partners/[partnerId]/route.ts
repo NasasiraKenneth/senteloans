@@ -49,7 +49,8 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
          p.status,
          p.contribution_percentage,
          p.contribution_amount,
-         p.ownership_percentage
+         p.ownership_percentage,
+         i.branch_id
        FROM senteloans_investment_partners p
        JOIN senteloans_investments i ON i.id = p.investment_id
        WHERE p.id = $7
@@ -58,6 +59,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       params,
     )
     if (prevRes.rowCount === 0) return NextResponse.json({ error: "partner_not_found" }, { status: 404 })
+    const investmentBranchId = String((prevRes.rows[0] as { branch_id?: string })?.branch_id || actor.branch_id || "")
     const prev = prevRes.rows[0] as {
       counterparty_id: string
       role: string | null
@@ -106,7 +108,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       },
       actor.institution_id,
       actor.id,
-      undefined,
+      { branch_id: investmentBranchId },
       client,
     )
     return NextResponse.json({ ok: true })
@@ -128,7 +130,7 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
     if (!isSuperAdmin && !actor.branch_id) return NextResponse.json({ error: "actor_branch_missing" }, { status: 400 })
 
     const investmentRes = await client.query(
-      `SELECT i.id, i.status
+      `SELECT i.id, i.status, i.branch_id
        FROM senteloans_investments i
        WHERE i.id = $1
          AND i.institution_id = $2
@@ -137,6 +139,7 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
       isSuperAdmin ? [id, actor.institution_id] : [id, actor.institution_id, actor.branch_id],
     )
     if (investmentRes.rowCount === 0) return NextResponse.json({ error: "investment_not_found" }, { status: 404 })
+    const investmentBranchId = String(investmentRes.rows[0]?.branch_id || actor.branch_id || "")
     const investmentStatus = String(investmentRes.rows[0]?.status || "").trim().toLowerCase()
     if (investmentStatus !== "pending") {
       return NextResponse.json({ error: "partner_delete_allowed_only_when_pending" }, { status: 409 })
@@ -180,7 +183,7 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
       },
       actor.institution_id,
       actor.id,
-      undefined,
+      { branch_id: investmentBranchId },
       client,
     )
     return NextResponse.json({ ok: true })

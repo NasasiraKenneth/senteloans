@@ -22,13 +22,14 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     if (!isSuperAdmin && !actor.branch_id) return NextResponse.json({ error: "actor_branch_missing" }, { status: 400 })
 
     const invRes = await client.query(
-      `SELECT id FROM senteloans_investments
+      `SELECT id, branch_id FROM senteloans_investments
        WHERE id = $1 AND institution_id = $2
        ${isSuperAdmin ? "" : "AND branch_id = $3"}
        LIMIT 1`,
       isSuperAdmin ? [id, actor.institution_id] : [id, actor.institution_id, actor.branch_id],
     )
     if (invRes.rowCount === 0) return NextResponse.json({ error: "investment_not_found" }, { status: 404 })
+    const investmentBranchId = String(invRes.rows[0]?.branch_id || actor.branch_id || "")
 
     const counterpartyId = String(body.counterpartyId || body.counterparty_id || "").trim()
     const role = String(body.role || "").trim() || null
@@ -59,7 +60,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       },
       actor.institution_id,
       actor.id,
-      undefined,
+      { branch_id: investmentBranchId },
       client,
     )
     return NextResponse.json({ ok: true, id: newId }, { status: 201 })

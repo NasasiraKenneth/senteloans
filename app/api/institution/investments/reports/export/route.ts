@@ -128,7 +128,7 @@ function appendReportFilters(where: string, params: unknown[], idx: number, filt
     w += ` AND (
           r.report_number ILIKE $${i}
           OR i.investment_number ILIKE $${i}
-          OR COALESCE(ip.name, '') ILIKE $${i}
+          OR COALESCE(i.investment_name, '') ILIKE $${i}
           OR COALESCE(c.name, '') ILIKE $${i}
         )`
     p.push(`%${filters.q}%`)
@@ -242,10 +242,11 @@ export async function GET(req: Request) {
              r.report_number,
              r.report_period,
              i.investment_number,
-             COALESCE(ip.name, '') AS investment_name,
+             COALESCE(i.investment_name, '') AS investment_name,
              COALESCE(c.name, '') AS provider_name,
              r.opening_value,
-             r.capital_added,
+             r.capital_inflow,
+             r.capital_outflow,
              r.income,
              r.expenses,
              r.closing_value,
@@ -255,7 +256,6 @@ export async function GET(req: Request) {
            FROM senteloans_investment_reports r
            INNER JOIN senteloans_investments i ON i.id = r.investment_id
            LEFT JOIN senteloans_clients c ON c.id = i.provider_id
-           LEFT JOIN senteloans_investment_products ip ON ip.investment_id = i.id
            LEFT JOIN senteloans_users u ON u.id = r.created_by
            WHERE ${where}
            ORDER BY r.created_at DESC`,
@@ -271,7 +271,8 @@ export async function GET(req: Request) {
             investment_name: String(row.investment_name || ""),
             provider_name: String(row.provider_name || ""),
             opening_value: Number(row.opening_value || 0),
-            capital_added: Number(row.capital_added || 0),
+            capital_inflow: Number(row.capital_inflow || 0),
+            capital_outflow: Number(row.capital_outflow || 0),
             income: Number(row.income || 0),
             expenses: Number(row.expenses || 0),
             closing_value: Number(row.closing_value || 0),
@@ -302,7 +303,8 @@ export async function GET(req: Request) {
         "Investment name",
         "Provider",
         "Opening",
-        "Capital added",
+        "Capital inflow",
+        "Capital outflow",
         "Income",
         "Expenses",
         "Closing",
@@ -312,7 +314,7 @@ export async function GET(req: Request) {
       ]
       for (const sheet of result.sheets || []) {
         const ws = workbook.addWorksheet(toSafeExcelSheetName(sheet.branch_name))
-        addExcelTitleAndHeaders(ws, result.title || "Investment Reports List", headers, "A1:M1")
+        addExcelTitleAndHeaders(ws, result.title || "Investment Reports List", headers, "A1:N1")
         ws.columns = [
           { width: 16 },
           { width: 14 },
@@ -320,7 +322,8 @@ export async function GET(req: Request) {
           { width: 22 },
           { width: 20 },
           { width: 14 },
-          { width: 12 },
+          { width: 14 },
+          { width: 14 },
           { width: 12 },
           { width: 12 },
           { width: 14 },
@@ -336,7 +339,8 @@ export async function GET(req: Request) {
             row.investment_name,
             row.provider_name,
             row.opening_value,
-            row.capital_added,
+            row.capital_inflow,
+            row.capital_outflow,
             row.income,
             row.expenses,
             row.closing_value,

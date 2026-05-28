@@ -33,7 +33,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       : [sourceType, sourceType === "loan" ? loanId : null, amount, fundingId, investmentId, actor.institution_id, actor.branch_id]
 
     const prevRes = await client.query(
-      `SELECT f.source_type, f.loan_id, f.amount
+      `SELECT f.source_type, f.loan_id, f.amount, i.branch_id
        FROM senteloans_investment_funding_sources f
        JOIN senteloans_investments i ON i.id = f.investment_id
        WHERE f.id = $4
@@ -42,7 +42,8 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       qParams,
     )
     if (prevRes.rowCount === 0) return NextResponse.json({ error: "funding_not_found" }, { status: 404 })
-    const prev = prevRes.rows[0] as { source_type: string; loan_id: string | null; amount: unknown }
+    const prev = prevRes.rows[0] as { source_type: string; loan_id: string | null; amount: unknown; branch_id: string }
+    const investmentBranchId = String(prev.branch_id || actor.branch_id || "")
 
     const upd = await client.query(
       `UPDATE senteloans_investment_funding_sources f
@@ -71,7 +72,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       },
       actor.institution_id,
       actor.id,
-      undefined,
+      { branch_id: investmentBranchId },
       client,
     )
     return NextResponse.json({ ok: true })
@@ -98,7 +99,7 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
       : [fundingId, investmentId, actor.institution_id, actor.branch_id]
 
     const prevRes = await client.query(
-      `SELECT f.id, f.investment_id, f.source_type, f.loan_id, f.amount
+      `SELECT f.id, f.investment_id, f.source_type, f.loan_id, f.amount, i.branch_id
        FROM senteloans_investment_funding_sources f
        JOIN senteloans_investments i ON i.id = f.investment_id
        WHERE f.id = $1
@@ -108,6 +109,7 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
     )
     if (prevRes.rowCount === 0) return NextResponse.json({ error: "funding_not_found" }, { status: 404 })
     const prev = prevRes.rows[0] as Record<string, unknown>
+    const investmentBranchId = String(prev.branch_id || actor.branch_id || "")
 
     const del = await client.query(
       `DELETE FROM senteloans_investment_funding_sources f
@@ -131,7 +133,7 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
       },
       actor.institution_id,
       actor.id,
-      undefined,
+      { branch_id: investmentBranchId },
       client,
     )
     return NextResponse.json({ ok: true })

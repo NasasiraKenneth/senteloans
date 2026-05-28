@@ -7,10 +7,20 @@ import StyledSelect from "@/components/newUI/styled_select"
 import ReeveDatePicker from "@/components/newUI/date_picker"
 import { FaExclamationTriangle, FaSave, FaTimes, FaTrash } from "react-icons/fa"
 import { MdFormatListBulletedAdd } from "react-icons/md"
+import {
+  Briefcase,
+  Building2,
+  CalendarClock,
+  HandCoins,
+  Info,
+  PiggyBank,
+  Users2,
+} from "lucide-react"
 
 type ProviderOption = {
   id: string
   name: string
+  address: string
 }
 
 export interface InvestmentFundingItem {
@@ -152,6 +162,7 @@ export default function NewInvestmentForm({
           list.map((c: any) => ({
             id: String(c.id || ""),
             name: String(c.name || c.full_name || c.clientName || ""),
+            address: String(c.address || ""),
           })),
         )
       } finally {
@@ -217,7 +228,25 @@ export default function NewInvestmentForm({
   }, [])
 
   const setField = (field: keyof NewInvestmentFormData, value: string | number) => {
-    setFormData((prev) => ({ ...prev, [field]: value }))
+    setFormData((prev) => {
+      const next: NewInvestmentFormData = { ...prev, [field]: value }
+
+      // Project investments do not have a provider; clear any selection if type switches to project.
+      if (field === "investmentType" && String(value || "").toLowerCase() === "project") {
+        next.clientId = ""
+        next.clientName = ""
+      }
+
+      // When a provider is picked, prefill the investment address with the provider's address.
+      if (field === "clientId") {
+        const provider = providers.find((p) => p.id === String(value || ""))
+        if (provider?.address) {
+          next.investmentAddress = provider.address
+        }
+      }
+
+      return next
+    })
     setErrors((prev) => {
       if (!prev[field]) return prev
       const next = { ...prev }
@@ -332,245 +361,325 @@ export default function NewInvestmentForm({
     setFormData((prev) => ({ ...prev, partners: prev.partners.filter((row) => row.id !== id) }))
   }
 
+  const investmentTypeLower = String(formData.investmentType || "").toLowerCase()
+  const showProvider = investmentTypeLower !== "project"
+  const showPartners = investmentTypeLower === "partnership"
+  const partnerCount = formData.partners.length
+
   return (
-    <div className="w-full max-h-[85vh] overflow-auto max-w-6xl mx-auto p-4">
-      <form onSubmit={handleSubmit} className="space-y-6">
-        <div className="rounded-lg border bg-white p-6 space-y-4">
-          <h3 className="text-lg font-medium">New Investment</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label>Provider</Label>
-              <StyledSelect
-                value={formData.clientId}
-                onChange={(value) => setField("clientId", value)}
-                placeholder={loadingProviders ? "Loading providers..." : "Select provider"}
-                options={providers.map((provider) => ({ value: provider.id, label: provider.name }))}
-                searchable
-              />
-              {errors.clientId && (
-                <p className="text-xs text-red-600 flex items-center gap-1">
-                  <FaExclamationTriangle className="w-3 h-3" />
-                  {errors.clientId}
-                </p>
-              )}
-            </div>
+    <div className="w-full max-h-[88vh] overflow-auto max-w-6xl mx-auto rounded-bl-lg">
+      <form onSubmit={handleSubmit} className="space-y-5 p-4 sm:p-6">
 
-            <div className="space-y-2">
-              <Label>Investment Type *</Label>
-              <StyledSelect
-                value={formData.investmentType}
-                onChange={(value) => setField("investmentType", value)}
-                placeholder="Select investment type"
-                options={INVESTMENT_TYPE_OPTIONS}
-              />
-              {errors.investmentType && (
-                <p className="text-xs text-red-600 flex items-center gap-1">
-                  <FaExclamationTriangle className="w-3 h-3" />
-                  {errors.investmentType}
-                </p>
-              )}
-            </div>
+        <div className="rounded-xl border border-[#f08c2b]/20 bg-linear-to-r from-[#fff7ed] via-white to-white px-5 py-4 flex items-start gap-3">
+          <div className="mt-0.5 inline-flex h-9 w-9 items-center justify-center rounded-lg bg-[#f08c2b]/10 text-[#f08c2b]">
+            <Briefcase className="h-4.5 w-4.5" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <h2 className="text-sm font-semibold text-gray-900">New investment</h2>
+            <p className="mt-0.5 text-xs text-gray-600">
+              Capture the investment basics, financial terms, schedule, and (for partnerships) the counterparties involved.
+            </p>
+          </div>
+        </div>
 
-            <div className="space-y-2">
-              <Label>Investment Name</Label>
-              <input
-                type="text"
-                value={formData.investmentName}
-                onChange={(e) => setField("investmentName", e.target.value)}
-                placeholder="Enter investment name"
-                className={inputClass(false)}
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label>Investment Address</Label>
-              <input
-                type="text"
-                value={formData.investmentAddress}
-                onChange={(e) => setField("investmentAddress", e.target.value)}
-                placeholder="Enter investment address"
-                className={inputClass(false)}
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label>Risk Level *</Label>
-              <StyledSelect
-                value={formData.riskLevel}
-                onChange={(value) => setField("riskLevel", value)}
-                placeholder="Select risk level"
-                options={RISK_LEVEL_OPTIONS}
-              />
-              {errors.riskLevel && (
-                <p className="text-xs text-red-600 flex items-center gap-1">
-                  <FaExclamationTriangle className="w-3 h-3" />
-                  {errors.riskLevel}
-                </p>
-              )}
-            </div>
-
-            <div className="space-y-2">
-              <Label>Status</Label>
-              <StyledSelect
-                value={formData.status}
-                onChange={(value) => setField("status", value)}
-                placeholder="Select status"
-                options={STATUS_OPTIONS}
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label>Expected % Per Annum</Label>
-              <input
-                type="number"
-                min={0}
-                step="0.01"
-                value={formData.expectedPercentagePerAnnum || ""}
-                onChange={(e) => setField("expectedPercentagePerAnnum", Number(e.target.value || 0))}
-                placeholder="Enter expected percentage per annum"
-                className={inputClass(!!errors.expectedPercentagePerAnnum)}
-              />
-              {errors.expectedPercentagePerAnnum && (
-                <p className="text-xs text-red-600 flex items-center gap-1">
-                  <FaExclamationTriangle className="w-3 h-3" />
-                  {errors.expectedPercentagePerAnnum}
-                </p>
-              )}
-            </div>
-
-            <div className="space-y-2">
-              <Label>Principal Amount *</Label>
-              <input
-                type="number"
-                min={0}
-                value={formData.principalAmount || ""}
-                onChange={(e) => setField("principalAmount", Number(e.target.value || 0))}
-                placeholder="Enter principal amount"
-                className={inputClass(!!errors.principalAmount)}
-              />
-              {errors.principalAmount && (
-                <p className="text-xs text-red-600 flex items-center gap-1">
-                  <FaExclamationTriangle className="w-3 h-3" />
-                  {errors.principalAmount}
-                </p>
-              )}
-            </div>
-
-            <div className="space-y-2">
-              <Label>Expected Returns</Label>
-              <input
-                type="number"
-                min={0}
-                value={formData.expectedReturns || ""}
-                onChange={(e) => setField("expectedReturns", Number(e.target.value || 0))}
-                placeholder="Enter expected returns"
-                className={inputClass(!!errors.expectedReturns)}
-              />
-              {errors.expectedReturns && (
-                <p className="text-xs text-red-600 flex items-center gap-1">
-                  <FaExclamationTriangle className="w-3 h-3" />
-                  {errors.expectedReturns}
-                </p>
-              )}
-            </div>
-
-            <div className="space-y-2 ">
-              <div className="flex items-center gap-3">
-                <Label>Period</Label>
-                <label className="flex items-center gap-2.5 cursor-pointer min-w-[120px]">
-                    <div className="relative">
-                      <input
-                        type="checkbox"
-                        className="sr-only peer"
-                        checked={formData.periodUnit === "years"}
-                        onChange={(e) => setField("periodUnit", e.target.checked ? "years" : "months")}
-                      />
-                      <div className="w-10 h-5 bg-gray-900 rounded-full peer-checked:bg-[#f08c2b] transition-colors" />
-                      <div className="absolute left-0.5 top-0.5 bg-white w-4 h-4 rounded-full transition-transform peer-checked:translate-x-5 shadow" />
-                    </div>
-                    <span className="text-xs text-muted-foreground">
-                      {formData.periodUnit === "years" ? "Years" : "Months"}
-                    </span>
-                </label>
-              </div>
-              <div>
-                <input
-                  type="number"
-                  min={0}
-                  value={formData.periodValue || ""}
-                  onChange={(e) => setField("periodValue", Number(e.target.value || 0))}
-                  placeholder={`Enter period in ${formData.periodUnit}`}
-                  className={inputClass(!!errors.periodValue)}
+        <div className="rounded-xl border border-gray-200 bg-white shadow-sm">
+          <SectionHeader
+            icon={<Building2 className="h-4 w-4" />}
+            title="Investment details"
+            description="What this investment is and where it lives."
+          />
+          <div className="px-5 py-5 space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <Field label="Investment Type" required error={errors.investmentType}>
+                <StyledSelect
+                  value={formData.investmentType}
+                  onChange={(value) => setField("investmentType", value)}
+                  placeholder="Select investment type"
+                  options={INVESTMENT_TYPE_OPTIONS}
                 />
-              </div>
-              {errors.periodValue && (
-                <p className="text-xs text-red-600 flex items-center gap-1">
-                  <FaExclamationTriangle className="w-3 h-3" />
-                  {errors.periodValue}
-                </p>
-              )}
-            </div>
+              </Field>
 
-            <div className="space-y-2">
-              <Label>Start Date *</Label>
-              <ReeveDatePicker
-                value={formData.startDate}
-                onChange={(value) => setField("startDate", value)}
-                placeholder="Select start date"
-              />
-              {errors.startDate && (
-                <p className="text-xs text-red-600 flex items-center gap-1">
-                  <FaExclamationTriangle className="w-3 h-3" />
-                  {errors.startDate}
-                </p>
+              {showProvider && (
+                <Field
+                  label="Provider"
+                  error={errors.clientId}
+                  hint={
+                    formData.clientId
+                      ? "Investment address has been prefilled from this provider."
+                      : "Optional. Select the counterparty providing this investment."
+                  }
+                >
+                  <StyledSelect
+                    value={formData.clientId}
+                    onChange={(value) => setField("clientId", value)}
+                    placeholder={loadingProviders ? "Loading providers..." : "Select provider"}
+                    options={providers.map((provider) => ({ value: provider.id, label: provider.name }))}
+                    searchable
+                  />
+                </Field>
               )}
-            </div>
 
-            <div className="space-y-2">
-              <Label>Maturity Date *</Label>
-              <ReeveDatePicker
-                value={formData.maturityDate}
-                onChange={(value) => setField("maturityDate", value)}
-                placeholder="Select maturity date"
-              />
-              {errors.maturityDate && (
-                <p className="text-xs text-red-600 flex items-center gap-1">
-                  <FaExclamationTriangle className="w-3 h-3" />
-                  {errors.maturityDate}
-                </p>
-              )}
+              <Field label="Investment Name">
+                <input
+                  type="text"
+                  value={formData.investmentName}
+                  onChange={(e) => setField("investmentName", e.target.value)}
+                  placeholder="e.g. Mukono Rental Block A"
+                  className={inputClass(false)}
+                />
+              </Field>
+
+              <Field label="Investment Address">
+                <input
+                  type="text"
+                  value={formData.investmentAddress}
+                  onChange={(e) => setField("investmentAddress", e.target.value)}
+                  placeholder="e.g. Plot 12, Industrial Area, Kampala"
+                  className={inputClass(false)}
+                />
+              </Field>
             </div>
           </div>
+        </div>
 
-          <div className="space-y-2">
-            <Label>Description</Label>
-            <textarea
-              value={formData.description}
-              onChange={(e) => setField("description", e.target.value)}
-              rows={4}
-              placeholder="Additional details about this investment"
-              className={inputClass(false)}
-            />
+        <div className="rounded-xl border border-gray-200 bg-white shadow-sm">
+          <SectionHeader
+            icon={<PiggyBank className="h-4 w-4" />}
+            title="Financial details"
+            description="Principal committed and expected performance."
+          />
+          <div className="px-5 py-5 space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <Field label="Risk Level" required error={errors.riskLevel}>
+                <StyledSelect
+                  value={formData.riskLevel}
+                  onChange={(value) => setField("riskLevel", value)}
+                  placeholder="Select risk level"
+                  options={RISK_LEVEL_OPTIONS}
+                />
+              </Field>
+
+              <Field label="Expected % Per Annum" error={errors.expectedPercentagePerAnnum}>
+                <div className="relative">
+                  <input
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={formData.expectedPercentagePerAnnum || ""}
+                    onChange={(e) => setField("expectedPercentagePerAnnum", Number(e.target.value || 0))}
+                    placeholder="0.00"
+                    className={`${inputClass(!!errors.expectedPercentagePerAnnum)} pr-9`}
+                  />
+                  <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-medium text-gray-500">
+                    %
+                  </span>
+                </div>
+              </Field>
+
+              <Field label="Principal Amount" required error={errors.principalAmount}>
+                <div className="relative">
+                  <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-gray-500">
+                    UGX
+                  </span>
+                  <input
+                    type="number"
+                    min={0}
+                    value={formData.principalAmount || ""}
+                    onChange={(e) => setField("principalAmount", Number(e.target.value || 0))}
+                    placeholder="0"
+                    className={`${inputClass(!!errors.principalAmount)} pl-12`}
+                  />
+                </div>
+              </Field>
+            </div>
           </div>
+        </div>
 
-          {String(formData.investmentType || "").toLowerCase() === "partnership" && (
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <Label>Partners</Label>
-                <Button type="button" variant="outline" onClick={addPartnerRow} title="Add partner" aria-label="Add partner">
-                  <MdFormatListBulletedAdd className="h-4 w-4" />
-                </Button>
+        <div className="rounded-xl border border-gray-200 bg-white shadow-sm">
+          <SectionHeader
+            icon={<CalendarClock className="h-4 w-4" />}
+            title="Schedule"
+            description="When the investment starts and matures. Choose a period and the maturity date updates automatically."
+          />
+          <div className="px-5 py-5 space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <Field label="Start Date" required error={errors.startDate}>
+                <ReeveDatePicker
+                  value={formData.startDate}
+                  onChange={(value) => setField("startDate", value)}
+                  placeholder="Select start date"
+                />
+              </Field>
+
+              <Field
+                label="Period"
+                required
+                error={errors.periodValue}
+                hint={
+                  !errors.periodValue && formData.periodValue > 0
+                    ? `Investment runs for ${formData.periodValue} ${formData.periodUnit}.`
+                    : undefined
+                }
+              >
+                <div
+                  className={`flex items-center rounded-md border transition-all duration-200 focus-within:ring-[1.5px] focus-within:ring-[#f08c2b] focus-within:border-transparent ${
+                    errors.periodValue ? "border-red-500" : "border-gray-300 hover:border-gray-400"
+                  }`}
+                >
+                  <input
+                    type="number"
+                    min={0}
+                    value={formData.periodValue || ""}
+                    onChange={(e) => setField("periodValue", Number(e.target.value || 0))}
+                    placeholder={`e.g. ${formData.periodUnit === "years" ? "5" : "12"}`}
+                    className="w-full bg-transparent px-3 py-2.5 text-sm focus:outline-none"
+                  />
+                  <div
+                    role="group"
+                    aria-label="Period unit"
+                    className="mr-1 my-1 inline-flex items-center rounded-md bg-gray-100 p-0.5 text-[11px] font-semibold"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => setField("periodUnit", "months")}
+                      aria-pressed={formData.periodUnit === "months"}
+                      className={`rounded px-2.5 py-1 transition-colors ${
+                        formData.periodUnit === "months"
+                          ? "bg-white text-gray-900 shadow-sm"
+                          : "text-gray-500 hover:text-gray-700"
+                      }`}
+                    >
+                      Months
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setField("periodUnit", "years")}
+                      aria-pressed={formData.periodUnit === "years"}
+                      className={`rounded px-2.5 py-1 transition-colors ${
+                        formData.periodUnit === "years"
+                          ? "bg-white text-gray-900 shadow-sm"
+                          : "text-gray-500 hover:text-gray-700"
+                      }`}
+                    >
+                      Years
+                    </button>
+                  </div>
+                </div>
+              </Field>
+
+              <Field
+                label="Maturity Date"
+                required
+                error={errors.maturityDate}
+                hint={
+                  !errors.maturityDate && formData.startDate && formData.periodValue > 0
+                    ? "Auto-calculated. You can still override it."
+                    : undefined
+                }
+              >
+                <ReeveDatePicker
+                  value={formData.maturityDate}
+                  onChange={(value) => setField("maturityDate", value)}
+                  placeholder="Select maturity date"
+                />
+              </Field>
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-gray-200 bg-white shadow-sm">
+          <SectionHeader
+            icon={<Info className="h-4 w-4" />}
+            title="Description"
+            description="Any extra context that will help the team understand this investment."
+          />
+          <div className="px-5 py-5">
+            <Field label="Description">
+              <textarea
+                value={formData.description}
+                onChange={(e) => setField("description", e.target.value)}
+                rows={4}
+                placeholder="Additional details about this investment"
+                className={`${inputClass(false)} resize-y`}
+              />
+            </Field>
+          </div>
+        </div>
+
+        {showPartners && (
+          <div className="rounded-xl border border-gray-200 bg-white shadow-sm">
+            <div className="flex items-start justify-between gap-3 border-b border-gray-100 px-5 py-3.5">
+              <div className="flex items-start gap-2.5 min-w-0">
+                <div className="mt-0.5 inline-flex h-7 w-7 items-center justify-center rounded-md bg-[#f08c2b]/10 text-[#f08c2b]">
+                  <Users2 className="h-4 w-4" />
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+                    Partners
+                    <span className="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-semibold text-gray-700">
+                      {partnerCount}
+                    </span>
+                  </h3>
+                  <p className="text-xs text-gray-500">Counterparties contributing to this partnership.</p>
+                </div>
               </div>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={addPartnerRow}
+                className="shrink-0 h-9"
+              >
+                <MdFormatListBulletedAdd className="h-4 w-4 mr-1.5" />
+                Add partner
+              </Button>
+            </div>
 
-              {formData.partners.length === 0 ? (
-                <div className="rounded-md border border-dashed px-3 py-3 text-xs text-muted-foreground">
-                  No partners added yet.
+            <div className="px-5 py-5 space-y-3">
+              {partnerCount === 0 ? (
+                <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50/60 px-4 py-8 text-center">
+                  <HandCoins className="mx-auto h-7 w-7 text-gray-400" />
+                  <p className="mt-2 text-sm font-medium text-gray-700">No partners added yet</p>
+                  <p className="text-xs text-gray-500">
+                    Partnership investments require at least one counterparty.
+                  </p>
                 </div>
               ) : (
-                <div className="space-y-3">
-                  {formData.partners.map((row) => (
-                    <div key={row.id} className="grid grid-cols-1 md:grid-cols-12 gap-3 rounded-md border p-3">
-                      <div className="md:col-span-3 space-y-1.5">
+                formData.partners.map((row, idx) => (
+                  <div
+                    key={row.id}
+                    className="rounded-lg border border-gray-200 bg-white overflow-hidden"
+                  >
+                    <div className="flex items-center justify-between gap-2 border-b border-gray-100 bg-gray-50/70 px-4 py-2.5">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="inline-flex h-6 w-6 items-center justify-center rounded-md bg-[#f08c2b]/10 text-[11px] font-semibold text-[#f08c2b]">
+                          {idx + 1}
+                        </span>
+                        <span className="text-xs font-semibold uppercase tracking-wide text-gray-600">
+                          Partner #{idx + 1}
+                        </span>
+                        <span
+                          className={`ml-1 inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                            row.status === "Active"
+                              ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                              : "bg-gray-100 text-gray-600 border border-gray-200"
+                          }`}
+                        >
+                          {row.status}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => removePartnerRow(row.id)}
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-red-200 text-red-600 hover:bg-red-50 transition-colors"
+                        aria-label="Remove partner row"
+                        title="Remove partner"
+                      >
+                        <FaTrash className="h-3 w-3" />
+                      </button>
+                    </div>
+
+                    <div className="px-4 py-4 grid grid-cols-1 md:grid-cols-12 gap-3">
+                      <div className="md:col-span-5 space-y-1.5">
                         <Label>Counterparty</Label>
                         <StyledSelect
                           value={row.counterpartyId}
@@ -581,7 +690,7 @@ export default function NewInvestmentForm({
                         />
                       </div>
 
-                      <div className="md:col-span-2 space-y-1.5">
+                      <div className="md:col-span-3 space-y-1.5">
                         <Label>Role</Label>
                         <StyledSelect
                           value={row.role}
@@ -591,181 +700,177 @@ export default function NewInvestmentForm({
                         />
                       </div>
 
-                      <div className="md:col-span-2 space-y-1.5">
-                        <Label>Contribution %</Label>
-                        <input
-                          type="number"
-                          min={0}
-                          step="0.01"
-                          value={row.contributionPercentage || ""}
-                          onChange={(e) => updatePartnerRow(row.id, { contributionPercentage: Number(e.target.value || 0) })}
-                          placeholder="0"
-                          className={inputClass(false)}
-                        />
-                      </div>
-
-                      <div className="md:col-span-2 space-y-1.5">
-                        <Label>Contribution Amt</Label>
-                        <input
-                          type="number"
-                          min={0}
-                          step="0.01"
-                          value={row.contributionAmount || ""}
-                          onChange={(e) => updatePartnerRow(row.id, { contributionAmount: Number(e.target.value || 0) })}
-                          placeholder="0"
-                          className={inputClass(false)}
-                        />
-                      </div>
-
-                      <div className="md:col-span-1 space-y-1.5">
-                        <Label>Owner %</Label>
-                        <input
-                          type="number"
-                          min={0}
-                          step="0.01"
-                          value={row.ownershipPercentage || ""}
-                          onChange={(e) => updatePartnerRow(row.id, { ownershipPercentage: Number(e.target.value || 0) })}
-                          placeholder="0"
-                          className={inputClass(false)}
-                        />
-                      </div>
-
-                      <div className="md:col-span-1 space-y-1.5">
+                      <div className="md:col-span-4 space-y-1.5">
                         <Label>Status</Label>
-                        <div className="h-10 flex items-center">
-                          <label className="flex items-center gap-2.5 cursor-pointer">
-                            <div className="relative">
-                              <input
-                                type="checkbox"
-                                className="sr-only peer"
-                                checked={row.status === "Active"}
-                                onChange={(e) => updatePartnerRow(row.id, { status: e.target.checked ? "Active" : "Inactive" })}
-                              />
-                              <div className="w-9 h-5 bg-gray-300 rounded-full peer-checked:bg-[#f08c2b] transition-colors" />
-                              <div className="absolute left-0.5 top-0.5 bg-white w-4 h-4 rounded-full transition-transform peer-checked:translate-x-4 shadow" />
-                            </div>
-                          </label>
+                        <label className="flex h-10 cursor-pointer items-center gap-3 rounded-md border border-gray-300 px-3">
+                          <div className="relative">
+                            <input
+                              type="checkbox"
+                              className="sr-only peer"
+                              checked={row.status === "Active"}
+                              onChange={(e) =>
+                                updatePartnerRow(row.id, { status: e.target.checked ? "Active" : "Inactive" })
+                              }
+                            />
+                            <div className="h-5 w-9 rounded-full bg-gray-300 transition-colors peer-checked:bg-[#f08c2b]" />
+                            <div className="absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform peer-checked:translate-x-4" />
+                          </div>
+                          <span className="text-xs font-medium text-gray-700">
+                            {row.status === "Active" ? "Active partner" : "Inactive"}
+                          </span>
+                        </label>
+                      </div>
+
+                      <div className="md:col-span-4 space-y-1.5">
+                        <Label>Contribution %</Label>
+                        <div className="relative">
+                          <input
+                            type="number"
+                            min={0}
+                            step="0.01"
+                            value={row.contributionPercentage || ""}
+                            onChange={(e) =>
+                              updatePartnerRow(row.id, { contributionPercentage: Number(e.target.value || 0) })
+                            }
+                            placeholder="0.00"
+                            className={`${inputClass(false)} pr-9`}
+                          />
+                          <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-medium text-gray-500">
+                            %
+                          </span>
                         </div>
                       </div>
 
-                      <div className="md:col-span-1 flex items-end justify-center">
-                        <button
-                          type="button"
-                          onClick={() => removePartnerRow(row.id)}
-                          className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-red-200 text-red-600 hover:bg-red-50 transition-colors"
-                          aria-label="Remove partner row"
-                          title="Remove"
-                        >
-                          <FaTrash className="h-3.5 w-3.5" />
-                        </button>
+                      <div className="md:col-span-4 space-y-1.5">
+                        <Label>Contribution Amount</Label>
+                        <div className="relative">
+                          <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-gray-500">
+                            UGX
+                          </span>
+                          <input
+                            type="number"
+                            min={0}
+                            step="0.01"
+                            value={row.contributionAmount || ""}
+                            onChange={(e) =>
+                              updatePartnerRow(row.id, { contributionAmount: Number(e.target.value || 0) })
+                            }
+                            placeholder="0"
+                            className={`${inputClass(false)} pl-12`}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="md:col-span-4 space-y-1.5">
+                        <Label>Ownership %</Label>
+                        <div className="relative">
+                          <input
+                            type="number"
+                            min={0}
+                            step="0.01"
+                            value={row.ownershipPercentage || ""}
+                            onChange={(e) =>
+                              updatePartnerRow(row.id, { ownershipPercentage: Number(e.target.value || 0) })
+                            }
+                            placeholder="0.00"
+                            className={`${inputClass(false)} pr-9`}
+                          />
+                          <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-medium text-gray-500">
+                            %
+                          </span>
+                        </div>
                       </div>
                     </div>
-                  ))}
-                </div>
+                  </div>
+                ))
               )}
 
               {errors.partners && (
-                <p className="text-xs text-red-600 flex items-center gap-1">
-                  <FaExclamationTriangle className="w-3 h-3" />
+                <p className="text-xs text-red-600 flex items-center gap-1.5">
+                  <FaExclamationTriangle className="h-3 w-3" />
                   {errors.partners}
                 </p>
               )}
             </div>
-          )}
+          </div>
+        )}
 
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <Label>Investment Funding</Label>
-              <Button type="button" variant="outline" onClick={addFundingRow} title="Add funding source" aria-label="Add funding source">
-                <MdFormatListBulletedAdd className="h-4 w-4" />
-              </Button>
-            </div>
-
-            {formData.funding.length === 0 ? (
-              <div className="rounded-md border border-dashed px-3 py-3 text-xs text-muted-foreground">
-                No funding source added yet.
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {formData.funding.map((row) => (
-                  <div key={row.id} className="grid grid-cols-1 md:grid-cols-12 gap-3 rounded-md border p-3">
-                    <div className="md:col-span-4 space-y-1.5">
-                      <Label>Type</Label>
-                      <StyledSelect
-                        value={row.type}
-                        onChange={(value) => updateFundingRow(row.id, { type: value as InvestmentFundingItem["type"] })}
-                        options={FUNDING_TYPE_OPTIONS}
-                        placeholder="Select funding type"
-                      />
-                    </div>
-                    <div className={row.type === "loan" ? "md:col-span-3 space-y-1.5" : "md:col-span-6 space-y-1.5"}>
-                      <Label>Amount</Label>
-                      <input
-                        type="number"
-                        min={0}
-                        value={row.amount || ""}
-                        onChange={(e) => updateFundingRow(row.id, { amount: Number(e.target.value || 0) })}
-                        placeholder="Enter amount"
-                        className={inputClass(false)}
-                      />
-                    </div>
-                    {row.type === "loan" && (
-                      <div className="md:col-span-4 space-y-1.5">
-                        <Label>Select Loan</Label>
-                        <StyledSelect
-                          value={row.loanId || ""}
-                          onChange={(value) => updateFundingRow(row.id, { loanId: value })}
-                          options={loans.map((loan) => ({ value: loan.id, label: loan.label }))}
-                          placeholder={loadingLoans ? "Loading loans..." : "Select loan"}
-                          searchable
-                        />
-                      </div>
-                    )}
-                    <div className="md:col-span-1 flex items-end">
-                      <button
-                        type="button"
-                        onClick={() => removeFundingRow(row.id)}
-                        className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-red-200 text-red-600 hover:bg-red-50 transition-colors"
-                        aria-label="Remove funding row"
-                        title="Remove"
-                      >
-                        <FaTrash className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {errors.funding && (
-              <p className="text-xs text-red-600 flex items-center gap-1">
-                <FaExclamationTriangle className="w-3 h-3" />
-                {errors.funding}
-              </p>
-            )}
+        <div className="sticky bottom-0 -mx-4 sm:-mx-6 -mb-4 sm:-mb-6 mt-2 border-t border-gray-200 bg-white/95 px-4 sm:px-6 py-3 backdrop-blur supports-backdrop-filter:bg-white/80">
+          <div className="flex items-center justify-end gap-3">
+            <Button type="button" variant="outline" onClick={onClose} disabled={loading}>
+              <FaTimes className="mr-2 h-3 w-3" />
+              Cancel
+            </Button>
+            <Button type="submit" disabled={loading}>
+              {loading ? (
+                <>
+                  <span className="mr-2 inline-block h-3 w-3 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                  Saving...
+                </>
+              ) : (
+                <>
+                  <FaSave className="mr-2 h-3 w-3" />
+                  Create Investment
+                </>
+              )}
+            </Button>
           </div>
         </div>
-
-        <div className="flex items-center justify-end gap-3">
-          <Button type="button" variant="outline" onClick={onClose} disabled={loading}>
-            <FaTimes className="mr-2 h-3 w-3" />
-            Cancel
-          </Button>
-          <Button type="submit" disabled={loading}>
-            {loading ? (
-              <>
-                <span className="mr-2 inline-block h-3 w-3 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                Saving...
-              </>
-            ) : (
-              <>
-                <FaSave className="mr-2 h-3 w-3" />
-                Create Investment
-              </>
-            )}
-          </Button>
-        </div>
       </form>
+    </div>
+  )
+}
+
+function SectionHeader({
+  icon,
+  title,
+  description,
+}: {
+  icon: React.ReactNode
+  title: string
+  description?: string
+}) {
+  return (
+    <div className="flex items-start gap-2.5 border-b border-gray-100 px-5 py-3.5">
+      <div className="mt-0.5 inline-flex h-7 w-7 items-center justify-center rounded-md bg-[#f08c2b]/10 text-[#f08c2b]">
+        {icon}
+      </div>
+      <div className="min-w-0">
+        <h3 className="text-sm font-semibold text-gray-900">{title}</h3>
+        {description && <p className="text-xs text-gray-500">{description}</p>}
+      </div>
+    </div>
+  )
+}
+
+function Field({
+  label,
+  required,
+  hint,
+  error,
+  children,
+}: {
+  label: string
+  required?: boolean
+  hint?: string
+  error?: string
+  children: React.ReactNode
+}) {
+  return (
+    <div className="space-y-1.5">
+      <Label className="flex items-center gap-1 text-xs font-medium text-gray-700">
+        {label}
+        {required && <span className="text-red-500">*</span>}
+      </Label>
+      {children}
+      {error ? (
+        <p className="text-xs text-red-600 flex items-center gap-1">
+          <FaExclamationTriangle className="w-3 h-3" />
+          {error}
+        </p>
+      ) : hint ? (
+        <p className="text-[11px] text-gray-500">{hint}</p>
+      ) : null}
     </div>
   )
 }

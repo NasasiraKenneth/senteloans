@@ -7,7 +7,6 @@ export interface ReportFormData {
   reportMonth: string
   reportYear: number
   openingValue: number
-  capitalAdded: number
   income: number
   expenses: number
   closingValue: number
@@ -38,7 +37,6 @@ export function emptyReportForm(): ReportFormData {
     reportMonth: "",
     reportYear: currentYear,
     openingValue: 0,
-    capitalAdded: 0,
     income: 0,
     expenses: 0,
     closingValue: 0,
@@ -53,14 +51,35 @@ export function buildReportPeriod(data: Pick<ReportFormData, "reportMonth" | "re
   return `${month}-${year}`
 }
 
-export function computeClosingValue(data: Pick<ReportFormData, "openingValue" | "capitalAdded" | "income" | "expenses">): number {
-  const closing = Number(data.openingValue || 0) + Number(data.capitalAdded || 0) + Number(data.income || 0) - Number(data.expenses || 0)
+export interface ReportComputedTotals {
+  capitalInflow?: number
+  capitalOutflow?: number
+  adjustmentInflow?: number
+  adjustmentOutflow?: number
+}
+
+export function computeClosingValue(
+  data: Pick<ReportFormData, "openingValue" | "income" | "expenses">,
+  opts?: ReportComputedTotals,
+): number {
+  const capitalInflow = Number(opts?.capitalInflow || 0)
+  const capitalOutflow = Number(opts?.capitalOutflow || 0)
+  const adjInflow = Number(opts?.adjustmentInflow || 0)
+  const adjOutflow = Number(opts?.adjustmentOutflow || 0)
+  const closing =
+    Number(data.openingValue || 0) +
+    capitalInflow -
+    capitalOutflow +
+    Number(data.income || 0) -
+    Number(data.expenses || 0) +
+    adjInflow -
+    adjOutflow
   return Number.isFinite(closing) ? closing : 0
 }
 
 export function validateReportForm(
   data: ReportFormData,
-  opts?: { adjustmentInflow?: number; adjustmentOutflow?: number },
+  opts?: ReportComputedTotals,
 ): Record<string, string> {
   const err: Record<string, string> = {}
   if (!String(data.reportMonth || "").trim()) err.reportMonth = "Report month is required"
@@ -68,27 +87,21 @@ export function validateReportForm(
   if (!Number.isInteger(year) || year < 1900 || year > 9999) err.reportYear = "Enter a valid year"
 
   const opening = Number(data.openingValue || 0)
-  const capital = Number(data.capitalAdded || 0)
   const income = Number(data.income || 0)
   const expenses = Number(data.expenses || 0)
   const closing = Number(data.closingValue || 0)
-  const expectedBase = computeClosingValue({
-    openingValue: opening,
-    capitalAdded: capital,
-    income,
-    expenses,
-  })
-  const adjustmentInflow = Number(opts?.adjustmentInflow || 0)
-  const adjustmentOutflow = Number(opts?.adjustmentOutflow || 0)
-  const expected = expectedBase + adjustmentInflow - adjustmentOutflow
+  const expected = computeClosingValue(
+    { openingValue: opening, income, expenses },
+    opts,
+  )
 
   if (Number.isNaN(opening) || opening < 0) err.openingValue = "Opening value must be 0 or greater"
-  if (Number.isNaN(capital) || capital < 0) err.capitalAdded = "Capital added must be 0 or greater"
   if (Number.isNaN(income) || income < 0) err.income = "Income must be 0 or greater"
   if (Number.isNaN(expenses) || expenses < 0) err.expenses = "Expenses must be 0 or greater"
   if (Number.isNaN(closing) || closing < 0) err.closingValue = "Closing value must be 0 or greater"
   if (!Number.isNaN(closing) && !Number.isNaN(expected) && Math.abs(closing - expected) > 0.01) {
-    err.closingValue = "Closing value must equal opening + capital added + income - expenses"
+    err.closingValue =
+      "Closing must equal opening + capital inflow − capital outflow + income − expenses + adj. inflow − adj. outflow"
   }
 
   return err
@@ -99,19 +112,31 @@ interface ReportsFormProps {
   onChange: (patch: Partial<ReportFormData>) => void
   disabled?: boolean
   errors?: Partial<Record<keyof ReportFormData | "root", string>>
+  capitalInflow?: number
+  capitalOutflow?: number
   adjustmentInflow?: number
   adjustmentOutflow?: number
 }
+
+const formatUgx = (v: number) =>
+  Number(v || 0).toLocaleString("en-UG", { maximumFractionDigits: 2 })
 
 export default function ReportsForm({
   value,
   onChange,
   disabled = false,
   errors = {},
+  capitalInflow = 0,
+  capitalOutflow = 0,
   adjustmentInflow = 0,
   adjustmentOutflow = 0,
 }: ReportsFormProps) {
-  const expectedWithAdjustments = computeClosingValue(value) + Number(adjustmentInflow || 0) - Number(adjustmentOutflow || 0)
+  const expected = computeClosingValue(value, {
+    capitalInflow,
+    capitalOutflow,
+    adjustmentInflow,
+    adjustmentOutflow,
+  })
   return (
     <div className="space-y-3">
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -162,20 +187,6 @@ export default function ReportsForm({
           {errors.openingValue && <p className="text-xs text-red-600">{errors.openingValue}</p>}
         </div>
         <div className="space-y-1.5">
-          <Label>Capital Added *</Label>
-          <input
-            type="number"
-            min={0}
-            step="0.01"
-            value={value.capitalAdded || ""}
-            onChange={(e) => onChange({ capitalAdded: Number(e.target.value || 0) })}
-            placeholder="0"
-            className={inputClass}
-            disabled={disabled}
-          />
-          {errors.capitalAdded && <p className="text-xs text-red-600">{errors.capitalAdded}</p>}
-        </div>
-        <div className="space-y-1.5">
           <Label>Income *</Label>
           <input
             type="number"
@@ -205,6 +216,16 @@ export default function ReportsForm({
         </div>
       </div>
 
+      <div className="rounded-lg border border-gray-200 bg-gray-50/60 px-3 py-2 text-xs text-gray-700">
+        <p className="font-semibold uppercase tracking-wide text-[10px] text-gray-500">From selected cashflows</p>
+        <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-1 sm:grid-cols-4">
+          <span>Capital inflow: <span className="font-mono tabular-nums">{formatUgx(capitalInflow)}</span></span>
+          <span>Capital outflow: <span className="font-mono tabular-nums">{formatUgx(capitalOutflow)}</span></span>
+          <span>Adj. inflow: <span className="font-mono tabular-nums">{formatUgx(adjustmentInflow)}</span></span>
+          <span>Adj. outflow: <span className="font-mono tabular-nums">{formatUgx(adjustmentOutflow)}</span></span>
+        </div>
+      </div>
+
       <div className="space-y-1.5">
         <Label>Closing Value *</Label>
         <input
@@ -218,7 +239,7 @@ export default function ReportsForm({
           disabled={disabled}
         />
         <p className="text-xs text-muted-foreground">
-          Expected: {expectedWithAdjustments.toLocaleString("en-UG", { maximumFractionDigits: 2 })}
+          Expected: <span className="font-mono tabular-nums">{formatUgx(expected)}</span>
         </p>
         {errors.closingValue && <p className="text-xs text-red-600">{errors.closingValue}</p>}
       </div>

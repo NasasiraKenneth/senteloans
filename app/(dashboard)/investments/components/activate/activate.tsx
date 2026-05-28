@@ -34,14 +34,14 @@ export default function ActivateInvestment({ isOpen, onClose, investmentId, init
         }),
       })
       const body = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(body?.error || "Failed to activate investment")
+      if (!res.ok) throw new Error(body?.error || "Failed to start development")
       await onSuccess()
-      toast({ variant: "success", title: "Investment activated" })
+      toast({ variant: "success", title: "Development started" })
       onClose()
     } catch (e: any) {
       toast({
         variant: "destructive",
-        title: "Activation failed",
+        title: "Could not start development",
         description: e?.message || "Please try again.",
       })
     } finally {
@@ -50,7 +50,7 @@ export default function ActivateInvestment({ isOpen, onClose, investmentId, init
   }
 
   return (
-    <ReeveModal title="Activate Investment" isOpen={isOpen} onClose={onClose}>
+    <ReeveModal title="Start Development" isOpen={isOpen} onClose={onClose}>
       <ActivateForm initialValues={formValues} onClose={onClose} onSubmit={handleSubmit} loading={loading} />
     </ReeveModal>
   )

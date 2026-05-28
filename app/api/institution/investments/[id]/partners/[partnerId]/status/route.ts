@@ -28,7 +28,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     if (!isSuperAdmin && !actor.branch_id) return NextResponse.json({ error: "actor_branch_missing" }, { status: 400 })
 
     const partnerRes = await client.query(
-      `SELECT p.id, p.status
+      `SELECT p.id, p.status, i.branch_id
        FROM senteloans_investment_partners p
        JOIN senteloans_investments i ON i.id = p.investment_id
        WHERE p.id = $1
@@ -40,6 +40,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     )
     if (partnerRes.rowCount === 0) return NextResponse.json({ error: "partner_not_found" }, { status: 404 })
     const prevStatus = String(partnerRes.rows[0]?.status || "")
+    const investmentBranchId = String(partnerRes.rows[0]?.branch_id || actor.branch_id || "")
 
     await client.query(
       `UPDATE senteloans_investment_partners
@@ -54,7 +55,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       { status },
       actor.institution_id,
       actor.id,
-      undefined,
+      { branch_id: investmentBranchId },
       client,
     )
     return NextResponse.json({ ok: true, status })

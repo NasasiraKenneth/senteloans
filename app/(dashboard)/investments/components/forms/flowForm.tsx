@@ -107,20 +107,17 @@ export default function FlowForm({
   previousAdjustmentValue,
 }: FlowFormProps) {
   const transactionModeDisabled = disabled || value.category === "adjustment"
-  const categoryOptions =
-    value.type === "inflow"
-      ? CATEGORY_OPTIONS_ALL.filter((o) => o.value === "income" || o.value === "adjustment")
-      : value.type === "outflow"
+  const categoryOptionsFor = (direction: CashflowDirection | "") =>
+    direction === "inflow"
+      ? CATEGORY_OPTIONS_ALL.filter((o) => o.value !== "expense")
+      : direction === "outflow"
         ? CATEGORY_OPTIONS_ALL.filter((o) => o.value !== "income")
         : CATEGORY_OPTIONS_ALL
 
+  const categoryOptions = categoryOptionsFor(value.type)
+
   const handleTypeChange = (nextType: CashflowDirection) => {
-    const nextCategoryOptions =
-      nextType === "inflow"
-        ? CATEGORY_OPTIONS_ALL.filter((o) => o.value === "income" || o.value === "adjustment")
-        : nextType === "outflow"
-          ? CATEGORY_OPTIONS_ALL.filter((o) => o.value !== "income")
-          : CATEGORY_OPTIONS_ALL
+    const nextCategoryOptions = categoryOptionsFor(nextType)
     const allowed = nextCategoryOptions.some((o) => o.value === value.category)
     onChange({ type: nextType, category: allowed ? value.category : "" })
   }

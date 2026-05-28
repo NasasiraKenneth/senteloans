@@ -23,7 +23,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     if (!isSuperAdmin && !actor.branch_id) return NextResponse.json({ error: "actor_branch_missing" }, { status: 400 })
 
     const invRes = await client.query(
-      `SELECT id
+      `SELECT id, current_value
        FROM senteloans_investments
        WHERE id = $1 AND institution_id = $2
        ${isSuperAdmin ? "" : "AND branch_id = $3"}
@@ -31,6 +31,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       isSuperAdmin ? [id, actor.institution_id] : [id, actor.institution_id, actor.branch_id],
     )
     if (invRes.rowCount === 0) return NextResponse.json({ error: "investment_not_found" }, { status: 404 })
+    const investmentCurrentValue = Number(invRes.rows[0]?.current_value || 0)
 
     const cashflowsRes = await client.query(
       `SELECT
@@ -61,9 +62,11 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
        LIMIT 1`,
       [id],
     )
+    // If a valuation has ever been recorded, use the latest valuation value.
+    // Otherwise fall back to the investment's tracked current_value.
     const previousAdjustmentValue = previousValRes.rowCount
       ? Number(previousValRes.rows[0]?.value || 0)
-      : 0
+      : investmentCurrentValue
 
     return NextResponse.json({ items: cashflowsRes.rows, meta: { previous_adjustment_value: previousAdjustmentValue } })
   })
@@ -113,7 +116,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     await client.query("BEGIN")
     try {
       const invRes = await client.query(
-        `SELECT id, institution_id, branch_id, provider_id, investment_number
+        `SELECT id, institution_id, branch_id, provider_id, investment_number, status, current_value
          FROM senteloans_investments
          WHERE id = $1 AND institution_id = $2
          ${isSuperAdmin ? "" : "AND branch_id = $3"}
@@ -130,6 +133,13 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         branch_id: string
         provider_id: string | null
         investment_number: string | null
+        status: string | null
+        current_value: string | number | null
+      }
+      const invStatus = String(inv.status || "").trim().toLowerCase()
+      if (invStatus !== "active" && invStatus !== "under_development") {
+        await client.query("ROLLBACK")
+        return NextResponse.json({ error: "investment_not_in_operation" }, { status: 409 })
       }
 
       const txType = type === "inflow" ? "Deposit" : "Withdrawal"
@@ -146,7 +156,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
            LIMIT 1`,
           [id],
         )
-        const previousValue = prevValRes.rowCount ? Number(prevValRes.rows[0]?.value || 0) : 0
+        // First-ever adjustment for this investment: fall back to the
+        // investment's tracked current_value. Once any valuation exists,
+        // the latest valuation row becomes the authoritative previous value.
+        const previousValue = prevValRes.rowCount
+          ? Number(prevValRes.rows[0]?.value || 0)
+          : Number(inv.current_value || 0)
         if (type === "inflow") {
           if (!(currentValue > previousValue)) {
             await client.query("ROLLBACK")
@@ -239,7 +254,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
               { investment_id: id, valuation_date: date, value: currentValue, notes: description },
               inv.institution_id,
               actor.id,
-              undefined,
+              { branch_id: inv.branch_id },
               client,
             )
           }
@@ -274,7 +289,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         },
         inv.institution_id,
         actor.id,
-        undefined,
+        { branch_id: inv.branch_id },
         client,
       )
       await client.query("COMMIT")

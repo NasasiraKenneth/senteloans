@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { runWithAuth } from "@/lib/db"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
+import { auditLogger } from "@/lib/audit/audit-logger"
 import { hasInvestmentPermission, resolveInvestmentActor } from "@/lib/api/investment-rbac"
 
 const normalizeDate = (value: unknown): string | null => {
@@ -106,7 +107,8 @@ export async function GET(req: Request) {
         where += ` AND (
           i.investment_number ILIKE $${idx}
           OR c.name ILIKE $${idx}
-          OR ip.name ILIKE $${idx}
+          OR i.investment_name ILIKE $${idx}
+          OR i.address ILIKE $${idx}
           OR i.description ILIKE $${idx}
         )`
         params.push(`%${q}%`)
@@ -129,14 +131,17 @@ export async function GET(req: Request) {
            i.investment_number,
            i.provider_id,
            c.name AS provider_name,
-           ip.name AS investment_name,
+           i.investment_name,
+           i.address,
            i.category,
            i.risk_level,
            i.initial_amount,
            i.current_value,
            i.expected_percentage,
-           i.expected_returns,
+           i.extracted_returns,
            i.start_date,
+           i.period_in_months,
+           i.period_in_years,
            i.maturity_date,
            i.status,
            i.description,
@@ -145,7 +150,6 @@ export async function GET(req: Request) {
            i.created_at
          FROM senteloans_investments i
          LEFT JOIN senteloans_clients c ON c.id = i.provider_id
-         LEFT JOIN senteloans_investment_products ip ON ip.investment_id = i.id
          LEFT JOIN senteloans_users u ON u.id = i.created_by
          WHERE ${where}
          ORDER BY i.created_at DESC
@@ -158,12 +162,17 @@ export async function GET(req: Request) {
         investment_number: String(row.investment_number || ""),
         provider_id: row.provider_id,
         provider_name: row.provider_name || "",
+        investment_name: row.investment_name || "",
         product_name: row.investment_name || "",
+        address: row.address || "",
         investment_type: row.category || "",
         risk_level: row.risk_level || "",
         principal_amount: Number(row.initial_amount || 0),
-        expected_return_amount: Number(row.expected_returns || 0),
+        current_value: Number(row.current_value || 0),
+        extracted_return_amount: Number(row.extracted_returns || 0),
         expected_percentage_per_annum: Number(row.expected_percentage || 0),
+        period_in_months: row.period_in_months == null ? null : Number(row.period_in_months),
+        period_in_years: row.period_in_years == null ? null : Number(row.period_in_years),
         start_date: row.start_date,
         maturity_date: row.maturity_date,
         status: row.status || "pending",
@@ -212,14 +221,16 @@ export async function POST(req: Request) {
 
     const body = (await req.json().catch(() => ({}))) as Record<string, unknown>
     const providerId = String(body.providerId || body.provider_id || body.clientId || body.client_id || "").trim() || null
-    const category = String(body.investmentType || body.category || "").trim()
-    const investmentName = String(body.investmentName || body.investment_name || "").trim()
-    const investmentAddress = String(body.investmentAddress || body.investment_address || "").trim()
+    const category = String(body.investmentType || body.category || "").trim().toLowerCase()
+    const investmentName = String(body.investmentName || body.investment_name || "").trim() || null
+    const investmentAddress = String(body.investmentAddress || body.investment_address || body.address || "").trim() || null
     const description = String(body.description || "").trim() || null
     const initialAmount = Number(body.principalAmount ?? body.initial_amount ?? 0)
     const currentValue = Number(body.currentValue ?? body.current_value ?? initialAmount)
     const expectedPercentage = Number(body.expectedPercentagePerAnnum ?? body.expected_percentage ?? 0)
-    const expectedReturns = Number(body.expectedReturns ?? body.expected_returns ?? 0)
+    const extractedReturns = Number(
+      body.extractedReturns ?? body.extracted_returns ?? body.expectedReturns ?? body.expected_returns ?? 0,
+    )
     const periodUnitRaw = String(body.periodUnit || body.period_unit || "").trim().toLowerCase()
     const periodValueRaw = Number(body.periodValue ?? body.period_value ?? 0)
     const periodInMonthsDirect = body.period_in_months
@@ -237,15 +248,23 @@ export async function POST(req: Request) {
     }
     if (!["low", "medium", "high"].includes(riskLevel)) return NextResponse.json({ error: "invalid_risk_level" }, { status: 400 })
     if (!startDate) return NextResponse.json({ error: "start_date_required" }, { status: 400 })
+    if (maturityDate && maturityDate < startDate) {
+      return NextResponse.json({ error: "maturity_before_start_date" }, { status: 400 })
+    }
     if (Number.isNaN(initialAmount) || initialAmount < 0) return NextResponse.json({ error: "invalid_initial_amount" }, { status: 400 })
     if (Number.isNaN(currentValue) || currentValue < 0) return NextResponse.json({ error: "invalid_current_value" }, { status: 400 })
     if (Number.isNaN(expectedPercentage)) return NextResponse.json({ error: "invalid_expected_percentage" }, { status: 400 })
-    if (Number.isNaN(expectedReturns) || expectedReturns < 0) return NextResponse.json({ error: "invalid_expected_returns" }, { status: 400 })
-    if (!["pending", "approved", "active", "matured", "closed", "cancelled"].includes(status)) {
+    if (Number.isNaN(extractedReturns) || extractedReturns < 0) {
+      return NextResponse.json({ error: "invalid_extracted_returns" }, { status: 400 })
+    }
+    if (!["pending", "approved", "under_development", "active", "matured", "closed", "cancelled"].includes(status)) {
       return NextResponse.json({ error: "invalid_status" }, { status: 400 })
     }
     if (category === "partnership" && partners.length === 0) {
       return NextResponse.json({ error: "missing_partners_for_partnership" }, { status: 400 })
+    }
+    if (category === "project" && providerId) {
+      return NextResponse.json({ error: "project_investments_cannot_have_provider" }, { status: 400 })
     }
 
     let periodInMonths: number | null = null
@@ -304,54 +323,58 @@ export async function POST(req: Request) {
 
       await client.query("BEGIN")
       try {
-        const insertRes = await client.query<{ investment_number: string }>(
-          `SELECT $1::text AS investment_number`,
-          [await generateInvestmentNumber(client as any, actor.branch_id)],
-        )
-        const investmentNumber = String(insertRes.rows[0]?.investment_number || "")
+        const investmentNumber = await generateInvestmentNumber(client as any, actor.branch_id)
 
-        const createRes = await client.query<{ id: string; investment_number: string }>(
-          `INSERT INTO senteloans_investments (
-             investment_number, institution_id, branch_id, provider_id, category, description, initial_amount, current_value,
-             expected_percentage, expected_returns, risk_level, start_date, period_in_months, period_in_years, maturity_date, status,
-             created_by, modified_by, updated_at
-           ) VALUES (
-             $1, $2, $3, $4, $5, $6, $7, $8,
-             $9, $10, $11, $12, $13, $14, $15, $16,
-             $17, $17, NOW()
-           )
-           RETURNING id, investment_number`,
-          [
-            investmentNumber,
-            actor.institution_id,
-            actor.branch_id,
-            providerId,
-            category,
-            description,
-            initialAmount,
-            currentValue,
-            expectedPercentage,
-            expectedReturns,
-            riskLevel,
-            startDate,
-            periodInMonths,
-            periodInYears,
-            maturityDate,
-            status,
-            actor.id,
-          ],
-        )
+        let createRes
+        try {
+          createRes = await client.query<{ id: string; investment_number: string }>(
+            `INSERT INTO senteloans_investments (
+               investment_number, institution_id, branch_id, provider_id,
+               investment_name, category, description, address,
+               initial_amount, current_value,
+               expected_percentage, extracted_returns,
+               risk_level, start_date, period_in_months, period_in_years, maturity_date, status,
+               created_by, modified_by, updated_at
+             ) VALUES (
+               $1, $2, $3, $4,
+               $5, $6, $7, $8,
+               $9, $10,
+               $11, $12,
+               $13, $14, $15, $16, $17, $18,
+               $19, $19, NOW()
+             )
+             RETURNING id, investment_number`,
+            [
+              investmentNumber,
+              actor.institution_id,
+              actor.branch_id,
+              providerId,
+              investmentName,
+              category,
+              description,
+              investmentAddress,
+              initialAmount,
+              currentValue,
+              expectedPercentage,
+              extractedReturns,
+              riskLevel,
+              startDate,
+              periodInMonths,
+              periodInYears,
+              maturityDate,
+              status,
+              actor.id,
+            ],
+          )
+        } catch (e: any) {
+          if (String(e?.code) === "23505") {
+            await client.query("ROLLBACK")
+            return { error: "investment_number_conflict" as const }
+          }
+          throw e
+        }
 
         const investmentId = createRes.rows[0].id
-
-        if (investmentName || investmentAddress) {
-          await client.query(
-            `INSERT INTO senteloans_investment_products (
-               investment_id, name, address, created_by, modified_by, updated_at
-             ) VALUES ($1, $2, $3, $4, $4, NOW())`,
-            [investmentId, investmentName || null, investmentAddress || null, actor.id],
-          )
-        }
 
         if (category === "partnership") {
           for (const row of partners) {
@@ -433,40 +456,42 @@ export async function POST(req: Request) {
           )
         }
 
-        await client.query("COMMIT")
-
-        await client.query(
-          `INSERT INTO senteloans_audit_logs
-             (institution_id, branch_id, user_id, table_name, category, operation, record_id, new_values)
-           VALUES ($1, $2, $3, 'senteloans_investments', 'investments', 'INSERT', $4, $5)`,
-          [
-            actor.institution_id,
-            actor.branch_id,
-            actor.id,
-            investmentId,
-            JSON.stringify({
-              investment_number: createRes.rows[0].investment_number,
-              provider_id: providerId,
-              category,
-              investment_name: investmentName || null,
-              investment_address: investmentAddress || null,
-              initial_amount: initialAmount,
-              current_value: currentValue,
-              expected_percentage: expectedPercentage,
-              expected_returns: expectedReturns,
-              risk_level: riskLevel,
-              start_date: startDate,
-              period_in_months: periodInMonths,
-              period_in_years: periodInYears,
-              maturity_date: maturityDate,
-              status,
-              partners_count: partners.length,
-              funding_count: funding.length,
-            }),
-          ],
+        await auditLogger.logInsert(
+          "senteloans_investments",
+          investmentId,
+          {
+            investment_number: createRes.rows[0].investment_number,
+            provider_id: providerId,
+            investment_name: investmentName,
+            category,
+            description,
+            address: investmentAddress,
+            initial_amount: initialAmount,
+            current_value: currentValue,
+            expected_percentage: expectedPercentage,
+            extracted_returns: extractedReturns,
+            risk_level: riskLevel,
+            start_date: startDate,
+            period_in_months: periodInMonths,
+            period_in_years: periodInYears,
+            maturity_date: maturityDate,
+            status,
+            partners_count: partners.length,
+            funding_count: funding.length,
+          },
+          actor.institution_id,
+          actor.id,
+          { branch_id: actor.branch_id },
+          client,
         )
 
-        return { ok: true, id: investmentId }
+        await client.query("COMMIT")
+
+        return {
+          ok: true,
+          id: investmentId,
+          investment_number: createRes.rows[0].investment_number,
+        }
       } catch (error) {
         await client.query("ROLLBACK")
         throw error
@@ -474,12 +499,31 @@ export async function POST(req: Request) {
     })
 
     if (result && "error" in result) {
-      const statusCode = result.error === "client_not_found" ? 404 : result.error === "actor_branch_missing" ? 400 : 403
+      const statusCode =
+        result.error === "client_not_found"
+          ? 404
+          : result.error === "actor_branch_missing"
+            ? 400
+            : result.error === "investment_number_conflict"
+              ? 409
+              : result.error.startsWith("invalid_partner_") ||
+                  result.error === "invalid_funding_source_type" ||
+                  result.error === "invalid_funding_amount" ||
+                  result.error === "loan_id_required_for_funding_type_loan"
+                ? 400
+                : 403
       apiLog("warn", "investments.create.denied", { method: "POST", apiPath, status: statusCode, error: result.error, authUserId: session.user.authUserId })
       return NextResponse.json({ error: result.error }, { status: statusCode })
     }
 
-    apiLog("info", "investments.create.success", { method: "POST", apiPath, status: 201, investmentId: result.id, authUserId: session.user.authUserId })
+    apiLog("info", "investments.create.success", {
+      method: "POST",
+      apiPath,
+      status: 201,
+      investmentId: result.id,
+      investmentNumber: result.investment_number,
+      authUserId: session.user.authUserId,
+    })
     return NextResponse.json(result, { status: 201 })
   } catch (e: unknown) {
     const err = e as Error

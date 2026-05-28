@@ -76,7 +76,7 @@ export async function GET(req: Request) {
         where += ` AND (
           r.report_number ILIKE $${idx}
           OR i.investment_number ILIKE $${idx}
-          OR COALESCE(ip.name, '') ILIKE $${idx}
+          OR COALESCE(i.investment_name, '') ILIKE $${idx}
           OR COALESCE(c.name, '') ILIKE $${idx}
         )`
         params.push(`%${q}%`)
@@ -108,7 +108,6 @@ export async function GET(req: Request) {
          FROM senteloans_investment_reports r
          INNER JOIN senteloans_investments i ON i.id = r.investment_id
          LEFT JOIN senteloans_clients c ON c.id = i.provider_id
-         LEFT JOIN senteloans_investment_products ip ON ip.investment_id = i.id
          WHERE ${where}`,
         params,
       )
@@ -120,12 +119,13 @@ export async function GET(req: Request) {
            r.id,
            r.investment_id,
            i.investment_number,
-           COALESCE(ip.name, '') AS investment_name,
+           COALESCE(i.investment_name, '') AS investment_name,
            COALESCE(c.name, '') AS provider_name,
            r.report_number,
            r.report_period,
            r.opening_value,
-           r.capital_added,
+           r.capital_inflow,
+           r.capital_outflow,
            r.income,
            r.expenses,
            r.closing_value,
@@ -136,7 +136,6 @@ export async function GET(req: Request) {
          FROM senteloans_investment_reports r
          INNER JOIN senteloans_investments i ON i.id = r.investment_id
          LEFT JOIN senteloans_clients c ON c.id = i.provider_id
-         LEFT JOIN senteloans_investment_products ip ON ip.investment_id = i.id
          LEFT JOIN senteloans_users u ON u.id = r.created_by
          WHERE ${where}
          ORDER BY r.created_at DESC
@@ -156,7 +155,8 @@ export async function GET(req: Request) {
         created_by_name: row.created_by_name != null ? String(row.created_by_name) : "",
         extended: {
           opening_value: Number(row.opening_value || 0),
-          capital_added: Number(row.capital_added || 0),
+          capital_inflow: Number(row.capital_inflow || 0),
+          capital_outflow: Number(row.capital_outflow || 0),
           income: Number(row.income || 0),
           expenses: Number(row.expenses || 0),
           closing_value: Number(row.closing_value || 0),

@@ -71,11 +71,20 @@ export default function RecordCashflow({ isOpen, onClose, investmentId, onSucces
       onClose()
       toast({ variant: "success", title: "Cashflow recorded" })
     } catch (e: any) {
-      toast({
-        variant: "destructive",
-        title: "Failed to record cashflow",
-        description: e?.message || "Please try again.",
-      })
+      const code = String(e?.message || "")
+      if (code === "investment_not_in_operation" || code === "investment_not_active") {
+        toast({
+          variant: "warning",
+          title: "Investment not in operation",
+          description: "Cashflows can only be recorded against active or under-development investments.",
+        })
+      } else {
+        toast({
+          variant: "destructive",
+          title: "Failed to record cashflow",
+          description: code || "Please try again.",
+        })
+      }
     } finally {
       setSaving(false)
     }

@@ -15,7 +15,8 @@ import { downloadInvestmentReportsExport } from "./export/export"
 
 type InvestmentReportExtended = {
   opening_value: number
-  capital_added: number
+  capital_inflow: number
+  capital_outflow: number
   income: number
   expenses: number
   closing_value: number
@@ -92,7 +93,8 @@ function ReportRowExtendedDetail({ row }: { row: InvestmentReportRow }) {
       <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Report detail</p>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         <DetailStat label="Opening value" value={formatCurrency(x.opening_value)} />
-        <DetailStat label="Capital added" value={formatCurrency(x.capital_added)} />
+        <DetailStat label="Capital inflow" value={formatCurrency(x.capital_inflow)} />
+        <DetailStat label="Capital outflow" value={formatCurrency(x.capital_outflow)} />
         <DetailStat label="Income" value={formatCurrency(x.income)} />
         <DetailStat label="Expenses" value={formatCurrency(x.expenses)} />
         <DetailStat label="Closing value" value={formatCurrency(x.closing_value)} emphasized />
@@ -194,7 +196,8 @@ export default function InvestmentReportsPage() {
               created_by_name: String(item.created_by_name || ""),
               extended: {
                 opening_value: Number(ext?.opening_value ?? 0),
-                capital_added: Number(ext?.capital_added ?? 0),
+                capital_inflow: Number(ext?.capital_inflow ?? 0),
+                capital_outflow: Number(ext?.capital_outflow ?? 0),
                 income: Number(ext?.income ?? 0),
                 expenses: Number(ext?.expenses ?? 0),
                 closing_value: Number(ext?.closing_value ?? 0),
@@ -473,7 +476,7 @@ export default function InvestmentReportsPage() {
       <div>
         <h2 className="text-3xl font-bold">Investment reports</h2>
         <p className="text-muted-foreground">
-          Monthly reports by period. Click a row to expand opening, capital, income, expenses, closing, and notes.
+          Monthly reports by period. Click a row to expand opening, capital flows, income, expenses, closing, and notes.
         </p>
       </div>
 

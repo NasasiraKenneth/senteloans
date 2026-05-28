@@ -784,26 +784,36 @@ CREATE TABLE IF NOT EXISTS senteloans_member_kyc_docs (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS senteloans_memberfee_fines (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    institution_id UUID NOT NULL REFERENCES senteloans_institutions(id) ON DELETE RESTRICT,
+    branch_id UUID NOT NULL REFERENCES senteloans_branches(id) ON DELETE RESTRICT,
+    member_id UUID NOT NULL REFERENCES senteloans_members(id) ON DELETE RESTRICT,
+    penalty_amount DECIMAL(15,2) DEFAULT 0,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 CREATE TABLE IF NOT EXISTS senteloans_investments (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     institution_id UUID NOT NULL REFERENCES senteloans_institutions(id) ON DELETE RESTRICT,
     branch_id UUID NOT NULL REFERENCES senteloans_branches(id) ON DELETE RESTRICT,
     provider_id UUID REFERENCES senteloans_clients(id) ON DELETE RESTRICT,
     investment_number VARCHAR(50) NOT NULL,
+    investment_name TEXT,
     category VARCHAR(50) NOT NULL CHECK (category IN ('fixed_income', 'project', 'equity', 'partnership')),
     description TEXT,
+    address TEXT,
     initial_amount NUMERIC(18,2) NOT NULL CHECK (initial_amount >= 0),
     current_value NUMERIC(18,2) NOT NULL DEFAULT 0 CHECK (current_value >= 0),
     expected_percentage NUMERIC(5,2), -- optional %
-    penalty_percentage NUMERIC(5,2), -- optional %
-    expected_returns NUMERIC(18,2) NOT NULL DEFAULT 0 CHECK (expected_returns >= 0), -- optional %
+    extracted_returns NUMERIC(18,2) DEFAULT 0 CHECK (extracted_returns >= 0), -- optional %
     risk_level VARCHAR(10) NOT NULL CHECK (risk_level IN ('low', 'medium', 'high')),
-    start_date DATE NOT NULL,
+    start_date DATE,
     period_in_months NUMERIC(18,2),
     period_in_years NUMERIC(18,2),
     maturity_date DATE,
     status VARCHAR(15) NOT NULL DEFAULT 'pending'
-        CHECK (status IN ('pending', 'approved', 'active', 'matured', 'closed', 'cancelled')),
+        CHECK (status IN ('pending', 'approved', 'under_development', 'active', 'matured', 'closed', 'cancelled')),
     created_by UUID REFERENCES senteloans_users(id) NOT NULL,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     modified_by UUID REFERENCES senteloans_users(id),
@@ -814,19 +824,6 @@ CREATE TABLE IF NOT EXISTS senteloans_investments (
     )
 );
 
-CREATE TABLE IF NOT EXISTS senteloans_investment_products (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    investment_id UUID NOT NULL
-        REFERENCES senteloans_investments(id) ON DELETE CASCADE,
-    name TEXT, -- Name of the project or investment
-    address TEXT, -- Physical address of the project
-    created_by UUID NOT NULL 
-        REFERENCES senteloans_users(id),
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    modified_by UUID
-        REFERENCES senteloans_users(id),
-    updated_at TIMESTAMPTZ
-);
 
 CREATE TABLE IF NOT EXISTS senteloans_investment_partners (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -860,7 +857,8 @@ CREATE TABLE IF NOT EXISTS senteloans_investment_reports (
     report_number VARCHAR(50) NOT NULL,
     report_period VARCHAR(25) NOT NULL, -- use month (e.g. march-2026)
     opening_value NUMERIC(18,2) NOT NULL CHECK (opening_value >= 0),
-    capital_added NUMERIC(18,2) NOT NULL DEFAULT 0 CHECK (capital_added >= 0),
+    capital_inflow NUMERIC(18,2) NOT NULL DEFAULT 0 CHECK (capital_inflow >= 0),
+    capital_outflow NUMERIC(18,2) NOT NULL DEFAULT 0 CHECK (capital_outflow >= 0),
     income NUMERIC(18,2) NOT NULL DEFAULT 0 CHECK (income >= 0),
     expenses NUMERIC(18,2) NOT NULL DEFAULT 0 CHECK (expenses >= 0),
     closing_value NUMERIC(18,2) NOT NULL CHECK (closing_value >= 0),
@@ -870,11 +868,7 @@ CREATE TABLE IF NOT EXISTS senteloans_investment_reports (
     modified_by UUID REFERENCES senteloans_users(id) NOT NULL,
     updated_at TIMESTAMPTZ,
     -- prevent duplicate monthly reports
-    CONSTRAINT unique_investment_period UNIQUE (investment_id, report_period),
-    -- logical constraint
-    CONSTRAINT chk_closing_value CHECK (
-        closing_value = opening_value + capital_added + income - expenses
-    )
+    CONSTRAINT unique_investment_period UNIQUE (investment_id, report_period)
 );
 
 CREATE TABLE IF NOT EXISTS senteloans_investment_cashflows (
@@ -955,10 +949,6 @@ CREATE TABLE IF NOT EXISTS senteloans_expenses (
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ
 );
-
-CREATE UNIQUE INDEX IF NOT EXISTS uk_daily_finances_branch_per_day
-  ON senteloans_daily_finances (institution_id, branch_id, (created_at::date))
-  WHERE total_amount > 0;
 
 CREATE TABLE IF NOT EXISTS senteloans_expense_funding_sources (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),

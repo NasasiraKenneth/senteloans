@@ -28,7 +28,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     if (!isSuperAdmin && !actor.branch_id) return NextResponse.json({ error: "actor_branch_missing" }, { status: 400 })
 
     const investmentRes = await client.query(
-      `SELECT i.id
+      `SELECT i.id, i.branch_id
        FROM senteloans_investments i
        WHERE i.id = $1
          AND i.institution_id = $2
@@ -37,6 +37,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       isSuperAdmin ? [id, actor.institution_id] : [id, actor.institution_id, actor.branch_id],
     )
     if (investmentRes.rowCount === 0) return NextResponse.json({ error: "investment_not_found" }, { status: 404 })
+    const investmentBranchId = String(investmentRes.rows[0]?.branch_id || actor.branch_id || "")
 
     const res = await client.query(
       `INSERT INTO senteloans_investment_funding_sources (
@@ -57,7 +58,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       },
       actor.institution_id,
       actor.id,
-      undefined,
+      { branch_id: investmentBranchId },
       client,
     )
     return NextResponse.json({ ok: true, id: newId }, { status: 201 })

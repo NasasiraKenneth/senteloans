@@ -25,7 +25,7 @@ type InvestmentRow = {
   risk_level: string
   created_by_name: string
   principal_amount: number
-  expected_return_amount: number
+  extracted_return_amount: number
   start_date: string
   maturity_date: string | null
   status: string
@@ -136,7 +136,9 @@ export default function InvestmentsPage() {
           risk_level: String(item.risk_level || item.risk_profile || "—"),
           created_by_name: String(item.created_by_name || item.staff_name || item.created_by_staff_name || ""),
           principal_amount: Number(item.principal_amount || 0),
-          expected_return_amount: Number(item.expected_return_amount || 0),
+          extracted_return_amount: Number(
+            item.extracted_return_amount ?? item.expected_return_amount ?? 0,
+          ),
           start_date: String(item.start_date || ""),
           maturity_date: item.maturity_date ? String(item.maturity_date) : null,
           status: formatStatusLabel(String(item.status || "Pending")),
@@ -257,7 +259,10 @@ export default function InvestmentsPage() {
 
   const normalizedStatus = (status: string) => String(status || "").trim().toLowerCase()
   const totalPrincipal = useMemo(() => rows.reduce((sum, row) => sum + row.principal_amount, 0), [rows])
-  const totalExpectedReturn = useMemo(() => rows.reduce((sum, row) => sum + row.expected_return_amount, 0), [rows])
+  const totalExtractedReturns = useMemo(
+    () => rows.reduce((sum, row) => sum + row.extracted_return_amount, 0),
+    [rows],
+  )
   const activeCount = useMemo(() => rows.filter((r) => normalizedStatus(r.status) === "active").length, [rows])
   const maturedCount = useMemo(() => rows.filter((r) => normalizedStatus(r.status) === "matured").length, [rows])
 
@@ -299,7 +304,7 @@ export default function InvestmentsPage() {
     },
     { key: "product_name", header: "Product", render: (row) => row.product_name || "—" },
     { key: "principal_amount", header: "Principal", render: (row) => <span className="font-medium">{formatCurrency(row.principal_amount)}</span> },
-    { key: "expected_return_amount", header: "Expected Return", render: (row) => formatCurrency(row.expected_return_amount) },
+    { key: "extracted_return_amount", header: "Extracted Returns", render: (row) => formatCurrency(row.extracted_return_amount) },
     {
       key: "start_date",
       header: "Start Date",
@@ -415,6 +420,7 @@ export default function InvestmentsPage() {
     { label: "All", value: "" },
     { label: "Pending", value: "Pending" },
     { label: "Approved", value: "Approved" },
+    { label: "Under Development", value: "under_development" },
     { label: "Active", value: "Active" },
     { label: "Matured", value: "Matured" },
     { label: "Closed", value: "Closed" },
@@ -460,7 +466,7 @@ export default function InvestmentsPage() {
           <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Portfolio Principal</CardTitle></CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{formatCurrency(totalPrincipal)}</div>
-            <p className="text-xs text-muted-foreground">Expected return: {formatCurrency(totalExpectedReturn)}</p>
+            <p className="text-xs text-muted-foreground">Extracted returns: {formatCurrency(totalExtractedReturns)}</p>
           </CardContent>
         </Card>
       </div>

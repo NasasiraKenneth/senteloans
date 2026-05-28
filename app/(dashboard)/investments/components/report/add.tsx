@@ -97,42 +97,41 @@ export default function AddReport({ isOpen, onClose, investmentId, onSubmit }: A
     })
   }
 
-  const handleSave = async () => {
+  const totals = (() => {
     const selected = cashflows.filter((c) => selectedCashflowIds.includes(c.id))
-    const totalCheckedCapitalOutflows = selected
-      .filter((c) => c.category === "capital" && c.type === "outflow")
-      .reduce((sum, c) => sum + Number(c.amount || 0), 0)
-    const totalCheckedIncomeInflows = selected
-      .filter((c) => c.category === "income" && c.type === "inflow")
-      .reduce((sum, c) => sum + Number(c.amount || 0), 0)
-    const totalCheckedExpenseOutflows = selected
-      .filter((c) => c.category === "expense" && c.type === "outflow")
-      .reduce((sum, c) => sum + Number(c.amount || 0), 0)
-    const totalCheckedAdjustmentInflows = selected
-      .filter((c) => c.category === "adjustment" && c.type === "inflow")
-      .reduce((sum, c) => sum + Number(c.amount || 0), 0)
-    const totalCheckedAdjustmentOutflows = selected
-      .filter((c) => c.category === "adjustment" && c.type === "outflow")
-      .reduce((sum, c) => sum + Number(c.amount || 0), 0)
+    const sumWhere = (cat: string, type: "inflow" | "outflow") =>
+      selected
+        .filter((c) => c.category === cat && c.type === type)
+        .reduce((sum, c) => sum + Number(c.amount || 0), 0)
+    return {
+      capitalInflow: sumWhere("capital", "inflow"),
+      capitalOutflow: sumWhere("capital", "outflow"),
+      incomeInflow: sumWhere("income", "inflow"),
+      expenseOutflow: sumWhere("expense", "outflow"),
+      adjustmentInflow: sumWhere("adjustment", "inflow"),
+      adjustmentOutflow: sumWhere("adjustment", "outflow"),
+    }
+  })()
 
-    const mismatchCapital = Math.abs(Number(form.capitalAdded || 0) - totalCheckedCapitalOutflows) > 0.01
-    const mismatchIncome = Math.abs(Number(form.income || 0) - totalCheckedIncomeInflows) > 0.01
-    const mismatchExpenses = Math.abs(Number(form.expenses || 0) - totalCheckedExpenseOutflows) > 0.01
-    if (mismatchCapital || mismatchIncome || mismatchExpenses) {
+  const handleSave = async () => {
+    const mismatchIncome = Math.abs(Number(form.income || 0) - totals.incomeInflow) > 0.01
+    const mismatchExpenses = Math.abs(Number(form.expenses || 0) - totals.expenseOutflow) > 0.01
+    if (mismatchIncome || mismatchExpenses) {
       toast({
         variant: "warning",
         title: "Checked cashflows do not match report totals",
         description:
-          `Capital Added must equal checked capital outflows (${formatCurrency(totalCheckedCapitalOutflows)}), ` +
-          `Income must equal checked income inflows (${formatCurrency(totalCheckedIncomeInflows)}), ` +
-          `Expenses must equal checked expense outflows (${formatCurrency(totalCheckedExpenseOutflows)}).`,
+          `Income must equal checked income inflows (${formatCurrency(totals.incomeInflow)}), ` +
+          `Expenses must equal checked expense outflows (${formatCurrency(totals.expenseOutflow)}).`,
       })
       return
     }
 
     const v = validateReportForm(form, {
-      adjustmentInflow: totalCheckedAdjustmentInflows,
-      adjustmentOutflow: totalCheckedAdjustmentOutflows,
+      capitalInflow: totals.capitalInflow,
+      capitalOutflow: totals.capitalOutflow,
+      adjustmentInflow: totals.adjustmentInflow,
+      adjustmentOutflow: totals.adjustmentOutflow,
     })
     if (Object.keys(v).length > 0) {
       setErrors(v)
@@ -155,12 +154,10 @@ export default function AddReport({ isOpen, onClose, investmentId, onSubmit }: A
           onChange={patchForm}
           disabled={saving}
           errors={errors}
-          adjustmentInflow={cashflows
-            .filter((c) => selectedCashflowIds.includes(c.id) && c.category === "adjustment" && c.type === "inflow")
-            .reduce((sum, c) => sum + Number(c.amount || 0), 0)}
-          adjustmentOutflow={cashflows
-            .filter((c) => selectedCashflowIds.includes(c.id) && c.category === "adjustment" && c.type === "outflow")
-            .reduce((sum, c) => sum + Number(c.amount || 0), 0)}
+          capitalInflow={totals.capitalInflow}
+          capitalOutflow={totals.capitalOutflow}
+          adjustmentInflow={totals.adjustmentInflow}
+          adjustmentOutflow={totals.adjustmentOutflow}
         />
         <div className="space-y-2">
           <h4 className="text-sm font-semibold text-gray-700">Cashflows (latest first)</h4>

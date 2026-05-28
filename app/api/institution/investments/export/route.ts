@@ -127,7 +127,7 @@ function appendInvestmentFilters(
     w += ` AND (
           i.investment_number ILIKE $${i}
           OR c.name ILIKE $${i}
-          OR ip.name ILIKE $${i}
+          OR COALESCE(i.investment_name, '') ILIKE $${i}
           OR i.description ILIKE $${i}
         )`
     p.push(`%${filters.q}%`)
@@ -219,18 +219,17 @@ export async function GET(req: Request) {
           `SELECT
              i.investment_number,
              c.name AS provider_name,
-             ip.name AS investment_name,
+             COALESCE(i.investment_name, '') AS investment_name,
              i.category,
              i.risk_level,
              i.initial_amount,
-             i.expected_returns,
+             i.extracted_returns,
              i.start_date,
              i.maturity_date,
              i.status,
              u.full_name AS created_by_name
            FROM senteloans_investments i
            LEFT JOIN senteloans_clients c ON c.id = i.provider_id
-           LEFT JOIN senteloans_investment_products ip ON ip.investment_id = i.id
            LEFT JOIN senteloans_users u ON u.id = i.created_by
            WHERE ${where}
            ORDER BY i.created_at DESC`,
@@ -246,7 +245,7 @@ export async function GET(req: Request) {
             investment_type: investmentTypeLabel(String(row.category || "")),
             risk_level: formatRiskForTitle(String(row.risk_level || "")),
             principal: Number(row.initial_amount || 0),
-            expected_return: Number(row.expected_returns || 0),
+            expected_return: Number(row.extracted_returns || 0),
             start_date: row.start_date ? String(row.start_date) : null,
             maturity_date: row.maturity_date ? String(row.maturity_date) : null,
             status: formatStatusForRow(String(row.status || "")),
