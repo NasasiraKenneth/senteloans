@@ -1,8 +1,16 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { DollarSign, PieChart, PiggyBank, ClipboardList, Info } from "lucide-react"
+import {
+  DollarSign,
+  PieChart,
+  PiggyBank,
+  ClipboardList,
+  Info,
+  Settings as SettingsIcon,
+} from "lucide-react"
+import Link from "next/link"
+import { getSession } from "@/lib/session"
 
 type RequirementsConfig = {
   currency: string
@@ -20,13 +28,26 @@ type RequirementRow = {
   iconColor: string
   title: string
   value: string
-  description: string
+  hint: string
 }
 
+/**
+ * Compact info strip showing the membership requirements pulled from branch
+ * config. Designed to sit above the registration form without competing
+ * visually with it — single card, header strip + 3-column divided grid, no
+ * nested mini-cards or hover effects on non-interactive elements.
+ */
 export function MemberRequirementsCard() {
   const [config, setConfig] = useState<RequirementsConfig | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [clientTerminology, setClientTerminology] = useState<string>("Member")
+
+  useEffect(() => {
+    const s = getSession()
+    const term = s?.institution?.config?.clientTerminology
+    if (typeof term === "string" && term.trim()) setClientTerminology(term)
+  }, [])
 
   useEffect(() => {
     let active = true
@@ -68,41 +89,30 @@ export function MemberRequirementsCard() {
 
   if (loading) {
     return (
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <ClipboardList className="h-5 w-5 text-primary" />
-            Membership Requirements
-          </CardTitle>
-          <CardDescription>Loading requirements from your branch configuration…</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-3">
-            {[0, 1, 2].map((i) => (
-              <div key={i} className="h-16 rounded-lg bg-muted/40 animate-pulse" />
-            ))}
-          </div>
-        </CardContent>
-      </Card>
+      <div className="rounded-xl border bg-card overflow-hidden shadow-sm">
+        <RequirementsHeader clientTerminology={clientTerminology} />
+        <div className="grid sm:grid-cols-3 sm:divide-x divide-y sm:divide-y-0">
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="flex items-start gap-3 p-4">
+              <div className="h-9 w-9 rounded-lg bg-muted animate-pulse shrink-0" />
+              <div className="flex-1 space-y-2">
+                <div className="h-3 w-20 rounded bg-muted animate-pulse" />
+                <div className="h-4 w-28 rounded bg-muted animate-pulse" />
+                <div className="h-3 w-full rounded bg-muted/60 animate-pulse" />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
     )
   }
 
   if (error || !config) {
     return (
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <ClipboardList className="h-5 w-5 text-primary" />
-            Membership Requirements
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex items-start gap-2 text-sm text-muted-foreground">
-            <Info className="h-4 w-4 mt-0.5 shrink-0" />
-            <span>{error || "Configuration unavailable."}</span>
-          </div>
-        </CardContent>
-      </Card>
+      <div className="rounded-xl border bg-card px-4 py-3 shadow-sm flex items-center gap-2 text-sm text-muted-foreground">
+        <Info className="h-4 w-4 shrink-0" />
+        {error || "Membership configuration is unavailable."}
+      </div>
     )
   }
 
@@ -113,12 +123,11 @@ export function MemberRequirementsCard() {
     rows.push({
       key: "fee",
       icon: DollarSign,
-      iconBg: "bg-orange-100",
-      iconColor: "text-orange-600",
-      title: "Membership Fee",
+      iconBg: "bg-orange-100 dark:bg-orange-500/10",
+      iconColor: "text-orange-600 dark:text-orange-400",
+      title: "Membership fee",
       value: fmt(config.membershipFee),
-      description:
-        "One-time fee paid at registration. Can be paid in full or in partial installments from the member's profile.",
+      hint: "One-time. Can be paid in installments after registration.",
     })
   }
 
@@ -126,16 +135,16 @@ export function MemberRequirementsCard() {
     const minTotal = config.minimumShares * config.shareValue
     const maxNote =
       typeof config.maximumShares === "number" && config.maximumShares > config.minimumShares
-        ? ` (max ${config.maximumShares.toLocaleString()} shares)`
+        ? ` · max ${config.maximumShares.toLocaleString()}`
         : ""
     rows.push({
       key: "shares",
       icon: PieChart,
-      iconBg: "bg-blue-100",
-      iconColor: "text-blue-600",
-      title: "Shares",
-      value: `${fmt(minTotal)} minimum`,
-      description: `${config.minimumShares.toLocaleString()} shares × ${fmt(config.shareValue)} per share${maxNote}.`,
+      iconBg: "bg-blue-100 dark:bg-blue-500/10",
+      iconColor: "text-blue-600 dark:text-blue-400",
+      title: "Minimum shares",
+      value: fmt(minTotal),
+      hint: `${config.minimumShares.toLocaleString()} shares × ${fmt(config.shareValue)}${maxNote}`,
     })
   }
 
@@ -143,73 +152,66 @@ export function MemberRequirementsCard() {
     rows.push({
       key: "savings",
       icon: PiggyBank,
-      iconBg: "bg-green-100",
-      iconColor: "text-green-600",
-      title: "Monthly Savings",
+      iconBg: "bg-emerald-100 dark:bg-emerald-500/10",
+      iconColor: "text-emerald-600 dark:text-emerald-400",
+      title: "Monthly savings",
       value: "Agreed at registration",
-      description:
-        "Each member commits to a monthly savings contribution. Account opens as Voluntary by default and can be switched to Fixed from the member's profile.",
+      hint: "Voluntary or Fixed — pick per member during signup.",
     })
   }
 
   if (rows.length === 0) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <ClipboardList className="h-5 w-5 text-primary" />
-            Membership Requirements
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex items-start gap-2 text-sm text-muted-foreground">
-            <Info className="h-4 w-4 mt-0.5 shrink-0" />
-            <span>
-              No additional requirements are configured for this branch. New members can be registered without
-              a membership fee, shares, or monthly savings contribution.
-            </span>
-          </div>
-        </CardContent>
-      </Card>
-    )
+    return null
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <ClipboardList className="h-5 w-5 text-primary" />
-          Membership Requirements
-        </CardTitle>
-        <CardDescription>
-          Pulled from your branch configuration. Update them in{" "}
-          <span className="font-medium">Settings → Policies</span>.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <div className="grid gap-3 md:grid-cols-3">
-          {rows.map((row) => {
-            const Icon = row.icon
-            return (
+    <div className="rounded-xl border bg-card overflow-hidden shadow-sm">
+      <RequirementsHeader clientTerminology={clientTerminology} />
+      <div className="grid sm:grid-cols-3 sm:divide-x divide-y sm:divide-y-0">
+        {rows.map((row) => {
+          const Icon = row.icon
+          return (
+            <div key={row.key} className="flex items-start gap-3 p-4">
               <div
-                key={row.key}
-                className="flex flex-col gap-2 rounded-lg border bg-card/50 p-4 transition-colors hover:border-primary/30"
+                className={`flex h-9 w-9 items-center justify-center rounded-lg shrink-0 ${row.iconBg}`}
               >
-                <div className="flex items-center justify-between">
-                  <div className={`flex h-8 w-8 items-center justify-center rounded-full ${row.iconBg}`}>
-                    <Icon className={`h-4 w-4 ${row.iconColor}`} />
-                  </div>
-                  <span className="text-sm font-semibold text-foreground">{row.value}</span>
-                </div>
-                <div>
-                  <p className="text-sm font-medium">{row.title}</p>
-                  <p className="mt-1 text-xs text-muted-foreground leading-snug">{row.description}</p>
-                </div>
+                <Icon className={`h-4 w-4 ${row.iconColor}`} />
               </div>
-            )
-          })}
-        </div>
-      </CardContent>
-    </Card>
+              <div className="min-w-0 flex-1">
+                <p className="text-[11px] uppercase tracking-wide font-medium text-muted-foreground">
+                  {row.title}
+                </p>
+                <p className="mt-0.5 text-sm font-semibold text-foreground leading-tight truncate">
+                  {row.value}
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground leading-snug line-clamp-2">
+                  {row.hint}
+                </p>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function RequirementsHeader({ clientTerminology }: { clientTerminology: string }) {
+  return (
+    <div className="px-4 py-2.5 border-b bg-muted/30 flex items-center gap-2">
+      <div className="flex h-6 w-6 items-center justify-center rounded-md bg-primary/10">
+        <ClipboardList className="h-3.5 w-3.5 text-primary" />
+      </div>
+      <h3 className="text-sm font-semibold text-foreground">
+        {clientTerminology} requirements
+      </h3>
+      <Link
+        href="/settings"
+        className="ml-auto inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
+      >
+        <SettingsIcon className="h-3 w-3" />
+        <span className="hidden sm:inline">Configure</span>
+      </Link>
+    </div>
   )
 }

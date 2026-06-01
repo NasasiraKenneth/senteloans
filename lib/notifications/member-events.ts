@@ -132,14 +132,18 @@ export async function notifyMemberRegistration(
     errors.push(`member_notifications:${memberRes.error}`)
   }
 
-  // Staff side - look up branch-scoped admin recipients, excluding the actor.
+  // Staff side — new-member registration is intentionally an
+  // institution-wide announcement, so every Active staff member (regardless
+  // of role) gets the alert, except the actor who just performed the
+  // registration. Future role-/permission-scoped events should keep using
+  // the default `getInstitutionAdminRecipients` filter.
   let recipients: { id: string; branch_id: string | null }[] = []
   if (input.client) {
     try {
       recipients = await getInstitutionAdminRecipients(
         input.client,
         input.actor.institution_id,
-        { excludeUserId: input.actor.id },
+        { excludeUserId: input.actor.id, includeAllRoles: true },
       )
     } catch (e) {
       errors.push(

@@ -32,8 +32,17 @@ export interface GetAdminRecipientsOptions {
   branchId?: string | null
   /**
    * Roles to include. Defaults to the full ADMIN_NOTIFY_ROLES list.
+   * Ignored when `includeAllRoles` is true.
    */
   roles?: readonly AdminNotifyRole[]
+  /**
+   * Bypass the role filter entirely and return every Active staff member
+   * in the institution (still respects `excludeUserId` and
+   * `restrictToBranch`). Use only for institution-wide announcements where
+   * every employee should see the notification — e.g. new member
+   * registered. Default false.
+   */
+  includeAllRoles?: boolean
 }
 
 /**
@@ -46,36 +55,40 @@ export async function getInstitutionAdminRecipients(
   institutionId: string,
   opts: GetAdminRecipientsOptions = {}
 ): Promise<AdminRecipient[]> {
-  const roles = opts.roles ?? ADMIN_NOTIFY_ROLES
-  if (roles.length === 0) return []
+  const params: unknown[] = [institutionId]
+  let where = `u.institution_id = $1
+       AND u.status = 'Active'`
 
-  // Map normalized role -> source role name in senteloans_roles
-  // (mirrors the CASE in rbac.ts / auth.ts so the mapping is reversible).
-  const sourceNames: string[] = []
-  for (const role of roles) {
-    switch (role) {
-      case "system_admin":
-        sourceNames.push("System Admin")
-        break
-      case "super_admin":
-        sourceNames.push("Super Admin")
-        break
-      case "institution_admin":
-        sourceNames.push("Admin")
-        break
-      case "manager":
-        sourceNames.push("Manager")
-        break
-      case "loan_officer":
-        sourceNames.push("Loan Officer")
-        break
+  if (!opts.includeAllRoles) {
+    const roles = opts.roles ?? ADMIN_NOTIFY_ROLES
+    if (roles.length === 0) return []
+
+    // Map normalized role -> source role name in senteloans_roles
+    // (mirrors the CASE in rbac.ts / auth.ts so the mapping is reversible).
+    const sourceNames: string[] = []
+    for (const role of roles) {
+      switch (role) {
+        case "system_admin":
+          sourceNames.push("System Admin")
+          break
+        case "super_admin":
+          sourceNames.push("Super Admin")
+          break
+        case "institution_admin":
+          sourceNames.push("Admin")
+          break
+        case "manager":
+          sourceNames.push("Manager")
+          break
+        case "loan_officer":
+          sourceNames.push("Loan Officer")
+          break
+      }
     }
+    params.push(sourceNames)
+    where += ` AND r.name = ANY($${params.length}::text[])`
   }
 
-  const params: unknown[] = [institutionId, sourceNames]
-  let where = `u.institution_id = $1
-       AND u.status = 'Active'
-       AND r.name = ANY($2::text[])`
   if (opts.excludeUserId) {
     params.push(opts.excludeUserId)
     where += ` AND u.id != $${params.length}`
