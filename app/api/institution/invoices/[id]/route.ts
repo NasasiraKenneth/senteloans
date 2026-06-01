@@ -103,6 +103,9 @@ export async function GET(
             i.id, i.institution_id, i.member_id, i.client_id, i.invoice_number, i.invoice_date, i.invoice_due,
             i.subtotal, i.vat, i.total_amount, i.inwords, i.invoice_type, i.status,
             i.created_by, i.created_at, i.modified_by, i.updated_at,
+            COALESCE((
+              SELECT SUM(ip.amount) FROM senteloans_invoice_payments ip WHERE ip.invoice_id = i.id
+            ), 0)::numeric AS paid_amount,
             MAX(m.full_name) AS member_name,
             MAX(c.name) AS client_name,
 
@@ -137,6 +140,9 @@ export async function GET(
       )
       if (res.rows.length === 0) return { error: "invoice_not_found" as const }
       const invoice = res.rows[0]
+      const total = Number(invoice.total_amount || 0)
+      const paid_amount = Number(invoice.paid_amount || 0)
+      const outstanding = Math.max(total - paid_amount, 0)
       return {
         invoice: {
           ...invoice,
@@ -144,6 +150,8 @@ export async function GET(
           member_id: invoice.member_id,
           target_type: invoice.member_id ? "member" : "client",
           customer_name: invoice.member_name || invoice.client_name || "",
+          paid_amount,
+          outstanding,
         },
       }
     })

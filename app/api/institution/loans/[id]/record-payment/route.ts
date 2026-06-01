@@ -5,6 +5,8 @@ import { runWithAuth, runWithoutAuth } from "@/lib/db"
 import { buildRepaymentSchedule } from "@/lib/loans/calculations"
 import { auditLogger } from "@/lib/audit/audit-logger"
 import { makePrefixedNumber } from "@/lib/ids/prefixed-number"
+import { notificationService } from "@/lib/notifications/notification-service"
+import { NotificationTemplates } from "@/lib/notifications/notification-types"
 
 const PAYMENT_MODES = ["Cash", "Mobile Money", "Bank Transfer", "Cheque", "Card"] as const
 
@@ -344,6 +346,31 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         undefined,
         client
       )
+
+      if (loan.member_id) {
+        const tpl = NotificationTemplates.paymentReceived(loanId, totalApplied)
+        await notificationService
+          .create(
+            {
+              institutionId,
+              branchId: String(loan.branch_id || ""),
+              recipientType: "member",
+              recipientId: loan.member_id,
+              type: "payment_received",
+              title: tpl.title,
+              message: tpl.message,
+              actionUrl: tpl.actionUrl,
+              metadata: {
+                loan_id: loanId,
+                amount: totalApplied,
+                balance_after: balanceAfter,
+                payment_date,
+              },
+            },
+            client
+          )
+          .catch((e) => console.error("Failed to create payment_received notification:", e))
+      }
 
       return { ok: true, amount_applied: totalApplied, balance_after: balanceAfter }
     })

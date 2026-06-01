@@ -1,6 +1,7 @@
 "use client"
 
 import { MemberRegistrationForm } from "@/components/member-registration-form"
+import { MemberRequirementsCard } from "@/components/member-requirements-card"
 import { ArrowLeft } from "lucide-react"
 import Link from "next/link"
 import { useState, useEffect } from "react"
@@ -24,6 +25,8 @@ export default function NewMemberPage() {
           Back to {clientTerminology}s
         </Link>
       </div>
+
+      <MemberRequirementsCard />
 
       <MemberRegistrationForm />
     </div>

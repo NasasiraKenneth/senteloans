@@ -765,7 +765,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
             await notificationService.create({
               institutionId: actor.institution_id,
               branchId: loanBranchId,
-              recipientType: "client",
+              recipientType: "member",
               recipientId: loanWithMember.member_id,
               type: notifType as "loan_approved" | "loan_rejected" | "loan_disbursed" | "loan_status_change",
               title: tpl.title,

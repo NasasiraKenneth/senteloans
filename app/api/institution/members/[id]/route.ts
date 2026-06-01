@@ -80,8 +80,9 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       if (!allowed) return { error: "missing_permission:view_members" as const }
 
       const memberRes = await client.query(
-        `SELECT c.id, c.institution_id, c.member_number, c.full_name, c.supabase_user_id, c.date_of_birth::text AS date_of_birth, c.gender, c.marital_status, c.member_type, c.phone_number, c.email, c.national_id, c.district, c.village, c.occupation, c.monthly_income, c.monthly_savings, c.notes, c.next_of_kin_name, c.next_of_kin_relationship, c.next_of_kin_phone, c.passport_photo, c.national_id_front, c.national_id_back, c.mobile_money_provider, c.mobile_money_number, c.bank_name, c.bank_account_number, c.bank_account_name, c.bank_branch, c.kyc_status, c.status, c.join_date::text AS join_date, c.membership_fee_paid, c.created_by, c.modified_by, c.kyc_approved_by, c.kyc_approved_at, c.created_at, c.updated_at,
-                cb.full_name AS created_by_name, mb.full_name AS modified_by_name, kb.full_name AS kyc_approved_by_name
+        `SELECT c.id, c.institution_id, c.branch_id, c.member_number, c.full_name, c.supabase_user_id, c.date_of_birth::text AS date_of_birth, c.gender, c.marital_status, c.member_type, c.phone_number, c.email, c.national_id, c.district, c.village, c.occupation, c.monthly_income, c.monthly_savings, c.notes, c.next_of_kin_name, c.next_of_kin_relationship, c.next_of_kin_phone, c.passport_photo, c.national_id_front, c.national_id_back, c.mobile_money_provider, c.mobile_money_number, c.bank_name, c.bank_account_number, c.bank_account_name, c.bank_branch, c.kyc_status, c.status, c.join_date::text AS join_date, c.created_by, c.modified_by, c.kyc_approved_by, c.kyc_approved_at, c.created_at, c.updated_at,
+                cb.full_name AS created_by_name, mb.full_name AS modified_by_name, kb.full_name AS kyc_approved_by_name,
+                COALESCE((SELECT SUM(mf.amount_paid) FROM senteloans_membership_fees mf WHERE mf.member_id = c.id), 0)::numeric AS membership_fee_paid
          FROM senteloans_members c
          LEFT JOIN senteloans_users cb ON cb.id = c.created_by
          LEFT JOIN senteloans_users mb ON mb.id = c.modified_by
@@ -90,14 +91,15 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
         [actor.institution_id, memberId]
       )
 
-      // Fetch branch membership fee from senteloans_config
-      const cfgRes = await client.query(
-        `SELECT membership_fee FROM senteloans_config WHERE branch_id = $1 LIMIT 1`,
-        [actor.branch_id]
-      )
-      const membershipFee = Number(cfgRes.rows[0]?.membership_fee ?? 0)
       const memberRow = memberRes.rows[0]
       if (!memberRow) return null
+
+      // Configured fee comes from the member's branch (not the actor's branch — super-admin compatibility).
+      const cfgRes = await client.query(
+        `SELECT membership_fee FROM senteloans_config WHERE branch_id = $1 LIMIT 1`,
+        [memberRow.branch_id]
+      )
+      const membershipFee = Number(cfgRes.rows[0]?.membership_fee ?? 0)
 
       const sharesRes = await client.query(
         `SELECT number_of_shares, share_value, total_value FROM senteloans_member_shares WHERE member_id = $1`,
@@ -267,10 +269,6 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     if (typeof body.bankAccountNumber === "string") updates["bank_account_number"] = body.bankAccountNumber.trim() || null
     if (typeof body.bankAccountName === "string") updates["bank_account_name"] = body.bankAccountName.trim() || null
     if (typeof body.bankBranch === "string") updates["bank_branch"] = body.bankBranch.trim() || null
-    if (typeof body.membershipFeePaid !== "undefined") {
-      const feePaid = Number(body.membershipFeePaid)
-      if (!Number.isNaN(feePaid) && feePaid >= 0) updates["membership_fee_paid"] = feePaid
-    }
 
     if (Object.keys(updates).length === 0) {
       apiLog("warn", "member.update.invalid_request", { method: "PATCH", apiPath, status: 400, error: "no_updatable_fields", memberId })
@@ -294,7 +292,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       if (!allowed) return { error: "missing_permission:edit_member" as const }
 
       const targetRes = await client.query(
-        `SELECT id, institution_id, kyc_status, membership_fee_paid FROM senteloans_members WHERE id = $1`,
+        `SELECT id, institution_id, kyc_status FROM senteloans_members WHERE id = $1`,
         [memberId]
       )
       const targetMember = targetRes.rows[0]
@@ -302,14 +300,6 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       if (targetMember.institution_id !== actor.institution_id) {
         return { error: "forbidden" as const }
       }
-
-      const currentMembershipPaid = Number(targetMember.membership_fee_paid || 0)
-      const nextMembershipPaid = typeof updates["membership_fee_paid"] !== "undefined"
-        ? Number(updates["membership_fee_paid"])
-        : currentMembershipPaid
-      const membershipDelta = nextMembershipPaid > currentMembershipPaid
-        ? nextMembershipPaid - currentMembershipPaid
-        : 0
 
       updates["modified_by"] = actor.id
 
@@ -329,78 +319,13 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       await auditLogger.logUpdate(
         "senteloans_members",
         memberId,
-        {
-          kyc_status: targetMember.kyc_status,
-          membership_fee_paid: currentMembershipPaid,
-        },
-        {
-          ...updates,
-          membership_fee_paid: nextMembershipPaid,
-        },
+        { kyc_status: targetMember.kyc_status },
+        updates,
         actor.institution_id,
         actor.id,
         undefined,
         client
       )
-
-      if (membershipDelta > 0) {
-        const cfgRes = await client.query(
-          `SELECT membership_fee FROM senteloans_config WHERE branch_id = $1 LIMIT 1`,
-          [actor.branch_id]
-        )
-        const configuredMembershipFee = Number(cfgRes.rows[0]?.membership_fee ?? 0)
-        const balanceBefore = Math.max(configuredMembershipFee - currentMembershipPaid, 0)
-        const balanceAfter = Math.max(configuredMembershipFee - nextMembershipPaid, 0)
-        const transactionNumber = `FEE-${Date.now()}`
-        const modeRaw = typeof body.membershipFeeMode === "string" ? body.membershipFeeMode : "Cash"
-        const validModes = ["Cash", "Mobile Money", "Bank Transfer", "Cheque", "Card"]
-        const mode = validModes.includes(modeRaw) ? modeRaw : "Cash"
-        const description = typeof body.membershipFeeDescription === "string" && body.membershipFeeDescription.trim()
-          ? body.membershipFeeDescription.trim()
-          : "Membership fee payment update"
-
-        const txRes = await client.query(
-          `INSERT INTO senteloans_transactions
-            (institution_id, member_id, account_id, loan_id, transaction_number, type, amount, mode, description, reference_number, balance_before, balance_after, processed_by, transaction_date, status)
-           VALUES ($1, $2, NULL, NULL, $3, 'Fee Payment', $4, $5, $6, '', $7, $8, $9, $10, 'Completed')
-           RETURNING id`,
-          [
-            actor.institution_id,
-            memberId,
-            transactionNumber,
-            membershipDelta,
-            mode,
-            description,
-            balanceBefore,
-            balanceAfter,
-            actor.id,
-            new Date().toISOString(),
-          ]
-        )
-        const txId = txRes.rows[0]?.id
-        if (txId) {
-          await auditLogger.logInsert(
-            "senteloans_transactions",
-            txId,
-            {
-              member_id: memberId,
-              transaction_number: transactionNumber,
-              type: "Fee Payment",
-              amount: membershipDelta,
-              mode,
-              description,
-              balance_before: balanceBefore,
-              balance_after: balanceAfter,
-              processed_by: actor.id,
-              status: "Completed",
-            },
-            actor.institution_id,
-            actor.id,
-            undefined,
-            client
-          )
-        }
-      }
 
       return { ok: true, id: updateRes.rows[0].id }
     })

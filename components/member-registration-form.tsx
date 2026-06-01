@@ -6,7 +6,7 @@ import { useState, useEffect, useRef } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
-import { User, Phone, MapPin, Briefcase, Users, DollarSign, AlertCircle, Check, UserPlus, PiggyBank } from "lucide-react"
+import { User, Phone, MapPin, Briefcase, Users, AlertCircle, Check, UserPlus, PiggyBank } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { getSession } from "@/lib/session"
 import Popover from "@mui/material/Popover"
@@ -132,20 +132,16 @@ export function MemberRegistrationForm({ onClose }: MemberRegistrationFormProps)
     occupation: "",
     monthlyIncome: "",
     monthlySavings: "",
+    savingsAccountType: "Voluntary",
     nextOfKinName: "",
     nextOfKinRelationship: "",
     nextOfKinPhone: "",
-    membershipFeeType: "full" as "full" | "custom",
-    membershipFeeAmount: "",
-    membershipFeeMode: "Cash",
   })
 
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [institutionMembershipFee, setInstitutionMembershipFee] = useState(0)
   const [currency, setCurrency] = useState("UGX")
   const [canCreateMember, setCanCreateMember] = useState(false)
-  const [canEditMembershipFee, setCanEditMembershipFee] = useState(false)
 
   useEffect(() => {
     async function loadSettings() {
@@ -153,9 +149,6 @@ export function MemberRegistrationForm({ onClose }: MemberRegistrationFormProps)
         const res = await fetch("/api/institution/settings", { cache: "no-store" })
         if (res.ok) {
           const data = await res.json()
-          if (typeof data?.config?.membershipFee === "number") {
-            setInstitutionMembershipFee(data.config.membershipFee)
-          }
           if (data?.config?.currency) {
             setCurrency(data.config.currency)
           }
@@ -173,16 +166,7 @@ export function MemberRegistrationForm({ onClose }: MemberRegistrationFormProps)
         const res = await fetch("/api/institution/members/permissions", { cache: "no-store" })
         const data = await res.json().catch(() => ({}))
         const allowed = !!data?.permissions?.createMember
-        const feeAllowed = !!data?.permissions?.editMembershipFee
         setCanCreateMember(allowed)
-        setCanEditMembershipFee(feeAllowed)
-        if (!feeAllowed) {
-          setFormData((prev) => ({
-            ...prev,
-            membershipFeeType: "custom",
-            membershipFeeAmount: "",
-          }))
-        }
         if (!allowed && !permissionToastShown.current) {
           toast({
             variant: "warning",
@@ -198,6 +182,128 @@ export function MemberRegistrationForm({ onClose }: MemberRegistrationFormProps)
     loadPermissions()
   }, [toast])
 
+  const validateForm = (): boolean => {
+    const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+    const requiredText = (v: string) => v && v.trim().length >= 2
+    if (!requiredText(formData.fullName)) {
+      setError("Full Name is required"); scrollToError(); return false
+    }
+    if (!formData.nationalId || formData.nationalId.trim().length < 10) {
+      setError("Enter a valid National ID"); scrollToError(); return false
+    }
+    if (!formData.dateOfBirth) {
+      setError("Date of Birth is required"); scrollToError(); return false
+    }
+    try {
+      const dob = parseDateOnly(formData.dateOfBirth)
+      if (!dob) throw new Error("invalid_dob")
+      const now = new Date()
+      const age = now.getFullYear() - dob.getFullYear() - (now < new Date(now.getFullYear(), dob.getMonth(), dob.getDate()) ? 1 : 0)
+      if (age < 18) {
+        setError("Member must be at least 18 years old"); scrollToError(); return false
+      }
+    } catch {
+      setError("Enter a valid Date of Birth"); scrollToError(); return false
+    }
+    if (!formData.gender) {
+      setError("Gender is required"); scrollToError(); return false
+    }
+    if (!formData.memberType) {
+      setError("Member Type is required"); scrollToError(); return false
+    }
+    if (!formData.phoneNumber) {
+      setError("Phone Number is required"); scrollToError(); return false
+    }
+    if (formData.email && !emailRe.test(formData.email)) {
+      setError("Enter a valid email address"); scrollToError(); return false
+    }
+    return true
+  }
+
+  const buildCreatePayload = (): Record<string, unknown> => {
+    let phone = formData.phoneNumber.trim()
+    if (phone.startsWith("0")) phone = "+256" + phone.slice(1)
+    const payload: Record<string, unknown> = {
+      fullName: formData.fullName.trim(),
+      phoneNumber: phone,
+      nationalId: formData.nationalId.trim(),
+      dateOfBirth: formData.dateOfBirth,
+      gender: formData.gender,
+      memberType: formData.memberType,
+    }
+    if (formData.email) payload.email = formData.email.trim()
+    if (formData.maritalStatus) payload.maritalStatus = formData.maritalStatus
+    if (formData.district) payload.district = formData.district
+    if (formData.village) payload.village = formData.village
+    if (formData.occupation) payload.occupation = formData.occupation
+    if (formData.monthlyIncome) payload.monthlyIncome = Number(formData.monthlyIncome)
+    if (formData.monthlySavings) payload.monthlySavings = Number(formData.monthlySavings)
+    if (formData.savingsAccountType) payload.savingsAccountType = formData.savingsAccountType
+    if (formData.nextOfKinName) payload.nextOfKinName = formData.nextOfKinName.trim()
+    if (formData.nextOfKinRelationship) payload.nextOfKinRelationship = formData.nextOfKinRelationship
+    if (formData.nextOfKinPhone) payload.nextOfKinPhone = formData.nextOfKinPhone.trim()
+    return payload
+  }
+
+  const createMember = async (): Promise<{ id: string; member_number: string } | null> => {
+    const res = await fetch("/api/institution/members", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(buildCreatePayload()),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (res.status === 403 && data?.error === "missing_permission:create_member") {
+      toast({
+        variant: "warning",
+        title: "Access denied",
+        description: "You do not have permission to create members.",
+      })
+      return null
+    }
+    if (res.status === 403 && data?.error === "branch_inactive") {
+      const statusLabel = typeof data?.branch_status === "string" ? data.branch_status.toLowerCase() : "inactive"
+      toast({
+        variant: "destructive",
+        title: "Branch not active",
+        description: `Your branch is currently ${statusLabel}. Activate it from Settings → Branches before registering new members.`,
+      })
+      return null
+    }
+    if (res.status === 403 && data?.error === "branch_not_found") {
+      toast({
+        variant: "destructive",
+        title: "Branch unavailable",
+        description: "Your assigned branch could not be found. Contact your administrator.",
+      })
+      return null
+    }
+    if (res.status === 409 && data?.error === "duplicate_national_id") {
+      toast({
+        variant: "destructive",
+        title: "National ID already exists",
+        description: `A ${clientTerminology.toLowerCase()} with National ID "${formData.nationalId.trim()}" is already registered in this institution.`,
+      })
+      return null
+    }
+    if (
+      res.status === 409 &&
+      (data?.error === "duplicate_member_number" || data?.error === "duplicate_savings_account_number")
+    ) {
+      toast({
+        variant: "destructive",
+        title: "Duplicate identifier",
+        description: "An auto-generated ID clashed with an existing record. Please try again.",
+      })
+      return null
+    }
+    if (!res.ok) {
+      setError(data?.error || "Failed to create member")
+      scrollToError()
+      return null
+    }
+    return { id: data.id as string, member_number: data.member_number as string }
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError(null)
@@ -210,100 +316,19 @@ export function MemberRegistrationForm({ onClose }: MemberRegistrationFormProps)
       })
       return
     }
-
-    const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-    const requiredText = (v: string) => v && v.trim().length >= 2
-    if (!requiredText(formData.fullName)) {
-      setError("Full Name is required"); scrollToError(); return
-    }
-    if (!formData.nationalId || formData.nationalId.trim().length < 10) {
-      setError("Enter a valid National ID"); scrollToError(); return
-    }
-    if (!formData.dateOfBirth) {
-      setError("Date of Birth is required"); scrollToError(); return
-    }
-    try {
-      const dob = parseDateOnly(formData.dateOfBirth)
-      if (!dob) throw new Error("invalid_dob")
-      const now = new Date()
-      const age = now.getFullYear() - dob.getFullYear() - (now < new Date(now.getFullYear(), dob.getMonth(), dob.getDate()) ? 1 : 0)
-      if (age < 18) {
-        setError("Member must be at least 18 years old"); scrollToError(); return
-      }
-    } catch {
-      setError("Enter a valid Date of Birth"); scrollToError(); return
-    }
-    if (!formData.gender) {
-      setError("Gender is required"); scrollToError(); return
-    }
-    if (!formData.memberType) {
-      setError("Member Type is required"); scrollToError(); return
-    }
-    if (!formData.phoneNumber) {
-      setError("Phone Number is required"); scrollToError(); return
-    }
-    if (formData.email && !emailRe.test(formData.email)) {
-      setError("Enter a valid email address"); scrollToError(); return
-    }
-    if (canEditMembershipFee && institutionMembershipFee > 0 && formData.membershipFeeType === "custom") {
-      const amt = Number(formData.membershipFeeAmount)
-      if (amt > institutionMembershipFee) {
-        setError(`Membership fee amount cannot exceed ${institutionMembershipFee.toLocaleString()}`); scrollToError(); return
-      }
-    }
-
-    let phone = formData.phoneNumber.trim()
-    if (phone.startsWith("0")) phone = "+256" + phone.slice(1)
+    if (!validateForm()) return
 
     setSubmitting(true)
     try {
-      const payload: any = {
-        fullName: formData.fullName.trim(),
-        phoneNumber: phone,
-        nationalId: formData.nationalId.trim(),
-        dateOfBirth: formData.dateOfBirth,
-        gender: formData.gender,
-        memberType: formData.memberType,
-      }
-      if (formData.email) payload.email = formData.email.trim()
-      if (formData.maritalStatus) payload.maritalStatus = formData.maritalStatus
-      if (formData.district) payload.district = formData.district
-      if (formData.village) payload.village = formData.village
-      if (formData.occupation) payload.occupation = formData.occupation
-      if (formData.monthlyIncome) payload.monthlyIncome = Number(formData.monthlyIncome)
-      if (formData.monthlySavings) payload.monthlySavings = Number(formData.monthlySavings)
-
-      if (canEditMembershipFee) {
-        const feeAmount = formData.membershipFeeType === "full"
-          ? institutionMembershipFee
-          : Number(formData.membershipFeeAmount) || 0
-        if (feeAmount > 0) {
-          payload.membershipFeePaid = feeAmount
-          payload.membershipFeeMode = formData.membershipFeeMode
-        }
-      }
-
-      const res = await fetch("/api/institution/members", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+      const created = await createMember()
+      if (!created) return
+      toast({
+        variant: "success",
+        title: `${clientTerminology} registered`,
+        description: `${formData.fullName.trim()} (${created.member_number}) has been added successfully.`,
       })
-      const data = await res.json()
-      if (res.status === 403 && data?.error === "missing_permission:create_member") {
-        toast({
-          variant: "warning",
-          title: "Access denied",
-          description: "You do not have permission to create members.",
-        })
-        throw new Error("missing_permission:create_member")
-      }
-      if (!res.ok) throw new Error(data.error || "Failed to create member")
-
-      router.push(`/users/${data.id}`)
+      router.push(`/users/${created.id}`)
       router.refresh()
-    } catch (err: any) {
-      setError(err?.message || "Failed to create member")
-      scrollToError()
     } finally {
       setSubmitting(false)
     }
@@ -353,7 +378,6 @@ export function MemberRegistrationForm({ onClose }: MemberRegistrationFormProps)
     { id: "reg-employment", label: "Employment", icon: Briefcase },
     { id: "reg-savings", label: "Monthly Savings", icon: PiggyBank },
     { id: "reg-nok", label: "Next of Kin", icon: Users },
-    ...(institutionMembershipFee > 0 ? [{ id: "reg-fee", label: "Membership Fee", icon: DollarSign }] : []),
   ]
 
   return (
@@ -512,7 +536,9 @@ export function MemberRegistrationForm({ onClose }: MemberRegistrationFormProps)
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="email">Email Address</Label>
+                <Label htmlFor="email">
+                  Email Address <span className="text-xs font-normal text-muted-foreground">(optional)</span>
+                </Label>
                 <input
                   id="email"
                   type="email"
@@ -521,6 +547,9 @@ export function MemberRegistrationForm({ onClose }: MemberRegistrationFormProps)
                   placeholder="e.g., member@email.com"
                   className={inputClass}
                 />
+                <p className="text-xs text-muted-foreground">
+                  Used for the welcome message, KYC reminder, and invoice email. Leave blank if the {clientTerminology.toLowerCase()} has no email.
+                </p>
               </div>
             </div>
           </CardContent>
@@ -620,20 +649,37 @@ export function MemberRegistrationForm({ onClose }: MemberRegistrationFormProps)
             <CardDescription>The agreed monthly savings contribution for this {clientTerminology.toLowerCase()}.</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="max-w-md space-y-2">
-              <Label htmlFor="monthlySavings">Monthly Savings Amount ({currency})</Label>
-              <input
-                id="monthlySavings"
-                type="number"
-                min={0}
-                value={formData.monthlySavings}
-                onChange={(e) => handleInputChange("monthlySavings", e.target.value)}
-                placeholder="e.g., 50,000"
-                className={inputClass}
-              />
-              <p className="text-xs text-muted-foreground">
-                The amount the {clientTerminology.toLowerCase()} has agreed to save every month.
-              </p>
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="monthlySavings">Monthly Savings Amount ({currency})</Label>
+                <input
+                  id="monthlySavings"
+                  type="number"
+                  min={0}
+                  value={formData.monthlySavings}
+                  onChange={(e) => handleInputChange("monthlySavings", e.target.value)}
+                  placeholder="e.g., 50,000"
+                  className={inputClass}
+                />
+                <p className="text-xs text-muted-foreground">
+                  The amount the {clientTerminology.toLowerCase()} has agreed to save every month.
+                </p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="savingsAccountType">Account Type</Label>
+                <StyledSelect
+                  value={formData.savingsAccountType}
+                  onChange={(value) => handleInputChange("savingsAccountType", value)}
+                  placeholder="Select account type"
+                  options={[
+                    { value: "Voluntary", label: "Voluntary" },
+                    { value: "Fixed", label: "Fixed" },
+                  ]}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Voluntary lets the {clientTerminology.toLowerCase()} deposit/withdraw freely. Fixed locks contributions to the agreed monthly amount.
+                </p>
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -693,127 +739,6 @@ export function MemberRegistrationForm({ onClose }: MemberRegistrationFormProps)
             </div>
           </CardContent>
         </Card>
-
-        {/* Membership Fee */}
-        {institutionMembershipFee > 0 && (
-          <Card id="reg-fee" className="scroll-mt-24">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <DollarSign className="h-5 w-5 text-primary" />
-                Membership Fee
-              </CardTitle>
-              <CardDescription>
-                Record membership fee payment ({currency} {institutionMembershipFee.toLocaleString()}).
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-3">
-                <Label>Payment Type</Label>
-                <div className="flex gap-4">
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="radio"
-                      name="membershipFeeType"
-                      value="full"
-                      checked={formData.membershipFeeType === "full"}
-                      disabled={!canEditMembershipFee}
-                      onChange={() => handleInputChange("membershipFeeType", "full")}
-                      className="w-4 h-4 accent-[#f08c2b]"
-                    />
-                    <span className="text-sm">
-                      Full Payment ({currency} {institutionMembershipFee.toLocaleString()})
-                    </span>
-                  </label>
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="radio"
-                      name="membershipFeeType"
-                      value="custom"
-                      checked={formData.membershipFeeType === "custom"}
-                      disabled={!canEditMembershipFee}
-                      onChange={() => handleInputChange("membershipFeeType", "custom")}
-                      className="w-4 h-4 accent-[#f08c2b]"
-                    />
-                    <span className="text-sm">Custom Amount (Partial Payment)</span>
-                  </label>
-                </div>
-              </div>
-
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor="membershipFeeAmount">Amount ({currency})</Label>
-                  {formData.membershipFeeType === "full" ? (
-                    <input
-                      id="membershipFeeAmount"
-                      value={institutionMembershipFee.toLocaleString()}
-                      readOnly
-                      className={`${inputClass} bg-muted/50`}
-                    />
-                  ) : (
-                    <input
-                      id="membershipFeeAmount"
-                      type="number"
-                      value={formData.membershipFeeAmount}
-                      disabled={!canEditMembershipFee}
-                      onChange={(e) => handleInputChange("membershipFeeAmount", e.target.value)}
-                      placeholder={`Max: ${institutionMembershipFee.toLocaleString()}`}
-                      max={institutionMembershipFee}
-                      min={0}
-                      className={inputClass}
-                    />
-                  )}
-                  {formData.membershipFeeType === "custom" && Number(formData.membershipFeeAmount) > institutionMembershipFee && (
-                    <p className="text-xs text-red-500">Amount cannot exceed {currency} {institutionMembershipFee.toLocaleString()}</p>
-                  )}
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="membershipFeeMode">Payment Mode</Label>
-                  <StyledSelect
-                    value={formData.membershipFeeMode}
-                    onChange={(value) => handleInputChange("membershipFeeMode", value)}
-                    placeholder="Select payment mode"
-                    disabled={!canEditMembershipFee}
-                    options={[
-                      { value: "Cash", label: "Cash" },
-                      { value: "Mobile Money", label: "Mobile Money" },
-                      { value: "Bank Transfer", label: "Bank Transfer" },
-                      { value: "Cheque", label: "Cheque" },
-                      { value: "Card", label: "Card" },
-                    ]}
-                  />
-                </div>
-              </div>
-
-              {/* Payment Summary */}
-              {(() => {
-                const payAmount = formData.membershipFeeType === "full"
-                  ? institutionMembershipFee
-                  : Number(formData.membershipFeeAmount) || 0
-                const percentage = institutionMembershipFee > 0 ? (payAmount / institutionMembershipFee) * 100 : 0
-                const isValid = payAmount > 0 && payAmount <= institutionMembershipFee
-
-                if (!isValid && formData.membershipFeeType === "custom" && !formData.membershipFeeAmount) return null
-
-                return (
-                  <div className={`p-3 rounded-lg border ${isValid ? "bg-green-50 border-green-200" : "bg-red-50 border-red-200"}`}>
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm font-medium">Payment Summary</span>
-                      <span className={`text-sm font-semibold ${isValid ? "text-green-700" : "text-red-700"}`}>
-                        {currency} {payAmount.toLocaleString()} / {institutionMembershipFee.toLocaleString()} ({Math.round(percentage)}%)
-                      </span>
-                    </div>
-                    <div className="mt-2 w-full h-2 bg-gray-200 rounded-full overflow-hidden">
-                      <div
-                        className={`h-full rounded-full transition-all duration-300 ${percentage >= 100 ? "bg-green-500" : "bg-orange-500"}`}
-                        style={{ width: `${Math.min(percentage, 100)}%` }}
-                      />
-                    </div>
-                  </div>
-                )
-              })()}
-            </CardContent>
-          </Card>
-        )}
 
         {/* Sticky Save Bar */}
         <div className="sticky bottom-0 z-10 -mx-1 px-1">

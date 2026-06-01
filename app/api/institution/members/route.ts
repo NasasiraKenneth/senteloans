@@ -1,9 +1,23 @@
 import { NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
-import { runWithAuth } from "@/lib/db"
+import { runWithAuth, runWithoutAuth } from "@/lib/db"
 import { auditLogger } from "@/lib/audit/audit-logger"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
+import { assertBranchActive } from "@/lib/branches/branch-status"
+import { createInvoiceWithItems, type CreatedInvoice } from "@/lib/invoices/create-invoice"
+import { notifyMemberRegistration } from "@/lib/notifications/member-events"
+import { enqueueMemberRegistrationEmails } from "@/lib/email/member-emails"
+
+type MemberCreatePostCommit = {
+  institutionName: string
+  currency: string
+  email: string | null
+  fullName: string
+  actorId: string
+  institutionId: string
+  branchId: string
+}
 
 // POST body type
 interface MemberPostBody {
@@ -20,9 +34,47 @@ interface MemberPostBody {
   occupation?: string
   monthlyIncome?: number
   monthlySavings?: number
+  savingsAccountType?: "Voluntary" | "Fixed"
+  nextOfKinName?: string
+  nextOfKinRelationship?: string
+  nextOfKinPhone?: string
   joinDate?: string
-  membershipFeePaid?: number
-  membershipFeeMode?: string
+}
+
+/** Account types that may be auto-opened at registration. */
+const REGISTRATION_SAVINGS_TYPES = ["Voluntary", "Fixed"] as const
+type RegistrationSavingsType = (typeof REGISTRATION_SAVINGS_TYPES)[number]
+
+const resolveSavingsAccountType = (
+  value: unknown,
+): RegistrationSavingsType => {
+  if (typeof value === "string") {
+    const trimmed = value.trim()
+    if ((REGISTRATION_SAVINGS_TYPES as readonly string[]).includes(trimmed)) {
+      return trimmed as RegistrationSavingsType
+    }
+  }
+  return "Voluntary"
+}
+
+/** Map Postgres unique-violation constraints on member tables to friendly codes. */
+const mapMemberDuplicateError = (
+  err: unknown,
+): "duplicate_national_id" | "duplicate_member_number" | "duplicate_savings_account_number" | null => {
+  const e = err as { code?: string; constraint?: string; detail?: string; message?: string }
+  if (String(e?.code || "") !== "23505") return null
+  const constraint = String(e?.constraint || "")
+  const detail = String(e?.detail || e?.message || "")
+  if (constraint === "uk_clients_national_id" || /national_id/.test(detail)) {
+    return "duplicate_national_id"
+  }
+  if (constraint === "uk_members_number" || /member_number/.test(detail)) {
+    return "duplicate_member_number"
+  }
+  if (constraint === "uk_accounts_number" || /account_number/.test(detail)) {
+    return "duplicate_savings_account_number"
+  }
+  return null
 }
 
 type ActorContext = {
@@ -148,7 +200,7 @@ export async function GET(req: Request) {
             FROM senteloans_config cfg
             WHERE cfg.branch_id = c.branch_id
               AND COALESCE(cfg.membership_fee, 0) > 0
-              AND COALESCE(c.membership_fee_paid, 0) >= cfg.membership_fee
+              AND COALESCE((SELECT SUM(mf.amount_paid) FROM senteloans_membership_fees mf WHERE mf.member_id = c.id), 0) >= cfg.membership_fee
           )
           OR (
             NOT EXISTS (
@@ -157,7 +209,7 @@ export async function GET(req: Request) {
               WHERE cfg2.branch_id = c.branch_id
                 AND COALESCE(cfg2.membership_fee, 0) > 0
             )
-            AND COALESCE(c.membership_fee_paid, 0) > 0
+            AND COALESCE((SELECT SUM(mf.amount_paid) FROM senteloans_membership_fees mf WHERE mf.member_id = c.id), 0) > 0
           )
         )`
       } else if (membershipPaymentStatus === "partial") {
@@ -166,8 +218,8 @@ export async function GET(req: Request) {
           FROM senteloans_config cfg
           WHERE cfg.branch_id = c.branch_id
             AND COALESCE(cfg.membership_fee, 0) > 0
-            AND COALESCE(c.membership_fee_paid, 0) > 0
-            AND COALESCE(c.membership_fee_paid, 0) < cfg.membership_fee
+            AND COALESCE((SELECT SUM(mf.amount_paid) FROM senteloans_membership_fees mf WHERE mf.member_id = c.id), 0) > 0
+            AND COALESCE((SELECT SUM(mf.amount_paid) FROM senteloans_membership_fees mf WHERE mf.member_id = c.id), 0) < cfg.membership_fee
         )`
       }
       if (kycApprovedAtStart) {
@@ -196,7 +248,7 @@ export async function GET(req: Request) {
             c.district,
             c.status,
             c.kyc_status,
-            c.membership_fee_paid,
+            COALESCE((SELECT SUM(mf.amount_paid) FROM senteloans_membership_fees mf WHERE mf.member_id = c.id), 0)::numeric AS membership_fee_paid,
             c.join_date,
             c.created_by,
             c.kyc_approved_by,
@@ -312,162 +364,240 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "no_app_user" }, { status: 403 })
     }
 
+    let postCommit: MemberCreatePostCommit | null = null
+
     const result = await runWithAuth(session.user.authUserId, async (client) => {
       const actor = await resolveActorContext(client, session!.user!.authUserId)
       if (!actor) return { error: "no_app_user" as const }
       const allowed = await hasPermission(client, actor, "create_member")
       if (!allowed) return { error: "missing_permission:create_member" as const }
+      if (!actor.branch_id) return { error: "actor_branch_missing" as const }
+      const branchId = actor.branch_id
 
-      const instRes = await client.query(`SELECT type FROM senteloans_institutions WHERE id = $1`, [actor.institution_id])
+      // Reusable branch gate: block writes against suspended/closed branches.
+      const branchCheck = await assertBranchActive(client, branchId)
+      if (!branchCheck.ok) {
+        return {
+          error: branchCheck.error as "branch_not_found" | "branch_inactive",
+          branchStatus: branchCheck.error === "branch_inactive" ? branchCheck.status : undefined,
+        }
+      }
+
+      const instRes = await client.query(
+        `SELECT id, name, type FROM senteloans_institutions WHERE id = $1`,
+        [actor.institution_id],
+      )
       const institution = instRes.rows[0]
       if (!institution) return { error: "institution_lookup_failed" as const }
       const shouldCreateSavings = (institution.type as string) === "SACCO" || (institution.type as string) === "MFI"
+
+      // Branch-scoped config used for invoice + currency context.
+      const cfgRes = await client.query(
+        `SELECT currency, membership_fee, invoice_overdue_period
+           FROM senteloans_config WHERE branch_id = $1 LIMIT 1`,
+        [branchId],
+      )
+      const cfg = cfgRes.rows[0] || {}
+      const currency = (cfg.currency as string) || "UGX"
+      const membershipFee = Number(cfg.membership_fee || 0)
+      const invoiceDueDays = Number(cfg.invoice_overdue_period || 30)
+
       const inst = String(actor.institution_id).slice(0, 6).replace(/-/g, "").toUpperCase()
       const now = new Date()
       const yymm = `${String(now.getFullYear()).slice(2)}${String(now.getMonth() + 1).padStart(2, "0")}`
       const candidate = `M${inst}-${yymm}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`
-      const savingsAccountNumber = shouldCreateSavings ? `SA${inst}-${yymm}-${Math.random().toString(36).slice(2, 6).toUpperCase()}` : null
+      const savingsAccountNumber = shouldCreateSavings
+        ? `SA${inst}-${yymm}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`
+        : null
       const joinDate = body.joinDate || new Date().toISOString().slice(0, 10)
       const monthlyIncome = typeof body.monthlyIncome !== "undefined" && body.monthlyIncome !== null && !Number.isNaN(Number(body.monthlyIncome)) ? Number(body.monthlyIncome) : null
       const monthlySavings = typeof body.monthlySavings !== "undefined" && body.monthlySavings !== null && !Number.isNaN(Number(body.monthlySavings)) ? Number(body.monthlySavings) : null
+      const memberEmail = typeof body.email === "string" ? body.email.trim() || null : null
+      const savingsAccountType = resolveSavingsAccountType(body.savingsAccountType)
+      const nextOfKinName = typeof body.nextOfKinName === "string" ? body.nextOfKinName.trim() || null : null
+      const nextOfKinRelationship = typeof body.nextOfKinRelationship === "string" ? body.nextOfKinRelationship.trim() || null : null
+      const nextOfKinPhone = typeof body.nextOfKinPhone === "string" ? body.nextOfKinPhone.trim() || null : null
 
-      const membershipFeePaid = typeof body.membershipFeePaid !== "undefined" && !Number.isNaN(Number(body.membershipFeePaid)) && Number(body.membershipFeePaid) > 0
-        ? Number(body.membershipFeePaid)
-        : 0
-      const membershipFeeMode = typeof body.membershipFeeMode === "string" ? body.membershipFeeMode : "Cash"
-
-      const insertRes = await client.query(
-        `INSERT INTO senteloans_members (institution_id, member_number, full_name, date_of_birth, gender, member_type, phone_number, national_id, email, marital_status, district, village, occupation, monthly_income, monthly_savings, join_date, membership_fee_paid, created_by, modified_by)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $18) RETURNING id, member_number`,
-        [
-          actor.institution_id,
-          candidate,
-          String(body.fullName).trim(),
-          body.dateOfBirth,
-          body.gender,
-          body.memberType,
-          phone,
-          String(body.nationalId).trim(),
-          typeof body.email === "string" ? body.email.trim() || null : null,
-          typeof body.maritalStatus === "string" ? body.maritalStatus : null,
-          typeof body.district === "string" ? body.district : null,
-          typeof body.village === "string" ? body.village : null,
-          typeof body.occupation === "string" ? body.occupation : null,
-          monthlyIncome,
-          monthlySavings,
-          joinDate,
-          membershipFeePaid,
-          actor.id,
-        ]
-      )
-      const data = insertRes.rows[0]
-      if (!data) return { error: "create_failed_no_record" as const }
-      await auditLogger.logInsert(
-        "senteloans_members",
-        data.id,
-        {
-          member_number: data.member_number,
-          full_name: String(body.fullName).trim(),
-          phone_number: phone,
-          national_id: String(body.nationalId).trim(),
-          date_of_birth: body.dateOfBirth,
-          gender: body.gender,
-          member_type: body.memberType,
-          email: typeof body.email === "string" ? body.email.trim() || null : null,
-          marital_status: typeof body.maritalStatus === "string" ? body.maritalStatus : null,
-          district: typeof body.district === "string" ? body.district : null,
-          village: typeof body.village === "string" ? body.village : null,
-          occupation: typeof body.occupation === "string" ? body.occupation : null,
-          monthly_income: monthlyIncome,
-          monthly_savings: monthlySavings,
-          join_date: joinDate,
-          membership_fee_paid: membershipFeePaid,
-        },
-        actor.institution_id,
-        actor.id,
-        undefined,
-        client
-      )
-
-      // Create a Fee Payment transaction if membership fee was paid
-      if (membershipFeePaid > 0) {
-        const txNumber = `FEE-${Date.now()}`
-        const txDate = new Date().toISOString()
-        const validModes = ["Cash", "Mobile Money", "Bank Transfer", "Cheque", "Card"]
-        const txMode = validModes.includes(membershipFeeMode) ? membershipFeeMode : "Cash"
-
-        // Fetch configured membership fee to compute remaining balance
-        const cfgRes = await client.query(
-          `SELECT membership_fee FROM senteloans_config WHERE branch_id = $1 LIMIT 1`,
-          [actor.branch_id]
-        )
-        const totalMembershipFee = Number(cfgRes.rows[0]?.membership_fee ?? 0)
-
-        // balance_before = remaining before payment, balance_after = remaining after payment
-        const balanceBefore = totalMembershipFee
-        const balanceAfter = totalMembershipFee - membershipFeePaid
-
-        const txRes = await client.query(
-          `INSERT INTO senteloans_transactions
-            (institution_id, member_id, account_id, loan_id, transaction_number, type, amount, mode, description, reference_number, balance_before, balance_after, processed_by, transaction_date, status)
-           VALUES ($1, $2, NULL, NULL, $3, 'Fee Payment', $4, $5, $6, '', $7, $8, $9, $10, 'Completed')
-           RETURNING id`,
-          [actor.institution_id, data.id, txNumber, membershipFeePaid, txMode, "Membership fee payment on registration", balanceBefore, balanceAfter, actor.id, txDate]
-        )
-        const txId = txRes.rows[0]?.id
-        if (txId) {
-          await auditLogger.logInsert(
-            "senteloans_transactions",
-            txId,
-            {
-              member_id: data.id,
-              transaction_number: txNumber,
-              type: "Fee Payment",
-              amount: membershipFeePaid,
-              mode: txMode,
-              description: "Membership fee payment on registration",
-              balance_before: balanceBefore,
-              balance_after: balanceAfter,
-              processed_by: actor.id,
-              transaction_date: txDate,
-              status: "Completed",
-            },
-            actor.institution_id,
-            actor.id,
-            undefined,
-            client
-          )
-        }
-      }
+      // Wrap the multi-table writes in a single transaction so a downstream
+      // failure (savings or invoice) rolls back the member row too.
+      await client.query("BEGIN")
 
       let savingsAccountData: { account_number: string; account_type: string } | null = null
-      if (shouldCreateSavings && savingsAccountNumber) {
-        try {
-          const savRes = await client.query(
-            `INSERT INTO senteloans_savings_accounts (institution_id, member_id, account_number, account_type, available_balance, total_balance, status, open_date) VALUES ($1, $2, $3, 'Voluntary', 0, 0, 'Active', $4) RETURNING id`,
-            [actor.institution_id, data.id, savingsAccountNumber, joinDate]
+      let createdInvoice: CreatedInvoice | null = null
+      let data: { id: string; member_number: string }
+
+      try {
+        const insertRes = await client.query<{ id: string; member_number: string }>(
+          `INSERT INTO senteloans_members (institution_id, branch_id, member_number, full_name, date_of_birth, gender, member_type, phone_number, national_id, email, marital_status, district, village, occupation, monthly_income, monthly_savings, next_of_kin_name, next_of_kin_relationship, next_of_kin_phone, join_date, created_by, modified_by)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $21) RETURNING id, member_number`,
+          [
+            actor.institution_id,
+            branchId,
+            candidate,
+            String(body.fullName).trim(),
+            body.dateOfBirth,
+            body.gender,
+            body.memberType,
+            phone,
+            String(body.nationalId).trim(),
+            memberEmail,
+            typeof body.maritalStatus === "string" ? body.maritalStatus : null,
+            typeof body.district === "string" ? body.district : null,
+            typeof body.village === "string" ? body.village : null,
+            typeof body.occupation === "string" ? body.occupation : null,
+            monthlyIncome,
+            monthlySavings,
+            nextOfKinName,
+            nextOfKinRelationship,
+            nextOfKinPhone,
+            joinDate,
+            actor.id,
+          ],
+        )
+        data = insertRes.rows[0]
+        if (!data) {
+          await client.query("ROLLBACK")
+          return { error: "create_failed_no_record" as const }
+        }
+
+        await auditLogger.logInsert(
+          "senteloans_members",
+          data.id,
+          {
+            member_number: data.member_number,
+            full_name: String(body.fullName).trim(),
+            phone_number: phone,
+            national_id: String(body.nationalId).trim(),
+            date_of_birth: body.dateOfBirth,
+            gender: body.gender,
+            member_type: body.memberType,
+            email: memberEmail,
+            marital_status: typeof body.maritalStatus === "string" ? body.maritalStatus : null,
+            district: typeof body.district === "string" ? body.district : null,
+            village: typeof body.village === "string" ? body.village : null,
+            occupation: typeof body.occupation === "string" ? body.occupation : null,
+            monthly_income: monthlyIncome,
+            monthly_savings: monthlySavings,
+            next_of_kin_name: nextOfKinName,
+            next_of_kin_relationship: nextOfKinRelationship,
+            next_of_kin_phone: nextOfKinPhone,
+            join_date: joinDate,
+          },
+          actor.institution_id,
+          actor.id,
+          { branch_id: branchId },
+          client,
+        )
+
+        if (shouldCreateSavings && savingsAccountNumber) {
+          const savRes = await client.query<{ id: string }>(
+            `INSERT INTO senteloans_savings_accounts (institution_id, branch_id, member_id, account_number, account_type, available_balance, total_balance, status, open_date)
+             VALUES ($1, $2, $3, $4, $5, 0, 0, 'Active', $6) RETURNING id`,
+            [actor.institution_id, branchId, data.id, savingsAccountNumber, savingsAccountType, joinDate],
           )
           const savId = savRes.rows[0]?.id
-          savingsAccountData = { account_number: savingsAccountNumber, account_type: "Voluntary" }
-          if (savId) await auditLogger.logInsert("senteloans_savings_accounts", savId, { member_id: data.id, account_number: savingsAccountNumber, account_type: "Voluntary", open_date: joinDate, auto_created: true }, actor.institution_id, actor.id, undefined, client)
-        } catch (savErr) {
-          await client.query(`DELETE FROM senteloans_members WHERE id = $1`, [data.id])
-          return { error: "savings_creation_failed" as const }
+          savingsAccountData = { account_number: savingsAccountNumber, account_type: savingsAccountType }
+          if (savId) {
+            await auditLogger.logInsert(
+              "senteloans_savings_accounts",
+              savId,
+              {
+                member_id: data.id,
+                account_number: savingsAccountNumber,
+                account_type: savingsAccountType,
+                open_date: joinDate,
+                auto_created: true,
+              },
+              actor.institution_id,
+              actor.id,
+              { branch_id: branchId },
+              client,
+            )
+          }
         }
+
+        // Auto-create a membership-fee invoice when the branch has a fee
+        // configured. Fees are still recorded via the dedicated /membership-fee
+        // endpoint — the invoice gives the member something to settle against.
+        if (membershipFee > 0) {
+          const due = new Date(`${joinDate}T00:00:00Z`)
+          due.setUTCDate(due.getUTCDate() + Math.max(1, invoiceDueDays))
+          const invoiceDue = due.toISOString().slice(0, 10)
+
+          createdInvoice = await createInvoiceWithItems(client, {
+            institutionId: actor.institution_id,
+            branchId,
+            createdBy: actor.id,
+            invoiceDate: joinDate,
+            invoiceDue,
+            invoiceType: "Auto",
+            status: "sent",
+            inwords: `${currency} ${Number(membershipFee).toLocaleString()}`,
+            items: [
+              {
+                unit: "Year",
+                description: "Annual Membership Fee",
+                quantity: 1,
+                unit_price: membershipFee,
+                total_price: membershipFee,
+              },
+            ],
+            target: { member_id: data.id },
+          })
+        }
+
+        await client.query("COMMIT")
+      } catch (txErr) {
+        await client.query("ROLLBACK").catch(() => {})
+        const duplicate = mapMemberDuplicateError(txErr)
+        if (duplicate) {
+          return { error: duplicate }
+        }
+        throw txErr
       }
-      return { id: data.id, member_number: data.member_number, savings_account: savingsAccountData }
+
+      postCommit = {
+        institutionName: institution.name as string,
+        currency,
+        email: memberEmail,
+        fullName: String(body.fullName).trim(),
+        actorId: actor.id,
+        institutionId: actor.institution_id,
+        branchId,
+      }
+
+      return {
+        id: data.id,
+        member_number: data.member_number,
+        savings_account: savingsAccountData,
+        invoice: createdInvoice,
+      }
     })
 
     if (result && "error" in result) {
-      const status = result.error === "savings_creation_failed" ? 500 : 400
+      const status =
+        result.error === "branch_inactive" || result.error === "branch_not_found"
+          ? 403
+          : result.error === "duplicate_national_id" ||
+              result.error === "duplicate_member_number" ||
+              result.error === "duplicate_savings_account_number"
+            ? 409
+            : result.error === "create_failed_no_record"
+              ? 500
+              : 400
       apiLog(status >= 500 ? "error" : "warn", "members.create.failed", {
         method: "POST",
         apiPath,
         status,
         error: result.error,
         authUserId: session.user.authUserId,
+        ...(("branchStatus" in result) ? { branchStatus: (result as any).branchStatus } : {}),
       })
-      return NextResponse.json({ error: result.error }, { status })
+      const payload: Record<string, unknown> = { error: result.error }
+      if ("branchStatus" in result && (result as any).branchStatus) {
+        payload.branch_status = (result as any).branchStatus
+      }
+      return NextResponse.json(payload, { status })
     }
     if (!result) {
       apiLog("warn", "members.create.failed", {
@@ -479,14 +609,127 @@ export async function POST(req: Request) {
       })
       return NextResponse.json({ error: "create_failed" }, { status: 400 })
     }
+
+    // Post-commit side-effects: notifications + emails. Best-effort — never
+    // raise back to the client (member is already persisted at this point).
+    const ctx = postCommit
+    if (ctx) {
+    try {
+      // Acquire a fresh client so notifyMemberRegistration can fan out to
+      // institution admins (the staff branch needs a client to query
+      // senteloans_users / senteloans_roles). Without it, staff
+      // notifications are silently skipped.
+      const notifyRes = await runWithoutAuth((notifyClient) =>
+        notifyMemberRegistration({
+          client: notifyClient,
+          actor: {
+            id: ctx.actorId,
+            institution_id: ctx.institutionId,
+            branch_id: ctx.branchId,
+          },
+          member: {
+            id: result.id,
+            full_name: ctx.fullName,
+            member_number: result.member_number,
+          },
+          institutionName: ctx.institutionName,
+          invoice: result.invoice
+            ? {
+                id: result.invoice.id,
+                invoice_number: result.invoice.invoice_number,
+                total_amount: result.invoice.total_amount,
+                invoice_due: result.invoice.invoice_due,
+              }
+            : null,
+        }),
+      )
+      apiLog(notifyRes.ok ? "info" : "warn",
+        notifyRes.ok ? "members.create.notifications_dispatched" : "members.create.notifications_partial",
+        {
+          method: "POST",
+          apiPath,
+          status: 201,
+          memberId: result.id,
+          memberNotifications: notifyRes.memberNotifications,
+          staffNotifications: notifyRes.staffNotifications,
+          ...(notifyRes.errors.length ? { errors: notifyRes.errors } : {}),
+        },
+      )
+    } catch (notifyErr) {
+      apiLog("error", "members.create.notifications_failed", {
+        method: "POST",
+        apiPath,
+        status: 201,
+        memberId: result.id,
+        error: (notifyErr as Error)?.message || "notify_failed",
+      })
+    }
+
+    try {
+      const emailRes = await enqueueMemberRegistrationEmails({
+        member: {
+          id: result.id,
+          full_name: ctx.fullName,
+          member_number: result.member_number,
+          email: ctx.email || "",
+        },
+        institutionName: ctx.institutionName,
+        currency: ctx.currency,
+        invoice: result.invoice
+          ? {
+              id: result.invoice.id,
+              invoice_number: result.invoice.invoice_number,
+              total_amount: result.invoice.total_amount,
+              invoice_due: result.invoice.invoice_due,
+            }
+          : null,
+        context: { institutionId: ctx.institutionId, actorId: ctx.actorId },
+      })
+      if (emailRes.errors.length > 0) {
+        apiLog("warn", "members.create.email_enqueue_partial", {
+          method: "POST",
+          apiPath,
+          status: 201,
+          memberId: result.id,
+          errors: emailRes.errors,
+        })
+      }
+    } catch (mailErr) {
+      apiLog("error", "members.create.email_enqueue_failed", {
+        method: "POST",
+        apiPath,
+        status: 201,
+        memberId: result.id,
+        error: (mailErr as Error)?.message || "enqueue_failed",
+      })
+    }
+    }
+
     apiLog("info", "members.create.success", {
       method: "POST",
       apiPath,
       status: 201,
       memberId: result.id,
+      invoiceId: result.invoice?.id,
+      invoiceNumber: result.invoice?.invoice_number,
       authUserId: session.user.authUserId,
     })
-    return NextResponse.json({ id: result.id, member_number: result.member_number, savings_account: result.savings_account }, { status: 201 })
+    return NextResponse.json(
+      {
+        id: result.id,
+        member_number: result.member_number,
+        savings_account: result.savings_account,
+        invoice: result.invoice
+          ? {
+              id: result.invoice.id,
+              invoice_number: result.invoice.invoice_number,
+              total_amount: result.invoice.total_amount,
+              invoice_due: result.invoice.invoice_due,
+            }
+          : null,
+      },
+      { status: 201 },
+    )
   } catch (e: unknown) {
     const err = e as Error
     apiLog("error", "members.create.error", {

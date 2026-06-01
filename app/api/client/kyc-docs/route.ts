@@ -5,6 +5,7 @@ import { runWithAuth } from "@/lib/db"
 import { auditLogger } from "@/lib/audit/audit-logger"
 import { notificationService } from "@/lib/notifications/notification-service"
 import { NotificationTemplates } from "@/lib/notifications/notification-types"
+import { getInstitutionAdminRecipients } from "@/lib/notifications/admin-recipients"
 
 const DOC_TYPES = ["passport_photo", "national_id_front", "national_id_back"] as const
 type DocType = (typeof DOC_TYPES)[number]
@@ -91,29 +92,46 @@ export async function POST(req: Request) {
       )
 
       const clientInfoRes = await client.query(`SELECT full_name FROM senteloans_clients WHERE id = $1`, [row.id])
-      const clientInfo = clientInfoRes.rows[0]
-      const adminsRes = await client.query(
-        `SELECT id FROM senteloans_users WHERE institution_id = $1 AND role IN ('institution_admin', 'manager', 'loan_officer')`,
-        [row.institution_id]
-      )
-      const admins = adminsRes.rows
+      const clientInfo = clientInfoRes.rows[0] as { full_name: string } | undefined
+      const admins = await getInstitutionAdminRecipients(client, row.institution_id, {
+        roles: ["institution_admin", "manager", "loan_officer"],
+      })
       if (admins.length > 0 && clientInfo) {
-        const tpl = NotificationTemplates.pendingKycReview((clientInfo as { full_name: string }).full_name, docType, row.id)
+        const tpl = NotificationTemplates.pendingKycReview(clientInfo.full_name, docType, row.id)
         await notificationService.createBulk(
-          admins.map((a: { id: string }) => ({
+          admins.map((a) => ({
             institutionId: row.institution_id,
-            branchId: String(row.branch_id || ""),
+            branchId: String(a.branch_id || row.branch_id || ""),
             recipientType: "institution_user" as const,
             recipientId: a.id,
             type: "pending_kyc_review" as const,
             title: tpl.title,
             message: tpl.message,
             actionUrl: tpl.actionUrl,
-            metadata: { client_id: row.id, client_name: (clientInfo as { full_name: string }).full_name, doc_type: docType },
+            metadata: { member_id: row.id, member_name: clientInfo.full_name, doc_type: docType },
           })),
           client
         )
       }
+
+      const submittedTpl = NotificationTemplates.kycSubmitted(docType)
+      await notificationService
+        .create(
+          {
+            institutionId: row.institution_id,
+            branchId: String(row.branch_id || ""),
+            recipientType: "member",
+            recipientId: row.id,
+            type: "kyc_submitted",
+            title: submittedTpl.title,
+            message: submittedTpl.message,
+            actionUrl: submittedTpl.actionUrl,
+            metadata: { doc_type: docType },
+          },
+          client
+        )
+        .catch((e) => console.error("Failed to create kyc_submitted notification:", e))
+
       return { ok: true, pendingId: inserted.id }
     })
 

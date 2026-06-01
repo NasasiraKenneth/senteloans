@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth"
 import { runWithAuth } from "@/lib/db"
 import { notificationService } from "@/lib/notifications/notification-service"
 import { NotificationTemplates } from "@/lib/notifications/notification-types"
+import { getInstitutionAdminRecipients } from "@/lib/notifications/admin-recipients"
 import { auditLogger } from "@/lib/audit/audit-logger"
 import { calculateLoanTerms } from "@/lib/loans/calculations"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
@@ -537,21 +538,16 @@ export async function POST(req: Request) {
 
       const memberNameRes = await client.query(`SELECT full_name FROM senteloans_members WHERE id = $1`, [member_id])
       const memberName = memberNameRes.rows[0]?.full_name || ""
-      const adminsRes = await client.query(
-        `SELECT u.id
-         FROM senteloans_users u
-         JOIN senteloans_roles r ON r.id = u.role_id
-         WHERE u.institution_id = $1
-           AND u.id != $2
-           AND lower(r.name) IN ('admin', 'manager')`,
-        [actor.institution_id, actor.id]
-      )
-      if (adminsRes.rows.length > 0 && memberName) {
+      const admins = await getInstitutionAdminRecipients(client, actor.institution_id, {
+        excludeUserId: actor.id,
+        roles: ["institution_admin", "manager", "loan_officer"],
+      })
+      if (admins.length > 0 && memberName) {
         const tpl = NotificationTemplates.pendingLoanApproval(memberName, principal_amount, loanRow.id)
         await notificationService.createBulk(
-          adminsRes.rows.map((a: { id: string }) => ({
+          admins.map((a) => ({
             institutionId: actor.institution_id,
-            branchId: String(actor.branch_id || ""),
+            branchId: String(a.branch_id || actor.branch_id || ""),
             recipientType: "institution_user" as const,
             recipientId: a.id,
             type: "pending_loan_approval" as const,
@@ -563,6 +559,27 @@ export async function POST(req: Request) {
           client
         )
       }
+
+      if (memberName) {
+        const memberTpl = NotificationTemplates.loanApplicationSubmitted(loanRow.id, principal_amount)
+        await notificationService
+          .create(
+            {
+              institutionId: actor.institution_id,
+              branchId: String(actor.branch_id || ""),
+              recipientType: "member",
+              recipientId: member_id,
+              type: "loan_application_submitted",
+              title: memberTpl.title,
+              message: memberTpl.message,
+              actionUrl: memberTpl.actionUrl,
+              metadata: { loan_id: loanRow.id, amount: principal_amount },
+            },
+            client
+          )
+          .catch((e) => console.error("Failed to create loan_application_submitted notification:", e))
+      }
+
       return { ok: true, id: loanRow.id, application_id: loanRow.application_id }
     })
 

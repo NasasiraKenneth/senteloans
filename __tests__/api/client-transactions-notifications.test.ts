@@ -223,7 +223,7 @@ describe('GET /api/client/notifications', () => {
       const mockNotifications = [
         {
           id: 'notif-1',
-          recipient_type: 'client',
+          recipient_type: 'member',
           recipient_id: 'client-1',
           type: 'loan_approved',
           title: 'Loan Approved',
@@ -234,7 +234,7 @@ describe('GET /api/client/notifications', () => {
         },
         {
           id: 'notif-2',
-          recipient_type: 'client',
+          recipient_type: 'member',
           recipient_id: 'client-1',
           type: 'kyc_approved',
           title: 'KYC Approved',

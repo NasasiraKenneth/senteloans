@@ -135,6 +135,7 @@ CREATE TABLE IF NOT EXISTS senteloans_bank_accounts (
         REFERENCES senteloans_branches(id) ON DELETE CASCADE,
     bank_name TEXT NOT NULL,
     bank_account_number TEXT NOT NULL,
+    available_balance DECIMAL(15,2) DEFAULT 0 CHECK (available_balance >= 0),
     total_amount DECIMAL(15,2),
     created_at TIMESTAMPTZ DEFAULT NOW(),
     -- Added as plain UUID first to avoid forward-reference before senteloans_users exists.
@@ -143,6 +144,31 @@ CREATE TABLE IF NOT EXISTS senteloans_bank_accounts (
     CONSTRAINT chk_bank_accounts_name_not_blank CHECK (btrim(bank_name) <> ''),
     CONSTRAINT chk_bank_accounts_number_not_blank CHECK (btrim(bank_account_number) <> ''),
     CONSTRAINT uk_bank_account_per_institution UNIQUE (institution_id, bank_name, bank_account_number)
+);
+
+-- provider ENUM(
+--         'mailgun',
+--         'ses',
+--         'sendgrid',
+--         'smtp'
+--     )
+
+CREATE TABLE IF NOT EXISTS senteloans_email_settings (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    institution_id UUID NOT NULL
+        REFERENCES senteloans_institutions(id) ON DELETE CASCADE,
+    branch_id UUID NOT NULL
+        REFERENCES senteloans_branches(id) ON DELETE CASCADE,
+    provider VARCHAR(255)  NOT NULL,
+    domain VARCHAR(255),
+    api_key TEXT,
+    smtp_host VARCHAR(255),
+    smtp_port INT,
+    smtp_username VARCHAR(255),
+    smtp_password TEXT,
+    is_active BOOLEAN DEFAULT false,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- 24-create-roles.sql
@@ -793,6 +819,45 @@ CREATE TABLE IF NOT EXISTS senteloans_memberfee_fines (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- MEMBERSHIP FEES TABLE (one row per fee payment; domain projection of the matching senteloans_transactions row)
+CREATE TABLE IF NOT EXISTS senteloans_membership_fees (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    institution_id UUID NOT NULL REFERENCES senteloans_institutions(id) ON DELETE RESTRICT,
+    branch_id     UUID NOT NULL REFERENCES senteloans_branches(id)      ON DELETE RESTRICT,
+    member_id     UUID NOT NULL REFERENCES senteloans_members(id)       ON DELETE CASCADE,
+
+    -- Money
+    amount_paid          DECIMAL(15,2) NOT NULL CHECK (amount_paid > 0),
+    total_membership_fee DECIMAL(15,2) NOT NULL,                -- snapshot of senteloans_config.membership_fee at payment time
+    balance_before       DECIMAL(15,2) NOT NULL,                -- remaining BEFORE this payment
+    balance_after        DECIMAL(15,2) NOT NULL,                -- remaining AFTER this payment
+
+    -- Payment metadata
+    mode              payment_mode NOT NULL,
+    reference_number  VARCHAR(100),
+    description       TEXT,
+
+    -- Linkage / audit
+    transaction_id    UUID UNIQUE REFERENCES senteloans_transactions(id) ON DELETE SET NULL,
+    processed_by      UUID NOT NULL REFERENCES senteloans_users(id) ON DELETE RESTRICT,
+    payment_date      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+
+    CONSTRAINT chk_membership_fees_balance
+      CHECK (balance_before >= balance_after AND balance_after >= 0)
+);
+
+CREATE INDEX IF NOT EXISTS idx_membership_fees_member
+  ON senteloans_membership_fees(member_id, payment_date DESC);
+CREATE INDEX IF NOT EXISTS idx_membership_fees_institution
+  ON senteloans_membership_fees(institution_id, payment_date DESC);
+CREATE INDEX IF NOT EXISTS idx_membership_fees_branch
+  ON senteloans_membership_fees(branch_id, payment_date DESC);
+CREATE INDEX IF NOT EXISTS idx_membership_fees_transaction
+  ON senteloans_membership_fees(transaction_id);
+
 CREATE TABLE IF NOT EXISTS senteloans_investments (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     institution_id UUID NOT NULL REFERENCES senteloans_institutions(id) ON DELETE RESTRICT,
@@ -1100,6 +1165,7 @@ CREATE OR REPLACE TRIGGER update_institutions_updated_at BEFORE UPDATE ON sentel
 CREATE OR REPLACE TRIGGER update_users_updated_at BEFORE UPDATE ON senteloans_users FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE OR REPLACE TRIGGER update_clients_updated_at BEFORE UPDATE ON senteloans_members FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE OR REPLACE TRIGGER update_client_shares_updated_at BEFORE UPDATE ON senteloans_member_shares FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE OR REPLACE TRIGGER update_membership_fees_updated_at BEFORE UPDATE ON senteloans_membership_fees FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE OR REPLACE TRIGGER update_loan_products_updated_at BEFORE UPDATE ON senteloans_loan_products FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE OR REPLACE TRIGGER update_loans_updated_at BEFORE UPDATE ON senteloans_loans FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 -- Added trigger for loan guarantors table
@@ -1117,6 +1183,7 @@ COMMENT ON TABLE senteloans_institutions IS 'Multi-tenant root table for financi
 COMMENT ON TABLE senteloans_users IS 'System users with role-based access control';
 COMMENT ON TABLE senteloans_members IS 'Customer/member records for each institution';
 COMMENT ON TABLE senteloans_member_shares IS 'Share ownership records for SACCO clients';
+COMMENT ON TABLE senteloans_membership_fees IS 'One row per membership-fee payment; domain projection of the matching senteloans_transactions row';
 COMMENT ON TABLE senteloans_loan_products IS 'Loan product definitions per institution with support for different lending models';
 COMMENT ON TABLE senteloans_loans IS 'Individual loan applications and tracking';
 -- Added comment for loan guarantors table

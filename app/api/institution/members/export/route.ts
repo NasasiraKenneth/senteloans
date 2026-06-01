@@ -172,7 +172,7 @@ export async function GET(req: Request) {
               SELECT 1 FROM senteloans_config cfg
               WHERE cfg.branch_id = c.branch_id
                 AND COALESCE(cfg.membership_fee, 0) > 0
-                AND COALESCE(c.membership_fee_paid, 0) >= cfg.membership_fee
+                AND COALESCE((SELECT SUM(mf.amount_paid) FROM senteloans_membership_fees mf WHERE mf.member_id = c.id), 0) >= cfg.membership_fee
             )
             OR (
               NOT EXISTS (
@@ -180,7 +180,7 @@ export async function GET(req: Request) {
                 WHERE cfg2.branch_id = c.branch_id
                   AND COALESCE(cfg2.membership_fee, 0) > 0
               )
-              AND COALESCE(c.membership_fee_paid, 0) > 0
+              AND COALESCE((SELECT SUM(mf.amount_paid) FROM senteloans_membership_fees mf WHERE mf.member_id = c.id), 0) > 0
             )
           )`
         } else if (membershipPaymentStatus === "partial") {
@@ -188,8 +188,8 @@ export async function GET(req: Request) {
             SELECT 1 FROM senteloans_config cfg
             WHERE cfg.branch_id = c.branch_id
               AND COALESCE(cfg.membership_fee, 0) > 0
-              AND COALESCE(c.membership_fee_paid, 0) > 0
-              AND COALESCE(c.membership_fee_paid, 0) < cfg.membership_fee
+              AND COALESCE((SELECT SUM(mf.amount_paid) FROM senteloans_membership_fees mf WHERE mf.member_id = c.id), 0) > 0
+              AND COALESCE((SELECT SUM(mf.amount_paid) FROM senteloans_membership_fees mf WHERE mf.member_id = c.id), 0) < cfg.membership_fee
           )`
         }
         if (kycApprovedAtStart) {
@@ -204,7 +204,17 @@ export async function GET(req: Request) {
         }
 
         const memberRes = await client.query(
-          `SELECT c.member_number, c.full_name, c.phone_number, c.email, c.district, c.status, c.kyc_status, c.membership_fee_paid, c.kyc_approved_at, c.join_date
+          `SELECT
+              c.member_number,
+              c.full_name,
+              c.phone_number,
+              c.email,
+              c.district,
+              c.status,
+              c.kyc_status,
+              COALESCE((SELECT SUM(mf.amount_paid) FROM senteloans_membership_fees mf WHERE mf.member_id = c.id), 0)::numeric AS membership_fee_paid,
+              c.kyc_approved_at,
+              c.join_date
            FROM senteloans_members c
            WHERE ${where}
            ORDER BY c.created_at DESC`,

@@ -44,17 +44,27 @@ export function NotificationPanel({ apiEndpoint, onCountChange }: NotificationPa
         body: JSON.stringify({ read: true }),
       })
       if (!res.ok) return
-      
-      // Update local state
+
       setNotifications((prev) =>
         prev.map((n) => (n.id === notificationId ? { ...n, read: true, read_at: new Date().toISOString() } : n))
       )
-      
-      // Update unread count
+
       const unreadCount = notifications.filter((n) => !n.read && n.id !== notificationId).length
       if (onCountChange) onCountChange(unreadCount)
     } catch (e) {
       console.error("Error marking notification as read:", e)
+    }
+  }
+
+  async function markAllAsRead() {
+    try {
+      const res = await fetch(`${apiEndpoint}/mark-all-read`, { method: "POST" })
+      if (!res.ok) return
+      const now = new Date().toISOString()
+      setNotifications((prev) => prev.map((n) => (n.read ? n : { ...n, read: true, read_at: now })))
+      if (onCountChange) onCountChange(0)
+    } catch (e) {
+      console.error("Error marking all notifications as read:", e)
     }
   }
 
@@ -161,12 +171,7 @@ export function NotificationPanel({ apiEndpoint, onCountChange }: NotificationPa
             variant="ghost"
             size="sm"
             className="w-full text-xs"
-            onClick={async () => {
-              const unreadIds = notifications.filter((n) => !n.read).map((n) => n.id)
-              for (const id of unreadIds) {
-                await markAsRead(id)
-              }
-            }}
+            onClick={markAllAsRead}
           >
             Mark all as read
           </Button>

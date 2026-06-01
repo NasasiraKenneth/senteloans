@@ -1,12 +1,9 @@
--- Add membership fee tracking
--- The fee amount is stored in senteloans_config.membership_fee (branch-level)
--- Only the amount paid by each member is stored per-member
+-- Configure per-branch membership fee for seeded institutions and seed historical payments.
+-- The per-payment events live in senteloans_membership_fees (created in 01-create-schema.sql).
+-- The configured target fee per branch lives in senteloans_config.membership_fee.
+-- There is no denormalized cache on senteloans_members; totals are aggregated from senteloans_membership_fees.
 
--- 1. Add membership_fee_paid column to senteloans_members
-ALTER TABLE senteloans_members
-  ADD COLUMN IF NOT EXISTS membership_fee_paid DECIMAL(15,2) DEFAULT 0 CHECK (membership_fee_paid >= 0);
-
--- 2. Set membership fee in senteloans_config for each institution's branches
+-- 1. Configure per-branch membership fee for seeded institutions
 UPDATE senteloans_config c
 SET membership_fee = 50000
 FROM senteloans_branches b
@@ -28,14 +25,51 @@ JOIN senteloans_institutions i ON i.id = b.institution_id
 WHERE c.branch_id = b.id
   AND i.name = 'Opportunity Microfinance Uganda';
 
--- 3. Seed some payment data for existing demo members
-UPDATE senteloans_members SET membership_fee_paid = 50000 WHERE member_number = 'SL001';
-UPDATE senteloans_members SET membership_fee_paid = 30000 WHERE member_number = 'SL002';
-UPDATE senteloans_members SET membership_fee_paid = 50000 WHERE member_number = 'SL003';
-UPDATE senteloans_members SET membership_fee_paid = 10000 WHERE member_number = 'SL004';
-UPDATE senteloans_members SET membership_fee_paid = 30000 WHERE member_number = 'QC001';
-UPDATE senteloans_members SET membership_fee_paid = 15000 WHERE member_number = 'QC002';
-UPDATE senteloans_members SET membership_fee_paid = 30000 WHERE member_number = 'QC003';
-UPDATE senteloans_members SET membership_fee_paid = 40000 WHERE member_number = 'OM001';
-UPDATE senteloans_members SET membership_fee_paid = 25000 WHERE member_number = 'OM002';
-UPDATE senteloans_members SET membership_fee_paid = 0    WHERE member_number = 'OM003';
+-- 2. Seed per-payment history for demo members. One row per member with paid > 0.
+--    Each row represents the cumulative paid amount as a single seed event;
+--    transaction_id is NULL because no corresponding senteloans_transactions row is created for seeded fees.
+INSERT INTO senteloans_membership_fees (
+  institution_id,
+  branch_id,
+  member_id,
+  amount_paid,
+  total_membership_fee,
+  balance_before,
+  balance_after,
+  mode,
+  description,
+  processed_by,
+  payment_date
+)
+SELECT
+  m.institution_id,
+  m.branch_id,
+  m.id,
+  v.paid,
+  COALESCE(c.membership_fee, 0)                                AS total_membership_fee,
+  COALESCE(c.membership_fee, 0)                                AS balance_before,
+  GREATEST(COALESCE(c.membership_fee, 0) - v.paid, 0)          AS balance_after,
+  'Cash'::payment_mode                                          AS mode,
+  'Initial membership fee payment (seed)'                       AS description,
+  (
+    SELECT u.id
+    FROM senteloans_users u
+    WHERE u.institution_id = m.institution_id
+    ORDER BY u.created_at ASC
+    LIMIT 1
+  )                                                             AS processed_by,
+  (m.join_date::timestamptz)                                    AS payment_date
+FROM senteloans_members m
+JOIN senteloans_config c ON c.branch_id = m.branch_id
+JOIN (
+  VALUES
+    ('SL001', 50000::numeric),
+    ('SL002', 30000::numeric),
+    ('SL003', 50000::numeric),
+    ('SL004', 10000::numeric),
+    ('QC001', 30000::numeric),
+    ('QC002', 15000::numeric),
+    ('QC003', 30000::numeric),
+    ('OM001', 40000::numeric),
+    ('OM002', 25000::numeric)
+) AS v(member_number, paid) ON v.member_number = m.member_number;

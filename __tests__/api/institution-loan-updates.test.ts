@@ -301,7 +301,7 @@ describe('PUT /api/institution/loans/[id]', () => {
       expect(body.ok).toBe(true)
       expect(notificationService.create).toHaveBeenCalledWith(
         expect.objectContaining({
-          recipientType: 'client',
+          recipientType: 'member',
           recipientId: 'client-1',
           type: 'loan_rejected',
         })

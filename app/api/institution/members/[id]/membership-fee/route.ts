@@ -4,6 +4,11 @@ import { authOptions } from "@/lib/auth"
 import { runWithAuth } from "@/lib/db"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
 import { auditLogger } from "@/lib/audit/audit-logger"
+import {
+  findOpenMemberMembershipInvoice,
+  recordInvoicePayment,
+  syncInvoiceStatusFromPayments,
+} from "@/lib/invoices/invoice-payments"
 
 type ActorContext = {
   id: string
@@ -77,7 +82,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       if (!allowed) return { error: "missing_permission:view_members" as const }
 
       const memberRes = await client.query(
-        `SELECT id, branch_id, membership_fee_paid FROM senteloans_members WHERE institution_id = $1 AND id = $2`,
+        `SELECT id, branch_id FROM senteloans_members WHERE institution_id = $1 AND id = $2`,
         [actor.institution_id, memberId]
       )
       const memberRow = memberRes.rows[0]
@@ -89,19 +94,36 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       )
       const membershipFee = Number(cfgRes.rows[0]?.membership_fee ?? 0)
 
-      // Fetch membership fee payment history from transactions
-      const txRes = await client.query(
-        `SELECT id, transaction_number, amount, mode, description, reference_number, transaction_date, status
-         FROM senteloans_transactions
-         WHERE institution_id = $1 AND member_id = $2 AND type = 'Fee Payment'
-         ORDER BY transaction_date DESC`,
+      const paidRes = await client.query(
+        `SELECT COALESCE(SUM(amount_paid), 0)::numeric AS total_paid
+         FROM senteloans_membership_fees
+         WHERE institution_id = $1 AND member_id = $2`,
+        [actor.institution_id, memberId]
+      )
+      const membershipFeePaid = Number(paidRes.rows[0]?.total_paid ?? 0)
+
+      // Payment history from the domain table (seed rows have no transaction_number).
+      const paymentsRes = await client.query(
+        `SELECT
+            mf.id,
+            COALESCE(t.transaction_number, 'SEED-' || substr(mf.id::text, 1, 8)) AS transaction_number,
+            mf.amount_paid AS amount,
+            mf.mode,
+            mf.description,
+            mf.reference_number,
+            mf.payment_date AS transaction_date,
+            'Completed'::transaction_status AS status
+         FROM senteloans_membership_fees mf
+         LEFT JOIN senteloans_transactions t ON t.id = mf.transaction_id
+         WHERE mf.institution_id = $1 AND mf.member_id = $2
+         ORDER BY mf.payment_date DESC`,
         [actor.institution_id, memberId]
       )
 
       return {
         membershipFee,
-        membershipFeePaid: Number(memberRow.membership_fee_paid) || 0,
-        payments: txRes.rows,
+        membershipFeePaid,
+        payments: paymentsRes.rows,
       }
     })
 
@@ -144,6 +166,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const mode = body.mode as string
     const description = typeof body.description === "string" ? body.description : "Membership fee payment"
     const referenceNumber = typeof body.reference_number === "string" ? body.reference_number : ""
+    const paymentDateRaw = typeof body.paymentDate === "string" ? body.paymentDate.trim() : ""
 
     if (!Number.isFinite(amount) || amount <= 0) {
       return NextResponse.json({ error: "invalid_amount" }, { status: 400 })
@@ -153,6 +176,22 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       return NextResponse.json({ error: "invalid_mode" }, { status: 400 })
     }
 
+    // Resolve payment date (defaults to now). Reject obviously bad input and
+    // future dates so the audit trail / ledger stays sane.
+    let resolvedPaymentDate = new Date()
+    if (paymentDateRaw) {
+      const parsed = new Date(paymentDateRaw)
+      if (Number.isNaN(parsed.getTime())) {
+        return NextResponse.json({ error: "invalid_payment_date" }, { status: 400 })
+      }
+      const endOfToday = new Date()
+      endOfToday.setHours(23, 59, 59, 999)
+      if (parsed.getTime() > endOfToday.getTime()) {
+        return NextResponse.json({ error: "payment_date_in_future" }, { status: 400 })
+      }
+      resolvedPaymentDate = parsed
+    }
+
     const result = await runWithAuth(session.user.authUserId, async (client) => {
       const actor = await resolveActorContext(client, session!.user!.authUserId)
       if (!actor) return { error: "user_not_linked" as const }
@@ -160,7 +199,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       if (!allowed) return { error: "missing_permission:edit_membership_fee" as const }
 
       const memberRes = await client.query(
-        `SELECT id, institution_id, branch_id, membership_fee_paid, status FROM senteloans_members WHERE id = $1`,
+        `SELECT id, institution_id, branch_id, status FROM senteloans_members WHERE id = $1`,
         [memberId]
       )
       const memberRow = memberRes.rows[0]
@@ -175,7 +214,13 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       )
       const membershipFee = Number(cfgRes.rows[0]?.membership_fee ?? 0)
 
-      const currentPaid = Number(memberRow.membership_fee_paid) || 0
+      const paidRes = await client.query(
+        `SELECT COALESCE(SUM(amount_paid), 0)::numeric AS total_paid
+         FROM senteloans_membership_fees
+         WHERE institution_id = $1 AND member_id = $2`,
+        [actor.institution_id, memberId]
+      )
+      const currentPaid = Number(paidRes.rows[0]?.total_paid ?? 0)
       const remaining = membershipFee - currentPaid
 
       if (membershipFee > 0 && amount > remaining + 0.01) {
@@ -184,68 +229,152 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
       const newPaid = currentPaid + amount
       const transactionNumber = `FEE-${Date.now()}`
-      const txDate = new Date().toISOString()
+      const txDate = resolvedPaymentDate.toISOString()
+      const balanceBefore = Math.max(membershipFee - currentPaid, 0)
+      const balanceAfter = Math.max(membershipFee - newPaid, 0)
 
-      // balance_before = remaining before payment, balance_after = remaining after payment
-      const balanceBefore = membershipFee - currentPaid
-      const balanceAfter = membershipFee - newPaid
+      try {
+        await client.query("BEGIN")
 
-      // Create the Fee Payment transaction (account_id and loan_id are NULL)
-      const txRes = await client.query(
-        `INSERT INTO senteloans_transactions
-          (institution_id, member_id, account_id, loan_id, transaction_number, type, amount, mode, description, reference_number, balance_before, balance_after, processed_by, transaction_date, status)
-         VALUES ($1, $2, NULL, NULL, $3, 'Fee Payment', $4, $5, $6, $7, $8, $9, $10, $11, 'Completed')
-         RETURNING id`,
-        [actor.institution_id, memberId, transactionNumber, amount, mode, description, referenceNumber, balanceBefore, balanceAfter, actor.id, txDate]
-      )
-      const txRow = txRes.rows[0]
-      if (!txRow) return { error: "insert_failed" as const }
+        const txRes = await client.query(
+          `INSERT INTO senteloans_transactions
+            (institution_id, branch_id, member_id, account_id, loan_id, transaction_number, type, amount, mode, description, reference_number, balance_before, balance_after, processed_by, transaction_date, status)
+           VALUES ($1, $2, $3, NULL, NULL, $4, 'Fee Payment', $5, $6, $7, $8, $9, $10, $11, $12, 'Completed')
+           RETURNING id`,
+          [
+            actor.institution_id,
+            memberRow.branch_id,
+            memberId,
+            transactionNumber,
+            amount,
+            mode,
+            description,
+            referenceNumber,
+            balanceBefore,
+            balanceAfter,
+            actor.id,
+            txDate,
+          ]
+        )
+        const txRow = txRes.rows[0]
+        if (!txRow) {
+          await client.query("ROLLBACK")
+          return { error: "insert_failed" as const }
+        }
 
-      // Update the member's membership_fee_paid
-      await client.query(
-        `UPDATE senteloans_members SET membership_fee_paid = $1 WHERE id = $2`,
-        [newPaid, memberId]
-      )
-      await auditLogger.logUpdate(
-        "senteloans_members",
-        memberId,
-        { membership_fee_paid: currentPaid },
-        { membership_fee_paid: newPaid },
-        actor.institution_id,
-        actor.id,
-        undefined,
-        client
-      )
+        const feeRes = await client.query(
+          `INSERT INTO senteloans_membership_fees
+            (institution_id, branch_id, member_id, amount_paid, total_membership_fee, balance_before, balance_after, mode, reference_number, description, transaction_id, processed_by, payment_date)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+           RETURNING id`,
+          [
+            actor.institution_id,
+            memberRow.branch_id,
+            memberId,
+            amount,
+            membershipFee,
+            balanceBefore,
+            balanceAfter,
+            mode,
+            referenceNumber || null,
+            description,
+            txRow.id,
+            actor.id,
+            txDate,
+          ]
+        )
+        const feeRow = feeRes.rows[0]
 
-      await auditLogger.logInsert(
-        "senteloans_transactions",
-        txRow.id,
-        {
-          member_id: memberId,
-          transaction_number: transactionNumber,
-          type: "Fee Payment",
-          amount,
-          mode,
-          description,
-          reference_number: referenceNumber,
-          balance_before: balanceBefore,
-          balance_after: balanceAfter,
-          processed_by: actor.id,
-          transaction_date: txDate,
-          status: "Completed",
-        },
-        actor.institution_id,
-        actor.id,
-        undefined,
-        client
-      )
+        await auditLogger.logInsert(
+          "senteloans_transactions",
+          txRow.id,
+          {
+            member_id: memberId,
+            branch_id: memberRow.branch_id,
+            transaction_number: transactionNumber,
+            type: "Fee Payment",
+            amount,
+            mode,
+            description,
+            reference_number: referenceNumber,
+            balance_before: balanceBefore,
+            balance_after: balanceAfter,
+            processed_by: actor.id,
+            transaction_date: txDate,
+            status: "Completed",
+          },
+          actor.institution_id,
+          actor.id,
+          { branch_id: memberRow.branch_id },
+          client
+        )
+        await auditLogger.logInsert(
+          "senteloans_membership_fees",
+          feeRow.id,
+          {
+            member_id: memberId,
+            branch_id: memberRow.branch_id,
+            amount_paid: amount,
+            total_membership_fee: membershipFee,
+            balance_before: balanceBefore,
+            balance_after: balanceAfter,
+            mode,
+            reference_number: referenceNumber || null,
+            description,
+            transaction_id: txRow.id,
+            processed_by: actor.id,
+            payment_date: txDate,
+          },
+          actor.institution_id,
+          actor.id,
+          { branch_id: memberRow.branch_id },
+          client
+        )
 
-      return {
-        ok: true,
-        transactionId: txRow.id,
-        transactionNumber,
-        membershipFeePaid: newPaid,
-        membershipFee,
+        const openInvoice = await findOpenMemberMembershipInvoice(
+          client,
+          actor.institution_id,
+          memberId,
+        )
+        let invoicePayment: {
+          invoice_id: string
+          status: string
+          paid_amount: number
+          outstanding: number
+        } | null = null
+        if (openInvoice) {
+          await recordInvoicePayment(client, {
+            institutionId: actor.institution_id,
+            branchId: memberRow.branch_id,
+            invoiceId: openInvoice.id,
+            amount,
+            paymentDate: txDate,
+            processedBy: actor.id,
+            membershipFeeId: feeRow.id,
+          })
+          const synced = await syncInvoiceStatusFromPayments(client, openInvoice.id)
+          invoicePayment = {
+            invoice_id: openInvoice.id,
+            status: synced.status,
+            paid_amount: synced.paid_amount,
+            outstanding: synced.outstanding,
+          }
+        }
+
+        await client.query("COMMIT")
+
+        return {
+          ok: true,
+          transactionId: txRow.id,
+          transactionNumber,
+          membershipFeeId: feeRow.id,
+          membershipFeePaid: newPaid,
+          membershipFee,
+          invoice: invoicePayment,
+        }
+      } catch (err) {
+        await client.query("ROLLBACK")
+        throw err
       }
     })
 

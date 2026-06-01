@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { runWithAuth } from "@/lib/db";
 import { apiLog, getApiPath } from "@/lib/api/api-log";
+import { insertWithInvoiceNumberRetry } from "@/lib/invoices/invoice-number-retry";
 
 type InvoiceRow = {
   id: string;
@@ -98,27 +99,6 @@ const round2 = (value: number): number =>
 const normalizeStatusInput = (value: unknown): string => String(value || "draft").trim().toLowerCase()
 const allowedStatuses = new Set(["draft", "sent", "paid", "overdue", "cancelled"])
 
-const generateInvoiceNumber = async (
-  client: {
-    query: (
-      text: string,
-      params?: unknown[],
-    ) => Promise<{ rows: Array<{ invoice_number: string }> }>;
-  },
-  invoiceDate: string,
-): Promise<string> => {
-  const datePart = invoiceDate.replaceAll("-", "");
-  for (let i = 0; i < 20; i++) {
-    const randomPart = Math.random().toString(36).slice(2, 6).toUpperCase();
-    const candidate = `INV-${datePart}-${randomPart}`;
-    const exists = await client.query(
-      `SELECT invoice_number FROM senteloans_invoices WHERE invoice_number = $1 LIMIT 1`,
-      [candidate],
-    );
-    if (exists.rows.length === 0) return candidate;
-  }
-  return `INV-${datePart}-${Date.now().toString().slice(-6)}`;
-};
 
 export async function GET(req: Request) {
   const apiPath = getApiPath(req);
@@ -319,6 +299,20 @@ export async function GET(req: Request) {
         }
 
         const invoiceIds = invoices.map((i) => i.id);
+        let paidMap: Record<string, number> = {};
+        if (invoiceIds.length > 0) {
+          const paidRes = await client.query<{ invoice_id: string; paid: string }>(
+            `SELECT invoice_id, COALESCE(SUM(amount), 0)::numeric AS paid
+               FROM senteloans_invoice_payments
+              WHERE invoice_id = ANY($1::uuid[])
+              GROUP BY invoice_id`,
+            [invoiceIds],
+          );
+          paidMap = Object.fromEntries(
+            paidRes.rows.map((r) => [r.invoice_id, Number(r.paid || 0)]),
+          );
+        }
+
         let itemsMap: Record<string, InvoiceItemRow[]> = {};
 
         if (includeItems && invoiceIds.length > 0) {
@@ -339,7 +333,11 @@ export async function GET(req: Request) {
           );
         }
 
-        const mapped = invoices.map((row) => ({
+        const mapped = invoices.map((row) => {
+          const total = Number(row.total_amount || 0);
+          const paid_amount = paidMap[row.id] ?? 0;
+          const outstanding = Math.max(total - paid_amount, 0);
+          return {
           id: row.id,
           institution_id: row.institution_id,
           client_id: row.client_id,
@@ -355,7 +353,9 @@ export async function GET(req: Request) {
           invoice_due: row.invoice_due,
           subtotal: Number(row.subtotal || 0),
           vat: Number(row.vat || 0),
-          total_amount: Number(row.total_amount || 0),
+          total_amount: total,
+          paid_amount,
+          outstanding,
           inwords: row.inwords || "",
           invoice_type: row.invoice_type,
           status: row.status,
@@ -375,7 +375,8 @@ export async function GET(req: Request) {
                 vatinclusive: Boolean(it.vatinclusive),
               }))
             : undefined,
-        }));
+        };
+        });
 
         return { items: mapped, total, page, pageSize };
       },
@@ -517,42 +518,42 @@ export async function POST(req: Request) {
 
         await client.query("BEGIN");
         try {
-          const invoiceNumber = await generateInvoiceNumber(
-            client as any,
-            invoiceDate,
+          const inserted = await insertWithInvoiceNumberRetry(
+            (invoiceNumber) =>
+              client.query<{ id: string; invoice_number: string }>(
+                `INSERT INTO senteloans_invoices (
+                  institution_id, branch_id, member_id, client_id, invoice_number, invoice_date, invoice_due,
+                  subtotal, vat, total_amount, inwords, invoice_type, status,
+                  created_by
+                ) VALUES (
+                  $1, $2, $3, $4, $5, $6,
+                  $7, $8, $9, $10, $11, $12,
+                  $13, $14
+                ) RETURNING id, invoice_number`,
+                [
+                  actor.institution_id,
+                  actor.branch_id,
+                  memberId || null,
+                  clientId || null,
+                  invoiceNumber,
+                  invoiceDate,
+                  invoiceDue,
+                  computedSubtotal,
+                  round2(vat),
+                  totalAmount,
+                  inwords,
+                  invoiceType,
+                  status,
+                  actor.id,
+                ],
+              ),
+            { client },
           );
-          const insertInvoiceRes = await client.query<{
-            id: string;
-            invoice_number: string;
-          }>(
-            `INSERT INTO senteloans_invoices (
-            institution_id, branch_id, member_id, client_id, invoice_number, invoice_date, invoice_due,
-            subtotal, vat, total_amount, inwords, invoice_type, status,
-            created_by
-          ) VALUES (
-            $1, $2, $3, $4, $5, $6,
-            $7, $8, $9, $10, $11, $12,
-            $13, $14
-          ) RETURNING id, invoice_number`,
-            [
-              actor.institution_id,
-              actor.branch_id,
-              memberId || null,
-              clientId || null,
-              invoiceNumber,
-              invoiceDate,
-              invoiceDue,
-              computedSubtotal,
-              round2(vat),
-              totalAmount,
-              inwords,
-              invoiceType,
-              status,
-              actor.id,
-            ],
-          );
-
-          const invoice = insertInvoiceRes.rows[0];
+          if (!inserted) {
+            await client.query("ROLLBACK");
+            return { error: "invoice_number_generation_failed" as const };
+          }
+          const invoice = inserted.row;
           for (const item of normalizedItems) {
             await client.query(
               `INSERT INTO senteloans_invoice_items (
@@ -613,8 +614,14 @@ export async function POST(req: Request) {
           ? 404
           : result.error === "user_not_linked" || result.error === "missing_permission:add_invoice"
             ? 403
-            : 400;
-      apiLog("warn", "invoices.create.denied", { method: "POST", apiPath, status: statusCode, error: result.error, authUserId: session.user.authUserId });
+            : result.error === "invoice_number_generation_failed"
+              ? 500
+              : 400;
+      apiLog(
+        statusCode >= 500 ? "error" : "warn",
+        "invoices.create.denied",
+        { method: "POST", apiPath, status: statusCode, error: result.error, authUserId: session.user.authUserId },
+      );
       return NextResponse.json({ error: result.error }, { status: statusCode });
     }
 

@@ -23,8 +23,13 @@ export type NotificationType =
   | 'pending_loan_approval'
   | 'pending_kyc_review'
   | 'loan_overdue_alert'
+  | 'new_member_registered'
+  // Member lifecycle events
+  | 'member_welcome'
+  | 'membership_invoice_created'
+  | 'kyc_verification_required'
 
-export type RecipientType = 'client' | 'institution_user'
+export type RecipientType = 'member' | 'institution_user'
 
 export interface NotificationMetadata {
   loan_id?: string
@@ -69,7 +74,7 @@ export interface Notification {
 export interface NotificationPreference {
   id: string
   institution_id: string
-  user_type: 'client' | 'institution_user'
+  user_type: 'member' | 'institution_user'
   user_id: string
   notification_type: string
   in_app_enabled: boolean
@@ -175,6 +180,55 @@ export const NotificationTemplates = {
     title: 'Loan Overdue Alert',
     message: `${clientName}'s loan payment of ${formatCurrency(amount)} is ${days} day(s) overdue.`,
     actionUrl: `/loans/${loanId}`,
+  }),
+
+  // --- Member lifecycle templates ---------------------------------------
+  memberWelcome: (memberName: string, institutionName?: string) => ({
+    title: `Welcome${memberName ? ', ' + memberName.split(' ')[0] : ''}!`,
+    message: institutionName
+      ? `Your membership at ${institutionName} has been created. Explore your portal to manage savings, loans, and your KYC.`
+      : `Your membership has been created. Explore your portal to manage savings, loans, and your KYC.`,
+    actionUrl: '/client-portal',
+  }),
+
+  membershipInvoiceCreated: (
+    invoiceNumber: string,
+    amount: number,
+    invoiceId?: string,
+    dueDate?: string | null,
+  ) => ({
+    title: `New Invoice ${invoiceNumber}`,
+    message: dueDate
+      ? `A membership fee invoice of ${formatCurrency(amount)} has been issued (due ${new Date(dueDate).toLocaleDateString()}). Please review and settle.`
+      : `A membership fee invoice of ${formatCurrency(amount)} has been issued. Please review and settle it from your portal.`,
+    actionUrl: invoiceId
+      ? `/client-portal/invoices?invoice_id=${invoiceId}`
+      : '/client-portal/invoices',
+  }),
+
+  kycVerificationRequired: () => ({
+    title: 'Verify your KYC',
+    message:
+      'To activate all account features, please upload your KYC documents (national ID, passport photo, etc.) for verification.',
+    actionUrl: '/client-portal/profile?tab=kyc',
+  }),
+
+  // --- Staff/admin templates --------------------------------------------
+  newMemberRegistered: (memberName: string, memberNumber: string, memberId: string) => ({
+    title: 'New Member Registered',
+    message: `${memberName} (${memberNumber}) has been added to the institution.`,
+    actionUrl: `/users/${memberId}`,
+  }),
+
+  newInvoiceCreatedForStaff: (
+    invoiceNumber: string,
+    memberName: string,
+    amount: number,
+    invoiceId: string,
+  ) => ({
+    title: `Invoice ${invoiceNumber} Created`,
+    message: `A new invoice of ${formatCurrency(amount)} was issued to ${memberName}.`,
+    actionUrl: `/invoices?invoice_id=${invoiceId}`,
   }),
 }
 

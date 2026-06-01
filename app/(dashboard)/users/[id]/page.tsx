@@ -380,8 +380,11 @@ export default function UserProfilePage() {
   if (loading) {
     return (
       <>
-        <div className="text-center">
-          <p>Loading...</p>
+        <div className="flex min-h-[70vh] w-full items-center justify-center">
+          <div className="text-center">
+            <div className="mx-auto mb-4 h-8 w-8 animate-spin rounded-full border-b-2 border-primary"></div>
+            <p className="text-muted-foreground">Loading Member...</p>
+          </div>
         </div>
       </>
     )

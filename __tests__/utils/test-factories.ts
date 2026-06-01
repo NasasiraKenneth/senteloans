@@ -130,7 +130,7 @@ export const testFactories = {
   notification: (overrides = {}) => ({
     id: 'test-notification-id',
     institution_id: 'test-institution-id',
-    recipient_type: 'client',
+    recipient_type: 'member',
     recipient_id: 'test-client-id',
     type: 'loan_approved',
     title: 'Loan Approved',

@@ -5,6 +5,7 @@ import { runWithAuth } from "@/lib/db"
 import { auditLogger } from "@/lib/audit/audit-logger"
 import { notificationService } from "@/lib/notifications/notification-service"
 import { NotificationTemplates } from "@/lib/notifications/notification-types"
+import { getInstitutionAdminRecipients } from "@/lib/notifications/admin-recipients"
 import { calculateLoanTerms } from "@/lib/loans/calculations"
 
 export async function GET() {
@@ -195,27 +196,44 @@ export async function POST(req: Request) {
         client
       )
 
-      const adminsRes = await client.query(
-        `SELECT id FROM senteloans_users WHERE institution_id = $1 AND role IN ('institution_admin', 'manager')`,
-        [clientRow.institution_id]
-      )
-      if (adminsRes.rows.length > 0) {
+      const admins = await getInstitutionAdminRecipients(client, clientRow.institution_id, {
+        roles: ["institution_admin", "manager", "loan_officer"],
+      })
+      if (admins.length > 0) {
         const notif = NotificationTemplates.pendingLoanApproval(clientRow.full_name, principal, loan.id)
         await notificationService.createBulk(
-          adminsRes.rows.map((a: Record<string, unknown>) => ({
+          admins.map((a) => ({
             institutionId: clientRow.institution_id,
-            branchId: String(clientRow.branch_id || ""),
+            branchId: String(a.branch_id || clientRow.branch_id || ""),
             recipientType: "institution_user" as const,
-            recipientId: a.id as string,
+            recipientId: a.id,
             type: "pending_loan_approval" as const,
             title: notif.title,
             message: notif.message,
             actionUrl: notif.actionUrl,
-            metadata: { client_id: clientRow.id, client_name: clientRow.full_name, loan_id: loan.id, amount: principal },
+            metadata: { member_id: clientRow.id, member_name: clientRow.full_name, loan_id: loan.id, amount: principal },
           })),
           client
         )
       }
+
+      const submittedTpl = NotificationTemplates.loanApplicationSubmitted(loan.id, principal)
+      await notificationService
+        .create(
+          {
+            institutionId: clientRow.institution_id,
+            branchId: String(clientRow.branch_id || ""),
+            recipientType: "member",
+            recipientId: clientRow.id,
+            type: "loan_application_submitted",
+            title: submittedTpl.title,
+            message: submittedTpl.message,
+            actionUrl: submittedTpl.actionUrl,
+            metadata: { loan_id: loan.id, amount: principal },
+          },
+          client
+        )
+        .catch((e) => console.error("Failed to create loan_application_submitted notification:", e))
 
       return { loanId: loan.id, applicationId: loan.application_id }
     })

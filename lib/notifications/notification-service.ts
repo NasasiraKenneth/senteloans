@@ -1,5 +1,5 @@
 import type { PoolClient } from "pg"
-import { runWithoutAuth } from "@/lib/db"
+import { runWithoutAuth } from "../db"
 import type { CreateNotificationInput } from "./notification-types"
 
 async function withClient<T>(
@@ -117,7 +117,7 @@ export class NotificationService {
 
   async markAllAsRead(
     recipientId: string,
-    recipientType: "client" | "institution_user",
+    recipientType: "member" | "institution_user",
     client?: PoolClient
   ): Promise<{ ok: boolean; count?: number; error?: string }> {
     try {
@@ -156,7 +156,7 @@ export class NotificationService {
 
   async getUnreadCount(
     recipientId: string,
-    recipientType: "client" | "institution_user",
+    recipientType: "member" | "institution_user",
     client?: PoolClient
   ): Promise<{ ok: boolean; count?: number; error?: string }> {
     try {
