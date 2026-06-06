@@ -27,8 +27,8 @@ async function resolveActorContext(client: any, authUserId: string): Promise<Act
          WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
          ELSE NULL
        END AS role
-     FROM senteloans_users u
-     LEFT JOIN senteloans_roles r ON r.id = u.role_id
+     FROM users u
+     LEFT JOIN roles r ON r.id = u.role_id
      WHERE u.supabase_user_id = $1
      LIMIT 1`,
     [authUserId]
@@ -43,8 +43,8 @@ async function hasPermission(client: any, actor: ActorContext, permission: strin
 
   const permRes = await client.query(
     `SELECT 1
-     FROM senteloans_role_permissions rp
-     JOIN senteloans_permissions p ON p.id = rp.permission_id
+     FROM role_permissions rp
+     JOIN permissions p ON p.id = rp.permission_id
      WHERE rp.role_id = $1
        AND rp.branch_id = $2
        AND p.name = $3
@@ -112,7 +112,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
            t.transaction_date,
            t.status,
            t.created_at
-         FROM senteloans_transactions t
+         FROM transactions t
          WHERE ${scope.clause}`,
         [id, actor.institution_id, ...scope.params]
       )
@@ -124,17 +124,17 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       const clientNumber = assigned.assigned_to_number
       let accountNumber = ""
       if (tx.account_id) {
-        const aRes = await client.query(`SELECT id, account_number FROM senteloans_savings_accounts WHERE id = $1`, [tx.account_id])
+        const aRes = await client.query(`SELECT id, account_number FROM savings_accounts WHERE id = $1`, [tx.account_id])
         accountNumber = aRes.rows[0]?.account_number || ""
       }
       let loanApplicationId = ""
       if (tx.loan_id) {
-        const lRes = await client.query(`SELECT id, application_id FROM senteloans_loans WHERE id = $1`, [tx.loan_id])
+        const lRes = await client.query(`SELECT id, application_id FROM loans WHERE id = $1`, [tx.loan_id])
         loanApplicationId = lRes.rows[0]?.application_id || ""
       }
       let processedByName = ""
       if (tx.processed_by) {
-        const uRes = await client.query(`SELECT id, full_name FROM senteloans_users WHERE id = $1`, [tx.processed_by])
+        const uRes = await client.query(`SELECT id, full_name FROM users WHERE id = $1`, [tx.processed_by])
         processedByName = uRes.rows[0]?.full_name || ""
       }
 

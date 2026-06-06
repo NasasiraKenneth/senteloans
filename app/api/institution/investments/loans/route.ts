@@ -37,8 +37,8 @@ export async function GET(req: Request) {
            l.status,
            l.created_at,
            c.name AS client_name
-         FROM senteloans_institution_loans l
-         LEFT JOIN senteloans_clients c ON c.id = l.client_id
+         FROM institution_loans l
+         LEFT JOIN clients c ON c.id = l.client_id
          WHERE l.institution_id = $1
            ${isSuperAdmin ? "" : "AND l.branch_id = $2"}
          ORDER BY l.created_at DESC

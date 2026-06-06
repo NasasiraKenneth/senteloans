@@ -1,15 +1,15 @@
 -- Remove the problematic database triggers and use application-based audit logging instead
 
 -- Drop all audit triggers
-DROP TRIGGER IF EXISTS audit_trigger ON senteloans_institutions;
-DROP TRIGGER IF EXISTS audit_trigger ON senteloans_users;
-DROP TRIGGER IF EXISTS audit_trigger ON senteloans_members;
-DROP TRIGGER IF EXISTS audit_trigger ON senteloans_loans;
-DROP TRIGGER IF EXISTS audit_trigger ON senteloans_savings_accounts;
-DROP TRIGGER IF EXISTS audit_trigger ON senteloans_transactions;
-DROP TRIGGER IF EXISTS audit_trigger ON senteloans_loan_products;
-DROP TRIGGER IF EXISTS audit_trigger ON senteloans_member_shares;
-DROP TRIGGER IF EXISTS audit_trigger ON senteloans_loan_repayments;
+DROP TRIGGER IF EXISTS audit_trigger ON institutions;
+DROP TRIGGER IF EXISTS audit_trigger ON users;
+DROP TRIGGER IF EXISTS audit_trigger ON members;
+DROP TRIGGER IF EXISTS audit_trigger ON loans;
+DROP TRIGGER IF EXISTS audit_trigger ON savings_accounts;
+DROP TRIGGER IF EXISTS audit_trigger ON transactions;
+DROP TRIGGER IF EXISTS audit_trigger ON loan_products;
+DROP TRIGGER IF EXISTS audit_trigger ON member_shares;
+DROP TRIGGER IF EXISTS audit_trigger ON loan_repayments;
 
 -- Drop the audit trigger function
 DROP FUNCTION IF EXISTS audit_trigger();

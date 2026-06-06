@@ -44,13 +44,13 @@ export async function POST(
 
     const result = await runWithAuth(session.user.authUserId, async (client) => {
       const actorRes = await client.query(
-        `SELECT id, institution_id FROM senteloans_users WHERE supabase_user_id = $1`,
+        `SELECT id, institution_id FROM users WHERE supabase_user_id = $1`,
         [session!.user!.authUserId]
       )
       const actor = actorRes.rows[0]
       if (!actor) return { error: "user_not_linked" as const }
       const memberRes = await client.query(
-        `SELECT id, institution_id, supabase_user_id FROM senteloans_members WHERE id = $1`,
+        `SELECT id, institution_id, supabase_user_id FROM members WHERE id = $1`,
         [id]
       )
       const memberRow = memberRes.rows[0]
@@ -65,7 +65,7 @@ export async function POST(
           [passwordHash, memberRow.supabase_user_id]
         )
         await auditLogger.logUpdate(
-          "senteloans_members",
+          "members",
           memberRow.id,
           { supabase_user_id: memberRow.supabase_user_id },
           { login_enabled: true, password_reset: true },
@@ -86,11 +86,11 @@ export async function POST(
       const existingRes = await client.query(`SELECT id FROM app_auth_users WHERE email = $1`, [email])
       const linkId = existingRes.rows[0]?.id ?? authId
       await client.query(
-        `UPDATE senteloans_members SET supabase_user_id = $1 WHERE id = $2`,
+        `UPDATE members SET supabase_user_id = $1 WHERE id = $2`,
         [linkId, memberRow.id]
       )
       await auditLogger.logInsert(
-        "senteloans_members",
+        "members",
         memberRow.id,
         { supabase_user_id: linkId, login_enabled: true },
         actor.institution_id,

@@ -23,8 +23,8 @@ async function resolveActorContext(client: any, authUserId: string): Promise<Act
          WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
          ELSE NULL
        END AS role
-     FROM senteloans_users u
-     LEFT JOIN senteloans_roles r ON r.id = u.role_id
+     FROM users u
+     LEFT JOIN roles r ON r.id = u.role_id
      WHERE u.supabase_user_id = $1
      LIMIT 1`,
     [authUserId]
@@ -39,8 +39,8 @@ async function hasPermission(client: any, actor: ActorContext, permission: strin
 
   const permRes = await client.query(
     `SELECT 1
-     FROM senteloans_role_permissions rp
-     JOIN senteloans_permissions p ON p.id = rp.permission_id
+     FROM role_permissions rp
+     JOIN permissions p ON p.id = rp.permission_id
      WHERE rp.role_id = $1
        AND rp.branch_id = $2
        AND p.name = $3
@@ -70,7 +70,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 
       const loanRes = await client.query(
         `SELECT id, institution_id, branch_id
-         FROM senteloans_loans
+         FROM loans
          WHERE id = $1`,
         [id]
       )
@@ -82,7 +82,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       const res = await client.query(
         `SELECT installment_number, due_date, principal_amount, interest_amount, total_amount,
                 amount_paid, payment_date, penalty_amount, amount_due, days_overdue, status
-         FROM senteloans_loan_repayments WHERE loan_id = $1 ORDER BY installment_number ASC`,
+         FROM loan_repayments WHERE loan_id = $1 ORDER BY installment_number ASC`,
         [id]
       )
       const repayments = res.rows.map((r: Record<string, unknown>) => ({

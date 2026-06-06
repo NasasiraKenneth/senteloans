@@ -29,8 +29,8 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
     const partnerRes = await client.query(
       `SELECT p.id, p.status, i.branch_id
-       FROM senteloans_investment_partners p
-       JOIN senteloans_investments i ON i.id = p.investment_id
+       FROM investment_partners p
+       JOIN investments i ON i.id = p.investment_id
        WHERE p.id = $1
          AND p.investment_id = $2
          AND i.institution_id = $3
@@ -43,13 +43,13 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     const investmentBranchId = String(partnerRes.rows[0]?.branch_id || actor.branch_id || "")
 
     await client.query(
-      `UPDATE senteloans_investment_partners
+      `UPDATE investment_partners
        SET status = $1, updated_at = NOW()
        WHERE id = $2`,
       [status, partnerId],
     )
     await auditLogger.logUpdate(
-      "senteloans_investment_partners",
+      "investment_partners",
       partnerId,
       { status: prevStatus },
       { status },

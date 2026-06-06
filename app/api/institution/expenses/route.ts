@@ -76,7 +76,7 @@ export async function GET(req: Request) {
 
       const { where, values } = buildExpenseWhere({ actor, selectedBranchIds, q, status, categoryId, type })
 
-      const countRes = await client.query(`SELECT COUNT(*)::int AS n FROM senteloans_expenses e WHERE ${where}`, values)
+      const countRes = await client.query(`SELECT COUNT(*)::int AS n FROM expenses e WHERE ${where}`, values)
       const total = Number(countRes.rows[0]?.n || 0)
 
       const summaryRes = await client.query(
@@ -84,15 +84,15 @@ export async function GET(req: Request) {
            COUNT(*) FILTER (WHERE lower(trim(e.status)) = 'pending')::int AS pending_count,
            COALESCE(SUM((
              SELECT COALESCE(SUM(s.amount), 0)
-             FROM senteloans_expense_funding_sources s
+             FROM expense_funding_sources s
              WHERE s.expense_id = e.id
            )), 0)::numeric AS funding_total,
            COALESCE(SUM((
              SELECT COALESCE(SUM(cf.amount), 0)
-             FROM senteloans_expense_cashflows cf
+             FROM expense_cashflows cf
              WHERE cf.expense_id = e.id
            )), 0)::numeric AS cashflows_total
-         FROM senteloans_expenses e
+         FROM expenses e
          WHERE ${where}`,
         values,
       )
@@ -116,13 +116,13 @@ export async function GET(req: Request) {
            c.category AS category_name,
            u.full_name AS created_by_name,
            ua.full_name AS approved_by_name,
-           (SELECT COALESCE(SUM(amount), 0) FROM senteloans_expense_funding_sources WHERE expense_id = e.id) AS funding_total,
-           (SELECT COALESCE(SUM(amount), 0) FROM senteloans_expense_cashflows WHERE expense_id = e.id) AS cashflows_total
-         FROM senteloans_expenses e
-         JOIN senteloans_expense_categories c ON c.id = e.category_id
-         JOIN senteloans_users u ON u.id = e.created_by
-         LEFT JOIN senteloans_users ua ON ua.id = e.approved_by
-         LEFT JOIN senteloans_branches b ON b.id = e.branch_id
+           (SELECT COALESCE(SUM(amount), 0) FROM expense_funding_sources WHERE expense_id = e.id) AS funding_total,
+           (SELECT COALESCE(SUM(amount), 0) FROM expense_cashflows WHERE expense_id = e.id) AS cashflows_total
+         FROM expenses e
+         JOIN expense_categories c ON c.id = e.category_id
+         JOIN users u ON u.id = e.created_by
+         LEFT JOIN users ua ON ua.id = e.approved_by
+         LEFT JOIN branches b ON b.id = e.branch_id
          WHERE ${where}
          ORDER BY e.created_at DESC
          LIMIT $${values.length + 1} OFFSET $${values.length + 2}`,
@@ -130,7 +130,7 @@ export async function GET(req: Request) {
       )
 
       const catRes = await client.query(
-        `SELECT id, category FROM senteloans_expense_categories ORDER BY category ASC`,
+        `SELECT id, category FROM expense_categories ORDER BY category ASC`,
       )
 
       const items = listRes.rows.map((row: Record<string, unknown>) => ({
@@ -234,7 +234,7 @@ export async function POST(req: Request) {
       if (isSuperAdmin(actor)) {
         if (!branch_id_input) return { error: "branch_id_required" as const }
         const br = await client.query(
-          `SELECT id FROM senteloans_branches
+          `SELECT id FROM branches
            WHERE id = $1::uuid AND institution_id = $2::uuid
            LIMIT 1`,
           [branch_id_input, actor.institution_id],
@@ -246,7 +246,7 @@ export async function POST(req: Request) {
         branch_id = actor.branch_id
       }
 
-      const cat = await client.query(`SELECT id FROM senteloans_expense_categories WHERE id = $1::uuid LIMIT 1`, [category_id])
+      const cat = await client.query(`SELECT id FROM expense_categories WHERE id = $1::uuid LIMIT 1`, [category_id])
       if ((cat.rowCount ?? 0) === 0) return { error: "invalid_category" as const }
 
       type ExpenseInsertRow = {
@@ -261,7 +261,7 @@ export async function POST(req: Request) {
       const inserted = await insertWithTransactionNumberRetry<ExpenseInsertRow>(
         (expenseNumber) =>
           client.query<ExpenseInsertRow>(
-            `INSERT INTO senteloans_expenses (
+            `INSERT INTO expenses (
                institution_id, branch_id, category_id, expense_number, name, status, type, description, created_by
              )
              VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, 'Pending', $6, $7, $8::uuid)

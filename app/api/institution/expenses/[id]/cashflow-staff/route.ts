@@ -38,7 +38,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
 
       const { where, values } = singleExpenseWhere(actor, expenseId)
       const exRes = await client.query<{ branch_id: string }>(
-        `SELECT e.branch_id FROM senteloans_expenses e WHERE ${where} LIMIT 1`,
+        `SELECT e.branch_id FROM expenses e WHERE ${where} LIMIT 1`,
         values,
       )
       const expense = exRes.rows[0]
@@ -49,7 +49,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
 
       const staffRes = await client.query<{ id: string; full_name: string | null; email: string | null }>(
         `SELECT u.id, u.full_name, u.email
-         FROM senteloans_users u
+         FROM users u
          WHERE u.institution_id = $1::uuid AND u.branch_id = $2::uuid
          ORDER BY COALESCE(NULLIF(trim(u.full_name), ''), u.email) ASC NULLS LAST
          LIMIT 500`,

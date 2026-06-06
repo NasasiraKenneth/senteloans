@@ -2,10 +2,10 @@ import type { PoolClient } from "pg"
 import { auditLogger } from "@/lib/audit/audit-logger"
 import type { ActorContext } from "@/lib/api/rbac"
 
-export const BANK_ACCOUNTS_TABLE = "senteloans_bank_accounts"
-export const UNCLAIMED_DEPOSITS_TABLE = "senteloans_unclaimed_deposits"
-export const GRANTS_TABLE = "senteloans_grants"
-export const DAILY_FINANCES_TABLE = "senteloans_daily_finances"
+export const BANK_ACCOUNTS_TABLE = "bank_accounts"
+export const UNCLAIMED_DEPOSITS_TABLE = "unclaimed_deposits"
+export const GRANTS_TABLE = "grants"
+export const DAILY_FINANCES_TABLE = "daily_finances"
 
 const FINANCES_CATEGORY = "finances"
 

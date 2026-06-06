@@ -27,8 +27,8 @@ async function resolveActorContext(client: any, authUserId: string): Promise<Act
          WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
          ELSE NULL
        END AS role
-     FROM senteloans_users u
-     LEFT JOIN senteloans_roles r ON r.id = u.role_id
+     FROM users u
+     LEFT JOIN roles r ON r.id = u.role_id
      WHERE u.supabase_user_id = $1
      LIMIT 1`,
     [authUserId]
@@ -43,8 +43,8 @@ async function hasPermission(client: any, actor: ActorContext, permission: strin
 
   const permRes = await client.query(
     `SELECT 1
-     FROM senteloans_role_permissions rp
-     JOIN senteloans_permissions p ON p.id = rp.permission_id
+     FROM role_permissions rp
+     JOIN permissions p ON p.id = rp.permission_id
      WHERE rp.role_id = $1
        AND rp.branch_id = $2
        AND p.name = $3
@@ -82,11 +82,11 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       const memberRes = await client.query(
         `SELECT c.id, c.institution_id, c.branch_id, c.member_number, c.full_name, c.supabase_user_id, c.date_of_birth::text AS date_of_birth, c.gender, c.marital_status, c.member_type, c.phone_number, c.email, c.national_id, c.district, c.village, c.occupation, c.monthly_income, c.monthly_savings, c.notes, c.next_of_kin_name, c.next_of_kin_relationship, c.next_of_kin_phone, c.passport_photo, c.national_id_front, c.national_id_back, c.mobile_money_provider, c.mobile_money_number, c.bank_name, c.bank_account_number, c.bank_account_name, c.bank_branch, c.kyc_status, c.status, c.join_date::text AS join_date, c.created_by, c.modified_by, c.kyc_approved_by, c.kyc_approved_at, c.created_at, c.updated_at,
                 cb.full_name AS created_by_name, mb.full_name AS modified_by_name, kb.full_name AS kyc_approved_by_name,
-                COALESCE((SELECT SUM(mf.amount_paid) FROM senteloans_membership_fees mf WHERE mf.member_id = c.id), 0)::numeric AS membership_fee_paid
-         FROM senteloans_members c
-         LEFT JOIN senteloans_users cb ON cb.id = c.created_by
-         LEFT JOIN senteloans_users mb ON mb.id = c.modified_by
-         LEFT JOIN senteloans_users kb ON kb.id = c.kyc_approved_by
+                COALESCE((SELECT SUM(mf.amount_paid) FROM membership_fees mf WHERE mf.member_id = c.id), 0)::numeric AS membership_fee_paid
+         FROM members c
+         LEFT JOIN users cb ON cb.id = c.created_by
+         LEFT JOIN users mb ON mb.id = c.modified_by
+         LEFT JOIN users kb ON kb.id = c.kyc_approved_by
          WHERE c.institution_id = $1 AND c.id = $2`,
         [actor.institution_id, memberId]
       )
@@ -96,13 +96,13 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
 
       // Configured fee comes from the member's branch (not the actor's branch — super-admin compatibility).
       const cfgRes = await client.query(
-        `SELECT membership_fee FROM senteloans_config WHERE branch_id = $1 LIMIT 1`,
+        `SELECT membership_fee FROM config WHERE branch_id = $1 LIMIT 1`,
         [memberRow.branch_id]
       )
       const membershipFee = Number(cfgRes.rows[0]?.membership_fee ?? 0)
 
       const sharesRes = await client.query(
-        `SELECT number_of_shares, share_value, total_value FROM senteloans_member_shares WHERE member_id = $1`,
+        `SELECT number_of_shares, share_value, total_value FROM member_shares WHERE member_id = $1`,
         [memberId]
       )
       const sharesAgg = sharesRes.rows
@@ -185,8 +185,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       return NextResponse.json({ error: result.error }, { status })
     }
     apiLog("info", "member.detail.success", { method: "GET", apiPath, status: 200, memberId, authUserId: session.user.authUserId })
-    if (!result?.member) return NextResponse.json(result)
-    return NextResponse.json({ ...result, client: result.member })
+    return NextResponse.json(result)
   } catch (e: unknown) {
     const err = e as Error
     apiLog("error", "member.detail.error", { method: "GET", apiPath, status: 500, error: err?.message || "Unexpected error" })
@@ -233,19 +232,51 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
     const updates: Record<string, unknown> = {}
     if (typeof body.fullName === "string" && body.fullName.trim().length > 0) updates["full_name"] = body.fullName.trim()
-    if (typeof body.email === "string") updates["email"] = body.email.trim() || null
-    if (typeof body.phoneNumber === "string") updates["phone_number"] = body.phoneNumber.trim()
+    if (typeof body.email === "string") {
+      const email = body.email.trim()
+      if (email) {
+        const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+        if (!emailRe.test(email)) {
+          apiLog("warn", "member.update.invalid_request", { method: "PATCH", apiPath, status: 400, error: "invalid_email", memberId })
+          return NextResponse.json({ error: "invalid_email" }, { status: 400 })
+        }
+        updates["email"] = email
+      } else {
+        updates["email"] = null
+      }
+    }
+    if (typeof body.phoneNumber === "string") {
+      // Mirror the POST normalization so phones saved via edit match the
+      // canonical +256 format expected elsewhere (notifications, lookups).
+      let phone = body.phoneNumber.trim()
+      if (phone) {
+        if (phone.startsWith("0")) phone = "+256" + phone.slice(1)
+        if (!phone.startsWith("+256")) {
+          apiLog("warn", "member.update.invalid_request", { method: "PATCH", apiPath, status: 400, error: "invalid_phone_ug_format", memberId })
+          return NextResponse.json({ error: "invalid_phone_ug_format" }, { status: 400 })
+        }
+      }
+      updates["phone_number"] = phone
+    }
     if (typeof body.dateOfBirth === "string" && body.dateOfBirth) updates["date_of_birth"] = body.dateOfBirth
     if (typeof body.joinDate === "string" && body.joinDate) updates["join_date"] = body.joinDate
     if (typeof body.gender === "string") updates["gender"] = body.gender
     if (typeof body.maritalStatus === "string") updates["marital_status"] = body.maritalStatus
-    if (typeof body.location === "string") {
+    // Prefer explicit fields. Fall back to the legacy "village, district"
+    // string only when neither explicit field is provided.
+    if (typeof body.district === "string") updates["district"] = body.district.trim() || null
+    if (typeof body.village === "string") updates["village"] = body.village.trim() || null
+    if (
+      typeof body.location === "string" &&
+      typeof body.district !== "string" &&
+      typeof body.village !== "string"
+    ) {
       const parts = body.location.split(",")
       if (parts.length >= 2) {
-        updates["village"] = parts[0].trim()
-        updates["district"] = parts.slice(1).join(",").trim()
+        updates["village"] = parts[0].trim() || null
+        updates["district"] = parts.slice(1).join(",").trim() || null
       } else {
-        updates["village"] = body.location.trim()
+        updates["village"] = body.location.trim() || null
       }
     }
     if (typeof body.occupation === "string") updates["occupation"] = body.occupation
@@ -292,7 +323,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       if (!allowed) return { error: "missing_permission:edit_member" as const }
 
       const targetRes = await client.query(
-        `SELECT id, institution_id, kyc_status FROM senteloans_members WHERE id = $1`,
+        `SELECT id, institution_id, kyc_status FROM members WHERE id = $1`,
         [memberId]
       )
       const targetMember = targetRes.rows[0]
@@ -312,12 +343,12 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       const setClause = keys.map((k, i) => `${k} = $${i + 3}`).join(", ")
       const vals = Object.values(updates)
       const updateRes = await client.query(
-        `UPDATE senteloans_members SET ${setClause} WHERE id = $1 AND institution_id = $2 RETURNING id`,
+        `UPDATE members SET ${setClause} WHERE id = $1 AND institution_id = $2 RETURNING id`,
         [memberId, actor.institution_id, ...vals]
       )
       if (updateRes.rowCount === 0) return { error: "not_updated" as const }
       await auditLogger.logUpdate(
-        "senteloans_members",
+        "members",
         memberId,
         { kyc_status: targetMember.kyc_status },
         updates,

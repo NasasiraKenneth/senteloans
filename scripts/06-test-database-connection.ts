@@ -28,13 +28,13 @@ async function testDatabaseConnection() {
 
     console.log("\n=== Test 2: Schema Validation ===")
     const tables = [
-      "senteloans_institutions",
-      "senteloans_users",
-      "senteloans_members",
-      "senteloans_loans",
-      "senteloans_transactions",
-      "senteloans_notifications",
-      "senteloans_audit_logs",
+      "institutions",
+      "users",
+      "members",
+      "loans",
+      "transactions",
+      "notifications",
+      "audit_logs",
       "app_auth_users",
     ]
     for (const table of tables) {

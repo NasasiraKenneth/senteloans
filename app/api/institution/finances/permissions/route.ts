@@ -45,7 +45,7 @@ export async function GET(req: Request) {
       const branches = isSuperAdmin(actor)
         ? (
             await client.query(
-              `SELECT id, name FROM senteloans_branches WHERE institution_id = $1 ORDER BY name ASC`,
+              `SELECT id, name FROM branches WHERE institution_id = $1 ORDER BY name ASC`,
               [actor.institution_id],
             )
           ).rows

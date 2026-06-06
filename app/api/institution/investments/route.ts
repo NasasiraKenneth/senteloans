@@ -21,7 +21,7 @@ const generateInvestmentNumber = async (
     const randomPart = Math.random().toString(36).slice(2, 6).toUpperCase()
     const candidate = `INV-${datePart}-${randomPart}`
     const exists = await client.query(
-      `SELECT investment_number FROM senteloans_investments WHERE branch_id = $1 AND investment_number = $2 LIMIT 1`,
+      `SELECT investment_number FROM investments WHERE branch_id = $1 AND investment_number = $2 LIMIT 1`,
       [branchId, candidate],
     )
     if (exists.rows.length === 0) return candidate
@@ -117,8 +117,8 @@ export async function GET(req: Request) {
 
       const countRes = await client.query<{ c: number }>(
         `SELECT COUNT(*)::int AS c
-         FROM senteloans_investments i
-         LEFT JOIN senteloans_clients c ON c.id = i.provider_id
+         FROM investments i
+         LEFT JOIN clients c ON c.id = i.provider_id
          WHERE ${where}`,
         params,
       )
@@ -148,9 +148,9 @@ export async function GET(req: Request) {
            i.created_by,
            u.full_name AS created_by_name,
            i.created_at
-         FROM senteloans_investments i
-         LEFT JOIN senteloans_clients c ON c.id = i.provider_id
-         LEFT JOIN senteloans_users u ON u.id = i.created_by
+         FROM investments i
+         LEFT JOIN clients c ON c.id = i.provider_id
+         LEFT JOIN users u ON u.id = i.created_by
          WHERE ${where}
          ORDER BY i.created_at DESC
          LIMIT $${idx} OFFSET $${idx + 1}`,
@@ -315,7 +315,7 @@ export async function POST(req: Request) {
 
       if (providerId) {
         const clientRes = await client.query(
-          `SELECT id FROM senteloans_clients WHERE id = $1 AND institution_id = $2`,
+          `SELECT id FROM clients WHERE id = $1 AND institution_id = $2`,
           [providerId, actor.institution_id],
         )
         if (clientRes.rowCount === 0) return { error: "client_not_found" as const }
@@ -328,7 +328,7 @@ export async function POST(req: Request) {
         let createRes
         try {
           createRes = await client.query<{ id: string; investment_number: string }>(
-            `INSERT INTO senteloans_investments (
+            `INSERT INTO investments (
                investment_number, institution_id, branch_id, provider_id,
                investment_name, category, description, address,
                initial_amount, current_value,
@@ -389,7 +389,7 @@ export async function POST(req: Request) {
             if (!counterpartyId) continue
 
             const cpRes = await client.query(
-              `SELECT id FROM senteloans_clients WHERE id = $1 AND institution_id = $2`,
+              `SELECT id FROM clients WHERE id = $1 AND institution_id = $2`,
               [counterpartyId, actor.institution_id],
             )
             if (cpRes.rowCount === 0) {
@@ -421,7 +421,7 @@ export async function POST(req: Request) {
             }
 
             await client.query(
-              `INSERT INTO senteloans_investment_partners (
+              `INSERT INTO investment_partners (
                  investment_id, counterparty_id, role, status,
                  contribution_percentage, contribution_amount, ownership_percentage,
                  created_by, modified_by, updated_at
@@ -450,14 +450,14 @@ export async function POST(req: Request) {
             return { error: "loan_id_required_for_funding_type_loan" as const }
           }
           await client.query(
-            `INSERT INTO senteloans_investment_funding_sources (investment_id, source_type, loan_id, amount)
+            `INSERT INTO investment_funding_sources (investment_id, source_type, loan_id, amount)
              VALUES ($1, $2, $3, $4)`,
             [investmentId, sourceType, sourceType === "loan" ? loanId : null, amount],
           )
         }
 
         await auditLogger.logInsert(
-          "senteloans_investments",
+          "investments",
           investmentId,
           {
             investment_number: createRes.rows[0].investment_number,

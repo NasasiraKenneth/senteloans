@@ -94,10 +94,10 @@ export async function GET(req: Request) {
 
       const countRes = await client.query(
         `SELECT COUNT(*)::int AS c
-         FROM senteloans_transactions t
-         LEFT JOIN senteloans_members m ON m.id = t.member_id
-         LEFT JOIN senteloans_clients c ON c.id = t.client_id
-         LEFT JOIN senteloans_users su ON su.id = t.staff_id
+         FROM transactions t
+         LEFT JOIN members m ON m.id = t.member_id
+         LEFT JOIN clients c ON c.id = t.client_id
+         LEFT JOIN users su ON su.id = t.staff_id
          WHERE ${where}`,
         params
       )
@@ -125,10 +125,10 @@ export async function GET(req: Request) {
            m.full_name AS member_name,
            c.name AS client_name,
            su.full_name AS staff_name
-         FROM senteloans_transactions t
-         LEFT JOIN senteloans_members m ON m.id = t.member_id
-         LEFT JOIN senteloans_clients c ON c.id = t.client_id
-         LEFT JOIN senteloans_users su ON su.id = t.staff_id
+         FROM transactions t
+         LEFT JOIN members m ON m.id = t.member_id
+         LEFT JOIN clients c ON c.id = t.client_id
+         LEFT JOIN users su ON su.id = t.staff_id
          WHERE ${where}
          ORDER BY t.created_at DESC, t.id DESC
          LIMIT $${idx}${cursor ? "" : ` OFFSET $${idx + 1}`}`,
@@ -139,7 +139,7 @@ export async function GET(req: Request) {
       const accountIds = [...new Set(data.map((r: { account_id: string }) => r.account_id).filter(Boolean))]
       let accountMap: Record<string, string> = {}
       if (accountIds.length > 0) {
-        const aRes = await client.query(`SELECT id, account_number FROM senteloans_savings_accounts WHERE id = ANY($1::uuid[])`, [accountIds])
+        const aRes = await client.query(`SELECT id, account_number FROM savings_accounts WHERE id = ANY($1::uuid[])`, [accountIds])
         accountMap = Object.fromEntries(aRes.rows.map((a: { id: string; account_number: string }) => [a.id, a.account_number]))
       }
 
@@ -179,10 +179,10 @@ export async function GET(req: Request) {
 
       const recentRes = await client.query(
         `SELECT t.id, t.transaction_number, t.type, t.amount, t.mode, t.balance_after, t.transaction_date, t.account_id, t.member_id, t.client_id, t.description, m.full_name AS member_name, c.name AS client_name, su.full_name AS staff_name
-         FROM senteloans_transactions t
-         LEFT JOIN senteloans_members m ON m.id = t.member_id
-         LEFT JOIN senteloans_clients c ON c.id = t.client_id
-         LEFT JOIN senteloans_users su ON su.id = t.staff_id
+         FROM transactions t
+         LEFT JOIN members m ON m.id = t.member_id
+         LEFT JOIN clients c ON c.id = t.client_id
+         LEFT JOIN users su ON su.id = t.staff_id
          WHERE ${recentWhereParts.join(" AND ")}
          ORDER BY t.created_at DESC
          LIMIT 10`,
@@ -192,7 +192,7 @@ export async function GET(req: Request) {
       const recentAccountIds = [...new Set(recentTx.map((t: { account_id: string }) => t.account_id).filter(Boolean))]
       let recentAccountMap: Record<string, string> = {}
       if (recentAccountIds.length > 0) {
-        const raRes = await client.query(`SELECT id, account_number FROM senteloans_savings_accounts WHERE id = ANY($1::uuid[])`, [recentAccountIds])
+        const raRes = await client.query(`SELECT id, account_number FROM savings_accounts WHERE id = ANY($1::uuid[])`, [recentAccountIds])
         recentAccountMap = Object.fromEntries(raRes.rows.map((a: { id: string; account_number: string }) => [a.id, a.account_number]))
       }
       const recent = recentTx.map((t: Record<string, unknown>) => ({
@@ -289,19 +289,19 @@ export async function POST(req: Request) {
       if (actorRole !== "super_admin" && !actor.branch_id) return { error: "actor_branch_missing" as const }
 
       const sourceQuery = client.query(
-        `SELECT id, institution_id, branch_id, member_id, status, available_balance, total_balance FROM senteloans_savings_accounts WHERE id = $1`,
+        `SELECT id, institution_id, branch_id, member_id, status, available_balance, total_balance FROM savings_accounts WHERE id = $1`,
         [account_id],
       )
       const transferDestQuery =
         String(type) === "Transfer"
           ? client.query(
-              `SELECT id, institution_id, branch_id, member_id, status, available_balance, total_balance FROM senteloans_savings_accounts WHERE id = $1`,
+              `SELECT id, institution_id, branch_id, member_id, status, available_balance, total_balance FROM savings_accounts WHERE id = $1`,
               [transferred_to_id],
             )
           : Promise.resolve({ rows: [] as any[] })
 
       const [memberRes, accountRes, transferDestRes] = await Promise.all([
-        client.query(`SELECT id, institution_id, branch_id, status FROM senteloans_members WHERE id = $1`, [member_id]),
+        client.query(`SELECT id, institution_id, branch_id, status FROM members WHERE id = $1`, [member_id]),
         sourceQuery,
         transferDestQuery,
       ])
@@ -344,14 +344,14 @@ export async function POST(req: Request) {
       await client.query("BEGIN")
       try {
         await client.query(
-          `UPDATE senteloans_savings_accounts SET available_balance = $1, total_balance = $2, last_transaction_date = $3 WHERE id = $4`,
+          `UPDATE savings_accounts SET available_balance = $1, total_balance = $2, last_transaction_date = $3 WHERE id = $4`,
           [balance_after, balance_after, txDate.slice(0, 10), account_id]
         )
         if (String(type) === "Transfer") {
           const destBefore = Number(transferDest.available_balance || 0)
           const destAfter = destBefore + amount
           await client.query(
-            `UPDATE senteloans_savings_accounts SET available_balance = $1, total_balance = $2, last_transaction_date = $3 WHERE id = $4`,
+            `UPDATE savings_accounts SET available_balance = $1, total_balance = $2, last_transaction_date = $3 WHERE id = $4`,
             [destAfter, destAfter, txDate.slice(0, 10), transferred_to_id],
           )
         }
@@ -359,7 +359,7 @@ export async function POST(req: Request) {
         const inserted = await insertWithTransactionNumberRetry(
           (transaction_number) =>
             client.query(
-              `INSERT INTO senteloans_transactions (institution_id, branch_id, member_id, account_id, transferred_to_id, loan_id, transaction_number, type, amount, mode, description, reference_number, balance_before, balance_after, processed_by, transaction_date, status)
+              `INSERT INTO transactions (institution_id, branch_id, member_id, account_id, transferred_to_id, loan_id, transaction_number, type, amount, mode, description, reference_number, balance_before, balance_after, processed_by, transaction_date, status)
                VALUES ($1, $2, $3, $4, $5, NULL, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, 'Completed') RETURNING id`,
               [
                 actor.institution_id,
@@ -405,7 +405,7 @@ export async function POST(req: Request) {
           const destInserted = await insertWithTransactionNumberRetry(
             (transaction_number) =>
               client.query(
-                `INSERT INTO senteloans_transactions (institution_id, branch_id, member_id, account_id, transferred_to_id, loan_id, transaction_number, type, amount, mode, description, reference_number, balance_before, balance_after, processed_by, transaction_date, status)
+                `INSERT INTO transactions (institution_id, branch_id, member_id, account_id, transferred_to_id, loan_id, transaction_number, type, amount, mode, description, reference_number, balance_before, balance_after, processed_by, transaction_date, status)
                  VALUES ($1, $2, $3, $4, NULL, NULL, $5, 'Deposit', $6, $7, $8, $9, $10, $11, $12, $13, 'Completed') RETURNING id`,
                 [
                   actor.institution_id,

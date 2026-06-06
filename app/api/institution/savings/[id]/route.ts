@@ -27,8 +27,8 @@ async function resolveActorContext(client: any, authUserId: string): Promise<Act
          WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
          ELSE NULL
        END AS role
-     FROM senteloans_users u
-     LEFT JOIN senteloans_roles r ON r.id = u.role_id
+     FROM users u
+     LEFT JOIN roles r ON r.id = u.role_id
      WHERE u.supabase_user_id = $1
      LIMIT 1`,
     [authUserId]
@@ -43,8 +43,8 @@ async function hasPermission(client: any, actor: ActorContext, permission: strin
 
   const permRes = await client.query(
     `SELECT 1
-     FROM senteloans_role_permissions rp
-     JOIN senteloans_permissions p ON p.id = rp.permission_id
+     FROM role_permissions rp
+     JOIN permissions p ON p.id = rp.permission_id
      WHERE rp.role_id = $1
        AND rp.branch_id = $2
        AND p.name = $3
@@ -117,7 +117,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
            sa.status,
            sa.open_date,
            sa.last_transaction_date
-         FROM senteloans_savings_accounts sa
+         FROM savings_accounts sa
          WHERE ${scope.clause}`,
         [id, actor.institution_id, ...scope.params]
       )
@@ -127,7 +127,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       let clientName = ""
       let clientNumber = ""
       if (acc.member_id) {
-        const cRes = await client.query(`SELECT id, full_name, member_number FROM senteloans_members WHERE id = $1`, [acc.member_id])
+        const cRes = await client.query(`SELECT id, full_name, member_number FROM members WHERE id = $1`, [acc.member_id])
         clientName = cRes.rows[0]?.full_name || ""
         clientNumber = cRes.rows[0]?.member_number || ""
       }
@@ -157,7 +157,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 
       const txCountRes = await client.query(
         `SELECT COUNT(*)::int AS total
-         FROM senteloans_transactions
+         FROM transactions
          WHERE ${txWhereClause}`,
         txParams
       )
@@ -165,7 +165,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 
       const txRes = await client.query(
         `SELECT id, type, amount, mode, description, balance_after, transaction_date
-         FROM senteloans_transactions
+         FROM transactions
          WHERE ${txWhereClause}
          ORDER BY transaction_date DESC
          LIMIT $${txArg++}
@@ -177,13 +177,13 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
         `SELECT
            ARRAY(
              SELECT DISTINCT t.type
-             FROM senteloans_transactions t
+             FROM transactions t
              WHERE t.account_id = $1 AND t.type IS NOT NULL AND btrim(t.type::text) <> ''
              ORDER BY t.type
            ) AS types,
            ARRAY(
              SELECT DISTINCT t.mode
-             FROM senteloans_transactions t
+             FROM transactions t
              WHERE t.account_id = $1 AND t.mode IS NOT NULL AND btrim(t.mode::text) <> ''
              ORDER BY t.mode
            ) AS modes`,
@@ -303,7 +303,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
 
       const curRes = await client.query(
         `SELECT sa.id, sa.status, sa.account_type
-         FROM senteloans_savings_accounts sa
+         FROM savings_accounts sa
          WHERE ${scope.clause}`,
         [id, actor.institution_id, ...scope.params]
       )
@@ -313,14 +313,14 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
         return { error: "invalid_transition_closed_to_active" as const }
       }
       await client.query(
-        `UPDATE senteloans_savings_accounts
+        `UPDATE savings_accounts
          SET status = COALESCE($1, status),
              account_type = COALESCE($2, account_type)
          WHERE id = $3`,
         [typeof status === "undefined" ? null : status, typeof accountType === "undefined" ? null : accountType, id]
       )
       await auditLogger.logUpdate(
-        "senteloans_savings_accounts",
+        "savings_accounts",
         id,
         {
           status: current.status,
@@ -337,7 +337,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       )
       const accRes = await client.query(
         `SELECT id, member_id, institution_id, account_number, account_type, available_balance, total_balance, status, open_date, last_transaction_date
-         FROM senteloans_savings_accounts
+         FROM savings_accounts
          WHERE id = $1`,
         [id]
       )

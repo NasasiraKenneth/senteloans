@@ -25,8 +25,8 @@ async function resolveActorContext(client: any, authUserId: string): Promise<Act
          WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
          ELSE NULL
        END AS role
-     FROM senteloans_users u
-     LEFT JOIN senteloans_roles r ON r.id = u.role_id
+     FROM users u
+     LEFT JOIN roles r ON r.id = u.role_id
      WHERE u.supabase_user_id = $1
      LIMIT 1`,
     [authUserId],
@@ -40,8 +40,8 @@ async function hasPermission(client: any, actor: ActorContext, permission: strin
   if (!actor.role_id || !actor.branch_id) return false
   const permRes = await client.query(
     `SELECT 1
-     FROM senteloans_role_permissions rp
-     JOIN senteloans_permissions p ON p.id = rp.permission_id
+     FROM role_permissions rp
+     JOIN permissions p ON p.id = rp.permission_id
      WHERE rp.role_id = $1
        AND rp.branch_id = $2
        AND p.name = $3
@@ -61,8 +61,8 @@ export async function GET() {
       const userRes = await client.query(
         `SELECT u.institution_id, i.id AS inst_id, i.name, i.type,
                 i.license_number, i.registration_number, i.website, i.logo
-         FROM senteloans_users u
-         JOIN senteloans_institutions i ON i.id = u.institution_id
+         FROM users u
+         JOIN institutions i ON i.id = u.institution_id
          WHERE u.supabase_user_id = $1`,
         [session!.user!.authUserId]
       )
@@ -144,19 +144,19 @@ export async function PUT(req: Request) {
       if (!canEdit) return { error: "missing_permission:edit_institution_info" as const }
 
       const meRes = await client.query(
-        `SELECT institution_id FROM senteloans_users WHERE supabase_user_id = $1`,
+        `SELECT institution_id FROM users WHERE supabase_user_id = $1`,
         [session!.user!.authUserId]
       )
       const me = meRes.rows[0]
       if (!me) return null
       values.push(me.institution_id)
       await client.query(
-        `UPDATE senteloans_institutions SET ${updates.join(", ")} WHERE id = $${i}`,
+        `UPDATE institutions SET ${updates.join(", ")} WHERE id = $${i}`,
         values
       )
       const instRes = await client.query(
         `SELECT id, name, type, license_number, registration_number, website, logo
-         FROM senteloans_institutions WHERE id = $1`,
+         FROM institutions WHERE id = $1`,
         [me.institution_id]
       )
       return instRes.rows[0]

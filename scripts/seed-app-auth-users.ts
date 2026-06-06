@@ -1,5 +1,5 @@
 /**
- * Create app_auth_users for existing senteloans_users (and optionally clients) and link them.
+ * Create app_auth_users for existing users (and optionally clients) and link them.
  * Run after 09-seed-users.sql. Default password: "changeme" (change in production).
  * Usage: npm run db:seed-auth  (loads .env.local / .env from project root)
  */
@@ -52,7 +52,7 @@ async function main() {
   const client = await pool.connect()
   try {
     const usersRes = await client.query(
-      `SELECT id, email, full_name FROM senteloans_users WHERE supabase_user_id IS NULL AND email IS NOT NULL AND email != ''`
+      `SELECT id, email, full_name FROM users WHERE supabase_user_id IS NULL AND email IS NOT NULL AND email != ''`
     )
     for (const row of usersRes.rows) {
       const authId = crypto.randomUUID()
@@ -70,7 +70,7 @@ async function main() {
       )
       const linkId = existing.rows[0]?.id ?? authId
       await client.query(
-        `UPDATE senteloans_users SET supabase_user_id = $1 WHERE id = $2`,
+        `UPDATE users SET supabase_user_id = $1 WHERE id = $2`,
         [linkId, row.id]
       )
       console.log(`Linked staff ${row.email} to app_auth_users`)

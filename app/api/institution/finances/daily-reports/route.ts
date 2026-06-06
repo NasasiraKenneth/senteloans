@@ -71,7 +71,7 @@ export async function POST(req: Request) {
 
       if (isSuperAdmin(actor) && rawBranchId) {
         const branchCheck = await client.query(
-          `SELECT 1 FROM senteloans_branches WHERE id = $1::uuid AND institution_id = $2::uuid LIMIT 1`,
+          `SELECT 1 FROM branches WHERE id = $1::uuid AND institution_id = $2::uuid LIMIT 1`,
           [targetBranchId, actor.institution_id],
         )
         if ((branchCheck.rowCount ?? 0) === 0) return { error: "invalid_branch" as const }
@@ -86,7 +86,7 @@ export async function POST(req: Request) {
 
       const existingTodayRes = await client.query(
         `SELECT 1
-         FROM senteloans_daily_finances
+         FROM daily_finances
          WHERE institution_id = $1::uuid
            AND branch_id = $2::uuid
            AND total_amount > 0
@@ -108,7 +108,7 @@ export async function POST(req: Request) {
           const existing = await client.query(
             `SELECT id, bank_name, bank_account_number, branch_id,
                     COALESCE(total_amount, 0)::numeric AS total_amount
-             FROM senteloans_bank_accounts
+             FROM bank_accounts
              WHERE id = $1::uuid
                AND institution_id = $2::uuid
                AND branch_id = $3::uuid
@@ -121,7 +121,7 @@ export async function POST(req: Request) {
           const oldRow = existing.rows[0] as Record<string, unknown>
 
           const updateRes = await client.query(
-            `UPDATE senteloans_bank_accounts
+            `UPDATE bank_accounts
              SET total_amount = $1::numeric,
                  modified_by = $2::uuid,
                  updated_at = NOW()
@@ -147,7 +147,7 @@ export async function POST(req: Request) {
         }
 
         const insertRes = await client.query(
-          `INSERT INTO senteloans_daily_finances (
+          `INSERT INTO daily_finances (
              institution_id,
              branch_id,
              bank_total_amount,

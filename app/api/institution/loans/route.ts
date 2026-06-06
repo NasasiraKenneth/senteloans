@@ -63,7 +63,7 @@ export async function GET(req: Request) {
           ? [actor.institution_id, `%${q}%`]
           : [actor.institution_id, actor.branch_id, `%${q}%`]
         const searchRes = await client.query(
-          `SELECT id FROM senteloans_members WHERE ${searchWhere} LIMIT 200`,
+          `SELECT id FROM members WHERE ${searchWhere} LIMIT 200`,
           searchParams
         )
         matchedMemberIds = searchRes.rows.map((r: { id: string }) => r.id)
@@ -133,7 +133,7 @@ export async function GET(req: Request) {
       }
 
       const countRes = await client.query(
-        `SELECT COUNT(*)::int AS c FROM senteloans_loans l WHERE ${where}`,
+        `SELECT COUNT(*)::int AS c FROM loans l WHERE ${where}`,
         params
       )
       const total = countRes.rows[0]?.c ?? 0
@@ -143,7 +143,7 @@ export async function GET(req: Request) {
       else params.push(take)
       const dataRes = await client.query(
         `SELECT l.id, l.application_id, l.member_id, l.loan_product_id, l.principal_amount, l.interest_rate, l.tenure_months, l.outstanding_balance, l.status, l.loan_type, l.approved_at, l.disbursement_date, l.application_date, l.next_payment_date
-         FROM senteloans_loans l WHERE ${where} ORDER BY l.application_date DESC, l.id DESC LIMIT $${idx}${cursor ? "" : ` OFFSET $${idx + 1}`}`,
+         FROM loans l WHERE ${where} ORDER BY l.application_date DESC, l.id DESC LIMIT $${idx}${cursor ? "" : ` OFFSET $${idx + 1}`}`,
         params
       )
       const data = dataRes.rows
@@ -153,11 +153,11 @@ export async function GET(req: Request) {
       let memberMap: Record<string, { name: string; number?: string }> = {}
       let productMap: Record<string, string> = {}
       if (memberIds.length > 0) {
-        const mRes = await client.query(`SELECT id, full_name, member_number FROM senteloans_members WHERE id = ANY($1::uuid[])`, [memberIds])
+        const mRes = await client.query(`SELECT id, full_name, member_number FROM members WHERE id = ANY($1::uuid[])`, [memberIds])
         memberMap = Object.fromEntries(mRes.rows.map((m: { id: string; full_name: string; member_number: string }) => [m.id, { name: m.full_name, number: m.member_number }]))
       }
       if (productIds.length > 0) {
-        const pRes = await client.query(`SELECT id, product_name FROM senteloans_loan_products WHERE id = ANY($1::uuid[])`, [productIds])
+        const pRes = await client.query(`SELECT id, product_name FROM loan_products WHERE id = ANY($1::uuid[])`, [productIds])
         productMap = Object.fromEntries(pRes.rows.map((p: { id: string; product_name: string }) => [p.id, p.product_name]))
       }
 
@@ -264,12 +264,12 @@ export async function POST(req: Request) {
       if (!allowed) return { error: "missing_permission:create_loan" as const }
       if (!actor.branch_id) return { error: "actor_branch_missing" as const }
       const [borrowerRes, productRes, topUpLoanRes] = await Promise.all([
-        client.query(`SELECT id, institution_id, branch_id, status, kyc_status FROM senteloans_members WHERE id = $1`, [member_id]),
-        client.query(`SELECT id, institution_id, branch_id, status, interest_rate, minimum_amount, maximum_amount, minimum_tenure_months, maximum_tenure_months, guarantors_required, interest_calculation_method FROM senteloans_loan_products WHERE id = $1`, [loan_product_id]),
+        client.query(`SELECT id, institution_id, branch_id, status, kyc_status FROM members WHERE id = $1`, [member_id]),
+        client.query(`SELECT id, institution_id, branch_id, status, interest_rate, minimum_amount, maximum_amount, minimum_tenure_months, maximum_tenure_months, guarantors_required, interest_calculation_method FROM loan_products WHERE id = $1`, [loan_product_id]),
         loan_type === "top up"
           ? client.query(
               `SELECT id, institution_id, branch_id, member_id, outstanding_balance, status
-               FROM senteloans_loans
+               FROM loans
                WHERE id = $1
                LIMIT 1`,
               [top_up_loan_id]
@@ -297,7 +297,7 @@ export async function POST(req: Request) {
       if (loan_type === "normal" || loan_type === "buy off") {
         const cfgRes = await client.query(
           `SELECT maximum_parallel_loans
-           FROM senteloans_config
+           FROM config
            WHERE branch_id = $1
            ORDER BY created_at DESC
            LIMIT 1`,
@@ -308,7 +308,7 @@ export async function POST(req: Request) {
         if (Number.isFinite(maxParallel) && maxParallel > 0) {
           const activeParallelRes = await client.query(
             `SELECT COUNT(*)::int AS c
-             FROM senteloans_loans
+             FROM loans
              WHERE institution_id = $1
                AND branch_id = $2
                AND member_id = $3
@@ -328,7 +328,7 @@ export async function POST(req: Request) {
       }
       if (loan_type === "buy off") {
         const extRes = await client.query(
-          `SELECT id FROM senteloans_clients WHERE id = $1 AND institution_id = $2 AND branch_id = $3`,
+          `SELECT id FROM clients WHERE id = $1 AND institution_id = $2 AND branch_id = $3`,
           [external_lender_id, actor.institution_id, actor.branch_id]
         )
         if (!extRes.rows[0]) return { error: "external_lender_not_found" as const }
@@ -342,7 +342,7 @@ export async function POST(req: Request) {
 
       if (uniqGuars.length > 0) {
         const guarIds = uniqGuars.map((g) => g.member_id)
-        const guarRes = await client.query(`SELECT id, institution_id, status FROM senteloans_members WHERE id = ANY($1::uuid[])`, [guarIds])
+        const guarRes = await client.query(`SELECT id, institution_id, status FROM members WHERE id = ANY($1::uuid[])`, [guarIds])
         const bad = guarRes.rows.find((r: { institution_id: string; status: string }) => r.institution_id !== actor.institution_id || r.status !== "Active")
         if (bad) return { error: "invalid_guarantor" as const }
       }
@@ -364,7 +364,7 @@ export async function POST(req: Request) {
         application_id = makePrefixedNumber("LN")
         try {
           const loanRes = await client.query(
-            `INSERT INTO senteloans_loans (institution_id, branch_id, member_id, loan_product_id, application_id, principal_amount, interest_rate, tenure_months, monthly_payment, total_amount, status, loan_type, purpose, collateral_description, application_date, created_by)
+            `INSERT INTO loans (institution_id, branch_id, member_id, loan_product_id, application_id, principal_amount, interest_rate, tenure_months, monthly_payment, total_amount, status, loan_type, purpose, collateral_description, application_date, created_by)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'Applied', $11, $12, $13, $14, $15) RETURNING id, application_id`,
             [actor.institution_id, actor.branch_id, member_id, loan_product_id, application_id, principal_amount, annualRate, tenure_months, monthly_payment, total_amount, loan_type, purpose, collateral_description, today, actor.id]
           )
@@ -382,7 +382,7 @@ export async function POST(req: Request) {
         for (const g of uniqGuars) {
           const guaranteedAmount = Number.isFinite(g.amount) && g.amount! >= 0 ? g.amount! : per
           const guarantorInsertRes = await client.query(
-            `INSERT INTO senteloans_loan_guarantors (loan_id, guarantor_member_id, guaranteed_amount, status)
+            `INSERT INTO loan_guarantors (loan_id, guarantor_member_id, guaranteed_amount, status)
              VALUES ($1, $2, $3, 'Active')
              RETURNING id`,
             [loanRow.id, g.member_id, guaranteedAmount]
@@ -390,7 +390,7 @@ export async function POST(req: Request) {
           const guarantorId = guarantorInsertRes.rows[0]?.id
           if (!guarantorId) continue
           await auditLogger.logInsert(
-            "senteloans_loan_guarantors",
+            "loan_guarantors",
             guarantorId,
             {
               loan_id: loanRow.id,
@@ -408,7 +408,7 @@ export async function POST(req: Request) {
 
       if (loan_type === "top up") {
         const settlementRes = await client.query(
-          `INSERT INTO senteloans_loan_settlements
+          `INSERT INTO loan_settlements
             (institution_id, branch_id, new_loan_id, settled_loan_id, external_lender_id, settlement_amount, settlement_type, settlement_status)
            VALUES ($1, $2, $3, $4, NULL, $5, $6, $7)
            RETURNING id`,
@@ -425,7 +425,7 @@ export async function POST(req: Request) {
         const settlementId = settlementRes.rows[0]?.id
         if (settlementId) {
           await auditLogger.logInsert(
-            "senteloans_loan_settlements",
+            "loan_settlements",
             settlementId,
             {
               new_loan_id: loanRow.id,
@@ -444,7 +444,7 @@ export async function POST(req: Request) {
 
       if (loan_type === "buy off") {
         const settlementRes = await client.query(
-          `INSERT INTO senteloans_loan_settlements
+          `INSERT INTO loan_settlements
             (institution_id, branch_id, new_loan_id, settled_loan_id, external_lender_id, settlement_amount, settlement_type, settlement_status)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
            RETURNING id`,
@@ -462,7 +462,7 @@ export async function POST(req: Request) {
         const settlementId = settlementRes.rows[0]?.id
         if (settlementId) {
           await auditLogger.logInsert(
-            "senteloans_loan_settlements",
+            "loan_settlements",
             settlementId,
             {
               new_loan_id: loanRow.id,
@@ -482,7 +482,7 @@ export async function POST(req: Request) {
 
       const eligibilityRes = await client.query(
         `SELECT eligibility
-         FROM senteloans_loan_product_eligibilities
+         FROM loan_product_eligibilities
          WHERE loan_product_id = $1`,
         [loan_product_id]
       )
@@ -491,7 +491,7 @@ export async function POST(req: Request) {
           const eligibility = String(er.eligibility || "").trim()
           if (!eligibility) continue
           const eligibilityInsertRes = await client.query(
-            `INSERT INTO senteloans_loan_eligibility_reviews (loan_id, eligibility, is_eligible)
+            `INSERT INTO loan_eligibility_reviews (loan_id, eligibility, is_eligible)
              VALUES ($1, $2, FALSE)
              ON CONFLICT (loan_id, eligibility) DO NOTHING
              RETURNING id`,
@@ -500,7 +500,7 @@ export async function POST(req: Request) {
           const eligibilityReviewId = eligibilityInsertRes.rows[0]?.id
           if (eligibilityReviewId) {
             await auditLogger.logInsert(
-              "senteloans_loan_eligibility_reviews",
+              "loan_eligibility_reviews",
               eligibilityReviewId,
               {
                 loan_id: loanRow.id,
@@ -517,7 +517,7 @@ export async function POST(req: Request) {
       }
 
       await client.query(
-        `INSERT INTO senteloans_audit_logs (institution_id, branch_id, user_id, table_name, category, operation, record_id, new_values) VALUES ($1, $2, $3, 'senteloans_loans', 'loans', 'INSERT', $4, $5)`,
+        `INSERT INTO audit_logs (institution_id, branch_id, user_id, table_name, category, operation, record_id, new_values) VALUES ($1, $2, $3, 'loans', 'loans', 'INSERT', $4, $5)`,
         [
           actor.institution_id,
           actor.branch_id,
@@ -536,7 +536,7 @@ export async function POST(req: Request) {
         ]
       )
 
-      const memberNameRes = await client.query(`SELECT full_name FROM senteloans_members WHERE id = $1`, [member_id])
+      const memberNameRes = await client.query(`SELECT full_name FROM members WHERE id = $1`, [member_id])
       const memberName = memberNameRes.rows[0]?.full_name || ""
       const admins = await getInstitutionAdminRecipients(client, actor.institution_id, {
         excludeUserId: actor.id,

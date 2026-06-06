@@ -13,10 +13,10 @@ BEGIN
   END IF;
 END $$;
 
-ALTER TABLE senteloans_transactions
+ALTER TABLE transactions
   DROP CONSTRAINT IF EXISTS chk_transactions_reference;
 
-ALTER TABLE senteloans_transactions
+ALTER TABLE transactions
   ADD CONSTRAINT chk_transactions_reference CHECK (
     type::text IN ('Fee Payment', 'Shares Purchase') OR
     (
@@ -24,6 +24,6 @@ ALTER TABLE senteloans_transactions
       loan_id IS NOT NULL OR
       sacco_loan_id IS NOT NULL OR
       member_id IS NOT NULL OR
-      client_id IS NOT NULL
+      third_party_agent_id IS NOT NULL
     )
   );

@@ -31,8 +31,8 @@ async function resolveActorContext(client: any, authUserId: string): Promise<Act
          WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
          ELSE NULL
        END AS role
-     FROM senteloans_users u
-     LEFT JOIN senteloans_roles r ON r.id = u.role_id
+     FROM users u
+     LEFT JOIN roles r ON r.id = u.role_id
      WHERE u.supabase_user_id = $1
      LIMIT 1`,
     [authUserId]
@@ -47,8 +47,8 @@ async function hasPermission(client: any, actor: ActorContext, permission: strin
 
   const permRes = await client.query(
     `SELECT 1
-     FROM senteloans_role_permissions rp
-     JOIN senteloans_permissions p ON p.id = rp.permission_id
+     FROM role_permissions rp
+     JOIN permissions p ON p.id = rp.permission_id
      WHERE rp.role_id = $1
        AND rp.branch_id = $2
        AND p.name = $3
@@ -69,7 +69,7 @@ async function resolveRoleById(client: any, roleId: string): Promise<{ id: strin
          WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
          ELSE NULL
        END AS app_role
-     FROM senteloans_roles r
+     FROM roles r
      WHERE r.id = $1
      LIMIT 1`,
     [roleId]
@@ -154,8 +154,8 @@ export async function GET(req: Request) {
               u.joined_at,
               u.last_login,
               u.created_at
-           FROM senteloans_users u
-           LEFT JOIN senteloans_branches b ON b.id = u.branch_id
+           FROM users u
+           LEFT JOIN branches b ON b.id = u.branch_id
            LEFT JOIN LATERAL (
              SELECT CASE
                WHEN r.name = 'System Admin' THEN 'system_admin'
@@ -164,7 +164,7 @@ export async function GET(req: Request) {
                WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
                ELSE NULL
              END AS app_role
-             FROM senteloans_roles r
+             FROM roles r
              WHERE r.id = u.role_id
            ) app_role ON TRUE
            WHERE ${where}
@@ -245,7 +245,7 @@ export async function POST(req: Request) {
 
       // Check email uniqueness
       const emailCheck = await client.query(
-        `SELECT id FROM senteloans_users WHERE email = $1`,
+        `SELECT id FROM users WHERE email = $1`,
         [email]
       )
       if (emailCheck.rows.length > 0)
@@ -279,10 +279,10 @@ export async function POST(req: Request) {
         return { error: "insufficient_role_scope_for_assignment" as const }
       }
 
-      // 3. Create senteloans_users record
+      // 3. Create users record
       const userId = crypto.randomUUID()
       await client.query(
-        `INSERT INTO senteloans_users (
+        `INSERT INTO users (
           id, supabase_user_id, institution_id, branch_id, role_id, email, full_name, phone_number,
           status, joined_at
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
@@ -302,7 +302,7 @@ export async function POST(req: Request) {
 
       // 4. Audit log
       await auditLogger.logInsert(
-        "senteloans_users",
+        "users",
         userId,
         { email, full_name: fullName, role: roleRow.app_role, status, role_id: roleRow.id },
         actor.institution_id,

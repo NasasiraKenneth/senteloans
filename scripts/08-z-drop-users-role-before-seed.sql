@@ -1,7 +1,7 @@
--- Ensure legacy senteloans_users.role is removed before 09-seed-users.sql runs.
+-- Ensure legacy users.role is removed before 09-seed-users.sql runs.
 -- This prevents NOT NULL failures on databases created before role_id-only migration.
 
-ALTER TABLE senteloans_users
+ALTER TABLE users
   DROP COLUMN IF EXISTS role;
 
 -- Drop enum type only if nothing still depends on it.

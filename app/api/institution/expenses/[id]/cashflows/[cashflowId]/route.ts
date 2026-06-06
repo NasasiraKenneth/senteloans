@@ -92,7 +92,7 @@ export async function PATCH(
       const ex = await client.query(
         `SELECT e.id, e.expense_number, e.name, e.description, e.status, e.type, e.category_id, e.branch_id,
                 e.approved_by, e.approved_at, e.rejected_by, e.rejected_at, e.completed_by, e.completed_at
-         FROM senteloans_expenses e WHERE ${where} LIMIT 1`,
+         FROM expenses e WHERE ${where} LIMIT 1`,
         values,
       )
       const expenseRow = ex.rows[0] as Record<string, unknown> | undefined
@@ -131,8 +131,8 @@ export async function PATCH(
           `SELECT cf.id, cf.expense_id, cf.status, cf.amount, cf.description, cf.date::text AS date,
                   cf.payment_method::text AS payment_method, cf.client_id, cf.staff_id, cf.transaction_id,
                   cf.completed_by, cf.completed_at, e.expense_number, e.branch_id, e.institution_id
-           FROM senteloans_expense_cashflows cf
-           JOIN senteloans_expenses e ON e.id = cf.expense_id
+           FROM expense_cashflows cf
+           JOIN expenses e ON e.id = cf.expense_id
            WHERE cf.id = $1::uuid AND cf.expense_id = $2::uuid
            FOR UPDATE OF cf`,
           [cashflowId, expenseId],
@@ -151,7 +151,7 @@ export async function PATCH(
         if (nextRaw === "completed") {
           const cnt = await client.query<{ c: string }>(
             `SELECT COUNT(*)::text AS c
-             FROM senteloans_expense_cashflows
+             FROM expense_cashflows
              WHERE expense_id = $1::uuid
                AND LOWER(TRIM(COALESCE(status::text, ''))) IN ('completed', 'paid')`,
             [expenseId],
@@ -159,13 +159,13 @@ export async function PATCH(
           priorCompletedCashflowCount = Number(cnt.rows[0]?.c ?? 0)
         }
 
-        const nameRes = await client.query(`SELECT full_name FROM senteloans_users WHERE id = $1::uuid LIMIT 1`, [actor.id])
+        const nameRes = await client.query(`SELECT full_name FROM users WHERE id = $1::uuid LIMIT 1`, [actor.id])
         const completed_by_name =
           nameRes.rows[0]?.full_name != null ? String(nameRes.rows[0].full_name).trim() : null
 
         if (nextRaw === "rejected") {
           const upd = await client.query(
-            `UPDATE senteloans_expense_cashflows
+            `UPDATE expense_cashflows
              SET status = $1,
                  completed_by = $2::uuid,
                  completed_at = NOW()
@@ -217,7 +217,7 @@ export async function PATCH(
         const inserted = await insertWithTransactionNumberRetry(
           (transaction_number) =>
             client.query<{ id: string }>(
-              `INSERT INTO senteloans_transactions (
+              `INSERT INTO transactions (
                  institution_id, branch_id, member_id, client_id, staff_id, account_id, transferred_to_id, loan_id, sacco_loan_id,
                  transaction_number, type, amount, mode, description, reference_number,
                  balance_before, balance_after, processed_by, transaction_date, status
@@ -266,7 +266,7 @@ export async function PATCH(
         })
 
         const upd = await client.query(
-          `UPDATE senteloans_expense_cashflows
+          `UPDATE expense_cashflows
            SET status = $1,
                completed_by = $2::uuid,
                completed_at = NOW(),
@@ -285,7 +285,7 @@ export async function PATCH(
 
         if (priorCompletedCashflowCount === 0) {
           const expUpd = await client.query(
-            `UPDATE senteloans_expenses e
+            `UPDATE expenses e
              SET status = 'Active', updated_at = NOW()
              WHERE e.id = $1::uuid
                AND e.institution_id = $2::uuid
@@ -439,7 +439,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
 
       const { where, values } = singleExpenseWhere(actor, expenseId)
       const exRes = await client.query<{ id: string; branch_id: string }>(
-        `SELECT e.id, e.branch_id FROM senteloans_expenses e WHERE ${where} LIMIT 1`,
+        `SELECT e.id, e.branch_id FROM expenses e WHERE ${where} LIMIT 1`,
         values,
       )
       const expense = exRes.rows[0]
@@ -448,7 +448,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       const cur = await client.query(
         `SELECT id, expense_id, staff_id, client_id, payment_method::text AS payment_method, amount,
                 description, status, date::text AS date, transaction_id, completed_by, completed_at
-         FROM senteloans_expense_cashflows WHERE id = $1::uuid AND expense_id = $2::uuid LIMIT 1`,
+         FROM expense_cashflows WHERE id = $1::uuid AND expense_id = $2::uuid LIMIT 1`,
         [cashflowId, expenseId],
       )
       const cfRow = cur.rows[0] as Record<string, unknown> | undefined
@@ -464,7 +464,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
 
       if (assigneeRaw === "staff") {
         const s = await client.query(
-          `SELECT u.id FROM senteloans_users u
+          `SELECT u.id FROM users u
            WHERE u.id = $1::uuid AND u.institution_id = $2::uuid AND u.branch_id = $3::uuid
            LIMIT 1`,
           [staffId, instId, branchId],
@@ -475,12 +475,12 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
           ? `id = $1::uuid AND institution_id = $2::uuid`
           : `id = $1::uuid AND institution_id = $2::uuid AND branch_id = $3::uuid`
         const cParams = isSuperAdmin(actor) ? [clientId, instId] : [clientId, instId, branchId]
-        const c = await client.query(`SELECT id FROM senteloans_clients WHERE ${cWhere} LIMIT 1`, cParams)
+        const c = await client.query(`SELECT id FROM clients WHERE ${cWhere} LIMIT 1`, cParams)
         if ((c.rowCount ?? 0) === 0) return { error: "invalid_client" as const }
       }
 
       const upd = await client.query(
-        `UPDATE senteloans_expense_cashflows
+        `UPDATE expense_cashflows
          SET staff_id = $1::uuid,
              client_id = $2::uuid,
              payment_method = $3::payment_mode,
@@ -515,11 +515,11 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
 
       let assigned_name: string | null = null
       if (sid) {
-        const nr = await client.query(`SELECT full_name FROM senteloans_users WHERE id = $1::uuid LIMIT 1`, [sid])
+        const nr = await client.query(`SELECT full_name FROM users WHERE id = $1::uuid LIMIT 1`, [sid])
         assigned_name =
           nr.rows[0]?.full_name != null ? String(nr.rows[0].full_name).trim() || "Staff" : "Staff"
       } else if (cid) {
-        const nr = await client.query(`SELECT name FROM senteloans_clients WHERE id = $1::uuid LIMIT 1`, [cid])
+        const nr = await client.query(`SELECT name FROM clients WHERE id = $1::uuid LIMIT 1`, [cid])
         assigned_name = nr.rows[0]?.name != null ? String(nr.rows[0].name).trim() || "Client" : "Client"
       }
 

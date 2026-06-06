@@ -26,7 +26,7 @@ export async function getBranchById(
 ): Promise<BranchStatusResult> {
   const res = await client.query<BranchRow>(
     `SELECT id, institution_id, name, status::text AS status
-       FROM senteloans_branches
+       FROM branches
       WHERE id = $1
       LIMIT 1`,
     [branchId],

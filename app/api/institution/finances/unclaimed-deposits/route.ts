@@ -115,13 +115,13 @@ export async function GET(req: Request) {
            t.reference_number AS linked_transaction_reference,
            t.description      AS linked_transaction_description,
            COUNT(*) OVER()::int AS total_count
-         FROM senteloans_unclaimed_deposits ud
-         LEFT JOIN senteloans_members m ON m.id = ud.member_id
-         LEFT JOIN senteloans_clients c ON c.id = ud.client_id
-         LEFT JOIN senteloans_branches b ON b.id = ud.branch_id
-         LEFT JOIN senteloans_users cu ON cu.id = ud.created_by
-         LEFT JOIN senteloans_users mu ON mu.id = ud.modified_by
-         LEFT JOIN senteloans_transactions t ON t.id = ud.transaction_id
+         FROM unclaimed_deposits ud
+         LEFT JOIN members m ON m.id = ud.member_id
+         LEFT JOIN clients c ON c.id = ud.client_id
+         LEFT JOIN branches b ON b.id = ud.branch_id
+         LEFT JOIN users cu ON cu.id = ud.created_by
+         LEFT JOIN users mu ON mu.id = ud.modified_by
+         LEFT JOIN transactions t ON t.id = ud.transaction_id
          WHERE ${where}
          ORDER BY ud.date DESC NULLS LAST, ud.created_at DESC
          LIMIT $${limitIdx} OFFSET $${offsetIdx}`,
@@ -216,7 +216,7 @@ export async function POST(req: Request) {
 
       if (isSuperAdmin(actor) && branchId) {
         const branchCheck = await client.query(
-          `SELECT 1 FROM senteloans_branches WHERE id = $1::uuid AND institution_id = $2::uuid LIMIT 1`,
+          `SELECT 1 FROM branches WHERE id = $1::uuid AND institution_id = $2::uuid LIMIT 1`,
           [targetBranchId, actor.institution_id],
         )
         if ((branchCheck.rowCount ?? 0) === 0) return { error: "invalid_branch" as const }
@@ -238,7 +238,7 @@ export async function POST(req: Request) {
       }>(
         (unclaimedDepositNumber) =>
           client.query(
-            `INSERT INTO senteloans_unclaimed_deposits (
+            `INSERT INTO unclaimed_deposits (
                institution_id, branch_id, unclaimed_deposit_number, transaction_number,
                amount, mode, date, status, notes, created_by, modified_by
              ) VALUES (

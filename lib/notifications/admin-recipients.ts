@@ -47,8 +47,8 @@ export interface GetAdminRecipientsOptions {
 
 /**
  * Single source of truth for "who in the institution should be alerted to an
- * operational event". Uses the senteloans_roles join (not the legacy
- * senteloans_users.role TEXT column) and a consistent normalized role naming.
+ * operational event". Uses the roles join (not the legacy
+ * users.role TEXT column) and a consistent normalized role naming.
  */
 export async function getInstitutionAdminRecipients(
   client: PoolClient,
@@ -63,7 +63,7 @@ export async function getInstitutionAdminRecipients(
     const roles = opts.roles ?? ADMIN_NOTIFY_ROLES
     if (roles.length === 0) return []
 
-    // Map normalized role -> source role name in senteloans_roles
+    // Map normalized role -> source role name in roles
     // (mirrors the CASE in rbac.ts / auth.ts so the mapping is reversible).
     const sourceNames: string[] = []
     for (const role of roles) {
@@ -100,8 +100,8 @@ export async function getInstitutionAdminRecipients(
 
   const res = await client.query<AdminRecipient>(
     `SELECT u.id, u.branch_id
-       FROM senteloans_users u
-       JOIN senteloans_roles r ON r.id = u.role_id
+       FROM users u
+       JOIN roles r ON r.id = u.role_id
       WHERE ${where}`,
     params
   )

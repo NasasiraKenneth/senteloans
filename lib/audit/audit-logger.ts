@@ -18,7 +18,7 @@ function deriveCategory(tableName: string): string {
   const normalized = String(tableName || "")
     .trim()
     .toLowerCase()
-    .replace(/^senteloans_/, "")
+    .replace(/^/, "")
 
   if (!normalized) return "system"
   if (normalized.startsWith("loan_") || normalized.startsWith("loans")) return "loans"
@@ -33,7 +33,7 @@ function deriveCategory(tableName: string): string {
 
 async function runInsert(client: PoolClient, entry: AuditLogEntry): Promise<void> {
   await client.query(
-    `INSERT INTO senteloans_audit_logs (
+    `INSERT INTO audit_logs (
       table_name, category, operation, record_id, old_values, new_values, user_id, institution_id, branch_id
     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
     [

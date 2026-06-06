@@ -49,7 +49,7 @@ AS $$
     FROM information_schema.tables t
     JOIN information_schema.columns c ON t.table_name = c.table_name
     WHERE t.table_schema = schema_name
-    AND t.table_name LIKE 'senteloans_%'
+    AND t.table_name LIKE '%'
     ORDER BY t.table_name, c.ordinal_position;
 $$;
 
@@ -69,7 +69,7 @@ AS $$
         cmd as policy_cmd,
         roles as policy_roles
     FROM pg_policies
-    WHERE tablename LIKE 'senteloans_%'
+    WHERE tablename LIKE '%'
     ORDER BY tablename, policyname;
 $$;
 

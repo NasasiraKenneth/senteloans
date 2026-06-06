@@ -35,8 +35,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
            i.start_date, i.period_in_months, i.period_in_years, i.maturity_date, i.status,
            i.created_by, i.created_at, i.modified_by, i.updated_at,
            i.investment_name, i.address AS investment_address
-         FROM senteloans_investments i
-         LEFT JOIN senteloans_clients c ON c.id = i.provider_id
+         FROM investments i
+         LEFT JOIN clients c ON c.id = i.provider_id
          WHERE i.id = $1
            AND i.institution_id = $2
            ${isSuperAdmin ? "" : "AND i.branch_id = $3"}
@@ -50,8 +50,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
         `SELECT
            p.id, p.counterparty_id, c.name AS counterparty_name, p.role, p.status,
            p.contribution_percentage, p.contribution_amount, p.ownership_percentage
-         FROM senteloans_investment_partners p
-         LEFT JOIN senteloans_clients c ON c.id = p.counterparty_id
+         FROM investment_partners p
+         LEFT JOIN clients c ON c.id = p.counterparty_id
          WHERE p.investment_id = $1
          ORDER BY p.created_at ASC`,
         [id],
@@ -59,7 +59,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
 
       const fundingRes = await client.query(
         `SELECT id, source_type, loan_id, amount
-         FROM senteloans_investment_funding_sources
+         FROM investment_funding_sources
          WHERE investment_id = $1
          ORDER BY created_at ASC`,
         [id],
@@ -67,7 +67,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
 
       const latestValuationRes = await client.query(
         `SELECT valuation_date, value
-         FROM senteloans_investment_valuations
+         FROM investment_valuations
          WHERE investment_id = $1
          ORDER BY valuation_date DESC, created_at DESC
          LIMIT 1`,
@@ -147,7 +147,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
              provider_id, category, description, initial_amount, current_value, expected_percentage, extracted_returns,
              risk_level, start_date, period_in_months, period_in_years, maturity_date, status,
              investment_name, address
-           FROM senteloans_investments
+           FROM investments
            WHERE id = $1 AND institution_id = $2
            ${isSuperAdmin ? "" : "AND branch_id = $3"}
            LIMIT 1`,
@@ -161,7 +161,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
         const investmentBranchId = String(prevInv.branch_id || actor.branch_id || "")
 
         const updInv = await client.query(
-          `UPDATE senteloans_investments
+          `UPDATE investments
            SET provider_id = $1,
                category = $2,
                description = $3,
@@ -207,7 +207,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
         const newInv = updInv.rows[0] as Record<string, unknown>
 
         await auditLogger.logUpdate(
-          "senteloans_investments",
+          "investments",
           id,
           {
             provider_id: prevInv.provider_id,
@@ -293,7 +293,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
       const prevRes = await client.query(
         `SELECT id, status, institution_id, branch_id
-         FROM senteloans_investments
+         FROM investments
          WHERE id = $1 AND institution_id = $2
          ${isSuperAdmin ? "" : "AND branch_id = $3"}
          LIMIT 1`,
@@ -305,7 +305,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       const investmentBranchId = String(prevRes.rows[0]?.branch_id || actor.branch_id || "")
 
       await client.query(
-        `UPDATE senteloans_investments
+        `UPDATE investments
          SET status = $1,
              modified_by = $2,
              updated_at = NOW()
@@ -313,7 +313,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         [status, actor.id, id],
       )
       await auditLogger.logUpdate(
-        "senteloans_investments",
+        "investments",
         id,
         { status: prevStatus },
         { status },

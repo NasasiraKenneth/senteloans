@@ -2,20 +2,20 @@
 -- Multi-Tenant Data Isolation and Access Control
 
 -- Enable RLS on all tables
-ALTER TABLE senteloans_institutions ENABLE ROW LEVEL SECURITY;
-ALTER TABLE senteloans_users ENABLE ROW LEVEL SECURITY;
-ALTER TABLE senteloans_members ENABLE ROW LEVEL SECURITY;
-ALTER TABLE senteloans_member_shares ENABLE ROW LEVEL SECURITY;
-ALTER TABLE senteloans_loan_products ENABLE ROW LEVEL SECURITY;
-ALTER TABLE senteloans_loans ENABLE ROW LEVEL SECURITY;
-ALTER TABLE senteloans_savings_accounts ENABLE ROW LEVEL SECURITY;
-ALTER TABLE senteloans_transactions ENABLE ROW LEVEL SECURITY;
-ALTER TABLE senteloans_loan_repayments ENABLE ROW LEVEL SECURITY;
-ALTER TABLE senteloans_audit_logs ENABLE ROW LEVEL SECURITY;
-ALTER TABLE senteloans_loan_guarantors ENABLE ROW LEVEL SECURITY;
-ALTER TABLE senteloans_member_kyc_docs ENABLE ROW LEVEL SECURITY;
-ALTER TABLE senteloans_notifications ENABLE ROW LEVEL SECURITY;
-ALTER TABLE senteloans_notification_preferences ENABLE ROW LEVEL SECURITY;
+ALTER TABLE institutions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE users ENABLE ROW LEVEL SECURITY;
+ALTER TABLE members ENABLE ROW LEVEL SECURITY;
+ALTER TABLE member_shares ENABLE ROW LEVEL SECURITY;
+ALTER TABLE loan_products ENABLE ROW LEVEL SECURITY;
+ALTER TABLE loans ENABLE ROW LEVEL SECURITY;
+ALTER TABLE savings_accounts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE transactions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE loan_repayments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE audit_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE loan_guarantors ENABLE ROW LEVEL SECURITY;
+ALTER TABLE member_kyc_docs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE notifications ENABLE ROW LEVEL SECURITY;
+ALTER TABLE notification_preferences ENABLE ROW LEVEL SECURITY;
 
 -- =============================
 -- Auth-driven helpers (preferred in production)
@@ -26,7 +26,7 @@ CREATE SCHEMA IF NOT EXISTS app;
 CREATE OR REPLACE FUNCTION app.current_institution_id()
 RETURNS UUID AS $$
   SELECT u.institution_id
-  FROM senteloans_users u
+  FROM users u
   WHERE u.supabase_user_id = auth.uid()
   LIMIT 1
 $$ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public;
@@ -35,7 +35,7 @@ $$ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public;
 CREATE OR REPLACE FUNCTION app.current_branch_id()
 RETURNS UUID AS $$
   SELECT u.branch_id
-  FROM senteloans_users u
+  FROM users u
   WHERE u.supabase_user_id = auth.uid()
   LIMIT 1
 $$ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public;
@@ -54,14 +54,14 @@ RETURNS TEXT AS $$
     WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
     ELSE NULL
   END
-  FROM senteloans_users u
-  LEFT JOIN senteloans_roles r ON r.id = u.role_id
+  FROM users u
+  LEFT JOIN roles r ON r.id = u.role_id
   WHERE u.supabase_user_id = auth.uid()
   LIMIT 1
 $$ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public;
 
 -- Helpful index for the helpers above
-CREATE INDEX IF NOT EXISTS idx_users_supabase_user_id ON senteloans_users(supabase_user_id);
+CREATE INDEX IF NOT EXISTS idx_users_supabase_user_id ON users(supabase_user_id);
 
 -- Create function to get current user's institution ID
 -- Fix get_current_institution_id() to delegate to auth-based helper and fallback to direct mapping
@@ -82,7 +82,7 @@ AS $$
     app.current_institution_id(),
     (
       SELECT u.institution_id
-      FROM public.senteloans_users u
+      FROM public.users u
       WHERE u.supabase_user_id = auth.uid()
       LIMIT 1
     )
@@ -99,7 +99,7 @@ AS $$
     app.current_branch_id(),
     (
       SELECT u.branch_id
-      FROM public.senteloans_users u
+      FROM public.users u
       WHERE u.supabase_user_id = auth.uid()
       LIMIT 1
     )
@@ -123,8 +123,8 @@ AS $$
         WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
         ELSE NULL
       END
-      FROM public.senteloans_users u
-      LEFT JOIN public.senteloans_roles r ON r.id = u.role_id
+      FROM public.users u
+      LEFT JOIN public.roles r ON r.id = u.role_id
       WHERE u.supabase_user_id = auth.uid()
       LIMIT 1
     )
@@ -143,7 +143,7 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
   SELECT u.id
-  FROM public.senteloans_users u
+  FROM public.users u
   WHERE u.supabase_user_id = auth.uid()
   LIMIT 1
 $$;
@@ -190,29 +190,29 @@ $$;
 
 -- INSTITUTIONS TABLE POLICIES
 -- System admins can access all institutions, others can only see their own
-DROP POLICY IF EXISTS institutions_access_policy ON senteloans_institutions;
-DROP POLICY IF EXISTS institutions_select_policy ON senteloans_institutions;
-DROP POLICY IF EXISTS institutions_update_policy ON senteloans_institutions;
-CREATE POLICY institutions_select_policy ON senteloans_institutions
+DROP POLICY IF EXISTS institutions_access_policy ON institutions;
+DROP POLICY IF EXISTS institutions_select_policy ON institutions;
+DROP POLICY IF EXISTS institutions_update_policy ON institutions;
+CREATE POLICY institutions_select_policy ON institutions
   FOR SELECT
   USING (
     is_system_admin() OR id = get_current_institution_id()
   );
 
 -- Clients can read their own institution
-DROP POLICY IF EXISTS institutions_client_self_access ON senteloans_institutions;
-CREATE POLICY institutions_client_self_access ON senteloans_institutions
+DROP POLICY IF EXISTS institutions_client_self_access ON institutions;
+CREATE POLICY institutions_client_self_access ON institutions
   FOR SELECT
   USING (
     EXISTS (
       SELECT 1
-      FROM senteloans_members c
-      WHERE c.institution_id = senteloans_institutions.id
+      FROM members c
+      WHERE c.institution_id = institutions.id
         AND c.supabase_user_id = auth.uid()
     )
   );
 
-CREATE POLICY institutions_update_policy ON senteloans_institutions
+CREATE POLICY institutions_update_policy ON institutions
   FOR UPDATE
   USING (
     is_system_admin() OR id = get_current_institution_id()
@@ -224,8 +224,8 @@ CREATE POLICY institutions_update_policy ON senteloans_institutions
 -- USERS TABLE POLICIES
 -- Users can only access users from their own institution
 -- System admins can access all users
-DROP POLICY IF EXISTS users_access_policy ON senteloans_users;
-CREATE POLICY users_access_policy ON senteloans_users
+DROP POLICY IF EXISTS users_access_policy ON users;
+CREATE POLICY users_access_policy ON users
     FOR ALL
     USING (
         -- Self-access by Supabase auth UID (prevents recursion)
@@ -234,8 +234,8 @@ CREATE POLICY users_access_policy ON senteloans_users
     );
 
 -- Users can update their own profile
-DROP POLICY IF EXISTS users_self_update_policy ON senteloans_users;
-CREATE POLICY users_self_update_policy ON senteloans_users
+DROP POLICY IF EXISTS users_self_update_policy ON users;
+CREATE POLICY users_self_update_policy ON users
   FOR UPDATE
   USING (
     id = get_current_user_id()
@@ -247,24 +247,24 @@ CREATE POLICY users_self_update_policy ON senteloans_users
 -- CLIENTS TABLE POLICIES
 -- Explicit per-action policies with WITH CHECK to prevent tenant flips
 -- Prefer auth-based helpers; fallback to session helper for tests
-DROP POLICY IF EXISTS clients_access_policy ON senteloans_members;
+DROP POLICY IF EXISTS clients_access_policy ON members;
 
-DROP POLICY IF EXISTS clients_select_same_institution ON senteloans_members;
-CREATE POLICY clients_select_same_institution ON senteloans_members
+DROP POLICY IF EXISTS clients_select_same_institution ON members;
+CREATE POLICY clients_select_same_institution ON members
     FOR SELECT
     USING (
         can_access_row(institution_id, branch_id)
     );
 
-DROP POLICY IF EXISTS clients_insert_same_institution ON senteloans_members;
-CREATE POLICY clients_insert_same_institution ON senteloans_members
+DROP POLICY IF EXISTS clients_insert_same_institution ON members;
+CREATE POLICY clients_insert_same_institution ON members
     FOR INSERT
     WITH CHECK (
         can_access_row(institution_id, branch_id)
     );
 
-DROP POLICY IF EXISTS clients_update_same_institution ON senteloans_members;
-CREATE POLICY clients_update_same_institution ON senteloans_members
+DROP POLICY IF EXISTS clients_update_same_institution ON members;
+CREATE POLICY clients_update_same_institution ON members
     FOR UPDATE
     USING (
         can_access_row(institution_id, branch_id)
@@ -274,8 +274,8 @@ CREATE POLICY clients_update_same_institution ON senteloans_members
     );
 
 -- Allow authenticated clients to update their own profile row
-DROP POLICY IF EXISTS client_profile_self_update ON senteloans_members;
-CREATE POLICY client_profile_self_update ON senteloans_members
+DROP POLICY IF EXISTS client_profile_self_update ON members;
+CREATE POLICY client_profile_self_update ON members
   FOR UPDATE
   USING (
     supabase_user_id = auth.uid()
@@ -284,8 +284,8 @@ CREATE POLICY client_profile_self_update ON senteloans_members
     supabase_user_id = auth.uid()
   );
 
-DROP POLICY IF EXISTS clients_delete_same_institution ON senteloans_members;
-CREATE POLICY clients_delete_same_institution ON senteloans_members
+DROP POLICY IF EXISTS clients_delete_same_institution ON members;
+CREATE POLICY clients_delete_same_institution ON members
     FOR DELETE
     USING (
         can_access_row(institution_id, branch_id)
@@ -293,12 +293,12 @@ CREATE POLICY clients_delete_same_institution ON senteloans_members
 
 -- CLIENT KYC DOCS TABLE POLICIES
 -- Clients can only read their own KYC doc rows
-DROP POLICY IF EXISTS client_kyc_docs_select_self ON senteloans_member_kyc_docs;
-CREATE POLICY client_kyc_docs_select_self ON senteloans_member_kyc_docs
+DROP POLICY IF EXISTS client_kyc_docs_select_self ON member_kyc_docs;
+CREATE POLICY client_kyc_docs_select_self ON member_kyc_docs
   FOR SELECT
   USING (
     EXISTS (
-      SELECT 1 FROM senteloans_members c
+      SELECT 1 FROM members c
       WHERE c.id = member_id
         AND c.supabase_user_id = auth.uid()
         AND c.institution_id = institution_id
@@ -306,12 +306,12 @@ CREATE POLICY client_kyc_docs_select_self ON senteloans_member_kyc_docs
   );
 
 -- Clients can insert new KYC doc rows for themselves
-DROP POLICY IF EXISTS client_kyc_docs_insert_self ON senteloans_member_kyc_docs;
-CREATE POLICY client_kyc_docs_insert_self ON senteloans_member_kyc_docs
+DROP POLICY IF EXISTS client_kyc_docs_insert_self ON member_kyc_docs;
+CREATE POLICY client_kyc_docs_insert_self ON member_kyc_docs
   FOR INSERT
   WITH CHECK (
     EXISTS (
-      SELECT 1 FROM senteloans_members c
+      SELECT 1 FROM members c
       WHERE c.id = member_id
         AND c.supabase_user_id = auth.uid()
         AND c.institution_id = institution_id
@@ -319,8 +319,8 @@ CREATE POLICY client_kyc_docs_insert_self ON senteloans_member_kyc_docs
   );
 
 -- Institution staff/admins can update (approval/rejection)
-DROP POLICY IF EXISTS client_kyc_docs_update_admin ON senteloans_member_kyc_docs;
-CREATE POLICY client_kyc_docs_update_admin ON senteloans_member_kyc_docs
+DROP POLICY IF EXISTS client_kyc_docs_update_admin ON member_kyc_docs;
+CREATE POLICY client_kyc_docs_update_admin ON member_kyc_docs
   FOR UPDATE
   USING (
     (coalesce(app.current_role(), '') IN ('system_admin','super_admin','institution_admin','manager','loan_officer'))
@@ -332,8 +332,8 @@ CREATE POLICY client_kyc_docs_update_admin ON senteloans_member_kyc_docs
   );
 
 -- Institution staff/admins can delete (cleanup)
-DROP POLICY IF EXISTS client_kyc_docs_delete_admin ON senteloans_member_kyc_docs;
-CREATE POLICY client_kyc_docs_delete_admin ON senteloans_member_kyc_docs
+DROP POLICY IF EXISTS client_kyc_docs_delete_admin ON member_kyc_docs;
+CREATE POLICY client_kyc_docs_delete_admin ON member_kyc_docs
   FOR DELETE
   USING (
     (coalesce(app.current_role(), '') IN ('system_admin','super_admin','institution_admin','manager','loan_officer'))
@@ -342,13 +342,13 @@ CREATE POLICY client_kyc_docs_delete_admin ON senteloans_member_kyc_docs
 
 -- CLIENT SHARES TABLE POLICIES
 -- Access through client relationship (inherits institution isolation)
-DROP POLICY IF EXISTS client_shares_access_policy ON senteloans_member_shares;
-CREATE POLICY client_shares_access_policy ON senteloans_member_shares
+DROP POLICY IF EXISTS client_shares_access_policy ON member_shares;
+CREATE POLICY client_shares_access_policy ON member_shares
   FOR ALL
   USING (
     EXISTS (
       SELECT 1
-      FROM senteloans_members c
+      FROM members c
       WHERE c.id = member_id
         AND can_access_row(c.institution_id, c.branch_id)
     )
@@ -356,15 +356,15 @@ CREATE POLICY client_shares_access_policy ON senteloans_member_shares
   WITH CHECK (
     EXISTS (
       SELECT 1
-      FROM senteloans_members c
+      FROM members c
       WHERE c.id = member_id
         AND can_access_row(c.institution_id, c.branch_id)
     )
   );
 -- LOAN PRODUCTS TABLE POLICIES
 -- Users can only access loan products from their own institution
-DROP POLICY IF EXISTS loan_products_access_policy ON senteloans_loan_products;
-CREATE POLICY loan_products_access_policy ON senteloans_loan_products
+DROP POLICY IF EXISTS loan_products_access_policy ON loan_products;
+CREATE POLICY loan_products_access_policy ON loan_products
     FOR ALL
     USING (
         can_access_row(institution_id, branch_id)
@@ -374,22 +374,22 @@ CREATE POLICY loan_products_access_policy ON senteloans_loan_products
     );
 
 -- Allow clients to SELECT loan products within their institution
-DROP POLICY IF EXISTS client_loan_products_self_access_policy ON senteloans_loan_products;
-CREATE POLICY client_loan_products_self_access_policy ON senteloans_loan_products
+DROP POLICY IF EXISTS client_loan_products_self_access_policy ON loan_products;
+CREATE POLICY client_loan_products_self_access_policy ON loan_products
   FOR SELECT
   USING (
     EXISTS (
       SELECT 1
-      FROM senteloans_members c
+      FROM members c
       WHERE c.supabase_user_id = auth.uid()
-        AND c.institution_id = senteloans_loan_products.institution_id
+        AND c.institution_id = loan_products.institution_id
     )
   );
 
 -- LOANS TABLE POLICIES
 -- Users can only access loans from their own institution
-DROP POLICY IF EXISTS loans_access_policy ON senteloans_loans;
-CREATE POLICY loans_access_policy ON senteloans_loans
+DROP POLICY IF EXISTS loans_access_policy ON loans;
+CREATE POLICY loans_access_policy ON loans
     FOR ALL
     USING (
         can_access_row(institution_id, branch_id)
@@ -400,8 +400,8 @@ CREATE POLICY loans_access_policy ON senteloans_loans
 
 -- SAVINGS ACCOUNTS TABLE POLICIES
 -- Users can only access savings accounts from their own institution
-DROP POLICY IF EXISTS savings_accounts_access_policy ON senteloans_savings_accounts;
-CREATE POLICY savings_accounts_access_policy ON senteloans_savings_accounts
+DROP POLICY IF EXISTS savings_accounts_access_policy ON savings_accounts;
+CREATE POLICY savings_accounts_access_policy ON savings_accounts
     FOR ALL
     USING (
         can_access_row(institution_id, branch_id)
@@ -412,8 +412,8 @@ CREATE POLICY savings_accounts_access_policy ON senteloans_savings_accounts
 
 -- TRANSACTIONS TABLE POLICIES
 -- Users can only access transactions from their own institution
-DROP POLICY IF EXISTS transactions_access_policy ON senteloans_transactions;
-CREATE POLICY transactions_access_policy ON senteloans_transactions
+DROP POLICY IF EXISTS transactions_access_policy ON transactions;
+CREATE POLICY transactions_access_policy ON transactions
     FOR ALL
     USING (
         can_access_row(institution_id, branch_id)
@@ -424,19 +424,19 @@ CREATE POLICY transactions_access_policy ON senteloans_transactions
 
 -- LOAN REPAYMENTS TABLE POLICIES
 -- Access through loan relationship (inherits institution isolation)
-DROP POLICY IF EXISTS loan_repayments_access_policy ON senteloans_loan_repayments;
-CREATE POLICY loan_repayments_access_policy ON senteloans_loan_repayments
+DROP POLICY IF EXISTS loan_repayments_access_policy ON loan_repayments;
+CREATE POLICY loan_repayments_access_policy ON loan_repayments
     FOR ALL
     USING (
         EXISTS (
-            SELECT 1 FROM senteloans_loans l 
+            SELECT 1 FROM loans l 
             WHERE l.id = loan_id 
             AND can_access_row(l.institution_id, l.branch_id)
         )
     )
     WITH CHECK (
         EXISTS (
-            SELECT 1 FROM senteloans_loans l 
+            SELECT 1 FROM loans l 
             WHERE l.id = loan_id 
             AND can_access_row(l.institution_id, l.branch_id)
         )
@@ -444,19 +444,19 @@ CREATE POLICY loan_repayments_access_policy ON senteloans_loan_repayments
 
 -- LOAN GUARANTORS TABLE POLICIES
 -- Access through loan relationship (inherits institution isolation)
-DROP POLICY IF EXISTS loan_guarantors_access_policy ON senteloans_loan_guarantors;
-CREATE POLICY loan_guarantors_access_policy ON senteloans_loan_guarantors
+DROP POLICY IF EXISTS loan_guarantors_access_policy ON loan_guarantors;
+CREATE POLICY loan_guarantors_access_policy ON loan_guarantors
     FOR ALL
     USING (
         EXISTS (
-            SELECT 1 FROM senteloans_loans l 
+            SELECT 1 FROM loans l 
             WHERE l.id = loan_id 
             AND can_access_row(l.institution_id, l.branch_id)
         )
     )
     WITH CHECK (
         EXISTS (
-            SELECT 1 FROM senteloans_loans l 
+            SELECT 1 FROM loans l 
             WHERE l.id = loan_id 
             AND can_access_row(l.institution_id, l.branch_id)
         )
@@ -465,8 +465,8 @@ CREATE POLICY loan_guarantors_access_policy ON senteloans_loan_guarantors
 -- AUDIT LOGS TABLE POLICIES
 -- Users can only access audit logs from their own institution
 -- System admins can access all audit logs
-DROP POLICY IF EXISTS audit_logs_access_policy ON senteloans_audit_logs;
-CREATE POLICY audit_logs_access_policy ON senteloans_audit_logs
+DROP POLICY IF EXISTS audit_logs_access_policy ON audit_logs;
+CREATE POLICY audit_logs_access_policy ON audit_logs
     FOR ALL
     USING (
         can_access_row(institution_id, branch_id)
@@ -480,46 +480,46 @@ CREATE POLICY audit_logs_access_policy ON senteloans_audit_logs
 
 -- CLIENT ACCESS POLICIES (for client portal users)
 -- Clients can only see their own data using Supabase Auth mapping
-DROP POLICY IF EXISTS clients_self_access_policy ON senteloans_members;
-CREATE POLICY clients_self_access_policy ON senteloans_members
+DROP POLICY IF EXISTS clients_self_access_policy ON members;
+CREATE POLICY clients_self_access_policy ON members
   FOR SELECT
   USING (
     supabase_user_id = auth.uid()
   );
 
-DROP POLICY IF EXISTS client_loans_self_access_policy ON senteloans_loans;
-CREATE POLICY client_loans_self_access_policy ON senteloans_loans
+DROP POLICY IF EXISTS client_loans_self_access_policy ON loans;
+CREATE POLICY client_loans_self_access_policy ON loans
   FOR SELECT
   USING (
     EXISTS (
       SELECT 1
-      FROM senteloans_members c
+      FROM members c
       WHERE c.id = member_id
         AND c.supabase_user_id = auth.uid()
         AND c.institution_id = institution_id
     )
   );
 
-DROP POLICY IF EXISTS client_accounts_self_access_policy ON senteloans_savings_accounts;
-CREATE POLICY client_accounts_self_access_policy ON senteloans_savings_accounts
+DROP POLICY IF EXISTS client_accounts_self_access_policy ON savings_accounts;
+CREATE POLICY client_accounts_self_access_policy ON savings_accounts
   FOR SELECT
   USING (
     EXISTS (
       SELECT 1
-      FROM senteloans_members c
+      FROM members c
       WHERE c.id = member_id
         AND c.supabase_user_id = auth.uid()
         AND c.institution_id = institution_id
     )
   );
 
-DROP POLICY IF EXISTS client_transactions_self_access_policy ON senteloans_transactions;
-CREATE POLICY client_transactions_self_access_policy ON senteloans_transactions
+DROP POLICY IF EXISTS client_transactions_self_access_policy ON transactions;
+CREATE POLICY client_transactions_self_access_policy ON transactions
   FOR SELECT
   USING (
     EXISTS (
       SELECT 1
-      FROM senteloans_members c
+      FROM members c
       WHERE c.id = member_id
         AND c.supabase_user_id = auth.uid()
         AND c.institution_id = institution_id
@@ -527,27 +527,27 @@ CREATE POLICY client_transactions_self_access_policy ON senteloans_transactions
   );
 
 -- Client shares: allow clients to read their own share records
-DROP POLICY IF EXISTS client_shares_self_access_policy ON senteloans_member_shares;
-CREATE POLICY client_shares_self_access_policy ON senteloans_member_shares
+DROP POLICY IF EXISTS client_shares_self_access_policy ON member_shares;
+CREATE POLICY client_shares_self_access_policy ON member_shares
   FOR SELECT
   USING (
     EXISTS (
       SELECT 1
-      FROM senteloans_members c
+      FROM members c
       WHERE c.id = member_id
         AND c.supabase_user_id = auth.uid()
     )
   );
 
 -- Loan repayments: allow clients to read repayments for their loans
-DROP POLICY IF EXISTS client_loan_repayments_self_access_policy ON senteloans_loan_repayments;
-CREATE POLICY client_loan_repayments_self_access_policy ON senteloans_loan_repayments
+DROP POLICY IF EXISTS client_loan_repayments_self_access_policy ON loan_repayments;
+CREATE POLICY client_loan_repayments_self_access_policy ON loan_repayments
   FOR SELECT
   USING (
     EXISTS (
       SELECT 1
-      FROM senteloans_loans l
-      JOIN senteloans_members c ON c.id = l.member_id AND c.institution_id = l.institution_id
+      FROM loans l
+      JOIN members c ON c.id = l.member_id AND c.institution_id = l.institution_id
       WHERE l.id = loan_id
         AND c.supabase_user_id = auth.uid()
     )
@@ -586,13 +586,13 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- NOTIFICATIONS TABLE POLICIES
 -- Clients can only read their own notifications
-DROP POLICY IF EXISTS notifications_member_select ON senteloans_notifications;
-CREATE POLICY notifications_member_select ON senteloans_notifications
+DROP POLICY IF EXISTS notifications_member_select ON notifications;
+CREATE POLICY notifications_member_select ON notifications
   FOR SELECT
   USING (
     recipient_type = 'member'
     AND EXISTS (
-      SELECT 1 FROM senteloans_members c
+      SELECT 1 FROM members c
       WHERE c.id = recipient_id
         AND c.supabase_user_id = auth.uid()
         AND c.institution_id = institution_id
@@ -600,13 +600,13 @@ CREATE POLICY notifications_member_select ON senteloans_notifications
   );
 
 -- Institution users can read their own notifications
-DROP POLICY IF EXISTS notifications_user_select ON senteloans_notifications;
-CREATE POLICY notifications_user_select ON senteloans_notifications
+DROP POLICY IF EXISTS notifications_user_select ON notifications;
+CREATE POLICY notifications_user_select ON notifications
   FOR SELECT
   USING (
     recipient_type = 'institution_user'
     AND EXISTS (
-      SELECT 1 FROM senteloans_users u
+      SELECT 1 FROM users u
       WHERE u.id = recipient_id
         AND u.supabase_user_id = auth.uid()
         AND u.institution_id = institution_id
@@ -614,13 +614,13 @@ CREATE POLICY notifications_user_select ON senteloans_notifications
   );
 
 -- Members can update (mark as read) their own notifications
-DROP POLICY IF EXISTS notifications_member_update ON senteloans_notifications;
-CREATE POLICY notifications_member_update ON senteloans_notifications
+DROP POLICY IF EXISTS notifications_member_update ON notifications;
+CREATE POLICY notifications_member_update ON notifications
   FOR UPDATE
   USING (
     recipient_type = 'member'
     AND EXISTS (
-      SELECT 1 FROM senteloans_members c
+      SELECT 1 FROM members c
       WHERE c.id = recipient_id
         AND c.supabase_user_id = auth.uid()
         AND c.institution_id = institution_id
@@ -629,7 +629,7 @@ CREATE POLICY notifications_member_update ON senteloans_notifications
   WITH CHECK (
     recipient_type = 'member'
     AND EXISTS (
-      SELECT 1 FROM senteloans_members c
+      SELECT 1 FROM members c
       WHERE c.id = recipient_id
         AND c.supabase_user_id = auth.uid()
         AND c.institution_id = institution_id
@@ -637,13 +637,13 @@ CREATE POLICY notifications_member_update ON senteloans_notifications
   );
 
 -- Institution users can update (mark as read) their own notifications
-DROP POLICY IF EXISTS notifications_user_update ON senteloans_notifications;
-CREATE POLICY notifications_user_update ON senteloans_notifications
+DROP POLICY IF EXISTS notifications_user_update ON notifications;
+CREATE POLICY notifications_user_update ON notifications
   FOR UPDATE
   USING (
     recipient_type = 'institution_user'
     AND EXISTS (
-      SELECT 1 FROM senteloans_users u
+      SELECT 1 FROM users u
       WHERE u.id = recipient_id
         AND u.supabase_user_id = auth.uid()
         AND u.institution_id = institution_id
@@ -652,7 +652,7 @@ CREATE POLICY notifications_user_update ON senteloans_notifications
   WITH CHECK (
     recipient_type = 'institution_user'
     AND EXISTS (
-      SELECT 1 FROM senteloans_users u
+      SELECT 1 FROM users u
       WHERE u.id = recipient_id
         AND u.supabase_user_id = auth.uid()
         AND u.institution_id = institution_id
@@ -660,46 +660,46 @@ CREATE POLICY notifications_user_update ON senteloans_notifications
   );
 
 -- Service role (backend) can insert notifications for any user
-DROP POLICY IF EXISTS notifications_service_insert ON senteloans_notifications;
-CREATE POLICY notifications_service_insert ON senteloans_notifications
+DROP POLICY IF EXISTS notifications_service_insert ON notifications;
+CREATE POLICY notifications_service_insert ON notifications
   FOR INSERT
   WITH CHECK (true); -- Service role bypass via application logic
 
 -- NOTIFICATION PREFERENCES TABLE POLICIES
 -- Members can read and update their own preferences
-DROP POLICY IF EXISTS notification_prefs_member_select ON senteloans_notification_preferences;
-CREATE POLICY notification_prefs_member_select ON senteloans_notification_preferences
+DROP POLICY IF EXISTS notification_prefs_member_select ON notification_preferences;
+CREATE POLICY notification_prefs_member_select ON notification_preferences
   FOR SELECT
   USING (
     user_type = 'member'
     AND EXISTS (
-      SELECT 1 FROM senteloans_members c
+      SELECT 1 FROM members c
       WHERE c.id = user_id
         AND c.supabase_user_id = auth.uid()
         AND c.institution_id = institution_id
     )
   );
 
-DROP POLICY IF EXISTS notification_prefs_member_insert ON senteloans_notification_preferences;
-CREATE POLICY notification_prefs_member_insert ON senteloans_notification_preferences
+DROP POLICY IF EXISTS notification_prefs_member_insert ON notification_preferences;
+CREATE POLICY notification_prefs_member_insert ON notification_preferences
   FOR INSERT
   WITH CHECK (
     user_type = 'member'
     AND EXISTS (
-      SELECT 1 FROM senteloans_members c
+      SELECT 1 FROM members c
       WHERE c.id = user_id
         AND c.supabase_user_id = auth.uid()
         AND c.institution_id = institution_id
     )
   );
 
-DROP POLICY IF EXISTS notification_prefs_member_update ON senteloans_notification_preferences;
-CREATE POLICY notification_prefs_member_update ON senteloans_notification_preferences
+DROP POLICY IF EXISTS notification_prefs_member_update ON notification_preferences;
+CREATE POLICY notification_prefs_member_update ON notification_preferences
   FOR UPDATE
   USING (
     user_type = 'member'
     AND EXISTS (
-      SELECT 1 FROM senteloans_members c
+      SELECT 1 FROM members c
       WHERE c.id = user_id
         AND c.supabase_user_id = auth.uid()
         AND c.institution_id = institution_id
@@ -708,7 +708,7 @@ CREATE POLICY notification_prefs_member_update ON senteloans_notification_prefer
   WITH CHECK (
     user_type = 'member'
     AND EXISTS (
-      SELECT 1 FROM senteloans_members c
+      SELECT 1 FROM members c
       WHERE c.id = user_id
         AND c.supabase_user_id = auth.uid()
         AND c.institution_id = institution_id
@@ -716,39 +716,39 @@ CREATE POLICY notification_prefs_member_update ON senteloans_notification_prefer
   );
 
 -- Institution users can read and update their own preferences
-DROP POLICY IF EXISTS notification_prefs_user_select ON senteloans_notification_preferences;
-CREATE POLICY notification_prefs_user_select ON senteloans_notification_preferences
+DROP POLICY IF EXISTS notification_prefs_user_select ON notification_preferences;
+CREATE POLICY notification_prefs_user_select ON notification_preferences
   FOR SELECT
   USING (
     user_type = 'institution_user'
     AND EXISTS (
-      SELECT 1 FROM senteloans_users u
+      SELECT 1 FROM users u
       WHERE u.id = user_id
         AND u.supabase_user_id = auth.uid()
         AND u.institution_id = institution_id
     )
   );
 
-DROP POLICY IF EXISTS notification_prefs_user_insert ON senteloans_notification_preferences;
-CREATE POLICY notification_prefs_user_insert ON senteloans_notification_preferences
+DROP POLICY IF EXISTS notification_prefs_user_insert ON notification_preferences;
+CREATE POLICY notification_prefs_user_insert ON notification_preferences
   FOR INSERT
   WITH CHECK (
     user_type = 'institution_user'
     AND EXISTS (
-      SELECT 1 FROM senteloans_users u
+      SELECT 1 FROM users u
       WHERE u.id = user_id
         AND u.supabase_user_id = auth.uid()
         AND u.institution_id = institution_id
     )
   );
 
-DROP POLICY IF EXISTS notification_prefs_user_update ON senteloans_notification_preferences;
-CREATE POLICY notification_prefs_user_update ON senteloans_notification_preferences
+DROP POLICY IF EXISTS notification_prefs_user_update ON notification_preferences;
+CREATE POLICY notification_prefs_user_update ON notification_preferences
   FOR UPDATE
   USING (
     user_type = 'institution_user'
     AND EXISTS (
-      SELECT 1 FROM senteloans_users u
+      SELECT 1 FROM users u
       WHERE u.id = user_id
         AND u.supabase_user_id = auth.uid()
         AND u.institution_id = institution_id
@@ -757,7 +757,7 @@ CREATE POLICY notification_prefs_user_update ON senteloans_notification_preferen
   WITH CHECK (
     user_type = 'institution_user'
     AND EXISTS (
-      SELECT 1 FROM senteloans_users u
+      SELECT 1 FROM users u
       WHERE u.id = user_id
         AND u.supabase_user_id = auth.uid()
         AND u.institution_id = institution_id

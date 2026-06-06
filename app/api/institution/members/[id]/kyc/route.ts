@@ -28,19 +28,19 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
     const result = await runWithAuth(session.user.authUserId, async (client) => {
       const appUserRes = await client.query(
-        `SELECT id, institution_id FROM senteloans_users WHERE supabase_user_id = $1`,
+        `SELECT id, institution_id FROM users WHERE supabase_user_id = $1`,
         [session!.user!.authUserId]
       )
       const appUser = appUserRes.rows[0]
       if (!appUser) return { error: "forbidden" as const }
 
       const memberRes = await client.query(
-        `SELECT id, institution_id FROM senteloans_members WHERE id = $1 AND institution_id = $2`,
+        `SELECT id, institution_id FROM members WHERE id = $1 AND institution_id = $2`,
         [memberId, appUser.institution_id]
       )
       if (memberRes.rows.length === 0) return { error: "member_not_found" as const }
 
-      await client.query(`UPDATE senteloans_members SET ${column} = $1 WHERE id = $2 AND institution_id = $3`, [
+      await client.query(`UPDATE members SET ${column} = $1 WHERE id = $2 AND institution_id = $3`, [
         body.url,
         memberId,
         appUser.institution_id,

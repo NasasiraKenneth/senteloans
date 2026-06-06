@@ -26,8 +26,8 @@ async function resolveActorContext(client: any, authUserId: string): Promise<Act
          WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
          ELSE NULL
        END AS role
-     FROM senteloans_users u
-     LEFT JOIN senteloans_roles r ON r.id = u.role_id
+     FROM users u
+     LEFT JOIN roles r ON r.id = u.role_id
      WHERE u.supabase_user_id = $1
      LIMIT 1`,
     [authUserId],
@@ -46,8 +46,8 @@ async function hasPermission(client: any, actor: ActorContext, permission: strin
 
   const permRes = await client.query(
     `SELECT 1
-     FROM senteloans_role_permissions rp
-     JOIN senteloans_permissions p ON p.id = rp.permission_id
+     FROM role_permissions rp
+     JOIN permissions p ON p.id = rp.permission_id
      WHERE rp.role_id = $1
        AND rp.branch_id = $2
        AND p.name = $3
@@ -84,12 +84,12 @@ export async function GET(req: Request) {
       const allowed = await canManageRolePermissions(client, actor)
       if (!allowed) return { error: "forbidden" as const }
 
-      const branchRes = await client.query(`SELECT id, name FROM senteloans_branches WHERE id = $1 LIMIT 1`, [actor.branch_id])
+      const branchRes = await client.query(`SELECT id, name FROM branches WHERE id = $1 LIMIT 1`, [actor.branch_id])
       const branch = branchRes.rows[0] || { id: actor.branch_id, name: "Branch" }
 
       const rolesRes = await client.query(
         `SELECT id, name, description
-         FROM senteloans_roles
+         FROM roles
          WHERE name <> ALL($1::text[])
          ORDER BY name ASC`,
         [EXCLUDED_ROLE_NAMES],
@@ -97,13 +97,13 @@ export async function GET(req: Request) {
 
       const permsRes = await client.query(
         `SELECT id, name, COALESCE(module, 'other') AS module
-         FROM senteloans_permissions
+         FROM permissions
          ORDER BY module ASC, name ASC`,
       )
 
       const rpRes = await client.query(
         `SELECT role_id, permission_id
-         FROM senteloans_role_permissions
+         FROM role_permissions
          WHERE branch_id = $1`,
         [actor.branch_id],
       )
@@ -177,7 +177,7 @@ export async function PUT(req: Request) {
       if (!allowed) return { error: "forbidden" as const }
 
       const roleRes = await client.query(
-        `SELECT id, name FROM senteloans_roles WHERE id = $1 AND name <> ALL($2::text[]) LIMIT 1`,
+        `SELECT id, name FROM roles WHERE id = $1 AND name <> ALL($2::text[]) LIMIT 1`,
         [roleId, EXCLUDED_ROLE_NAMES],
       )
       const targetRole = roleRes.rows[0]
@@ -188,7 +188,7 @@ export async function PUT(req: Request) {
 
       if (permissionIds.length > 0) {
         const validRes = await client.query(
-          `SELECT id FROM senteloans_permissions WHERE id = ANY($1::uuid[])`,
+          `SELECT id FROM permissions WHERE id = ANY($1::uuid[])`,
           [permissionIds],
         )
         if (validRes.rows.length !== permissionIds.length) {
@@ -198,7 +198,7 @@ export async function PUT(req: Request) {
 
       let finalIds = [...permissionIds]
       if (targetRole.name === "Admin" && !isSuperAdminActor) {
-        const erpRes = await client.query(`SELECT id FROM senteloans_permissions WHERE name = 'edit_role_permissions' LIMIT 1`)
+        const erpRes = await client.query(`SELECT id FROM permissions WHERE name = 'edit_role_permissions' LIMIT 1`)
         const erpId = erpRes.rows[0]?.id as string | undefined
         if (erpId && !finalIds.includes(erpId)) {
           finalIds.push(erpId)
@@ -207,10 +207,10 @@ export async function PUT(req: Request) {
 
       await client.query("BEGIN")
       try {
-        await client.query(`DELETE FROM senteloans_role_permissions WHERE branch_id = $1 AND role_id = $2`, [actor.branch_id, roleId])
+        await client.query(`DELETE FROM role_permissions WHERE branch_id = $1 AND role_id = $2`, [actor.branch_id, roleId])
         if (finalIds.length > 0) {
           await client.query(
-            `INSERT INTO senteloans_role_permissions (branch_id, role_id, permission_id)
+            `INSERT INTO role_permissions (branch_id, role_id, permission_id)
              SELECT $1, $2, unnest($3::uuid[])`,
             [actor.branch_id, roleId, finalIds],
           )
@@ -222,7 +222,7 @@ export async function PUT(req: Request) {
       }
 
       const rpRes = await client.query(
-        `SELECT permission_id FROM senteloans_role_permissions WHERE branch_id = $1 AND role_id = $2`,
+        `SELECT permission_id FROM role_permissions WHERE branch_id = $1 AND role_id = $2`,
         [actor.branch_id, roleId],
       )
       return { permissionIds: rpRes.rows.map((r: { permission_id: string }) => r.permission_id) }

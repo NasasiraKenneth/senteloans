@@ -4,12 +4,12 @@
 SET search_path = public;
 
 -- 1. Drop the existing constraint
-ALTER TABLE senteloans_transactions
+ALTER TABLE transactions
   DROP CONSTRAINT IF EXISTS chk_transactions_reference;
 
 -- 2. Re-create with exceptions for fee/share transactions
 -- Some seed data may include "Shares Purchase" rows without account_id/loan_id.
-ALTER TABLE senteloans_transactions
+ALTER TABLE transactions
   ADD CONSTRAINT chk_transactions_reference CHECK (
     type::text IN ('Fee Payment', 'Shares Purchase') OR
     (
@@ -17,6 +17,6 @@ ALTER TABLE senteloans_transactions
       loan_id IS NOT NULL OR
       sacco_loan_id IS NOT NULL OR
       member_id IS NOT NULL OR
-      client_id IS NOT NULL
+      third_party_agent_id IS NOT NULL
     )
   );

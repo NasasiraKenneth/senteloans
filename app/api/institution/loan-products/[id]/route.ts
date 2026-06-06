@@ -27,8 +27,8 @@ async function resolveActorContext(client: any, authUserId: string): Promise<Act
          WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
          ELSE NULL
        END AS role
-     FROM senteloans_users u
-     LEFT JOIN senteloans_roles r ON r.id = u.role_id
+     FROM users u
+     LEFT JOIN roles r ON r.id = u.role_id
      WHERE u.supabase_user_id = $1
      LIMIT 1`,
     [authUserId]
@@ -43,8 +43,8 @@ async function hasPermission(client: any, actor: ActorContext, permission: strin
 
   const permRes = await client.query(
     `SELECT 1
-     FROM senteloans_role_permissions rp
-     JOIN senteloans_permissions p ON p.id = rp.permission_id
+     FROM role_permissions rp
+     JOIN permissions p ON p.id = rp.permission_id
      WHERE rp.role_id = $1
        AND rp.branch_id = $2
        AND p.name = $3
@@ -115,7 +115,7 @@ const buildNextProductCode = async (
   const prefix = `${institutionInitials}-${shortCode}-`
   const params: unknown[] = [institutionId, `${prefix}%`]
   let sql = `SELECT product_code
-             FROM senteloans_loan_products
+             FROM loan_products
              WHERE institution_id = $1
                AND product_code LIKE $2`
   if (excludeProductId) {
@@ -166,7 +166,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
                 interest_rate, minimum_tenure_months, maximum_tenure_months,
                 interest_calculation_method, collateral_required, guarantors_required,
                 processing_fee_percentage, insurance_required, status
-         FROM senteloans_loan_products
+         FROM loan_products
          WHERE ${scope.clause}`,
         [id, ...scope.params]
       )
@@ -175,7 +175,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 
       const eligRes = await client.query(
         `SELECT id, eligibility, status
-         FROM senteloans_loan_product_eligibilities
+         FROM loan_product_eligibilities
          WHERE loan_product_id = $1
          ORDER BY created_at ASC`,
         [id]
@@ -253,8 +253,8 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
                 lp.interest_calculation_method, lp.collateral_required, lp.guarantors_required,
                 lp.processing_fee_percentage, lp.insurance_required, lp.status,
                 $2::uuid AS institution_id, i.name AS institution_name
-         FROM senteloans_loan_products lp
-         JOIN senteloans_institutions i ON i.id = $2
+         FROM loan_products lp
+         JOIN institutions i ON i.id = $2
          WHERE ${scope.clause}`,
         [id, ...scope.params]
       )
@@ -294,13 +294,13 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       try {
         const oldEligRes = await client.query(
           `SELECT eligibility, status
-           FROM senteloans_loan_product_eligibilities
+           FROM loan_product_eligibilities
            WHERE loan_product_id = $1
            ORDER BY created_at ASC`,
           [id]
         )
         await client.query(
-          `UPDATE senteloans_loan_products SET
+          `UPDATE loan_products SET
              product_name = $1, product_code = $2, description = $3,
              minimum_amount = $4, maximum_amount = $5, interest_rate = $6,
              minimum_tenure_months = $7, maximum_tenure_months = $8,
@@ -323,13 +323,13 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
         )
 
         await client.query(
-          `DELETE FROM senteloans_loan_product_eligibilities WHERE loan_product_id = $1`,
+          `DELETE FROM loan_product_eligibilities WHERE loan_product_id = $1`,
           [productId]
         )
 
         for (const item of normalizedEligibilities) {
           await client.query(
-            `INSERT INTO senteloans_loan_product_eligibilities (loan_product_id, eligibility, status)
+            `INSERT INTO loan_product_eligibilities (loan_product_id, eligibility, status)
              VALUES ($1, $2, $3)
              ON CONFLICT (loan_product_id, eligibility)
              DO UPDATE SET status = EXCLUDED.status, updated_at = NOW()`,
@@ -337,7 +337,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
           )
         }
         await auditLogger.logUpdate(
-          "senteloans_loan_products",
+          "loan_products",
           productId,
           {
             product_name: current.product_name,

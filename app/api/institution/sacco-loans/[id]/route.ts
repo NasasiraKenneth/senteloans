@@ -27,8 +27,8 @@ async function resolveActorContext(client: any, authUserId: string): Promise<Act
          WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
          ELSE NULL
        END AS role
-     FROM senteloans_users u
-     LEFT JOIN senteloans_roles r ON r.id = u.role_id
+     FROM users u
+     LEFT JOIN roles r ON r.id = u.role_id
      WHERE u.supabase_user_id = $1
      LIMIT 1`,
     [authUserId],
@@ -43,8 +43,8 @@ async function hasPermission(client: any, actor: ActorContext, permission: strin
 
   const permRes = await client.query(
     `SELECT 1
-     FROM senteloans_role_permissions rp
-     JOIN senteloans_permissions p ON p.id = rp.permission_id
+     FROM role_permissions rp
+     JOIN permissions p ON p.id = rp.permission_id
      WHERE rp.role_id = $1
        AND rp.branch_id = $2
        AND p.name = $3
@@ -127,8 +127,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
            l.created_at,
            l.updated_at,
            COALESCE(c.name, '') AS client_name
-         FROM senteloans_institution_loans l
-         LEFT JOIN senteloans_clients c ON c.id = l.client_id
+         FROM institution_loans l
+         LEFT JOIN clients c ON c.id = l.client_id
          WHERE ${where}
          LIMIT 1`,
         qparams,
@@ -248,7 +248,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         }
 
         const loanRes = await client.query<{ status: string; tenure_months: number; next_payment_date: string | null; maturity_date: string | null; monthly_payment: number | null }>(
-          `SELECT l.status, l.tenure_months, l.next_payment_date, l.maturity_date, l.monthly_payment FROM senteloans_institution_loans l WHERE ${where} LIMIT 1`,
+          `SELECT l.status, l.tenure_months, l.next_payment_date, l.maturity_date, l.monthly_payment FROM institution_loans l WHERE ${where} LIMIT 1`,
           qparams,
         )
         const row = loanRes.rows[0]
@@ -271,7 +271,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
           : [actor.id, id, actor.institution_id, nextPaymentDate, maturityDate, monthlyPayment, actor.branch_id]
 
         await client.query(
-          `UPDATE senteloans_institution_loans
+          `UPDATE institution_loans
            SET status = 'Active'::loan_status_type,
                next_payment_date = $4::date,
                maturity_date = $5::date,
@@ -282,7 +282,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
           activeUpdateParams,
         )
         await auditLogger.logUpdate(
-          "senteloans_institution_loans",
+          "institution_loans",
           id,
           {
             status: row.status,
@@ -313,7 +313,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       }
 
       const loanRes = await client.query<{ status: string; approved_at: string | null; rejected_at: string | null }>(
-        `SELECT l.status, l.approved_at, l.rejected_at FROM senteloans_institution_loans l WHERE ${where} LIMIT 1`,
+        `SELECT l.status, l.approved_at, l.rejected_at FROM institution_loans l WHERE ${where} LIMIT 1`,
         qparams,
       )
       const row = loanRes.rows[0]
@@ -327,7 +327,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       if (nextStatus === "Approved") {
         const approvedAt = new Date().toISOString()
         await client.query(
-          `UPDATE senteloans_institution_loans
+          `UPDATE institution_loans
            SET status = 'Approved'::loan_status_type,
                approved_at = NOW(),
                rejected_at = NULL,
@@ -337,7 +337,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
           updateParams,
         )
         await auditLogger.logUpdate(
-          "senteloans_institution_loans",
+          "institution_loans",
           id,
           { status: row.status, approved_at: row.approved_at, rejected_at: row.rejected_at },
           { status: "Approved", approved_at: approvedAt, rejected_at: null },
@@ -349,7 +349,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       } else {
         const rejectedAt = new Date().toISOString()
         await client.query(
-          `UPDATE senteloans_institution_loans
+          `UPDATE institution_loans
            SET status = 'Rejected'::loan_status_type,
                rejected_at = NOW(),
                approved_at = NULL,
@@ -359,7 +359,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
           updateParams,
         )
         await auditLogger.logUpdate(
-          "senteloans_institution_loans",
+          "institution_loans",
           id,
           { status: row.status, approved_at: row.approved_at, rejected_at: row.rejected_at },
           { status: "Rejected", approved_at: null, rejected_at: rejectedAt },

@@ -58,9 +58,9 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
            b.name AS branch_name,
            g.created_at,
            g.updated_at
-         FROM senteloans_grants g
-         JOIN senteloans_clients c ON c.id = g.client_id
-         LEFT JOIN senteloans_branches b ON b.id = g.branch_id
+         FROM grants g
+         JOIN clients c ON c.id = g.client_id
+         LEFT JOIN branches b ON b.id = g.branch_id
          WHERE ${where}
          LIMIT 1`,
         values,
@@ -148,7 +148,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         `SELECT id, branch_id, client_id,
                 COALESCE(total_amount, 0)::numeric AS total_amount,
                 COALESCE(available_balance, 0)::numeric AS available_balance
-         FROM senteloans_grants g
+         FROM grants g
          WHERE ${where}
          LIMIT 1`,
         values,
@@ -164,14 +164,14 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
       if (isSuperAdmin(actor) && branchId) {
         const branchCheck = await client.query(
-          `SELECT 1 FROM senteloans_branches WHERE id = $1::uuid AND institution_id = $2::uuid LIMIT 1`,
+          `SELECT 1 FROM branches WHERE id = $1::uuid AND institution_id = $2::uuid LIMIT 1`,
           [targetBranchId, actor.institution_id],
         )
         if ((branchCheck.rowCount ?? 0) === 0) return { error: "invalid_branch" as const }
       }
 
       const clientCheck = await client.query(
-        `SELECT 1 FROM senteloans_clients
+        `SELECT 1 FROM clients
          WHERE id = $1::uuid AND institution_id = $2::uuid AND branch_id = $3::uuid
          LIMIT 1`,
         [clientId, actor.institution_id, targetBranchId],
@@ -187,7 +187,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       }
 
       const updateRes = await client.query(
-        `UPDATE senteloans_grants g
+        `UPDATE grants g
          SET client_id = $1::uuid,
              total_amount = $2,
              available_balance = $3,

@@ -40,8 +40,8 @@ async function resolveActorContext(client: any, authUserId: string): Promise<Act
          WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
          ELSE NULL
        END AS role
-     FROM senteloans_users u
-     LEFT JOIN senteloans_roles r ON r.id = u.role_id
+     FROM users u
+     LEFT JOIN roles r ON r.id = u.role_id
      WHERE u.supabase_user_id = $1
      LIMIT 1`,
     [authUserId]
@@ -56,8 +56,8 @@ async function hasPermission(client: any, actor: ActorContext, permission: strin
 
   const permRes = await client.query(
     `SELECT 1
-     FROM senteloans_role_permissions rp
-     JOIN senteloans_permissions p ON p.id = rp.permission_id
+     FROM role_permissions rp
+     JOIN permissions p ON p.id = rp.permission_id
      WHERE rp.role_id = $1
        AND rp.branch_id = $2
        AND p.name = $3
@@ -104,7 +104,7 @@ export async function GET(
             i.subtotal, i.vat, i.total_amount, i.inwords, i.invoice_type, i.status,
             i.created_by, i.created_at, i.modified_by, i.updated_at,
             COALESCE((
-              SELECT SUM(ip.amount) FROM senteloans_invoice_payments ip WHERE ip.invoice_id = i.id
+              SELECT SUM(ip.amount) FROM invoice_payments ip WHERE ip.invoice_id = i.id
             ), 0)::numeric AS paid_amount,
             MAX(m.full_name) AS member_name,
             MAX(c.name) AS client_name,
@@ -125,10 +125,10 @@ export async function GET(
               '[]'::json
             ) AS items
 
-        FROM senteloans_invoices i
-        LEFT JOIN senteloans_members m ON m.id = i.member_id
-        LEFT JOIN senteloans_clients c ON c.id = i.client_id
-        LEFT JOIN senteloans_invoice_items p 
+        FROM invoices i
+        LEFT JOIN members m ON m.id = i.member_id
+        LEFT JOIN clients c ON c.id = i.client_id
+        LEFT JOIN invoice_items p 
           ON i.id = p.invoice_id
 
         WHERE i.id = $1
@@ -279,8 +279,8 @@ export async function PUT(req: Request,
              i.inwords,
              i.invoice_type,
              i.status,
-             (SELECT COUNT(*)::int FROM senteloans_invoice_items ii WHERE ii.invoice_id = i.id) AS item_count
-           FROM senteloans_invoices i
+             (SELECT COUNT(*)::int FROM invoice_items ii WHERE ii.invoice_id = i.id) AS item_count
+           FROM invoices i
            WHERE i.id = $1 AND i.institution_id = $2
            ${isSuperAdmin ? "" : "AND i.branch_id = $3"}`,
           isSuperAdmin ? [invoiceId, actor.institution_id] : [invoiceId, actor.institution_id, actor.branch_id],
@@ -304,13 +304,13 @@ export async function PUT(req: Request,
 
         if (memberId) {
           const memberRes = await client.query<{ id: string }>(
-            `SELECT id FROM senteloans_members WHERE id = $1 AND institution_id = $2`,
+            `SELECT id FROM members WHERE id = $1 AND institution_id = $2`,
             [memberId, actor.institution_id],
           );
           if (memberRes.rows.length === 0) return { error: "member_not_found" as const };
         } else {
           const extClientRes = await client.query<{ id: string }>(
-            `SELECT id FROM senteloans_clients WHERE id = $1 AND institution_id = $2`,
+            `SELECT id FROM clients WHERE id = $1 AND institution_id = $2`,
             [clientId, actor.institution_id],
           );
           if (extClientRes.rows.length === 0) return { error: "client_not_found" as const };
@@ -360,7 +360,7 @@ export async function PUT(req: Request,
         await client.query("BEGIN");
         try {
           await client.query(
-            `UPDATE senteloans_invoices
+            `UPDATE invoices
            SET member_id = $1,
                client_id = $2,
                invoice_date = $3,
@@ -395,12 +395,12 @@ export async function PUT(req: Request,
           );
 
           await client.query(
-            `DELETE FROM senteloans_invoice_items WHERE invoice_id = $1`,
+            `DELETE FROM invoice_items WHERE invoice_id = $1`,
             [invoiceId],
           );
           for (const item of normalizedItems) {
             await client.query(
-              `INSERT INTO senteloans_invoice_items (
+              `INSERT INTO invoice_items (
               invoice_id, unit, description, quantity, unit_price, total_price, vatinclusive
             ) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
               [
@@ -430,9 +430,9 @@ export async function PUT(req: Request,
             item_count: normalizedItems.length,
           })
           await client.query(
-            `INSERT INTO senteloans_audit_logs
+            `INSERT INTO audit_logs
               (institution_id, branch_id, user_id, table_name, category, operation, record_id, old_values, new_values)
-             VALUES ($1, $2, $3, 'senteloans_invoices', 'invoices', 'UPDATE', $4, $5, $6)`,
+             VALUES ($1, $2, $3, 'invoices', 'invoices', 'UPDATE', $4, $5, $6)`,
             [
               actor.institution_id,
               existing.branch_id ?? actor.branch_id,
@@ -517,7 +517,7 @@ export async function PATCH(
 
       const prevRes = await client.query<{ status: string; branch_id: string }>(
         `SELECT status, branch_id
-         FROM senteloans_invoices
+         FROM invoices
          WHERE id = $1 AND institution_id = $2
          ${isSuperAdmin ? "" : "AND branch_id = $3"}`,
         isSuperAdmin ? [id, actor.institution_id] : [id, actor.institution_id, actor.branch_id],
@@ -527,7 +527,7 @@ export async function PATCH(
       const invoiceBranchId = prevRes.rows[0]?.branch_id || actor.branch_id
 
       const updateRes = await client.query<{ id: string; branch_id: string }>(
-        `UPDATE senteloans_invoices
+        `UPDATE invoices
          SET status = $1, modified_by = $2, updated_at = NOW()
          WHERE id = $3 AND institution_id = $4
          ${isSuperAdmin ? "" : "AND branch_id = $5"}
@@ -539,10 +539,10 @@ export async function PATCH(
       if (updateRes.rows.length === 0) return { error: "invoice_not_found" as const };
 
       await client.query(
-        `INSERT INTO senteloans_audit_logs
+        `INSERT INTO audit_logs
           (institution_id, branch_id, user_id, table_name, category, operation, record_id, old_values, new_values)
          VALUES
-          ($1, $2, $3, 'senteloans_invoices', 'invoices', 'UPDATE', $4, $5, $6)`,
+          ($1, $2, $3, 'invoices', 'invoices', 'UPDATE', $4, $5, $6)`,
         [
           actor.institution_id,
           invoiceBranchId,

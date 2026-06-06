@@ -62,7 +62,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       const existing = await client.query(
         `SELECT id, branch_id, bank_name, bank_account_number,
                 COALESCE(total_amount, 0)::numeric AS total_amount
-         FROM senteloans_bank_accounts ba
+         FROM bank_accounts ba
          WHERE ${where}
          LIMIT 1`,
         values,
@@ -91,7 +91,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       scopedWhere += ` AND COALESCE(ba.total_amount, 0) + $1 >= 0`
 
       const updateRes = await client.query(
-        `UPDATE senteloans_bank_accounts ba
+        `UPDATE bank_accounts ba
          SET total_amount = COALESCE(total_amount, 0) + $1,
              modified_by = $2::uuid,
              updated_at = NOW()

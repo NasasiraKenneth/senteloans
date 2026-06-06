@@ -27,8 +27,8 @@ async function resolveActorContext(client: any, authUserId: string): Promise<Act
          WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
          ELSE NULL
        END AS role
-     FROM senteloans_users u
-     LEFT JOIN senteloans_roles r ON r.id = u.role_id
+     FROM users u
+     LEFT JOIN roles r ON r.id = u.role_id
      WHERE u.supabase_user_id = $1
      LIMIT 1`,
     [authUserId]
@@ -43,8 +43,8 @@ async function hasPermission(client: any, actor: ActorContext, permission: strin
 
   const permRes = await client.query(
     `SELECT 1
-     FROM senteloans_role_permissions rp
-     JOIN senteloans_permissions p ON p.id = rp.permission_id
+     FROM role_permissions rp
+     JOIN permissions p ON p.id = rp.permission_id
      WHERE rp.role_id = $1
        AND rp.branch_id = $2
        AND p.name = $3
@@ -108,10 +108,10 @@ export async function GET(
            c.updated_at,
            cu.full_name AS created_by_name,
            mu.full_name AS modified_by_name
-         FROM senteloans_clients c
-         LEFT JOIN senteloans_branches b ON b.id = c.branch_id
-         LEFT JOIN senteloans_users cu ON cu.id = c.created_by
-         LEFT JOIN senteloans_users mu ON mu.id = c.modified_by
+         FROM clients c
+         LEFT JOIN branches b ON b.id = c.branch_id
+         LEFT JOIN users cu ON cu.id = c.created_by
+         LEFT JOIN users mu ON mu.id = c.modified_by
          WHERE ${scope.clause}
          LIMIT 1`,
         [id, actor.institution_id, ...scope.params]
@@ -189,7 +189,7 @@ export async function PATCH(
 
       const existingRes = await client.query(
         `SELECT c.id, c.name, c.status, c.email, c.address, c.phone
-         FROM senteloans_clients c
+         FROM clients c
          WHERE ${scope.clause}
          LIMIT 1`,
         [id, actor.institution_id, ...scope.params]
@@ -198,7 +198,7 @@ export async function PATCH(
       const previous = existingRes.rows[0]
 
       const updateRes = await client.query(
-        `UPDATE senteloans_clients c
+        `UPDATE clients c
          SET
            name = $4,
            status = $5,
@@ -216,7 +216,7 @@ export async function PATCH(
       if (updateRes.rows.length === 0) return { error: "client_not_found" as const }
       const updated = updateRes.rows[0]
       await auditLogger.logUpdate(
-        "senteloans_clients",
+        "clients",
         id,
         {
           name: previous.name,

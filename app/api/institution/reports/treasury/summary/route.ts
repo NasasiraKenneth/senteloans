@@ -17,17 +17,17 @@ import { runWithAuth } from "@/lib/db"
  * Currently scoped to compute Total Assets per the formula:
  *
  *   totalAssets =
- *       SUM(senteloans_daily_finances.total_amount)        -- yesterday's day-end balance
- *     + SUM(senteloans_loans.outstanding_balance)          -- only positive balances
- *     + SUM(senteloans_investments.initial_amount)
- *     + SUM(senteloans_investment_cashflows.amount)        -- WHERE category = 'capital'
- *     + SUM(senteloans_expense_cashflows.amount)           -- WHERE linked expense.type='Capital-expenses' AND cashflow.status='Completed'
+ *       SUM(daily_finances.total_amount)        -- yesterday's day-end balance
+ *     + SUM(loans.outstanding_balance)          -- only positive balances
+ *     + SUM(investments.initial_amount)
+ *     + SUM(investment_cashflows.amount)        -- WHERE category = 'capital'
+ *     + SUM(expense_cashflows.amount)           -- WHERE linked expense.type='Capital-expenses' AND cashflow.status='Completed'
  *
  * And Total Liabilities per the formula:
  *
  *   totalLiabilities =
- *       SUM(senteloans_institution_loans.outstanding_balance)  -- only positive balances
- *     + SUM(senteloans_unclaimed_deposits.amount)              -- status != 'claimed'
+ *       SUM(institution_loans.outstanding_balance)  -- only positive balances
+ *     + SUM(unclaimed_deposits.amount)              -- status != 'claimed'
  *
  * The endpoint will be extended tab-by-tab as we wire additional KPIs
  * (equity, accumulated profit, etc.).
@@ -74,7 +74,7 @@ export async function GET(req: Request) {
         `SELECT
            COALESCE(SUM(df.total_amount), 0)::numeric AS daily_total,
            MAX(df.created_at::date) AS as_of
-         FROM senteloans_daily_finances df
+         FROM daily_finances df
          WHERE ${dailyScope.where}
            AND df.total_amount > 0
            AND df.created_at::date = (CURRENT_DATE - INTERVAL '1 day')::date`,
@@ -84,7 +84,7 @@ export async function GET(req: Request) {
       // 2. Outstanding member loans.
       const loansRes = await client.query(
         `SELECT COALESCE(SUM(l.outstanding_balance), 0)::numeric AS loans_outstanding
-         FROM senteloans_loans l
+         FROM loans l
          WHERE ${loansScope.where}
            AND l.outstanding_balance > 0`,
         loansScope.values,
@@ -93,7 +93,7 @@ export async function GET(req: Request) {
       // 3a. Investment principal (initial_amount across all investments in scope).
       const invInitialRes = await client.query(
         `SELECT COALESCE(SUM(i.initial_amount), 0)::numeric AS initial_total
-         FROM senteloans_investments i
+         FROM investments i
          WHERE ${invScope.where}`,
         invScope.values,
       )
@@ -101,8 +101,8 @@ export async function GET(req: Request) {
       // 3b. Cashflows recorded against those investments, capital category.
       const invCapitalRes = await client.query(
         `SELECT COALESCE(SUM(ic.amount), 0)::numeric AS capital_total
-         FROM senteloans_investment_cashflows ic
-         JOIN senteloans_investments i ON i.id = ic.investment_id
+         FROM investment_cashflows ic
+         JOIN investments i ON i.id = ic.investment_id
          WHERE ${invScope.where}
            AND lower(trim(ic.category)) = 'capital'`,
         invScope.values,
@@ -111,8 +111,8 @@ export async function GET(req: Request) {
       // 4. Capital expense cashflows that have been completed.
       const capexRes = await client.query(
         `SELECT COALESCE(SUM(ec.amount), 0)::numeric AS capex_total
-         FROM senteloans_expense_cashflows ec
-         JOIN senteloans_expenses e ON e.id = ec.expense_id
+         FROM expense_cashflows ec
+         JOIN expenses e ON e.id = ec.expense_id
          WHERE ${expScope.where}
            AND lower(trim(e.type)) = 'capital-expenses'
            AND lower(trim(ec.status)) = 'completed'`,
@@ -122,7 +122,7 @@ export async function GET(req: Request) {
       // 5. Sacco loans the institution owes (outstanding only).
       const saccoLoansRes = await client.query(
         `SELECT COALESCE(SUM(sl.outstanding_balance), 0)::numeric AS sacco_outstanding
-         FROM senteloans_institution_loans sl
+         FROM institution_loans sl
          WHERE ${saccoLoansScope.where}
            AND sl.outstanding_balance > 0`,
         saccoLoansScope.values,
@@ -131,7 +131,7 @@ export async function GET(req: Request) {
       // 6. Unclaimed deposits we still owe back (anything that hasn't been claimed).
       const unclaimedRes = await client.query(
         `SELECT COALESCE(SUM(ud.amount), 0)::numeric AS unclaimed_total
-         FROM senteloans_unclaimed_deposits ud
+         FROM unclaimed_deposits ud
          WHERE ${unclaimedScope.where}
            AND lower(trim(coalesce(ud.status, 'unclaimed'))) <> 'claimed'`,
         unclaimedScope.values,

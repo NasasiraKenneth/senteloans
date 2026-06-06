@@ -51,8 +51,8 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
          p.contribution_amount,
          p.ownership_percentage,
          i.branch_id
-       FROM senteloans_investment_partners p
-       JOIN senteloans_investments i ON i.id = p.investment_id
+       FROM investment_partners p
+       JOIN investments i ON i.id = p.investment_id
        WHERE p.id = $7
          AND p.investment_id = $8
          AND i.institution_id = $9${branchClause}`,
@@ -70,7 +70,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     }
 
     const upd = await client.query(
-      `UPDATE senteloans_investment_partners p
+      `UPDATE investment_partners p
        SET counterparty_id = $1,
            role = $2,
            status = $3,
@@ -78,7 +78,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
            contribution_amount = $5,
            ownership_percentage = $6,
            updated_at = NOW()
-       FROM senteloans_investments i
+       FROM investments i
        WHERE p.id = $7
          AND p.investment_id = $8
          AND i.id = p.investment_id
@@ -88,7 +88,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     )
     if (upd.rowCount === 0) return NextResponse.json({ error: "partner_not_found" }, { status: 404 })
     await auditLogger.logUpdate(
-      "senteloans_investment_partners",
+      "investment_partners",
       partnerId,
       {
         counterparty_id: prev.counterparty_id,
@@ -131,7 +131,7 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
 
     const investmentRes = await client.query(
       `SELECT i.id, i.status, i.branch_id
-       FROM senteloans_investments i
+       FROM investments i
        WHERE i.id = $1
          AND i.institution_id = $2
          ${isSuperAdmin ? "" : "AND i.branch_id = $3"}
@@ -154,7 +154,7 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
          p.contribution_percentage,
          p.contribution_amount,
          p.ownership_percentage
-       FROM senteloans_investment_partners p
+       FROM investment_partners p
        WHERE p.id = $1 AND p.investment_id = $2
        LIMIT 1`,
       [partnerId, id],
@@ -163,14 +163,14 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
     const prevP = prevPartnerRes.rows[0] as Record<string, unknown>
 
     const delRes = await client.query(
-      `DELETE FROM senteloans_investment_partners
+      `DELETE FROM investment_partners
        WHERE id = $1 AND investment_id = $2
        RETURNING id`,
       [partnerId, id],
     )
     if (delRes.rowCount === 0) return NextResponse.json({ error: "partner_not_found" }, { status: 404 })
     await auditLogger.logDelete(
-      "senteloans_investment_partners",
+      "investment_partners",
       partnerId,
       {
         investment_id: id,

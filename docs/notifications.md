@@ -12,7 +12,7 @@ In-app notifications for staff (institution dashboard) and members (client porta
 Schema: `scripts/01-create-schema.sql` (sections 17 & 18). RLS policies: `scripts/02-row-level-security.sql`.
 
 > **Migrations (run in order on DBs that pre-date notifications):**
-> 1. `scripts/29-create-notifications-tables.sql` — creates tables + indexes
+> 1. `scripts/01-create-schema.sql` (sections 17–18) — creates tables + indexes
 > 2. `scripts/30-normalize-notification-recipient-type.sql` — backfills legacy `'client'` → `'member'`, tightens CHECK constraints
 >
 > Or run `npm run db:migrate` (picks up both in numeric order). Safe to re-run.
@@ -54,7 +54,7 @@ UI: `components/notification-bell.tsx` (polls every 30s) + `components/notificat
 **First-time DB setup:**
 
 ```bash
-psql "$DATABASE_URL" -f scripts/29-create-notifications-tables.sql
+npm run db:migrate
 psql "$DATABASE_URL" -f scripts/30-normalize-notification-recipient-type.sql
 ```
 

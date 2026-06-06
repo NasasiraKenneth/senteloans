@@ -55,8 +55,8 @@ async function resolveActorContext(client: any, authUserId: string): Promise<Act
          WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
          ELSE NULL
        END AS role
-     FROM senteloans_users u
-     LEFT JOIN senteloans_roles r ON r.id = u.role_id
+     FROM users u
+     LEFT JOIN roles r ON r.id = u.role_id
      WHERE u.supabase_user_id = $1
      LIMIT 1`,
     [authUserId]
@@ -70,8 +70,8 @@ async function hasPermission(client: any, actor: ActorContext, permission: strin
   if (!actor.role_id || !actor.branch_id) return false
   const permRes = await client.query(
     `SELECT 1
-     FROM senteloans_role_permissions rp
-     JOIN senteloans_permissions p ON p.id = rp.permission_id
+     FROM role_permissions rp
+     JOIN permissions p ON p.id = rp.permission_id
      WHERE rp.role_id = $1
        AND rp.branch_id = $2
        AND p.name = $3
@@ -217,7 +217,7 @@ export async function GET(req: Request) {
       if (disbursedDateStart) {
         where += ` AND EXISTS (
           SELECT 1
-          FROM senteloans_loan_disbursements ld
+          FROM loan_disbursements ld
           WHERE ld.loan_id = l.id
             AND ld.disbursement_date IS NOT NULL
             AND ld.disbursement_date >= (($${idx}::timestamp AT TIME ZONE 'Africa/Nairobi')::date)
@@ -228,7 +228,7 @@ export async function GET(req: Request) {
       if (disbursedDateEnd) {
         where += ` AND EXISTS (
           SELECT 1
-          FROM senteloans_loan_disbursements ld
+          FROM loan_disbursements ld
           WHERE ld.loan_id = l.id
             AND ld.disbursement_date IS NOT NULL
             AND ld.disbursement_date <= (($${idx}::timestamp AT TIME ZONE 'Africa/Nairobi')::date)
@@ -257,7 +257,7 @@ export async function GET(req: Request) {
            l.next_payment_date,
            l.disbursement_date,
            l.reviewed_by
-         FROM senteloans_loans l
+         FROM loans l
          WHERE ${where}
          ORDER BY l.application_date DESC, l.created_at DESC`,
         params
@@ -291,31 +291,31 @@ export async function GET(req: Request) {
         }
       > = {}
       if (memberIds.length > 0) {
-        const mRes = await client.query(`SELECT id, full_name, member_number FROM senteloans_members WHERE id = ANY($1::uuid[])`, [memberIds])
+        const mRes = await client.query(`SELECT id, full_name, member_number FROM members WHERE id = ANY($1::uuid[])`, [memberIds])
         memberMap = Object.fromEntries(
           mRes.rows.map((m: { id: string; full_name: string; member_number: string }) => [m.id, { name: m.full_name, number: m.member_number }])
         )
       }
       if (productIds.length > 0) {
-        const pRes = await client.query(`SELECT id, product_name FROM senteloans_loan_products WHERE id = ANY($1::uuid[])`, [productIds])
+        const pRes = await client.query(`SELECT id, product_name FROM loan_products WHERE id = ANY($1::uuid[])`, [productIds])
         productMap = Object.fromEntries(pRes.rows.map((p: { id: string; product_name: string }) => [p.id, p.product_name]))
       }
       if (createdByIds.length > 0) {
-        const uRes = await client.query(`SELECT id, full_name FROM senteloans_users WHERE id = ANY($1::uuid[])`, [createdByIds])
+        const uRes = await client.query(`SELECT id, full_name FROM users WHERE id = ANY($1::uuid[])`, [createdByIds])
         creatorMap = Object.fromEntries(uRes.rows.map((u: { id: string; full_name: string }) => [u.id, u.full_name || ""]))
       }
       if (approvedByIds.length > 0) {
-        const aRes = await client.query(`SELECT id, full_name FROM senteloans_users WHERE id = ANY($1::uuid[])`, [approvedByIds])
+        const aRes = await client.query(`SELECT id, full_name FROM users WHERE id = ANY($1::uuid[])`, [approvedByIds])
         approvedByMap = Object.fromEntries(aRes.rows.map((u: { id: string; full_name: string }) => [u.id, u.full_name || ""]))
       }
       if (reviewedByIds.length > 0) {
-        const rRes = await client.query(`SELECT id, full_name FROM senteloans_users WHERE id = ANY($1::uuid[])`, [reviewedByIds])
+        const rRes = await client.query(`SELECT id, full_name FROM users WHERE id = ANY($1::uuid[])`, [reviewedByIds])
         reviewedByMap = Object.fromEntries(rRes.rows.map((u: { id: string; full_name: string }) => [u.id, u.full_name || ""]))
       }
       if (loanIds.length > 0) {
         const dRes = await client.query(
           `SELECT loan_id, created_by
-           FROM senteloans_loan_disbursements
+           FROM loan_disbursements
            WHERE loan_id = ANY($1::uuid[])
              AND created_by IS NOT NULL
            ORDER BY loan_id, created_at ASC`,
@@ -324,7 +324,7 @@ export async function GET(req: Request) {
         const disburserIds = [...new Set(dRes.rows.map((r: { created_by: string }) => r.created_by).filter(Boolean))]
         let disburserNameMap: Record<string, string> = {}
         if (disburserIds.length > 0) {
-          const duRes = await client.query(`SELECT id, full_name FROM senteloans_users WHERE id = ANY($1::uuid[])`, [disburserIds])
+          const duRes = await client.query(`SELECT id, full_name FROM users WHERE id = ANY($1::uuid[])`, [disburserIds])
           disburserNameMap = Object.fromEntries(duRes.rows.map((u: { id: string; full_name: string }) => [u.id, u.full_name || ""]))
         }
         disbursedByMap = {}
@@ -338,8 +338,8 @@ export async function GET(req: Request) {
 
         const gRes = await client.query(
           `SELECT g.loan_id, m.full_name
-           FROM senteloans_loan_guarantors g
-           JOIN senteloans_members m ON m.id = g.guarantor_member_id
+           FROM loan_guarantors g
+           JOIN members m ON m.id = g.guarantor_member_id
            WHERE g.loan_id = ANY($1::uuid[])
            ORDER BY g.loan_id, g.created_at ASC`,
           [loanIds]
@@ -360,7 +360,7 @@ export async function GET(req: Request) {
              total_amount,
              penalty_amount,
              status
-           FROM senteloans_loan_repayments
+           FROM loan_repayments
            WHERE loan_id = ANY($1::uuid[])`,
           [loanIds]
         )

@@ -105,9 +105,9 @@ export async function GET(req: Request) {
 
       const countRes = await client.query<{ c: number }>(
         `SELECT COUNT(*)::int AS c
-         FROM senteloans_investment_reports r
-         INNER JOIN senteloans_investments i ON i.id = r.investment_id
-         LEFT JOIN senteloans_clients c ON c.id = i.provider_id
+         FROM investment_reports r
+         INNER JOIN investments i ON i.id = r.investment_id
+         LEFT JOIN clients c ON c.id = i.provider_id
          WHERE ${where}`,
         params,
       )
@@ -133,10 +133,10 @@ export async function GET(req: Request) {
            r.created_at,
            r.updated_at,
            u.full_name AS created_by_name
-         FROM senteloans_investment_reports r
-         INNER JOIN senteloans_investments i ON i.id = r.investment_id
-         LEFT JOIN senteloans_clients c ON c.id = i.provider_id
-         LEFT JOIN senteloans_users u ON u.id = r.created_by
+         FROM investment_reports r
+         INNER JOIN investments i ON i.id = r.investment_id
+         LEFT JOIN clients c ON c.id = i.provider_id
+         LEFT JOIN users u ON u.id = r.created_by
          WHERE ${where}
          ORDER BY r.created_at DESC
          LIMIT $${idx} OFFSET $${idx + 1}`,

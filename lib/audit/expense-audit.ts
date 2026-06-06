@@ -2,9 +2,9 @@ import type { PoolClient } from "pg"
 import { auditLogger } from "@/lib/audit/audit-logger"
 import type { ActorContext } from "@/lib/api/rbac"
 
-const EXPENSES_TABLE = "senteloans_expenses"
-const FUNDING_TABLE = "senteloans_expense_funding_sources"
-const CASHFLOWS_TABLE = "senteloans_expense_cashflows"
+const EXPENSES_TABLE = "expenses"
+const FUNDING_TABLE = "expense_funding_sources"
+const CASHFLOWS_TABLE = "expense_cashflows"
 
 export function expenseAuditMeta(
   actor: Pick<ActorContext, "id" | "institution_id" | "branch_id">,

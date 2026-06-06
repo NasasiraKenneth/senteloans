@@ -91,9 +91,9 @@ export async function GET(req: Request) {
            g.created_at,
            g.updated_at,
            COUNT(*) OVER()::int AS total_count
-         FROM senteloans_grants g
-         JOIN senteloans_clients c ON c.id = g.client_id
-         LEFT JOIN senteloans_branches b ON b.id = g.branch_id
+         FROM grants g
+         JOIN clients c ON c.id = g.client_id
+         LEFT JOIN branches b ON b.id = g.branch_id
          WHERE ${where}
          ORDER BY g.updated_at DESC NULLS LAST, g.created_at DESC
          LIMIT $${limitIdx} OFFSET $${offsetIdx}`,
@@ -171,7 +171,7 @@ export async function POST(req: Request) {
       if (!targetBranchId) return { error: "branch_id_required" as const }
 
       const clientCheck = await client.query(
-        `SELECT 1 FROM senteloans_clients
+        `SELECT 1 FROM clients
          WHERE id = $1::uuid AND institution_id = $2::uuid AND branch_id = $3::uuid
          LIMIT 1`,
         [clientId, actor.institution_id, targetBranchId],
@@ -179,7 +179,7 @@ export async function POST(req: Request) {
       if ((clientCheck.rowCount ?? 0) === 0) return { error: "invalid_client" as const }
 
       const insertRes = await client.query(
-        `INSERT INTO senteloans_grants (institution_id, branch_id, client_id, total_amount, available_balance)
+        `INSERT INTO grants (institution_id, branch_id, client_id, total_amount, available_balance)
          VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5)
          RETURNING id, client_id, total_amount, available_balance, branch_id`,
         [actor.institution_id, targetBranchId, clientId, totalAmount, availableBalance],

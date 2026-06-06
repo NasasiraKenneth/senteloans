@@ -1,34 +1,34 @@
 -- Configure per-branch membership fee for seeded institutions and seed historical payments.
--- The per-payment events live in senteloans_membership_fees (created in 01-create-schema.sql).
--- The configured target fee per branch lives in senteloans_config.membership_fee.
--- There is no denormalized cache on senteloans_members; totals are aggregated from senteloans_membership_fees.
+-- The per-payment events live in membership_fees (created in 01-create-schema.sql).
+-- The configured target fee per branch lives in config.membership_fee.
+-- There is no denormalized cache on members; totals are aggregated from membership_fees.
 
 -- 1. Configure per-branch membership fee for seeded institutions
-UPDATE senteloans_config c
+UPDATE config c
 SET membership_fee = 50000
-FROM senteloans_branches b
-JOIN senteloans_institutions i ON i.id = b.institution_id
+FROM branches b
+JOIN institutions i ON i.id = b.institution_id
 WHERE c.branch_id = b.id
   AND i.name = 'Kampala Central SACCO';
 
-UPDATE senteloans_config c
+UPDATE config c
 SET membership_fee = 30000
-FROM senteloans_branches b
-JOIN senteloans_institutions i ON i.id = b.institution_id
+FROM branches b
+JOIN institutions i ON i.id = b.institution_id
 WHERE c.branch_id = b.id
   AND i.name = 'Quick Cash Uganda';
 
-UPDATE senteloans_config c
+UPDATE config c
 SET membership_fee = 40000
-FROM senteloans_branches b
-JOIN senteloans_institutions i ON i.id = b.institution_id
+FROM branches b
+JOIN institutions i ON i.id = b.institution_id
 WHERE c.branch_id = b.id
   AND i.name = 'Opportunity Microfinance Uganda';
 
 -- 2. Seed per-payment history for demo members. One row per member with paid > 0.
 --    Each row represents the cumulative paid amount as a single seed event;
---    transaction_id is NULL because no corresponding senteloans_transactions row is created for seeded fees.
-INSERT INTO senteloans_membership_fees (
+--    transaction_id is NULL because no corresponding transactions row is created for seeded fees.
+INSERT INTO membership_fees (
   institution_id,
   branch_id,
   member_id,
@@ -53,14 +53,14 @@ SELECT
   'Initial membership fee payment (seed)'                       AS description,
   (
     SELECT u.id
-    FROM senteloans_users u
+    FROM users u
     WHERE u.institution_id = m.institution_id
     ORDER BY u.created_at ASC
     LIMIT 1
   )                                                             AS processed_by,
   (m.join_date::timestamptz)                                    AS payment_date
-FROM senteloans_members m
-JOIN senteloans_config c ON c.branch_id = m.branch_id
+FROM members m
+JOIN config c ON c.branch_id = m.branch_id
 JOIN (
   VALUES
     ('SL001', 50000::numeric),

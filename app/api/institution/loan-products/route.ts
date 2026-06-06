@@ -27,8 +27,8 @@ async function resolveActorContext(client: any, authUserId: string): Promise<Act
          WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
          ELSE NULL
        END AS role
-     FROM senteloans_users u
-     LEFT JOIN senteloans_roles r ON r.id = u.role_id
+     FROM users u
+     LEFT JOIN roles r ON r.id = u.role_id
      WHERE u.supabase_user_id = $1
      LIMIT 1`,
     [authUserId]
@@ -43,8 +43,8 @@ async function hasPermission(client: any, actor: ActorContext, permission: strin
 
   const permRes = await client.query(
     `SELECT 1
-     FROM senteloans_role_permissions rp
-     JOIN senteloans_permissions p ON p.id = rp.permission_id
+     FROM role_permissions rp
+     JOIN permissions p ON p.id = rp.permission_id
      WHERE rp.role_id = $1
        AND rp.branch_id = $2
        AND p.name = $3
@@ -85,7 +85,7 @@ const buildNextProductCode = async (
   const prefix = `${institutionInitials}-${shortCode}-`
   const res = await client.query(
     `SELECT product_code
-     FROM senteloans_loan_products
+     FROM loan_products
      WHERE institution_id = $1
        AND product_code LIKE $2`,
     [institutionId, `${prefix}%`]
@@ -158,7 +158,7 @@ export async function GET(req: Request) {
       }
       const countRes = await client.query<{ c: number }>(
         `SELECT COUNT(*)::int AS c
-         FROM senteloans_loan_products lp
+         FROM loan_products lp
          WHERE ${where}`,
         params
       )
@@ -193,8 +193,8 @@ export async function GET(req: Request) {
              ) FILTER (WHERE lpe.id IS NOT NULL),
              '[]'::json
            ) AS eligibilities
-         FROM senteloans_loan_products lp
-         LEFT JOIN senteloans_loan_product_eligibilities lpe ON lpe.loan_product_id = lp.id
+         FROM loan_products lp
+         LEFT JOIN loan_product_eligibilities lpe ON lpe.loan_product_id = lp.id
          WHERE ${where}
          GROUP BY lp.id
          ORDER BY lp.product_name ASC
@@ -263,8 +263,8 @@ export async function POST(req: Request) {
 
       const instRes = await client.query(
         `SELECT u.institution_id, i.name AS institution_name
-         FROM senteloans_users u
-         JOIN senteloans_institutions i ON i.id = u.institution_id
+         FROM users u
+         JOIN institutions i ON i.id = u.institution_id
          WHERE u.supabase_user_id = $1`,
         [session!.user!.authUserId]
       )
@@ -292,7 +292,7 @@ export async function POST(req: Request) {
       await client.query("BEGIN")
       try {
         const res = await client.query(
-          `INSERT INTO senteloans_loan_products
+          `INSERT INTO loan_products
            (institution_id, branch_id, product_name, product_code, description, minimum_amount, maximum_amount,
             interest_rate, minimum_tenure_months, maximum_tenure_months, interest_calculation_method,
             collateral_required, guarantors_required, processing_fee_percentage, insurance_required, status)
@@ -312,7 +312,7 @@ export async function POST(req: Request) {
 
         for (const item of normalizedEligibilities) {
           await client.query(
-            `INSERT INTO senteloans_loan_product_eligibilities (loan_product_id, eligibility, status)
+            `INSERT INTO loan_product_eligibilities (loan_product_id, eligibility, status)
              VALUES ($1, $2, $3)
              ON CONFLICT (loan_product_id, eligibility)
              DO UPDATE SET status = EXCLUDED.status, updated_at = NOW()`,
@@ -320,7 +320,7 @@ export async function POST(req: Request) {
           )
         }
         await auditLogger.logInsert(
-          "senteloans_loan_products",
+          "loan_products",
           String(product.id),
           {
             product_name,

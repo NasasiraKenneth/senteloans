@@ -11,7 +11,7 @@ export async function POST() {
 
     const result = await runWithAuth(session.user.authUserId, async (client) => {
       const userRes = await client.query(
-        `SELECT id FROM senteloans_users WHERE supabase_user_id = $1`,
+        `SELECT id FROM users WHERE supabase_user_id = $1`,
         [session!.user!.authUserId]
       )
       const instUser = userRes.rows[0]

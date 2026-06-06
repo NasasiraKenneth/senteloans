@@ -29,8 +29,8 @@ async function resolveActorContext(client: any, authUserId: string): Promise<Act
          WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
          ELSE NULL
        END AS role
-     FROM senteloans_users u
-     LEFT JOIN senteloans_roles r ON r.id = u.role_id
+     FROM users u
+     LEFT JOIN roles r ON r.id = u.role_id
      WHERE u.supabase_user_id = $1
      LIMIT 1`,
     [authUserId]
@@ -45,8 +45,8 @@ async function hasPermission(client: any, actor: ActorContext, permission: strin
 
   const permRes = await client.query(
     `SELECT 1
-     FROM senteloans_role_permissions rp
-     JOIN senteloans_permissions p ON p.id = rp.permission_id
+     FROM role_permissions rp
+     JOIN permissions p ON p.id = rp.permission_id
      WHERE rp.role_id = $1
        AND rp.branch_id = $2
        AND p.name = $3
@@ -87,7 +87,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
       const loanRes = await client.query(
         `SELECT id, institution_id, branch_id, member_id, loan_product_id, principal_amount, status, loan_type
-         FROM senteloans_loans
+         FROM loans
          WHERE id = $1
          LIMIT 1`,
         [id]
@@ -103,7 +103,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
       const settlementRes = await client.query(
         `SELECT id, settled_loan_id, settlement_amount, settlement_status, disbursement_id
-         FROM senteloans_loan_settlements
+         FROM loan_settlements
          WHERE new_loan_id = $1
          ORDER BY created_at DESC
          LIMIT 1`,
@@ -121,7 +121,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       if (loan.loan_product_id) {
         const feeRes = await client.query(
           `SELECT processing_fee_percentage
-           FROM senteloans_loan_products
+           FROM loan_products
            WHERE id = $1`,
           [loan.loan_product_id]
         )
@@ -143,7 +143,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         txNumber = makePrefixedNumber("LD")
         try {
           txRes = await client.query(
-            `INSERT INTO senteloans_transactions
+            `INSERT INTO transactions
               (institution_id, branch_id, member_id, account_id, loan_id, transaction_number, type, amount, mode, description, reference_number, balance_before, balance_after, processed_by, transaction_date, status)
              VALUES
               ($1, $2, $3, NULL, $4, $5, 'Loan Disbursement', $6, 'Bank Transfer', $7, $8, $9, $10, $11, $12, 'Completed')
@@ -173,7 +173,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       const transactionId = String(txRes.rows[0]?.id || "")
       if (!transactionId) return { error: "settlement_transaction_create_failed" as const }
       await auditLogger.logInsert(
-        "senteloans_transactions",
+        "transactions",
         transactionId,
         {
           member_id: loan.member_id,
@@ -195,7 +195,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       )
 
       const disbRes = await client.query(
-        `INSERT INTO senteloans_loan_disbursements
+        `INSERT INTO loan_disbursements
           (institution_id, branch_id, loan_id, disbursement_type, transaction_id, amount, disbursement_date, notes, created_by)
          VALUES
           ($1, $2, $3, 'partial loan disburse', $4, $5, $6, $7, $8)
@@ -214,7 +214,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       const disbursementId = String(disbRes.rows[0]?.id || "")
       if (!disbursementId) return { error: "settlement_disbursement_create_failed" as const }
       await auditLogger.logInsert(
-        "senteloans_loan_disbursements",
+        "loan_disbursements",
         disbursementId,
         {
           loan_id: id,
@@ -231,14 +231,14 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       )
 
       await client.query(
-        `UPDATE senteloans_loan_settlements
+        `UPDATE loan_settlements
          SET disbursement_id = $1, settlement_status = 'Completed'
          WHERE id = $2`,
         [disbursementId, settlement.id]
       )
 
       await client.query(
-        `UPDATE senteloans_loans
+        `UPDATE loans
          SET status = 'Partially Disbursed',
              disbursement_date = $1,
              disbursement_balance = $2,
@@ -247,7 +247,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         [nowDate, remainingMemberDisbursement, id]
       )
       await auditLogger.logUpdate(
-        "senteloans_loans",
+        "loans",
         id,
         { status: "Approved" },
         {
@@ -262,10 +262,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       )
 
       await client.query(
-        `INSERT INTO senteloans_audit_logs
+        `INSERT INTO audit_logs
           (institution_id, branch_id, user_id, table_name, category, operation, record_id, new_values)
          VALUES
-          ($1, $2, $3, 'senteloans_loan_settlements', 'loans', 'UPDATE', $4, $5)`,
+          ($1, $2, $3, 'loan_settlements', 'loans', 'UPDATE', $4, $5)`,
         [
           actor.institution_id,
           loan.branch_id,

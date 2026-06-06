@@ -32,7 +32,7 @@ export async function GET(req: Request) {
         `SELECT
            COALESCE(SUM(ba.total_amount), 0)::numeric AS bank_total,
            COUNT(*)::int AS bank_count
-         FROM senteloans_bank_accounts ba
+         FROM bank_accounts ba
          WHERE ${bankScope.where}`,
         bankScope.values,
       )
@@ -42,7 +42,7 @@ export async function GET(req: Request) {
            COALESCE(SUM(ud.amount) FILTER (WHERE lower(trim(ud.status)) = 'unclaimed'), 0)::numeric AS open_amount,
            COUNT(*) FILTER (WHERE lower(trim(ud.status)) = 'unclaimed')::int AS open_count,
            COUNT(*)::int AS total_count
-         FROM senteloans_unclaimed_deposits ud
+         FROM unclaimed_deposits ud
          WHERE ${unclaimedScope.where}`,
         unclaimedScope.values,
       )
@@ -52,7 +52,7 @@ export async function GET(req: Request) {
            COALESCE(SUM(g.available_balance), 0)::numeric AS grants_available,
            COALESCE(SUM(g.total_amount), 0)::numeric AS grants_total,
            COUNT(*)::int AS grant_count
-         FROM senteloans_grants g
+         FROM grants g
          WHERE ${grantsScope.where}`,
         grantsScope.values,
       )
@@ -63,7 +63,7 @@ export async function GET(req: Request) {
            COALESCE(SUM(df.mobile_money_amount), 0)::numeric AS mobile_money,
            COALESCE(SUM(df.bank_total_amount), 0)::numeric AS bank,
            COALESCE(SUM(df.available_balance), 0)::numeric AS available
-         FROM senteloans_daily_finances df
+         FROM daily_finances df
          WHERE ${dailyScope.where}
            AND df.total_amount > 0
            AND df.created_at >= date_trunc('day', NOW())

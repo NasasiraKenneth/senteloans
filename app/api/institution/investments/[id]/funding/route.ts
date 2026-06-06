@@ -29,7 +29,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
     const investmentRes = await client.query(
       `SELECT i.id, i.branch_id
-       FROM senteloans_investments i
+       FROM investments i
        WHERE i.id = $1
          AND i.institution_id = $2
          ${isSuperAdmin ? "" : "AND i.branch_id = $3"}
@@ -40,7 +40,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const investmentBranchId = String(investmentRes.rows[0]?.branch_id || actor.branch_id || "")
 
     const res = await client.query(
-      `INSERT INTO senteloans_investment_funding_sources (
+      `INSERT INTO investment_funding_sources (
          investment_id, source_type, loan_id, amount
        ) VALUES ($1, $2, $3, $4)
        RETURNING id`,
@@ -48,7 +48,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     )
     const newId = String(res.rows[0]?.id || "")
     await auditLogger.logInsert(
-      "senteloans_investment_funding_sources",
+      "investment_funding_sources",
       newId,
       {
         investment_id: id,

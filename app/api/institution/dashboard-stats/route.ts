@@ -26,8 +26,8 @@ async function resolveActorContext(client: any, authUserId: string): Promise<Act
          WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
          ELSE NULL
        END AS role
-     FROM senteloans_users u
-     LEFT JOIN senteloans_roles r ON r.id = u.role_id
+     FROM users u
+     LEFT JOIN roles r ON r.id = u.role_id
      WHERE u.supabase_user_id = $1
        AND u.status = 'Active'
      LIMIT 1`,
@@ -90,13 +90,13 @@ export async function GET(req: Request) {
       const [clientsRes, membersRes, loansRes, txRes, savingsRes] = await Promise.all([
         client.query(
           `SELECT COUNT(*)::int AS total, (COUNT(*) FILTER (WHERE c.status = 'Active'))::int AS active
-           FROM senteloans_clients c
+           FROM clients c
            WHERE c.institution_id = $1${clientsBranch.sql}`,
           clientsParams
         ),
         client.query(
           `SELECT COUNT(*)::int AS total, (COUNT(*) FILTER (WHERE m.status = 'Active'))::int AS active
-           FROM senteloans_members m
+           FROM members m
            WHERE m.institution_id = $1${membersBranch.sql}`,
           membersParams
         ),
@@ -106,19 +106,19 @@ export async function GET(req: Request) {
                   (COUNT(*) FILTER (
                     WHERE status IN ('Partially Disbursed','Fully Disbursed','Active')
                   ))::int AS active_loans
-           FROM senteloans_loans l
+           FROM loans l
            WHERE l.institution_id = $1${loansBranch.sql}`,
           loansParams
         ),
         client.query(
-          `SELECT COUNT(*)::int AS tx_count FROM senteloans_transactions t
+          `SELECT COUNT(*)::int AS tx_count FROM transactions t
            WHERE t.institution_id = $1
              AND t.transaction_date >= date_trunc('month', CURRENT_TIMESTAMP)${txBranch.sql}`,
           txParams
         ),
         client.query(
           `SELECT COALESCE(SUM(sa.total_balance), 0)::numeric AS total
-           FROM senteloans_savings_accounts sa
+           FROM savings_accounts sa
            WHERE sa.institution_id = $1${savingsBranch.sql}`,
           savingsParams
         ),
@@ -136,17 +136,17 @@ export async function GET(req: Request) {
       const totalTransactionsThisMonth = txRes.rows[0]?.tx_count ?? 0
 
       const newClientsRes = await client.query(
-        `SELECT COUNT(*)::int AS c FROM senteloans_clients c
+        `SELECT COUNT(*)::int AS c FROM clients c
          WHERE c.institution_id = $1 AND c.created_at >= date_trunc('month', CURRENT_TIMESTAMP)${clientsBranch.sql}`,
         clientsParams
       )
       const newMembersRes = await client.query(
-        `SELECT COUNT(*)::int AS c FROM senteloans_members m
+        `SELECT COUNT(*)::int AS c FROM members m
          WHERE m.institution_id = $1 AND m.created_at >= date_trunc('month', CURRENT_TIMESTAMP)${membersBranch.sql}`,
         membersParams
       )
       const loansApprovedRes = await client.query(
-        `SELECT COUNT(*)::int AS c FROM senteloans_loans l
+        `SELECT COUNT(*)::int AS c FROM loans l
          WHERE l.institution_id = $1
            AND l.status IN ('Approved','Partially Disbursed','Fully Disbursed','Active')
            AND l.approved_at IS NOT NULL
@@ -155,7 +155,7 @@ export async function GET(req: Request) {
       )
 
       const totalPrincipalRes = await client.query(
-        `SELECT COALESCE(SUM(l.principal_amount), 0)::numeric AS s FROM senteloans_loans l WHERE l.institution_id = $1${loansBranch.sql}`,
+        `SELECT COALESCE(SUM(l.principal_amount), 0)::numeric AS s FROM loans l WHERE l.institution_id = $1${loansBranch.sql}`,
         loansParams
       )
       const totalPrincipal = Number(totalPrincipalRes.rows[0]?.s ?? 0)
@@ -183,9 +183,9 @@ export async function GET(req: Request) {
       const recentLoansRes = await client.query(
         `SELECT l.id, l.application_id, l.principal_amount, l.status, l.application_date,
                 m.full_name AS client_name, p.product_name AS product_name
-         FROM senteloans_loans l
-         JOIN senteloans_members m ON m.id = l.member_id AND m.institution_id = l.institution_id
-         LEFT JOIN senteloans_loan_products p ON p.id = l.loan_product_id
+         FROM loans l
+         JOIN members m ON m.id = l.member_id AND m.institution_id = l.institution_id
+         LEFT JOIN loan_products p ON p.id = l.loan_product_id
          WHERE l.institution_id = $1${loansBranch.sql}
          ORDER BY l.application_date DESC NULLS LAST, l.created_at DESC
          LIMIT 5`,
@@ -203,7 +203,7 @@ export async function GET(req: Request) {
 
       const recentMembersRes = await client.query(
         `SELECT m.id, m.member_number, m.full_name, m.district, m.occupation, m.kyc_status, m.status
-         FROM senteloans_members m
+         FROM members m
          WHERE m.institution_id = $1${membersBranch.sql}
          ORDER BY m.created_at DESC
          LIMIT 5`,

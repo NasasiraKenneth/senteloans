@@ -77,7 +77,7 @@ export async function GET(req: Request) {
       if (isSuperAdmin(actor)) {
         const branchRes = await client.query(
           `SELECT id, name
-           FROM senteloans_branches
+           FROM branches
            WHERE institution_id = $1
            ORDER BY name ASC`,
           [actor.institution_id],
@@ -89,7 +89,7 @@ export async function GET(req: Request) {
             : allBranches
       } else {
         const branchRes = await client.query(
-          `SELECT id, name FROM senteloans_branches WHERE id = $1 LIMIT 1`,
+          `SELECT id, name FROM branches WHERE id = $1 LIMIT 1`,
           [actor.branch_id],
         )
         branchScopes = branchRes.rows.length > 0 ? [branchRes.rows[0] as BranchScope] : []
@@ -144,8 +144,8 @@ export async function GET(req: Request) {
              END::numeric AS percentage_received,
              g.created_at,
              g.updated_at
-           FROM senteloans_grants g
-           JOIN senteloans_clients c ON c.id = g.client_id
+           FROM grants g
+           JOIN clients c ON c.id = g.client_id
            WHERE ${where}
            ORDER BY g.updated_at DESC NULLS LAST, g.created_at DESC`,
           params,

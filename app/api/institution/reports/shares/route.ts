@@ -23,8 +23,8 @@ async function resolveActorContext(client: any, authUserId: string): Promise<Act
          WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
          ELSE NULL
        END AS role
-     FROM senteloans_users u
-     LEFT JOIN senteloans_roles r ON r.id = u.role_id
+     FROM users u
+     LEFT JOIN roles r ON r.id = u.role_id
      WHERE u.supabase_user_id = $1
      LIMIT 1`,
     [authUserId]
@@ -38,8 +38,8 @@ async function hasPermission(client: any, actor: ActorContext, permission: strin
   if (!actor.role_id || !actor.branch_id) return false
   const permRes = await client.query(
     `SELECT 1
-     FROM senteloans_role_permissions rp
-     JOIN senteloans_permissions p ON p.id = rp.permission_id
+     FROM role_permissions rp
+     JOIN permissions p ON p.id = rp.permission_id
      WHERE rp.role_id = $1
        AND rp.branch_id = $2
        AND p.name = $3
@@ -116,7 +116,7 @@ export async function GET(req: Request) {
              COALESCE(SUM(ms.total_value), 0)::numeric AS total_share_value,
              MIN(ms.purchase_date) AS first_purchase_date,
              MAX(ms.purchase_date) AS last_purchase_date
-           FROM senteloans_member_shares ms
+           FROM member_shares ms
            WHERE ${shareWhere}
            GROUP BY ms.member_id
          )
@@ -132,9 +132,9 @@ export async function GET(req: Request) {
            sa.total_share_value,
            sa.first_purchase_date,
            sa.last_purchase_date
-         FROM senteloans_members m
+         FROM members m
          JOIN shares_agg sa ON sa.member_id = m.id
-         LEFT JOIN senteloans_branches b ON b.id = m.branch_id
+         LEFT JOIN branches b ON b.id = m.branch_id
          WHERE ${memberWhere}
          ORDER BY sa.total_share_value DESC, m.full_name
          LIMIT $${idx}`,

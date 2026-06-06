@@ -1,8 +1,8 @@
--- Migration: Add joined_at to senteloans_users; username to app_auth_users
+-- Migration: Add joined_at to users; username to app_auth_users
 -- Run this after existing migrations.
 
--- 1. Add joined_at to senteloans_users
-ALTER TABLE senteloans_users
+-- 1. Add joined_at to users
+ALTER TABLE users
   ADD COLUMN IF NOT EXISTS joined_at DATE;
 
 -- 2. Add username to app_auth_users
@@ -10,7 +10,7 @@ ALTER TABLE app_auth_users
   ADD COLUMN IF NOT EXISTS username VARCHAR(100) UNIQUE;
 
 -- 3. Backfill joined_at from created_at for existing users
-UPDATE senteloans_users
+UPDATE users
   SET joined_at = created_at::date
   WHERE joined_at IS NULL;
 
@@ -40,9 +40,9 @@ END $$;
 CREATE INDEX IF NOT EXISTS idx_app_auth_users_username ON app_auth_users(username);
 
 -- Verify
-SELECT 'senteloans_users columns' AS check_type, column_name, data_type
+SELECT 'users columns' AS check_type, column_name, data_type
 FROM information_schema.columns
-WHERE table_name = 'senteloans_users' AND column_name IN ('joined_at')
+WHERE table_name = 'users' AND column_name IN ('joined_at')
 UNION ALL
 SELECT 'app_auth_users columns', column_name, data_type
 FROM information_schema.columns

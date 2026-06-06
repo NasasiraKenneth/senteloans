@@ -20,24 +20,24 @@ DECLARE
     patricia_id UUID;
 BEGIN
     -- Get institution IDs
-    SELECT id INTO kampala_sacco_id FROM senteloans_institutions WHERE name = 'Kampala Central SACCO';
-    SELECT id INTO opportunity_mfi_id FROM senteloans_institutions WHERE name = 'Opportunity Microfinance Uganda';
-    SELECT id INTO kampala_sacco_branch_id FROM senteloans_branches WHERE institution_id = kampala_sacco_id ORDER BY created_at LIMIT 1;
-    SELECT id INTO opportunity_mfi_branch_id FROM senteloans_branches WHERE institution_id = opportunity_mfi_id ORDER BY created_at LIMIT 1;
+    SELECT id INTO kampala_sacco_id FROM institutions WHERE name = 'Kampala Central SACCO';
+    SELECT id INTO opportunity_mfi_id FROM institutions WHERE name = 'Opportunity Microfinance Uganda';
+    SELECT id INTO kampala_sacco_branch_id FROM branches WHERE institution_id = kampala_sacco_id ORDER BY created_at LIMIT 1;
+    SELECT id INTO opportunity_mfi_branch_id FROM branches WHERE institution_id = opportunity_mfi_id ORDER BY created_at LIMIT 1;
 
     -- Get member IDs for Kampala Central SACCO
-    SELECT id INTO sarah_id FROM senteloans_members WHERE member_number = 'SL001';
-    SELECT id INTO david_id FROM senteloans_members WHERE member_number = 'SL002';
-    SELECT id INTO grace_id FROM senteloans_members WHERE member_number = 'SL003';
-    SELECT id INTO robert_id FROM senteloans_members WHERE member_number = 'SL004';
+    SELECT id INTO sarah_id FROM members WHERE member_number = 'SL001';
+    SELECT id INTO david_id FROM members WHERE member_number = 'SL002';
+    SELECT id INTO grace_id FROM members WHERE member_number = 'SL003';
+    SELECT id INTO robert_id FROM members WHERE member_number = 'SL004';
 
     -- Get member IDs for Opportunity MFI
-    SELECT id INTO agnes_id FROM senteloans_members WHERE member_number = 'OM001';
-    SELECT id INTO womens_group_id FROM senteloans_members WHERE member_number = 'OM002';
-    SELECT id INTO patricia_id FROM senteloans_members WHERE member_number = 'OM003';
+    SELECT id INTO agnes_id FROM members WHERE member_number = 'OM001';
+    SELECT id INTO womens_group_id FROM members WHERE member_number = 'OM002';
+    SELECT id INTO patricia_id FROM members WHERE member_number = 'OM003';
 
     -- Create savings accounts for Kampala Central SACCO members (no interest_rate in schema)
-    INSERT INTO senteloans_savings_accounts (
+    INSERT INTO savings_accounts (
         id,
         institution_id,
         branch_id,
@@ -104,7 +104,7 @@ BEGIN
     ON CONFLICT (institution_id, account_number) DO NOTHING;
 
     -- Create savings accounts for Opportunity MFI members
-    INSERT INTO senteloans_savings_accounts (
+    INSERT INTO savings_accounts (
         id,
         institution_id,
         branch_id,
@@ -189,57 +189,57 @@ DECLARE
     womens_group_id UUID;
     patricia_id UUID;
     
-    -- Staff user IDs for processed_by (must reference senteloans_users)
+    -- Staff user IDs for processed_by (must reference users)
     kampala_staff_id UUID;
     quick_cash_staff_id UUID;
     opportunity_staff_id UUID;
 BEGIN
     -- Get institution IDs
-    SELECT id INTO kampala_sacco_id FROM senteloans_institutions WHERE name = 'Kampala Central SACCO';
-    SELECT id INTO quick_cash_id FROM senteloans_institutions WHERE name = 'Quick Cash Uganda';
-    SELECT id INTO opportunity_mfi_id FROM senteloans_institutions WHERE name = 'Opportunity Microfinance Uganda';
-    SELECT id INTO kampala_sacco_branch_id FROM senteloans_branches WHERE institution_id = kampala_sacco_id ORDER BY created_at LIMIT 1;
-    SELECT id INTO quick_cash_branch_id FROM senteloans_branches WHERE institution_id = quick_cash_id ORDER BY created_at LIMIT 1;
-    SELECT id INTO opportunity_mfi_branch_id FROM senteloans_branches WHERE institution_id = opportunity_mfi_id ORDER BY created_at LIMIT 1;
+    SELECT id INTO kampala_sacco_id FROM institutions WHERE name = 'Kampala Central SACCO';
+    SELECT id INTO quick_cash_id FROM institutions WHERE name = 'Quick Cash Uganda';
+    SELECT id INTO opportunity_mfi_id FROM institutions WHERE name = 'Opportunity Microfinance Uganda';
+    SELECT id INTO kampala_sacco_branch_id FROM branches WHERE institution_id = kampala_sacco_id ORDER BY created_at LIMIT 1;
+    SELECT id INTO quick_cash_branch_id FROM branches WHERE institution_id = quick_cash_id ORDER BY created_at LIMIT 1;
+    SELECT id INTO opportunity_mfi_branch_id FROM branches WHERE institution_id = opportunity_mfi_id ORDER BY created_at LIMIT 1;
 
     -- Get a staff user per institution for processed_by
-    SELECT id INTO kampala_staff_id FROM senteloans_users WHERE institution_id = kampala_sacco_id LIMIT 1;
-    SELECT id INTO quick_cash_staff_id FROM senteloans_users WHERE institution_id = quick_cash_id LIMIT 1;
-    SELECT id INTO opportunity_staff_id FROM senteloans_users WHERE institution_id = opportunity_mfi_id LIMIT 1;
+    SELECT id INTO kampala_staff_id FROM users WHERE institution_id = kampala_sacco_id LIMIT 1;
+    SELECT id INTO quick_cash_staff_id FROM users WHERE institution_id = quick_cash_id LIMIT 1;
+    SELECT id INTO opportunity_staff_id FROM users WHERE institution_id = opportunity_mfi_id LIMIT 1;
 
     -- Get savings account IDs
-    SELECT sa.id INTO sarah_savings_id FROM senteloans_savings_accounts sa 
-    JOIN senteloans_members c ON sa.member_id = c.id WHERE c.member_number = 'SL001';
+    SELECT sa.id INTO sarah_savings_id FROM savings_accounts sa 
+    JOIN members c ON sa.member_id = c.id WHERE c.member_number = 'SL001';
     
-    SELECT sa.id INTO david_savings_id FROM senteloans_savings_accounts sa 
-    JOIN senteloans_members c ON sa.member_id = c.id WHERE c.member_number = 'SL002';
+    SELECT sa.id INTO david_savings_id FROM savings_accounts sa 
+    JOIN members c ON sa.member_id = c.id WHERE c.member_number = 'SL002';
     
-    SELECT sa.id INTO grace_savings_id FROM senteloans_savings_accounts sa 
-    JOIN senteloans_members c ON sa.member_id = c.id WHERE c.member_number = 'SL003';
+    SELECT sa.id INTO grace_savings_id FROM savings_accounts sa 
+    JOIN members c ON sa.member_id = c.id WHERE c.member_number = 'SL003';
     
-    SELECT sa.id INTO robert_savings_id FROM senteloans_savings_accounts sa 
-    JOIN senteloans_members c ON sa.member_id = c.id WHERE c.member_number = 'SL004';
+    SELECT sa.id INTO robert_savings_id FROM savings_accounts sa 
+    JOIN members c ON sa.member_id = c.id WHERE c.member_number = 'SL004';
     
-    SELECT sa.id INTO agnes_savings_id FROM senteloans_savings_accounts sa 
-    JOIN senteloans_members c ON sa.member_id = c.id WHERE c.member_number = 'OM001';
+    SELECT sa.id INTO agnes_savings_id FROM savings_accounts sa 
+    JOIN members c ON sa.member_id = c.id WHERE c.member_number = 'OM001';
     
-    SELECT sa.id INTO womens_group_savings_id FROM senteloans_savings_accounts sa 
-    JOIN senteloans_members c ON sa.member_id = c.id WHERE c.member_number = 'OM002';
+    SELECT sa.id INTO womens_group_savings_id FROM savings_accounts sa 
+    JOIN members c ON sa.member_id = c.id WHERE c.member_number = 'OM002';
 
     -- Get member IDs
-    SELECT id INTO sarah_id FROM senteloans_members WHERE member_number = 'SL001';
-    SELECT id INTO david_id FROM senteloans_members WHERE member_number = 'SL002';
-    SELECT id INTO grace_id FROM senteloans_members WHERE member_number = 'SL003';
-    SELECT id INTO robert_id FROM senteloans_members WHERE member_number = 'SL004';
-    SELECT id INTO moses_id FROM senteloans_members WHERE member_number = 'QC001';
-    SELECT id INTO betty_id FROM senteloans_members WHERE member_number = 'QC002';
-    SELECT id INTO james_id FROM senteloans_members WHERE member_number = 'QC003';
-    SELECT id INTO agnes_id FROM senteloans_members WHERE member_number = 'OM001';
-    SELECT id INTO womens_group_id FROM senteloans_members WHERE member_number = 'OM002';
-    SELECT id INTO patricia_id FROM senteloans_members WHERE member_number = 'OM003';
+    SELECT id INTO sarah_id FROM members WHERE member_number = 'SL001';
+    SELECT id INTO david_id FROM members WHERE member_number = 'SL002';
+    SELECT id INTO grace_id FROM members WHERE member_number = 'SL003';
+    SELECT id INTO robert_id FROM members WHERE member_number = 'SL004';
+    SELECT id INTO moses_id FROM members WHERE member_number = 'QC001';
+    SELECT id INTO betty_id FROM members WHERE member_number = 'QC002';
+    SELECT id INTO james_id FROM members WHERE member_number = 'QC003';
+    SELECT id INTO agnes_id FROM members WHERE member_number = 'OM001';
+    SELECT id INTO womens_group_id FROM members WHERE member_number = 'OM002';
+    SELECT id INTO patricia_id FROM members WHERE member_number = 'OM003';
 
     -- Insert transactions for Kampala Central SACCO
-    INSERT INTO senteloans_transactions (
+    INSERT INTO transactions (
         id,
         institution_id,
         branch_id,
@@ -336,7 +336,7 @@ BEGIN
     ON CONFLICT (institution_id, transaction_number) DO NOTHING;
 
     -- Insert transactions for Opportunity Microfinance Uganda (MFI)
-    INSERT INTO senteloans_transactions (
+    INSERT INTO transactions (
         id,
         institution_id,
         branch_id,
@@ -399,8 +399,8 @@ END $$;
 -- Display results for verification
 SELECT 
     'Savings and Transactions Migration Completed' as status,
-    (SELECT COUNT(*) FROM senteloans_savings_accounts) as savings_accounts_created,
-    (SELECT COUNT(*) FROM senteloans_transactions) as transactions_created;
+    (SELECT COUNT(*) FROM savings_accounts) as savings_accounts_created,
+    (SELECT COUNT(*) FROM transactions) as transactions_created;
 
 -- Show savings accounts by institution
 SELECT 
@@ -408,8 +408,8 @@ SELECT
     COUNT(sa.id) as savings_accounts_count,
     SUM(sa.available_balance) as total_savings_balance,
     COUNT(CASE WHEN sa.status = 'Active' THEN 1 END) as active_accounts
-FROM senteloans_institutions i
-LEFT JOIN senteloans_savings_accounts sa ON i.id = sa.institution_id
+FROM institutions i
+LEFT JOIN savings_accounts sa ON i.id = sa.institution_id
 GROUP BY i.id, i.name
 ORDER BY i.name;
 
@@ -419,8 +419,8 @@ SELECT
     t.type, -- Changed from transaction_type to type to match schema
     COUNT(t.id) as transaction_count,
     SUM(t.amount) as total_amount
-FROM senteloans_institutions i
-LEFT JOIN senteloans_transactions t ON i.id = t.institution_id
+FROM institutions i
+LEFT JOIN transactions t ON i.id = t.institution_id
 WHERE t.id IS NOT NULL
 GROUP BY i.id, i.name, t.type -- Changed from transaction_type to type
 ORDER BY i.name, t.type; -- Changed from transaction_type to type
@@ -431,6 +431,6 @@ SELECT
     COUNT(*) as total_transactions,
     SUM(amount) as total_amount,
     AVG(amount) as average_amount
-FROM senteloans_transactions
+FROM transactions
 GROUP BY type -- Changed from transaction_type to type
 ORDER BY type; -- Changed from transaction_type to type

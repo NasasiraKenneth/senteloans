@@ -12,10 +12,10 @@ export async function insertTransactionInsertAuditLog(
   },
 ): Promise<void> {
   await client.query(
-    `INSERT INTO senteloans_audit_logs (
+    `INSERT INTO audit_logs (
        institution_id, branch_id, user_id, table_name, category, operation, record_id, new_values
      )
-     VALUES ($1, $2, $3, 'senteloans_transactions', 'transactions', 'INSERT', $4, $5)`,
+     VALUES ($1, $2, $3, 'transactions', 'transactions', 'INSERT', $4, $5)`,
     [
       input.institutionId,
       input.branchId,

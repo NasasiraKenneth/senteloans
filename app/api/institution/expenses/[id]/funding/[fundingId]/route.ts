@@ -60,7 +60,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
       const { where, values } = singleExpenseWhere(actor, expenseId)
       const ex = await client.query<{ id: string; status: string; branch_id: string }>(
-        `SELECT e.id, e.status, e.branch_id FROM senteloans_expenses e WHERE ${where} LIMIT 1`,
+        `SELECT e.id, e.status, e.branch_id FROM expenses e WHERE ${where} LIMIT 1`,
         values,
       )
       const expense = ex.rows[0]
@@ -71,7 +71,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
       if (sourceType === "loan" && loanId) {
         const lr = await client.query(
-          `SELECT id FROM senteloans_institution_loans
+          `SELECT id FROM institution_loans
            WHERE id = $1::uuid AND institution_id = $2::uuid
            LIMIT 1`,
           [loanId, actor.institution_id],
@@ -85,8 +85,8 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         : [fundingId, expenseId, actor.institution_id, actor.branch_id]
       const prev = await client.query(
         `SELECT f.id, f.expense_id, f.source_type, f.loan_id, f.amount
-         FROM senteloans_expense_funding_sources f
-         JOIN senteloans_expenses e ON e.id = f.expense_id
+         FROM expense_funding_sources f
+         JOIN expenses e ON e.id = f.expense_id
          WHERE f.id = $1::uuid
            AND f.expense_id = $2::uuid
            AND e.institution_id = $3::uuid
@@ -110,11 +110,11 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       if (!isSuperAdmin(actor)) updParams.push(actor.branch_id)
 
       const upd = await client.query(
-        `UPDATE senteloans_expense_funding_sources f
+        `UPDATE expense_funding_sources f
          SET source_type = $1,
              loan_id = $2::uuid,
              amount = $3
-         FROM senteloans_expenses e
+         FROM expenses e
          WHERE f.id = $4::uuid
            AND f.expense_id = $5::uuid
            AND e.id = f.expense_id
@@ -186,7 +186,7 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
 
       const { where, values } = singleExpenseWhere(actor, expenseId)
       const ex = await client.query<{ id: string; status: string; branch_id: string }>(
-        `SELECT e.id, e.status, e.branch_id FROM senteloans_expenses e WHERE ${where} LIMIT 1`,
+        `SELECT e.id, e.status, e.branch_id FROM expenses e WHERE ${where} LIMIT 1`,
         values,
       )
       const expense = ex.rows[0]
@@ -202,8 +202,8 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
 
       const prev = await client.query(
         `SELECT f.id, f.expense_id, f.source_type, f.loan_id, f.amount
-         FROM senteloans_expense_funding_sources f
-         JOIN senteloans_expenses e ON e.id = f.expense_id
+         FROM expense_funding_sources f
+         JOIN expenses e ON e.id = f.expense_id
          WHERE f.id = $1::uuid
            AND f.expense_id = $2::uuid
            AND e.institution_id = $3::uuid
@@ -216,8 +216,8 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
       const oldFunding = fundingSnapshot(prevRow)
 
       const del = await client.query(
-        `DELETE FROM senteloans_expense_funding_sources f
-         USING senteloans_expenses e
+        `DELETE FROM expense_funding_sources f
+         USING expenses e
          WHERE f.id = $1::uuid
            AND f.expense_id = $2::uuid
            AND e.id = f.expense_id

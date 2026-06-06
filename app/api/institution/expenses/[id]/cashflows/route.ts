@@ -88,7 +88,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
       const { where, values } = singleExpenseWhere(actor, expenseId)
       const exRes = await client.query<{ id: string; branch_id: string; status: string }>(
-        `SELECT e.id, e.branch_id, e.status FROM senteloans_expenses e WHERE ${where} LIMIT 1`,
+        `SELECT e.id, e.branch_id, e.status FROM expenses e WHERE ${where} LIMIT 1`,
         values,
       )
       const expense = exRes.rows[0]
@@ -101,7 +101,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
       if (assigneeRaw === "staff") {
         const s = await client.query(
-          `SELECT u.id FROM senteloans_users u
+          `SELECT u.id FROM users u
            WHERE u.id = $1::uuid AND u.institution_id = $2::uuid AND u.branch_id = $3::uuid
            LIMIT 1`,
           [staffId, instId, branchId],
@@ -112,12 +112,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
           ? `id = $1::uuid AND institution_id = $2::uuid`
           : `id = $1::uuid AND institution_id = $2::uuid AND branch_id = $3::uuid`
         const cParams = isSuperAdmin(actor) ? [clientId, instId] : [clientId, instId, branchId]
-        const c = await client.query(`SELECT id FROM senteloans_clients WHERE ${cWhere} LIMIT 1`, cParams)
+        const c = await client.query(`SELECT id FROM clients WHERE ${cWhere} LIMIT 1`, cParams)
         if ((c.rowCount ?? 0) === 0) return { error: "invalid_client" as const }
       }
 
       const ins = await client.query(
-        `INSERT INTO senteloans_expense_cashflows (
+        `INSERT INTO expense_cashflows (
            expense_id,
            transaction_id,
            staff_id,
@@ -173,11 +173,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
       let assigned_name: string | null = null
       if (sid) {
-        const nr = await client.query(`SELECT full_name FROM senteloans_users WHERE id = $1::uuid LIMIT 1`, [sid])
+        const nr = await client.query(`SELECT full_name FROM users WHERE id = $1::uuid LIMIT 1`, [sid])
         assigned_name =
           nr.rows[0]?.full_name != null ? String(nr.rows[0].full_name).trim() || "Staff" : "Staff"
       } else if (cid) {
-        const nr = await client.query(`SELECT name FROM senteloans_clients WHERE id = $1::uuid LIMIT 1`, [cid])
+        const nr = await client.query(`SELECT name FROM clients WHERE id = $1::uuid LIMIT 1`, [cid])
         assigned_name = nr.rows[0]?.name != null ? String(nr.rows[0].name).trim() || "Client" : "Client"
       }
 

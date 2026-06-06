@@ -11,15 +11,15 @@ DECLARE
     opportunity_mfi_branch_id UUID;
 BEGIN
     -- Get institution IDs
-    SELECT id INTO kampala_sacco_id FROM senteloans_institutions WHERE name = 'Kampala Central SACCO';
-    SELECT id INTO quick_cash_id FROM senteloans_institutions WHERE name = 'Quick Cash Uganda';
-    SELECT id INTO opportunity_mfi_id FROM senteloans_institutions WHERE name = 'Opportunity Microfinance Uganda';
-    SELECT id INTO kampala_sacco_branch_id FROM senteloans_branches WHERE institution_id = kampala_sacco_id ORDER BY created_at LIMIT 1;
-    SELECT id INTO quick_cash_branch_id FROM senteloans_branches WHERE institution_id = quick_cash_id ORDER BY created_at LIMIT 1;
-    SELECT id INTO opportunity_mfi_branch_id FROM senteloans_branches WHERE institution_id = opportunity_mfi_id ORDER BY created_at LIMIT 1;
+    SELECT id INTO kampala_sacco_id FROM institutions WHERE name = 'Kampala Central SACCO';
+    SELECT id INTO quick_cash_id FROM institutions WHERE name = 'Quick Cash Uganda';
+    SELECT id INTO opportunity_mfi_id FROM institutions WHERE name = 'Opportunity Microfinance Uganda';
+    SELECT id INTO kampala_sacco_branch_id FROM branches WHERE institution_id = kampala_sacco_id ORDER BY created_at LIMIT 1;
+    SELECT id INTO quick_cash_branch_id FROM branches WHERE institution_id = quick_cash_id ORDER BY created_at LIMIT 1;
+    SELECT id INTO opportunity_mfi_branch_id FROM branches WHERE institution_id = opportunity_mfi_id ORDER BY created_at LIMIT 1;
 
     -- Insert members for Kampala Central SACCO
-    INSERT INTO senteloans_members (
+    INSERT INTO members (
         id,
         institution_id,
         branch_id,
@@ -161,7 +161,7 @@ BEGIN
     ON CONFLICT (institution_id, member_number) DO NOTHING;
 
     -- Insert members for Quick Cash Uganda (Money Lender)
-    INSERT INTO senteloans_members (
+    INSERT INTO members (
         id,
         institution_id,
         branch_id,
@@ -275,7 +275,7 @@ BEGIN
     ON CONFLICT (institution_id, member_number) DO NOTHING;
 
     -- Insert members for Opportunity Microfinance Uganda (MFI)
-    INSERT INTO senteloans_members (
+    INSERT INTO members (
         id,
         institution_id,
         branch_id,
@@ -398,12 +398,12 @@ BEGIN
     -- Insert shares for Kampala Central SACCO members (one record per member; skip if exists)
     FOR member_rec IN 
         SELECT c.id as member_id, c.member_number, c.full_name
-        FROM senteloans_members c
-        JOIN senteloans_institutions i ON c.institution_id = i.id
+        FROM members c
+        JOIN institutions i ON c.institution_id = i.id
         WHERE i.name = 'Kampala Central SACCO'
     LOOP
-        IF NOT EXISTS (SELECT 1 FROM senteloans_member_shares WHERE member_id = member_rec.member_id) THEN
-        INSERT INTO senteloans_member_shares (
+        IF NOT EXISTS (SELECT 1 FROM member_shares WHERE member_id = member_rec.member_id) THEN
+        INSERT INTO member_shares (
             id,
             member_id,
             number_of_shares,
@@ -436,7 +436,7 @@ END $$;
 SELECT 
     'Client Migration Completed Successfully' as status,
     COUNT(*) as total_members_created
-FROM senteloans_members;
+FROM members;
 
 -- Show members by institution
 SELECT 
@@ -445,8 +445,8 @@ SELECT
     COUNT(c.id) as member_count,
     COUNT(CASE WHEN c.status = 'Active' THEN 1 END) as active_members,
     COUNT(CASE WHEN c.kyc_status = 'Verified' THEN 1 END) as verified_members
-FROM senteloans_institutions i
-LEFT JOIN senteloans_members c ON i.id = c.institution_id
+FROM institutions i
+LEFT JOIN members c ON i.id = c.institution_id
 GROUP BY i.id, i.name, i.type
 ORDER BY i.name;
 
@@ -456,4 +456,4 @@ SELECT
     COUNT(*) as total_share_records,
     SUM(number_of_shares) as total_shares,
     SUM(total_value) as total_share_value
-FROM senteloans_member_shares;
+FROM member_shares;

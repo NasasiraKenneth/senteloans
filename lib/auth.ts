@@ -16,7 +16,7 @@ export interface AppSessionUser {
   institutionId?: string
   memberId?: string
   clientId?: string
-  userId?: string // senteloans_users.id for staff
+  userId?: string // users.id for staff
 }
 
 declare module "next-auth" {
@@ -61,8 +61,8 @@ export const authOptions: NextAuthOptions = {
                  WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
                  ELSE NULL
                END AS role
-             FROM senteloans_users u
-             LEFT JOIN senteloans_roles r ON r.id = u.role_id
+             FROM users u
+             LEFT JOIN roles r ON r.id = u.role_id
              WHERE u.supabase_user_id = $1 AND u.status = 'Active'`,
             [authUserId]
           )
@@ -81,7 +81,7 @@ export const authOptions: NextAuthOptions = {
           }
 
           const clientRes = await client.query<{ id: string; full_name: string }>(
-            `SELECT id, full_name FROM senteloans_members WHERE supabase_user_id = $1 AND status = 'Active'`,
+            `SELECT id, full_name FROM members WHERE supabase_user_id = $1 AND status = 'Active'`,
             [authUserId]
           )
           const clientRow = clientRes.rows[0]

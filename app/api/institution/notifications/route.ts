@@ -14,7 +14,7 @@ export async function GET(req: Request) {
 
     const result = await runWithAuth(session.user.authUserId, async (client) => {
       const userRes = await client.query(
-        `SELECT id, institution_id FROM senteloans_users WHERE supabase_user_id = $1`,
+        `SELECT id, institution_id FROM users WHERE supabase_user_id = $1`,
         [session!.user!.authUserId]
       )
       const instUser = userRes.rows[0]
@@ -27,11 +27,11 @@ export async function GET(req: Request) {
       }
       params.push(limit)
       const listRes = await client.query(
-        `SELECT * FROM senteloans_notifications WHERE ${where} ORDER BY created_at DESC LIMIT $2`,
+        `SELECT * FROM notifications WHERE ${where} ORDER BY created_at DESC LIMIT $2`,
         params
       )
       const countRes = await client.query(
-        `SELECT COUNT(*)::int AS c FROM senteloans_notifications WHERE recipient_type = 'institution_user' AND recipient_id = $1 AND read = false`,
+        `SELECT COUNT(*)::int AS c FROM notifications WHERE recipient_type = 'institution_user' AND recipient_id = $1 AND read = false`,
         [instUser.id]
       )
       const unreadCount = countRes.rows[0]?.c ?? 0

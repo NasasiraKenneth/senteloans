@@ -50,8 +50,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
            ba.branch_id,
            b.name AS branch_name,
            ba.updated_at
-         FROM senteloans_bank_accounts ba
-         LEFT JOIN senteloans_branches b ON b.id = ba.branch_id
+         FROM bank_accounts ba
+         LEFT JOIN branches b ON b.id = ba.branch_id
          WHERE ${where}
          LIMIT 1`,
         values,
@@ -119,7 +119,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       const { where, values } = singleBankAccountWhere(actor, accountId)
       const existing = await client.query(
         `SELECT id, branch_id, bank_name, bank_account_number, total_amount
-         FROM senteloans_bank_accounts ba
+         FROM bank_accounts ba
          WHERE ${where}
          LIMIT 1`,
         values,
@@ -135,7 +135,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
       if (isSuperAdmin(actor) && branchId) {
         const branchCheck = await client.query(
-          `SELECT 1 FROM senteloans_branches WHERE id = $1::uuid AND institution_id = $2::uuid LIMIT 1`,
+          `SELECT 1 FROM branches WHERE id = $1::uuid AND institution_id = $2::uuid LIMIT 1`,
           [targetBranchId, actor.institution_id],
         )
         if ((branchCheck.rowCount ?? 0) === 0) return { error: "invalid_branch" as const }
@@ -150,7 +150,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       }
 
       const updateRes = await client.query(
-        `UPDATE senteloans_bank_accounts ba
+        `UPDATE bank_accounts ba
          SET bank_name = $1,
              bank_account_number = $2,
              branch_id = $3::uuid,

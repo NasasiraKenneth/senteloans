@@ -23,8 +23,8 @@ async function resolveActorContext(client: any, authUserId: string): Promise<Act
          WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
          ELSE NULL
        END AS role
-     FROM senteloans_users u
-     LEFT JOIN senteloans_roles r ON r.id = u.role_id
+     FROM users u
+     LEFT JOIN roles r ON r.id = u.role_id
      WHERE u.supabase_user_id = $1
      LIMIT 1`,
     [authUserId]
@@ -38,8 +38,8 @@ async function hasPermission(client: any, actor: ActorContext, permission: strin
   if (!actor.role_id || !actor.branch_id) return false
   const permRes = await client.query(
     `SELECT 1
-     FROM senteloans_role_permissions rp
-     JOIN senteloans_permissions p ON p.id = rp.permission_id
+     FROM role_permissions rp
+     JOIN permissions p ON p.id = rp.permission_id
      WHERE rp.role_id = $1
        AND rp.branch_id = $2
        AND p.name = $3
@@ -117,8 +117,8 @@ export async function GET(req: Request) {
            COUNT(*) FILTER (WHERE sa.status = 'Closed')::int AS closed_accounts,
            COALESCE(SUM(sa.total_balance), 0)::numeric AS total_balance,
            COALESCE(SUM(sa.available_balance), 0)::numeric AS total_available_balance
-         FROM senteloans_savings_accounts sa
-         LEFT JOIN senteloans_members m ON m.id = sa.member_id
+         FROM savings_accounts sa
+         LEFT JOIN members m ON m.id = sa.member_id
          WHERE ${where}`,
         params
       )
@@ -137,9 +137,9 @@ export async function GET(req: Request) {
            m.full_name AS member_name,
            m.member_number AS member_number,
            b.name AS branch_name
-         FROM senteloans_savings_accounts sa
-         LEFT JOIN senteloans_members m ON m.id = sa.member_id
-         LEFT JOIN senteloans_branches b ON b.id = sa.branch_id
+         FROM savings_accounts sa
+         LEFT JOIN members m ON m.id = sa.member_id
+         LEFT JOIN branches b ON b.id = sa.branch_id
          WHERE ${where}
          ORDER BY sa.open_date DESC
          LIMIT $${idx}`,

@@ -30,8 +30,8 @@ async function resolveActorContext(client: any, authUserId: string): Promise<Act
          WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
          ELSE NULL
        END AS role
-     FROM senteloans_users u
-     LEFT JOIN senteloans_roles r ON r.id = u.role_id
+     FROM users u
+     LEFT JOIN roles r ON r.id = u.role_id
      WHERE u.supabase_user_id = $1
      LIMIT 1`,
     [authUserId]
@@ -46,8 +46,8 @@ async function hasPermission(client: any, actor: ActorContext, permission: strin
 
   const permRes = await client.query(
     `SELECT 1
-     FROM senteloans_role_permissions rp
-     JOIN senteloans_permissions p ON p.id = rp.permission_id
+     FROM role_permissions rp
+     JOIN permissions p ON p.id = rp.permission_id
      WHERE rp.role_id = $1
        AND rp.branch_id = $2
        AND p.name = $3
@@ -68,7 +68,7 @@ async function resolveRoleById(client: any, roleId: string): Promise<{ id: strin
          WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
          ELSE NULL
        END AS app_role
-     FROM senteloans_roles r
+     FROM roles r
      WHERE r.id = $1
      LIMIT 1`,
     [roleId]
@@ -130,8 +130,8 @@ export async function GET(
                 u.last_login,
                 u.created_at,
                 a.username
-         FROM senteloans_users u
-         LEFT JOIN senteloans_roles r ON r.id = u.role_id
+         FROM users u
+         LEFT JOIN roles r ON r.id = u.role_id
          LEFT JOIN app_auth_users a ON a.id = u.supabase_user_id
          WHERE u.id = $1 AND u.institution_id = $2${whereBranchClause}`,
         queryParams
@@ -233,8 +233,8 @@ export async function PUT(
            END AS role,
            u.status,
            u.role_id
-         FROM senteloans_users u
-         LEFT JOIN senteloans_roles r ON r.id = u.role_id
+         FROM users u
+         LEFT JOIN roles r ON r.id = u.role_id
          WHERE u.id = $1 AND u.institution_id = $2${whereBranchClause}`,
         queryParams
       )
@@ -244,7 +244,7 @@ export async function PUT(
       // Check email uniqueness (exclude self)
       if (email !== existing.email) {
         const emailCheck = await client.query(
-          `SELECT id FROM senteloans_users WHERE email = $1 AND id != $2`,
+          `SELECT id FROM users WHERE email = $1 AND id != $2`,
           [email, id]
         )
         if (emailCheck.rows.length > 0) return { error: "email_already_exists" as const }
@@ -277,9 +277,9 @@ export async function PUT(
         status: existing.status,
       }
 
-      // 1. Update senteloans_users
+      // 1. Update users
       await client.query(
-        `UPDATE senteloans_users
+        `UPDATE users
          SET full_name = $1, email = $2, phone_number = $3, role_id = $4,
              status = $5, joined_at = $6, updated_at = NOW()
          WHERE id = $7`,
@@ -304,7 +304,7 @@ export async function PUT(
 
       // 3. Audit log
       await auditLogger.logUpdate(
-        "senteloans_users",
+        "users",
         id,
         oldValues,
         { full_name: fullName, email, role: roleRow.app_role, role_id: roleRow.id, status },

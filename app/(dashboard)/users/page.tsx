@@ -18,10 +18,10 @@ import { Filter } from "@/types"
 import { useToast } from "@/components/ui/toast"
 import { downloadMembersExport } from "./export/export"
 
-type UiClient = {
+type UiMember = {
   id: string
   fullName: string
-  clientNumber: string
+  memberNumber: string
   phoneNumber: string
   email: string
   location: string
@@ -72,7 +72,7 @@ function formatDateTime(date: string): string {
 export default function UsersPage() {
   const router = useRouter()
   const { toast } = useToast()
-  const [users, setUsers] = useState<UiClient[]>([])
+  const [users, setUsers] = useState<UiMember[]>([])
   const [session, setSession] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [membershipFee, setMembershipFee] = useState(0)
@@ -142,10 +142,10 @@ export default function UsersPage() {
         membershipFee: number
       }
       setMembershipFee(Number(data.membershipFee) || 0)
-      const mapped: UiClient[] = data.members.map((c) => ({
+      const mapped: UiMember[] = data.members.map((c) => ({
         id: c.id,
         fullName: c.full_name,
-        clientNumber: c.member_number,
+        memberNumber: c.member_number,
         phoneNumber: c.phone_number,
         email: c.email || "",
         location: c.district || "",
@@ -231,11 +231,11 @@ export default function UsersPage() {
     loadMembers(params)
   }, [])
 
-  const handleView = (row: UiClient) => {
+  const handleView = (row: UiMember) => {
     router.push(`/users/${row.id}`)
   }
 
-  const handleEdit = (row: UiClient) => {
+  const handleEdit = (row: UiMember) => {
     router.push(`/users/${row.id}/edit`)
   }
 
@@ -248,12 +248,12 @@ export default function UsersPage() {
   }
 
   // Table columns configuration
-  const columns: DataTableColumn<UiClient>[] = [
+  const columns: DataTableColumn<UiMember>[] = [
     {
-      key: "clientNumber",
+      key: "memberNumber",
       header: `${terminology.singular} ID`,
       render: (row) => (
-        <div className="text-sm font-mono font-medium text-gray-700 hover:underline">{row.clientNumber}</div>
+        <div className="text-sm font-mono font-medium text-gray-700 hover:underline">{row.memberNumber}</div>
       ),
     },
     {
@@ -644,7 +644,7 @@ export default function UsersPage() {
         </div>
 
         {/* Members DataTable */}
-        <DataTable<UiClient>
+        <DataTable<UiMember>
           columns={columns}
           rows={users.slice(page * rowsPerPage, (page + 1) * rowsPerPage)}
           loading={loading}

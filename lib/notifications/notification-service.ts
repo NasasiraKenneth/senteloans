@@ -18,7 +18,7 @@ export class NotificationService {
     try {
       const row = await withClient(client, async (c) => {
         const res = await c.query(
-          `INSERT INTO senteloans_notifications (
+          `INSERT INTO notifications (
             institution_id, branch_id, recipient_type, recipient_id, type, title, message, action_url, metadata
           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
           RETURNING id`,
@@ -52,7 +52,7 @@ export class NotificationService {
       const count = await withClient(client, async (c) => {
         for (const input of inputs) {
           await c.query(
-            `INSERT INTO senteloans_notifications (
+            `INSERT INTO notifications (
               institution_id, branch_id, recipient_type, recipient_id, type, title, message, action_url, metadata
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
             [
@@ -82,7 +82,7 @@ export class NotificationService {
     try {
       await withClient(client, async (c) => {
         await c.query(
-          `UPDATE senteloans_notifications SET read = true, read_at = NOW() WHERE id = $1`,
+          `UPDATE notifications SET read = true, read_at = NOW() WHERE id = $1`,
           [notificationId]
         )
       })
@@ -102,7 +102,7 @@ export class NotificationService {
     try {
       const count = await withClient(client, async (c) => {
         const res = await c.query(
-          `UPDATE senteloans_notifications SET read = true, read_at = NOW() WHERE id = ANY($1::uuid[]) RETURNING id`,
+          `UPDATE notifications SET read = true, read_at = NOW() WHERE id = ANY($1::uuid[]) RETURNING id`,
           [notificationIds]
         )
         return res.rowCount ?? 0
@@ -123,7 +123,7 @@ export class NotificationService {
     try {
       const count = await withClient(client, async (c) => {
         const res = await c.query(
-          `UPDATE senteloans_notifications SET read = true, read_at = NOW()
+          `UPDATE notifications SET read = true, read_at = NOW()
            WHERE recipient_id = $1 AND recipient_type = $2 AND read = false
            RETURNING id`,
           [recipientId, recipientType]
@@ -142,7 +142,7 @@ export class NotificationService {
     try {
       const count = await withClient(client, async (c) => {
         const res = await c.query(
-          `DELETE FROM senteloans_notifications WHERE expires_at < NOW() RETURNING id`
+          `DELETE FROM notifications WHERE expires_at < NOW() RETURNING id`
         )
         return res.rowCount ?? 0
       })
@@ -162,7 +162,7 @@ export class NotificationService {
     try {
       const count = await withClient(client, async (c) => {
         const res = await c.query(
-          `SELECT COUNT(*)::int AS c FROM senteloans_notifications
+          `SELECT COUNT(*)::int AS c FROM notifications
            WHERE recipient_id = $1 AND recipient_type = $2 AND read = false`,
           [recipientId, recipientType]
         )

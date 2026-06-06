@@ -62,8 +62,8 @@ async function resolveActorContext(client: any, authUserId: string): Promise<Act
          WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
          ELSE NULL
        END AS role
-     FROM senteloans_users u
-     LEFT JOIN senteloans_roles r ON r.id = u.role_id
+     FROM users u
+     LEFT JOIN roles r ON r.id = u.role_id
      WHERE u.supabase_user_id = $1
      LIMIT 1`,
     [authUserId],
@@ -77,8 +77,8 @@ async function hasPermission(client: any, actor: ActorContext, permission: strin
   if (!actor.role_id || !actor.branch_id) return false
   const permRes = await client.query(
     `SELECT 1
-     FROM senteloans_role_permissions rp
-     JOIN senteloans_permissions p ON p.id = rp.permission_id
+     FROM role_permissions rp
+     JOIN permissions p ON p.id = rp.permission_id
      WHERE rp.role_id = $1
        AND rp.branch_id = $2
        AND p.name = $3
@@ -104,8 +104,8 @@ export async function GET(req: Request) {
     const inst = await runWithAuth(session.user.authUserId, async (client) => {
       const profileRes = await client.query(
         `SELECT u.id AS user_id, u.branch_id, i.id, i.name, i.type, i.logo
-         FROM senteloans_users u
-         JOIN senteloans_institutions i ON i.id = u.institution_id
+         FROM users u
+         JOIN institutions i ON i.id = u.institution_id
          WHERE u.supabase_user_id = $1
          LIMIT 1`,
         [session!.user!.authUserId],
@@ -116,7 +116,7 @@ export async function GET(req: Request) {
 
       const cfgRes = await client.query(
         `SELECT *
-         FROM senteloans_config
+         FROM config
          WHERE branch_id = $1
          ORDER BY created_at DESC
          LIMIT 1`,
@@ -224,8 +224,8 @@ export async function PUT(req: Request) {
 
       const profileRes = await client.query(
         `SELECT u.id AS user_id, u.branch_id, i.id AS institution_id, i.type
-         FROM senteloans_users u
-         JOIN senteloans_institutions i ON i.id = u.institution_id
+         FROM users u
+         JOIN institutions i ON i.id = u.institution_id
          WHERE u.supabase_user_id = $1
          LIMIT 1`,
         [session!.user!.authUserId],
@@ -235,7 +235,7 @@ export async function PUT(req: Request) {
       if (!profile.branch_id) return { error: "actor_branch_missing" as const }
 
       const cfgRes = await client.query(
-        `SELECT * FROM senteloans_config WHERE branch_id = $1 ORDER BY created_at DESC LIMIT 1`,
+        `SELECT * FROM config WHERE branch_id = $1 ORDER BY created_at DESC LIMIT 1`,
         [profile.branch_id],
       )
       const current = (cfgRes.rows[0] as Record<string, unknown> | undefined) || {}
@@ -311,7 +311,7 @@ export async function PUT(req: Request) {
       ]
 
       await client.query(
-        `INSERT INTO senteloans_config (
+        `INSERT INTO config (
            branch_id, loans, shares, savings, mobile_money, auto_invoices, currency,
            membership_fee, share_value, minimum_shares, maximum_shares, maximum_parallel_loans,
            loan_overdue_period, loan_overdue_interest, loan_overdue_interest_per,
@@ -354,9 +354,9 @@ export async function PUT(req: Request) {
 
       const cfgOut = await client.query(
         `SELECT c.*, i.id AS institution_id, i.type
-         FROM senteloans_config c
-         JOIN senteloans_branches b ON b.id = c.branch_id
-         JOIN senteloans_institutions i ON i.id = b.institution_id
+         FROM config c
+         JOIN branches b ON b.id = c.branch_id
+         JOIN institutions i ON i.id = b.institution_id
          WHERE c.branch_id = $1
          LIMIT 1`,
         [profile.branch_id],

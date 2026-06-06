@@ -26,8 +26,8 @@ async function resolveActorContext(client: any, authUserId: string): Promise<Act
          WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
          ELSE NULL
        END AS role
-     FROM senteloans_users u
-     LEFT JOIN senteloans_roles r ON r.id = u.role_id
+     FROM users u
+     LEFT JOIN roles r ON r.id = u.role_id
      WHERE u.supabase_user_id = $1
      LIMIT 1`,
     [authUserId]
@@ -42,8 +42,8 @@ async function hasPermission(client: any, actor: ActorContext, permission: strin
 
   const permRes = await client.query(
     `SELECT 1
-     FROM senteloans_role_permissions rp
-     JOIN senteloans_permissions p ON p.id = rp.permission_id
+     FROM role_permissions rp
+     JOIN permissions p ON p.id = rp.permission_id
      WHERE rp.role_id = $1
        AND rp.branch_id = $2
        AND p.name = $3
@@ -140,8 +140,8 @@ export async function GET(req: Request) {
 
       const countRes = await client.query(
         `SELECT COUNT(*)::int AS c
-         FROM senteloans_savings_accounts sa
-         LEFT JOIN senteloans_members m ON m.id = sa.member_id
+         FROM savings_accounts sa
+         LEFT JOIN members m ON m.id = sa.member_id
          WHERE ${where}`,
         params
       )
@@ -152,8 +152,8 @@ export async function GET(req: Request) {
            COALESCE(SUM(sa.total_balance), 0)::numeric AS total_savings,
            COALESCE(AVG(sa.total_balance), 0)::numeric AS average_balance,
            COUNT(*) FILTER (WHERE sa.status = 'Active')::int AS active_accounts
-         FROM senteloans_savings_accounts sa
-         LEFT JOIN senteloans_members m ON m.id = sa.member_id
+         FROM savings_accounts sa
+         LEFT JOIN members m ON m.id = sa.member_id
          WHERE ${where}`,
         params
       )
@@ -173,8 +173,8 @@ export async function GET(req: Request) {
            sa.open_date,
            sa.last_transaction_date,
            m.full_name AS member_name
-         FROM senteloans_savings_accounts sa
-         LEFT JOIN senteloans_members m ON m.id = sa.member_id
+         FROM savings_accounts sa
+         LEFT JOIN members m ON m.id = sa.member_id
          WHERE ${where}
          ORDER BY sa.open_date DESC
          LIMIT $${idx} OFFSET $${idx + 1}`,
@@ -187,7 +187,7 @@ export async function GET(req: Request) {
       if (accountIds.length > 0) {
         const txRes = await client.query(
           `SELECT id, type, amount, mode, balance_after, transaction_date, account_id, member_id
-           FROM senteloans_transactions
+           FROM transactions
            WHERE account_id = ANY($1::uuid[])
            ORDER BY transaction_date DESC
            LIMIT 5`,
@@ -199,14 +199,14 @@ export async function GET(req: Request) {
       const memberIdsFromTx = [...new Set(recentTx.map((t: Record<string, unknown>) => t.member_id).filter(Boolean))]
       let memberMap: Record<string, string> = {}
       if (memberIdsFromTx.length > 0) {
-        const mRes = await client.query(`SELECT id, full_name FROM senteloans_members WHERE id = ANY($1::uuid[])`, [memberIdsFromTx])
+        const mRes = await client.query(`SELECT id, full_name FROM members WHERE id = ANY($1::uuid[])`, [memberIdsFromTx])
         memberMap = Object.fromEntries(mRes.rows.map((m: { id: string; full_name: string }) => [m.id, m.full_name]))
       }
 
       const accountIdsFromTx = [...new Set(recentTx.map((t: Record<string, unknown>) => t.account_id).filter(Boolean))]
       let accountMap: Record<string, string> = {}
       if (accountIdsFromTx.length > 0) {
-        const accRes = await client.query(`SELECT id, account_number FROM senteloans_savings_accounts WHERE id = ANY($1::uuid[])`, [accountIdsFromTx])
+        const accRes = await client.query(`SELECT id, account_number FROM savings_accounts WHERE id = ANY($1::uuid[])`, [accountIdsFromTx])
         accountMap = Object.fromEntries(accRes.rows.map((a: { id: string; account_number: string }) => [a.id, a.account_number]))
       }
 

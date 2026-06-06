@@ -26,8 +26,8 @@ async function resolveActorContext(client: any, authUserId: string): Promise<Act
          WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
          ELSE NULL
        END AS role
-     FROM senteloans_users u
-     LEFT JOIN senteloans_roles r ON r.id = u.role_id
+     FROM users u
+     LEFT JOIN roles r ON r.id = u.role_id
      WHERE u.supabase_user_id = $1
      LIMIT 1`,
     [authUserId]
@@ -41,8 +41,8 @@ async function hasPermission(client: any, actor: ActorContext, permission: strin
   if (!actor.role_id || !actor.branch_id) return false
   const permRes = await client.query(
     `SELECT 1
-     FROM senteloans_role_permissions rp
-     JOIN senteloans_permissions p ON p.id = rp.permission_id
+     FROM role_permissions rp
+     JOIN permissions p ON p.id = rp.permission_id
      WHERE rp.role_id = $1 AND rp.branch_id = $2 AND p.name = $3
      LIMIT 1`,
     [actor.role_id, actor.branch_id, permission]
@@ -103,14 +103,14 @@ export async function GET(req: Request) {
       let branchScopes: BranchScope[] = []
       if (actorRole === "super_admin") {
         const branchRes = await client.query(
-          `SELECT id, name FROM senteloans_branches WHERE institution_id = $1 ORDER BY name ASC`,
+          `SELECT id, name FROM branches WHERE institution_id = $1 ORDER BY name ASC`,
           [actor.institution_id]
         )
         const allBranches = branchRes.rows as BranchScope[]
         branchScopes = selectedBranchIds.length > 0 ? allBranches.filter((b) => selectedBranchIds.includes(b.id)) : allBranches
       } else {
         const branchRes = await client.query(
-          `SELECT id, name FROM senteloans_branches WHERE id = $1 LIMIT 1`,
+          `SELECT id, name FROM branches WHERE id = $1 LIMIT 1`,
           [actor.branch_id]
         )
         branchScopes = branchRes.rows.length > 0 ? [branchRes.rows[0] as BranchScope] : []
@@ -169,27 +169,27 @@ export async function GET(req: Request) {
         if (membershipPaymentStatus === "fully_paid") {
           where += ` AND (
             EXISTS (
-              SELECT 1 FROM senteloans_config cfg
+              SELECT 1 FROM config cfg
               WHERE cfg.branch_id = c.branch_id
                 AND COALESCE(cfg.membership_fee, 0) > 0
-                AND COALESCE((SELECT SUM(mf.amount_paid) FROM senteloans_membership_fees mf WHERE mf.member_id = c.id), 0) >= cfg.membership_fee
+                AND COALESCE((SELECT SUM(mf.amount_paid) FROM membership_fees mf WHERE mf.member_id = c.id), 0) >= cfg.membership_fee
             )
             OR (
               NOT EXISTS (
-                SELECT 1 FROM senteloans_config cfg2
+                SELECT 1 FROM config cfg2
                 WHERE cfg2.branch_id = c.branch_id
                   AND COALESCE(cfg2.membership_fee, 0) > 0
               )
-              AND COALESCE((SELECT SUM(mf.amount_paid) FROM senteloans_membership_fees mf WHERE mf.member_id = c.id), 0) > 0
+              AND COALESCE((SELECT SUM(mf.amount_paid) FROM membership_fees mf WHERE mf.member_id = c.id), 0) > 0
             )
           )`
         } else if (membershipPaymentStatus === "partial") {
           where += ` AND EXISTS (
-            SELECT 1 FROM senteloans_config cfg
+            SELECT 1 FROM config cfg
             WHERE cfg.branch_id = c.branch_id
               AND COALESCE(cfg.membership_fee, 0) > 0
-              AND COALESCE((SELECT SUM(mf.amount_paid) FROM senteloans_membership_fees mf WHERE mf.member_id = c.id), 0) > 0
-              AND COALESCE((SELECT SUM(mf.amount_paid) FROM senteloans_membership_fees mf WHERE mf.member_id = c.id), 0) < cfg.membership_fee
+              AND COALESCE((SELECT SUM(mf.amount_paid) FROM membership_fees mf WHERE mf.member_id = c.id), 0) > 0
+              AND COALESCE((SELECT SUM(mf.amount_paid) FROM membership_fees mf WHERE mf.member_id = c.id), 0) < cfg.membership_fee
           )`
         }
         if (kycApprovedAtStart) {
@@ -212,10 +212,10 @@ export async function GET(req: Request) {
               c.district,
               c.status,
               c.kyc_status,
-              COALESCE((SELECT SUM(mf.amount_paid) FROM senteloans_membership_fees mf WHERE mf.member_id = c.id), 0)::numeric AS membership_fee_paid,
+              COALESCE((SELECT SUM(mf.amount_paid) FROM membership_fees mf WHERE mf.member_id = c.id), 0)::numeric AS membership_fee_paid,
               c.kyc_approved_at,
               c.join_date
-           FROM senteloans_members c
+           FROM members c
            WHERE ${where}
            ORDER BY c.created_at DESC`,
           params

@@ -59,8 +59,8 @@ async function resolveActorContext(client: any, authUserId: string): Promise<Act
          WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
          ELSE NULL
        END AS role
-     FROM senteloans_users u
-     LEFT JOIN senteloans_roles r ON r.id = u.role_id
+     FROM users u
+     LEFT JOIN roles r ON r.id = u.role_id
      WHERE u.supabase_user_id = $1
      LIMIT 1`,
     [authUserId],
@@ -75,8 +75,8 @@ async function hasPermission(client: any, actor: ActorContext, permission: strin
 
   const permRes = await client.query(
     `SELECT 1
-     FROM senteloans_role_permissions rp
-     JOIN senteloans_permissions p ON p.id = rp.permission_id
+     FROM role_permissions rp
+     JOIN permissions p ON p.id = rp.permission_id
      WHERE rp.role_id = $1
        AND rp.branch_id = $2
        AND p.name = $3
@@ -222,9 +222,9 @@ export async function GET(req: Request) {
 
         const countRes = await client.query<{ c: number }>(
           `SELECT COUNT(*)::int AS c
-         FROM senteloans_invoices i
-         LEFT JOIN senteloans_members m ON m.id = i.member_id
-         LEFT JOIN senteloans_clients c ON c.id = i.client_id
+         FROM invoices i
+         LEFT JOIN members m ON m.id = i.member_id
+         LEFT JOIN clients c ON c.id = i.client_id
          WHERE ${where}`,
           params,
         );
@@ -237,10 +237,10 @@ export async function GET(req: Request) {
           i.id, i.institution_id, i.member_id, i.client_id, i.branch_id, i.invoice_number, i.invoice_date, i.invoice_due,
           i.subtotal, i.vat, i.total_amount, i.inwords, i.invoice_type, i.status,
           i.created_by, i.created_at, i.modified_by, i.updated_at
-         FROM senteloans_invoices i
-         LEFT JOIN senteloans_members m ON m.id = i.member_id
-         LEFT JOIN senteloans_clients c ON c.id = i.client_id
-         LEFT JOIN senteloans_users u ON u.id = i.created_by
+         FROM invoices i
+         LEFT JOIN members m ON m.id = i.member_id
+         LEFT JOIN clients c ON c.id = i.client_id
+         LEFT JOIN users u ON u.id = i.created_by
          WHERE ${where}
          ORDER BY i.created_at DESC
          LIMIT $${idx} OFFSET $${idx + 1}`,
@@ -262,7 +262,7 @@ export async function GET(req: Request) {
             full_name: string;
             member_number: string | null;
           }>(
-            `SELECT id, full_name, member_number FROM senteloans_members WHERE id = ANY($1::uuid[])`,
+            `SELECT id, full_name, member_number FROM members WHERE id = ANY($1::uuid[])`,
             [clientIds],
           );
           clientMap = Object.fromEntries(
@@ -277,7 +277,7 @@ export async function GET(req: Request) {
         let externalClientMap: Record<string, { name: string }> = {};
         if (externalClientIds.length > 0) {
           const extClientsRes = await client.query<{ id: string; name: string }>(
-            `SELECT id, name FROM senteloans_clients WHERE id = ANY($1::uuid[])`,
+            `SELECT id, name FROM clients WHERE id = ANY($1::uuid[])`,
             [externalClientIds],
           );
           externalClientMap = Object.fromEntries(
@@ -290,7 +290,7 @@ export async function GET(req: Request) {
 
         if (userIds.length > 0) {
           const usersRes = await client.query<{ id: string; full_name: string }>(
-            `SELECT id, full_name FROM senteloans_users WHERE id = ANY($1::uuid[])`,
+            `SELECT id, full_name FROM users WHERE id = ANY($1::uuid[])`,
             [userIds],
           );
           userMap = Object.fromEntries(
@@ -303,7 +303,7 @@ export async function GET(req: Request) {
         if (invoiceIds.length > 0) {
           const paidRes = await client.query<{ invoice_id: string; paid: string }>(
             `SELECT invoice_id, COALESCE(SUM(amount), 0)::numeric AS paid
-               FROM senteloans_invoice_payments
+               FROM invoice_payments
               WHERE invoice_id = ANY($1::uuid[])
               GROUP BY invoice_id`,
             [invoiceIds],
@@ -318,7 +318,7 @@ export async function GET(req: Request) {
         if (includeItems && invoiceIds.length > 0) {
           const itemsRes = await client.query<InvoiceItemRow>(
             `SELECT id, invoice_id, unit, description, quantity, unit_price, total_price, vatinclusive
-           FROM senteloans_invoice_items
+           FROM invoice_items
            WHERE invoice_id = ANY($1::uuid[])
            ORDER BY id ASC`,
             [invoiceIds],
@@ -462,13 +462,13 @@ export async function POST(req: Request) {
 
         if (memberId) {
           const memberRes = await client.query<{ id: string }>(
-            `SELECT id FROM senteloans_members WHERE id = $1 AND institution_id = $2`,
+            `SELECT id FROM members WHERE id = $1 AND institution_id = $2`,
             [memberId, actor.institution_id],
           );
           if (memberRes.rows.length === 0) return { error: "member_not_found" as const };
         } else {
           const extClientRes = await client.query<{ id: string }>(
-            `SELECT id FROM senteloans_clients WHERE id = $1 AND institution_id = $2`,
+            `SELECT id FROM clients WHERE id = $1 AND institution_id = $2`,
             [clientId, actor.institution_id],
           );
           if (extClientRes.rows.length === 0) return { error: "client_not_found" as const };
@@ -521,7 +521,7 @@ export async function POST(req: Request) {
           const inserted = await insertWithInvoiceNumberRetry(
             (invoiceNumber) =>
               client.query<{ id: string; invoice_number: string }>(
-                `INSERT INTO senteloans_invoices (
+                `INSERT INTO invoices (
                   institution_id, branch_id, member_id, client_id, invoice_number, invoice_date, invoice_due,
                   subtotal, vat, total_amount, inwords, invoice_type, status,
                   created_by
@@ -556,7 +556,7 @@ export async function POST(req: Request) {
           const invoice = inserted.row;
           for (const item of normalizedItems) {
             await client.query(
-              `INSERT INTO senteloans_invoice_items (
+              `INSERT INTO invoice_items (
               invoice_id, unit, description, quantity, unit_price, total_price, vatinclusive
             ) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
               [
@@ -573,9 +573,9 @@ export async function POST(req: Request) {
 
           await client.query("COMMIT");
           await client.query(
-            `INSERT INTO senteloans_audit_logs
+            `INSERT INTO audit_logs
               (institution_id, branch_id, user_id, table_name, category, operation, record_id, new_values)
-             VALUES ($1, $2, $3, 'senteloans_invoices', 'invoices', 'INSERT', $4, $5)`,
+             VALUES ($1, $2, $3, 'invoices', 'invoices', 'INSERT', $4, $5)`,
             [
               actor.institution_id,
               actor.branch_id,

@@ -38,7 +38,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     try {
       const invRes = await client.query(
         `SELECT id, current_value, branch_id
-         FROM senteloans_investments
+         FROM investments
          WHERE id = $1 AND institution_id = $2
          ${isSuperAdmin ? "" : "AND branch_id = $3"}
          LIMIT 1`,
@@ -58,7 +58,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       if (cashflowIds.length > 0) {
         const selectedCashflowsRes = await client.query(
           `SELECT id, type, category, amount, report_id
-           FROM senteloans_investment_cashflows
+           FROM investment_cashflows
            WHERE investment_id = $1
              AND id = ANY($2::uuid[])`,
           [id, cashflowIds],
@@ -98,7 +98,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       let reportId: string
       try {
         const reportRes = await client.query(
-          `INSERT INTO senteloans_investment_reports (
+          `INSERT INTO investment_reports (
              investment_id, report_number, report_period, opening_value, capital_inflow, capital_outflow,
              income, expenses, closing_value, notes, created_by, modified_by, updated_at
            )
@@ -128,7 +128,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       }
 
       await auditLogger.logInsert(
-        "senteloans_investment_reports",
+        "investment_reports",
         reportId,
         {
           investment_id: id,
@@ -151,7 +151,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
       if (cashflowIds.length > 0) {
         await client.query(
-          `UPDATE senteloans_investment_cashflows
+          `UPDATE investment_cashflows
            SET report_id = $1
            WHERE investment_id = $2
              AND id = ANY($3::uuid[])`,
@@ -162,7 +162,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       const reportValuationNotes = `${reportPeriod} report valuation`
       const existingValRes = await client.query(
         `SELECT id, value, notes, valuation_date
-         FROM senteloans_investment_valuations
+         FROM investment_valuations
          WHERE investment_id = $1 AND valuation_date = CURRENT_DATE
          LIMIT 1`,
         [id],
@@ -172,7 +172,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         | undefined
 
       const valIns = await client.query(
-        `INSERT INTO senteloans_investment_valuations (investment_id, valuation_date, value, notes)
+        `INSERT INTO investment_valuations (investment_id, valuation_date, value, notes)
          VALUES ($1, CURRENT_DATE, $2, $3)
          ON CONFLICT (investment_id, valuation_date)
          DO UPDATE SET value = EXCLUDED.value, notes = EXCLUDED.notes
@@ -184,7 +184,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       if (valuationId) {
         if (existingVal) {
           await auditLogger.logUpdate(
-            "senteloans_investment_valuations",
+            "investment_valuations",
             valuationId,
             {
               value: Number(existingVal.value || 0),
@@ -201,7 +201,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
           )
         } else {
           await auditLogger.logInsert(
-            "senteloans_investment_valuations",
+            "investment_valuations",
             valuationId,
             {
               investment_id: id,
@@ -218,7 +218,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       }
 
       await client.query(
-        `UPDATE senteloans_investments
+        `UPDATE investments
          SET current_value = $1,
              modified_by = $2,
              updated_at = NOW()
@@ -226,7 +226,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         [closingValue, actor.id, id],
       )
       await auditLogger.logUpdate(
-        "senteloans_investments",
+        "investments",
         id,
         { current_value: previousCurrentValue },
         { current_value: closingValue },

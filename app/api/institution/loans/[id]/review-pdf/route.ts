@@ -24,8 +24,8 @@ async function resolveActorContext(client: any, authUserId: string): Promise<Act
          WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
          ELSE NULL
        END AS role
-     FROM senteloans_users u
-     LEFT JOIN senteloans_roles r ON r.id = u.role_id
+     FROM users u
+     LEFT JOIN roles r ON r.id = u.role_id
      WHERE u.supabase_user_id = $1
        AND u.status = 'Active'
      LIMIT 1`,
@@ -41,8 +41,8 @@ async function hasPermission(client: any, actor: ActorContext, permission: strin
 
   const permRes = await client.query(
     `SELECT 1
-     FROM senteloans_role_permissions rp
-     JOIN senteloans_permissions p ON p.id = rp.permission_id
+     FROM role_permissions rp
+     JOIN permissions p ON p.id = rp.permission_id
      WHERE rp.role_id = $1
        AND rp.branch_id = $2
        AND p.name = $3
@@ -85,13 +85,13 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
            COALESCE(b.email, '') AS branch_email,
            COALESCE(ru.full_name, '') AS loan_reviewed_by_name,
            COALESCE(rr.name, '') AS loan_reviewed_by_role
-         FROM senteloans_loans l
-         LEFT JOIN senteloans_members m ON m.id = l.member_id
-         LEFT JOIN senteloans_loan_products lp ON lp.id = l.loan_product_id
-         LEFT JOIN senteloans_institutions ins ON ins.id = l.institution_id
-         LEFT JOIN senteloans_branches b ON b.id = l.branch_id
-         LEFT JOIN senteloans_users ru ON ru.id = l.reviewed_by
-         LEFT JOIN senteloans_roles rr ON rr.id = ru.role_id
+         FROM loans l
+         LEFT JOIN members m ON m.id = l.member_id
+         LEFT JOIN loan_products lp ON lp.id = l.loan_product_id
+         LEFT JOIN institutions ins ON ins.id = l.institution_id
+         LEFT JOIN branches b ON b.id = l.branch_id
+         LEFT JOIN users ru ON ru.id = l.reviewed_by
+         LEFT JOIN roles rr ON rr.id = ru.role_id
          WHERE l.id = $1
            AND l.institution_id = $2
            ${isSuperAdmin ? "" : "AND l.branch_id = $3"}
@@ -104,7 +104,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       const eligibilityRes = await client.query(
         `SELECT
            ler.eligibility
-         FROM senteloans_loan_eligibility_reviews ler
+         FROM loan_eligibility_reviews ler
          WHERE ler.loan_id = $1
          ORDER BY ler.created_at ASC`,
         [id],

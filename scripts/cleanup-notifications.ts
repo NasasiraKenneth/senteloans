@@ -26,7 +26,7 @@ async function main() {
 
   try {
     const res = await pool.query(
-      `DELETE FROM senteloans_notifications WHERE expires_at < NOW() RETURNING id`
+      `DELETE FROM notifications WHERE expires_at < NOW() RETURNING id`
     )
     const count = res.rowCount ?? 0
     const elapsed = Date.now() - start
@@ -35,8 +35,8 @@ async function main() {
     const err = e as Error & { code?: string }
     if (err.code === "42P01") {
       console.error(
-        "[notifications:cleanup] table senteloans_notifications does not exist. Run:\n" +
-          '  psql "$DATABASE_URL" -f scripts/29-create-notifications-tables.sql'
+        "[notifications:cleanup] table notifications does not exist. Run:\n" +
+          '  npm run db:migrate  (notifications tables are in scripts/01-create-schema.sql)'
       )
     } else {
       console.error(`[notifications:cleanup] failed: ${err.message}`)

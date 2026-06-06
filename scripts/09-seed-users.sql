@@ -4,25 +4,8 @@
 
 -- 1) Seed role catalog
 
-INSERT INTO senteloans_expense_categories (category, description)
-VALUES
-    ('Utilities', 'Expenses incurred for essential services required to operate SACCO offices and branches, such as electricity, water, and waste management services.'),
-    ('Fuel', 'Costs related to fuel consumption for SACCO vehicles, generators, field operations, and official travel activities.'),
-    ('Salaries', 'Payments made to employees and staff members as compensation for their work, including wages, salaries, bonuses, and related payroll costs.'),
-    ('Stationery', 'Expenses for office supplies and materials used in daily operations, such as paper, pens, files, books, printing materials, and other consumables.'),
-    ('Airtime', 'Costs for mobile phone airtime, call credits, SMS services, and communication allowances used for official SACCO operations.'),
-    ('Loan Recovery Costs', 'Expenses incurred during the process of loan follow-up and recovery, including field visits, legal fees, auctioneer charges, and debt collection activities.'),
-    ('Maintenance', 'Costs associated with repairing, servicing, and maintaining SACCO assets, equipment, buildings, vehicles, and office infrastructure.'),
-    ('Transport', 'Expenses related to transportation services, travel facilitation, staff movement, delivery services, and official operational travel.'),
-    ('Marketing', 'Costs incurred in promoting SACCO products and services through advertising, branding, campaigns, events, promotions, and public awareness activities.'),
-    ('Allowances', 'Payments provided to staff, board members, or agents for facilitation, travel, meals, accommodation, sitting allowances, or other approved operational activities.'),
-    ('Rent', 'Payments made for leasing office premises, branch spaces, equipment, or other rented properties used by the SACCO.'),
-    ('Internet', 'Expenses for internet connectivity, broadband subscriptions, data bundles, networking services, and online communication systems used in SACCO operations.'),
-    ('Insurance', 'Costs paid for insurance coverage and protection of SACCO assets, vehicles, employees, deposits, or other operational risks against potential losses.')
-ON CONFLICT (category) DO NOTHING;
 
-
-INSERT INTO senteloans_roles (name, description)
+INSERT INTO roles (name, description)
 VALUES
   ('Manager', 'Department manager'),
   ('Loan Officer', 'Loan processing and member loan support'),
@@ -36,7 +19,7 @@ VALUES
 ON CONFLICT (name) DO NOTHING;
 
 -- 2) Seed permission catalog
-INSERT INTO senteloans_permissions (name, module)
+INSERT INTO permissions (name, module)
 VALUES
   ('edit_loan_policies', 'settings'),
   ('edit_membership_policies', 'settings'),
@@ -184,24 +167,24 @@ WITH role_permission_map(role_name, permission_name) AS (
     ('Manager', 'view_transactions'),
     ('Manager', 'create_transaction')
 )
-INSERT INTO senteloans_role_permissions (branch_id, role_id, permission_id)
+INSERT INTO role_permissions (branch_id, role_id, permission_id)
 SELECT
   b.id,
   r.id,
   p.id
-FROM senteloans_branches b
+FROM branches b
 JOIN role_permission_map rpm ON TRUE
-JOIN senteloans_roles r ON r.name = rpm.role_name
-JOIN senteloans_permissions p ON p.name = rpm.permission_name
+JOIN roles r ON r.name = rpm.role_name
+JOIN permissions p ON p.name = rpm.permission_name
 UNION ALL
 -- Admin: full permission catalog for branch-level operations.
 SELECT
   b.id,
   r.id,
   p.id
-FROM senteloans_branches b
-JOIN senteloans_roles r ON r.name = 'Admin'
-JOIN senteloans_permissions p ON TRUE
+FROM branches b
+JOIN roles r ON r.name = 'Admin'
+JOIN permissions p ON TRUE
 ON CONFLICT (branch_id, role_id, permission_id) DO NOTHING;
 
 -- 4) Seed users with role_id
@@ -221,24 +204,24 @@ DECLARE
     role_admin_id UUID;
     role_super_admin_id UUID;
 BEGIN
-    SELECT id INTO platform_id FROM senteloans_institutions WHERE name = 'SenteLoans Platform';
-    SELECT id INTO kampala_sacco_id FROM senteloans_institutions WHERE name = 'Kampala Central SACCO';
-    SELECT id INTO quick_cash_id FROM senteloans_institutions WHERE name = 'Quick Cash Uganda';
-    SELECT id INTO opportunity_mfi_id FROM senteloans_institutions WHERE name = 'Opportunity Microfinance Uganda';
+    SELECT id INTO platform_id FROM institutions WHERE name = 'SenteLoans Platform';
+    SELECT id INTO kampala_sacco_id FROM institutions WHERE name = 'Kampala Central SACCO';
+    SELECT id INTO quick_cash_id FROM institutions WHERE name = 'Quick Cash Uganda';
+    SELECT id INTO opportunity_mfi_id FROM institutions WHERE name = 'Opportunity Microfinance Uganda';
 
-    SELECT id INTO platform_branch_id FROM senteloans_branches WHERE institution_id = platform_id ORDER BY created_at LIMIT 1;
-    SELECT id INTO kampala_sacco_branch_id FROM senteloans_branches WHERE institution_id = kampala_sacco_id ORDER BY created_at LIMIT 1;
-    SELECT id INTO quick_cash_branch_id FROM senteloans_branches WHERE institution_id = quick_cash_id ORDER BY created_at LIMIT 1;
-    SELECT id INTO opportunity_mfi_branch_id FROM senteloans_branches WHERE institution_id = opportunity_mfi_id ORDER BY created_at LIMIT 1;
+    SELECT id INTO platform_branch_id FROM branches WHERE institution_id = platform_id ORDER BY created_at LIMIT 1;
+    SELECT id INTO kampala_sacco_branch_id FROM branches WHERE institution_id = kampala_sacco_id ORDER BY created_at LIMIT 1;
+    SELECT id INTO quick_cash_branch_id FROM branches WHERE institution_id = quick_cash_id ORDER BY created_at LIMIT 1;
+    SELECT id INTO opportunity_mfi_branch_id FROM branches WHERE institution_id = opportunity_mfi_id ORDER BY created_at LIMIT 1;
 
-    SELECT id INTO role_loan_officer_id FROM senteloans_roles WHERE name = 'Loan Officer' LIMIT 1;
-    SELECT id INTO role_teller_id FROM senteloans_roles WHERE name = 'Teller' LIMIT 1;
-    SELECT id INTO role_manager_id FROM senteloans_roles WHERE name = 'Manager' LIMIT 1;
-    SELECT id INTO role_admin_id FROM senteloans_roles WHERE name = 'Admin' LIMIT 1;
-    SELECT id INTO role_super_admin_id FROM senteloans_roles WHERE name = 'Super Admin' LIMIT 1;
+    SELECT id INTO role_loan_officer_id FROM roles WHERE name = 'Loan Officer' LIMIT 1;
+    SELECT id INTO role_teller_id FROM roles WHERE name = 'Teller' LIMIT 1;
+    SELECT id INTO role_manager_id FROM roles WHERE name = 'Manager' LIMIT 1;
+    SELECT id INTO role_admin_id FROM roles WHERE name = 'Admin' LIMIT 1;
+    SELECT id INTO role_super_admin_id FROM roles WHERE name = 'Super Admin' LIMIT 1;
 
     -- Platform super admin
-    INSERT INTO senteloans_users (
+    INSERT INTO users (
         id, supabase_user_id, institution_id, branch_id, role_id, email, full_name, phone_number, status
     ) VALUES (
         uuid_generate_v4(), NULL::uuid, platform_id, platform_branch_id, role_super_admin_id,
@@ -247,7 +230,7 @@ BEGIN
     ON CONFLICT (email) DO NOTHING;
 
     -- Institution admins
-    INSERT INTO senteloans_users (
+    INSERT INTO users (
         id, supabase_user_id, institution_id, branch_id, role_id, email, full_name, phone_number, status
     ) VALUES
     (
@@ -265,7 +248,7 @@ BEGIN
     ON CONFLICT (email) DO NOTHING;
 
     -- Institution users
-    INSERT INTO senteloans_users (
+    INSERT INTO users (
         id, supabase_user_id, institution_id, branch_id, role_id, email, full_name, phone_number, status
     ) VALUES
     (
@@ -295,7 +278,7 @@ BEGIN
     ON CONFLICT (email) DO NOTHING;
 
     -- Manager user
-    INSERT INTO senteloans_users (
+    INSERT INTO users (
         id, supabase_user_id, institution_id, branch_id, role_id, email, full_name, phone_number, status
     ) VALUES
     (
@@ -308,7 +291,7 @@ END $$;
 SELECT
     'User Accounts Created Successfully' as status,
     COUNT(*) as total_users_created
-FROM senteloans_users;
+FROM users;
 
 SELECT
     i.name as institution_name,
@@ -317,8 +300,8 @@ SELECT
     u.email,
     r.name as role_name,
     u.status
-FROM senteloans_users u
-JOIN senteloans_institutions i ON u.institution_id = i.id
-JOIN senteloans_branches b ON u.branch_id = b.id
-JOIN senteloans_roles r ON u.role_id = r.id
+FROM users u
+JOIN institutions i ON u.institution_id = i.id
+JOIN branches b ON u.branch_id = b.id
+JOIN roles r ON u.role_id = r.id
 ORDER BY i.name, b.name, r.name, u.full_name;

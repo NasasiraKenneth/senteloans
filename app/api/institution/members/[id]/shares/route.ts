@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth"
 import { runWithAuth } from "@/lib/db"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
 import { auditLogger } from "@/lib/audit/audit-logger"
+import { insertWithTransactionNumberRetry } from "@/lib/transactions/transaction-number-retry"
 
 type ActorContext = {
   id: string
@@ -27,8 +28,8 @@ async function resolveActorContext(client: any, authUserId: string): Promise<Act
          WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
          ELSE NULL
        END AS role
-     FROM senteloans_users u
-     LEFT JOIN senteloans_roles r ON r.id = u.role_id
+     FROM users u
+     LEFT JOIN roles r ON r.id = u.role_id
      WHERE u.supabase_user_id = $1
      LIMIT 1`,
     [authUserId]
@@ -43,8 +44,8 @@ async function hasPermission(client: any, actor: ActorContext, permission: strin
 
   const permRes = await client.query(
     `SELECT 1
-     FROM senteloans_role_permissions rp
-     JOIN senteloans_permissions p ON p.id = rp.permission_id
+     FROM role_permissions rp
+     JOIN permissions p ON p.id = rp.permission_id
      WHERE rp.role_id = $1
        AND rp.branch_id = $2
        AND p.name = $3
@@ -73,7 +74,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       if (!allowed) return { error: "missing_permission:view_members" as const }
 
       const memberRes = await client.query(
-        `SELECT id, institution_id, branch_id FROM senteloans_members WHERE id = $1`,
+        `SELECT id, institution_id, branch_id FROM members WHERE id = $1`,
         [memberId]
       )
       const memberRow = memberRes.rows[0]
@@ -81,7 +82,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       if (memberRow.institution_id !== actor.institution_id) return { error: "forbidden" as const }
 
       const res = await client.query(
-        `SELECT id, number_of_shares, share_value, total_value, purchase_date, created_at FROM senteloans_member_shares WHERE member_id = $1 ORDER BY created_at DESC`,
+        `SELECT id, number_of_shares, share_value, total_value, purchase_date, created_at FROM member_shares WHERE member_id = $1 ORDER BY created_at DESC`,
         [memberId]
       )
       return { shares: res.rows }
@@ -111,11 +112,42 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const { id: memberId } = await params
     if (!memberId) return NextResponse.json({ error: "missing_member_id" }, { status: 400 })
 
-    const body = (await req.json()) as { numberOfShares?: number; mode?: string; description?: string }
+    const body = (await req.json()) as {
+      numberOfShares?: number
+      mode?: string
+      description?: string
+      paymentDate?: string
+      referenceNumber?: string
+      reference_number?: string
+    }
     const numberOfShares = Number(body?.numberOfShares)
     if (!Number.isInteger(numberOfShares) || numberOfShares <= 0) {
       return NextResponse.json({ error: "invalid_number_of_shares" }, { status: 400 })
     }
+
+    // Resolve optional payment date (defaults to today). Reject future dates so
+    // the share ledger always reflects real-world settlement.
+    const today = new Date()
+    today.setHours(23, 59, 59, 999)
+    const paymentDateRaw = typeof body.paymentDate === "string" ? body.paymentDate.trim() : ""
+    let resolvedPaymentDate = new Date()
+    if (paymentDateRaw) {
+      const parsed = new Date(paymentDateRaw)
+      if (Number.isNaN(parsed.getTime())) {
+        return NextResponse.json({ error: "invalid_payment_date" }, { status: 400 })
+      }
+      if (parsed.getTime() > today.getTime()) {
+        return NextResponse.json({ error: "payment_date_in_future" }, { status: 400 })
+      }
+      resolvedPaymentDate = parsed
+    }
+
+    const referenceNumberInput =
+      typeof body.referenceNumber === "string"
+        ? body.referenceNumber.trim()
+        : typeof body.reference_number === "string"
+          ? body.reference_number.trim()
+          : ""
 
     const session = await getServerSession(authOptions)
     if (!session?.user?.authUserId) {
@@ -130,7 +162,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       if (!allowed) return { error: "missing_permission:edit_shares" as const }
 
       const memberRes = await client.query(
-        `SELECT id, institution_id FROM senteloans_members WHERE id = $1`,
+        `SELECT id, institution_id FROM members WHERE id = $1`,
         [memberId]
       )
       const memberRow = memberRes.rows[0]
@@ -139,7 +171,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
       const cfgRes = await client.query(
         `SELECT shares, share_value, minimum_shares, maximum_shares
-         FROM senteloans_config
+         FROM config
          WHERE branch_id = $1
          LIMIT 1`,
         [memberRow.branch_id]
@@ -159,12 +191,14 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       if (typeof minShares === "number" && numberOfShares < minShares) return { error: `minimum_shares_${minShares}` as const }
       if (typeof maxShares === "number" && numberOfShares > maxShares) return { error: `maximum_shares_${maxShares}` as const }
 
-      const purchaseDate = new Date().toISOString().slice(0, 10)
+      const purchaseDate = resolvedPaymentDate.toISOString().slice(0, 10)
       const purchaseValue = numberOfShares * valuePerShare
-      const txNumber = `SHR-${Date.now()}`
       const validModes = ["Cash", "Mobile Money", "Bank Transfer", "Cheque", "Card"]
       const requestedMode = typeof body.mode === "string" && body.mode.trim() ? body.mode.trim() : "Cash"
       const mode = validModes.includes(requestedMode) ? requestedMode : "Cash"
+      if (mode !== "Cash" && !referenceNumberInput) {
+        return { error: "reference_number_required" as const }
+      }
       const description = typeof body.description === "string" && body.description.trim()
         ? body.description.trim()
         : `Shares purchase: ${numberOfShares} share(s) @ ${valuePerShare.toLocaleString()} each`
@@ -174,20 +208,20 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
         // Track running share value balance for this member
         const shareBalRes = await client.query(
-          `SELECT COALESCE(SUM(total_value), 0)::numeric AS total_share_value FROM senteloans_member_shares WHERE member_id = $1`,
+          `SELECT COALESCE(SUM(total_value), 0)::numeric AS total_share_value FROM member_shares WHERE member_id = $1`,
           [memberId]
         )
         const balanceBefore = Number(shareBalRes.rows[0]?.total_share_value || 0)
         const balanceAfter = balanceBefore + purchaseValue
 
         const insRes = await client.query(
-          `INSERT INTO senteloans_member_shares (member_id, number_of_shares, share_value, purchase_date) VALUES ($1, $2, $3, $4) RETURNING id`,
+          `INSERT INTO member_shares (member_id, number_of_shares, share_value, purchase_date) VALUES ($1, $2, $3, $4) RETURNING id`,
           [memberId, numberOfShares, valuePerShare, purchaseDate]
         )
         const row = insRes.rows[0]
         if (row?.id) {
           await auditLogger.logInsert(
-            "senteloans_member_shares",
+            "member_shares",
             row.id,
             {
               member_id: memberId,
@@ -219,7 +253,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         if (!hasSharesPurchaseType) {
           const accRes = await client.query(
             `SELECT id
-             FROM senteloans_savings_accounts
+             FROM savings_accounts
              WHERE institution_id = $1 AND member_id = $2
              ORDER BY CASE WHEN account_type = 'Shares' THEN 0 ELSE 1 END, created_at ASC
              LIMIT 1`,
@@ -231,30 +265,43 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
           }
         }
 
-        const txRes = await client.query(
-          `INSERT INTO senteloans_transactions
-            (institution_id, member_id, account_id, loan_id, transaction_number, type, amount, mode, description, reference_number, balance_before, balance_after, processed_by, transaction_date, status)
-           VALUES ($1, $2, $3, NULL, $4, $5, $6, $7, $8, $4, $9, $10, $11, $12, 'Completed')
-           RETURNING id`,
-          [
-            actor.institution_id,
-            memberId,
-            fallbackAccountId,
-            txNumber,
-            txType,
-            purchaseValue,
-            mode,
-            description,
-            balanceBefore,
-            balanceAfter,
-            actor.id,
-            new Date().toISOString(),
-          ]
+        // Use the shared retry helper so a rare transaction_number collision
+        // (multiple rapid share purchases) self-heals. Mirrors fee/transactions.
+        const txInsert = await insertWithTransactionNumberRetry<{ id: string }>(
+          (transactionNumber) =>
+            client.query<{ id: string }>(
+              `INSERT INTO transactions
+                (institution_id, member_id, account_id, loan_id, transaction_number, type, amount, mode, description, reference_number, balance_before, balance_after, processed_by, transaction_date, status)
+               VALUES ($1, $2, $3, NULL, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'Completed')
+               RETURNING id`,
+              [
+                actor.institution_id,
+                memberId,
+                fallbackAccountId,
+                transactionNumber,
+                txType,
+                purchaseValue,
+                mode,
+                description,
+                // Use caller-supplied reference for non-Cash modes; for Cash,
+                // fall back to the generated transaction number for traceability.
+                referenceNumberInput || transactionNumber,
+                balanceBefore,
+                balanceAfter,
+                actor.id,
+                resolvedPaymentDate.toISOString(),
+              ],
+            ),
+          { client },
         )
-        const txId = txRes.rows[0]?.id
+        if (!txInsert) {
+          throw new Error("shares_transaction_failed")
+        }
+        const txId = txInsert.row.id
+        const txNumber = txInsert.transactionNumber
         if (txId) {
           await auditLogger.logInsert(
-            "senteloans_transactions",
+            "transactions",
             txId,
             {
               member_id: memberId,
@@ -263,9 +310,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
               amount: purchaseValue,
               mode,
               description,
+              reference_number: referenceNumberInput || txNumber,
               balance_before: balanceBefore,
               balance_after: balanceAfter,
               processed_by: actor.id,
+              transaction_date: resolvedPaymentDate.toISOString(),
               status: "Completed",
             },
             actor.institution_id,
@@ -290,7 +339,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
           ? 403
           : result.error === "member_not_found" || result.error === "institution_not_found"
             ? 404
-            : result.error === "shares_transaction_account_missing"
+            : result.error === "shares_transaction_account_missing" ||
+                result.error === "reference_number_required"
               ? 400
             : result.error === "shares_transaction_failed"
               ? 500

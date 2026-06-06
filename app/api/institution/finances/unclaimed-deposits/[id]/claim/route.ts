@@ -30,7 +30,7 @@ async function validateAssignees(
   if (memberId && clientId) return "member_and_client_conflict"
   if (memberId) {
     const res = await client.query(
-      `SELECT 1 FROM senteloans_members
+      `SELECT 1 FROM members
        WHERE id = $1::uuid AND institution_id = $2::uuid AND branch_id = $3::uuid
        LIMIT 1`,
       [memberId, actor.institution_id, branchId],
@@ -39,7 +39,7 @@ async function validateAssignees(
   }
   if (clientId) {
     const res = await client.query(
-      `SELECT 1 FROM senteloans_clients
+      `SELECT 1 FROM clients
        WHERE id = $1::uuid AND institution_id = $2::uuid AND branch_id = $3::uuid
        LIMIT 1`,
       [clientId, actor.institution_id, branchId],
@@ -78,7 +78,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       const existing = await client.query(
         `SELECT id, branch_id, status, amount, unclaimed_deposit_number, transaction_number, mode, date,
                 member_id, client_id, transaction_id, notes
-         FROM senteloans_unclaimed_deposits ud
+         FROM unclaimed_deposits ud
          WHERE ${where}
          LIMIT 1`,
         values,
@@ -107,7 +107,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
       if (transactionId) {
         const linkCheck = await client.query(
-          `SELECT 1 FROM senteloans_unclaimed_deposits
+          `SELECT 1 FROM unclaimed_deposits
            WHERE transaction_id = $1::uuid
              AND id <> $2::uuid
            LIMIT 1`,
@@ -121,7 +121,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         }
 
         let txQuery =
-          `SELECT t.amount FROM senteloans_transactions t
+          `SELECT t.amount FROM transactions t
            WHERE t.id = $1::uuid
              AND t.institution_id = $2::uuid
              AND t.branch_id = $3::uuid`
@@ -163,7 +163,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       }
 
       const updateRes = await client.query(
-        `UPDATE senteloans_unclaimed_deposits ud
+        `UPDATE unclaimed_deposits ud
          SET status = $1,
              member_id = $2::uuid,
              client_id = $3::uuid,

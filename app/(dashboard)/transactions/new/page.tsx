@@ -87,7 +87,7 @@ export default function NewTransactionPage() {
         const res = await fetch(`/api/institution/members?search=${encodeURIComponent(q)}&limit=10`, { cache: "no-store" })
         const data = await res.json()
         if (!res.ok) throw new Error(data?.error || "Failed to search members")
-        if (!abort) setMemberResults(data.members || data.clients || [])
+        if (!abort) setMemberResults(data.members || [])
       } catch (e) {
         if (!abort) {
           const message = (e as Error)?.message || "Failed to search members"

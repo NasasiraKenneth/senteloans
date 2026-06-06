@@ -21,6 +21,7 @@ import Link from "next/link"
 import { getSession } from "@/lib/session"
 import { notFound } from "next/navigation"
 import { calculateLoanTerms, normalizeLoanMethod } from "@/lib/loans/calculations"
+import { useToast } from "@/components/ui/toast"
 
 interface UserEditPageProps {
   params: Promise<{ id: string }>
@@ -28,6 +29,9 @@ interface UserEditPageProps {
 
 const inputClass =
   "w-full px-3 py-2.5 text-sm rounded-md border transition-all duration-200 focus:ring-[1.5px] focus:ring-[#f08c2b] focus:border-transparent focus:outline-none border-gray-300 hover:border-gray-400"
+
+// Payment modes that settle into a branch bank account (require account selection).
+const BANK_ROUTED_MODES = ["Bank Transfer", "Cheque", "Card"]
 
 type SelectOption = { value: string; label: string }
 const normalizeDateFromApi = (value: unknown): string => {
@@ -158,17 +162,28 @@ export default function UserEditPage({ params }: UserEditPageProps) {
   const [feePaymentAmount, setFeePaymentAmount] = useState("")
   const [feePaymentMode, setFeePaymentMode] = useState("Cash")
   const [feePaymentType, setFeePaymentType] = useState<"remaining" | "custom">("remaining")
+  const [feePaymentDate, setFeePaymentDate] = useState<string>("")
+  const [feeReferenceNumber, setFeeReferenceNumber] = useState<string>("")
+  const [feeTransactionCharges, setFeeTransactionCharges] = useState<string>("")
+  const [feeBankAccountId, setFeeBankAccountId] = useState<string>("")
   const [feeSubmitting, setFeeSubmitting] = useState(false)
   const [feeSuccess, setFeeSuccess] = useState<string | null>(null)
   const [feePayments, setFeePayments] = useState<any[]>([])
   const [sharesPaymentMode, setSharesPaymentMode] = useState("Cash")
+  const [sharesPaymentDate, setSharesPaymentDate] = useState<string>("")
+  const [sharesReferenceNumber, setSharesReferenceNumber] = useState<string>("")
+  const [sharesTransactionCharges, setSharesTransactionCharges] = useState<string>("")
+  const [sharesBankAccountId, setSharesBankAccountId] = useState<string>("")
+  const [bankAccounts, setBankAccounts] = useState<{ id: string; bank_name: string; bank_account_number: string }[]>([])
   const [currency, setCurrency] = useState("UGX")
   const [memberPermissions, setMemberPermissions] = useState({
+    editMember: false,
     editMembershipFee: false,
     editShares: false,
     editOpeningSavings: false,
     editOpeningLoans: false,
   })
+  const { toast } = useToast()
 
   // Opening balances state
   const [obLoading, setObLoading] = useState(true)
@@ -197,7 +212,8 @@ export default function UserEditPage({ params }: UserEditPageProps) {
     joinDate: "",
     gender: "",
     maritalStatus: "",
-    location: "",
+    district: "",
+    village: "",
     occupation: "",
     monthlyIncome: "",
     monthlySavings: "",
@@ -247,7 +263,8 @@ export default function UserEditPage({ params }: UserEditPageProps) {
           joinDate: normalizeDateFromApi(client.join_date),
           gender: client.gender || "",
           maritalStatus: client.marital_status || "",
-          location: [client.village, client.district].filter(Boolean).join(", "),
+          district: client.district || "",
+          village: client.village || "",
           occupation: client.occupation || "",
           monthlyIncome: (client.monthly_income ?? "").toString(),
           monthlySavings: (client.monthly_savings ?? "").toString(),
@@ -284,6 +301,7 @@ export default function UserEditPage({ params }: UserEditPageProps) {
         if (!res.ok) return
         const data = (await res.json()) as {
           permissions?: {
+            editMember?: boolean
             editMembershipFee?: boolean
             editShares?: boolean
             editOpeningSavings?: boolean
@@ -291,6 +309,7 @@ export default function UserEditPage({ params }: UserEditPageProps) {
           }
         }
         setMemberPermissions({
+          editMember: !!data.permissions?.editMember,
           editMembershipFee: !!data.permissions?.editMembershipFee,
           editShares: !!data.permissions?.editShares,
           editOpeningSavings: !!data.permissions?.editOpeningSavings,
@@ -298,6 +317,7 @@ export default function UserEditPage({ params }: UserEditPageProps) {
         })
       } catch {
         setMemberPermissions({
+          editMember: false,
           editMembershipFee: false,
           editShares: false,
           editOpeningSavings: false,
@@ -499,6 +519,24 @@ export default function UserEditPage({ params }: UserEditPageProps) {
     }
   }, [hasShares, id])
 
+  // Load the member's branch bank accounts (used when a bank-routed payment
+  // mode is selected for membership fee / shares).
+  useEffect(() => {
+    async function loadBankAccounts() {
+      try {
+        const res = await fetch(`/api/institution/members/${id}/bank-accounts`, { cache: "no-store" })
+        if (!res.ok) return
+        const data = (await res.json()) as {
+          bankAccounts?: { id: string; bank_name: string; bank_account_number: string }[]
+        }
+        setBankAccounts(data.bankAccounts || [])
+      } catch {
+        // Best-effort; selection simply shows no options if this fails.
+      }
+    }
+    loadBankAccounts()
+  }, [id])
+
   // If session config is missing, hydrate from API and cache locally (best-effort)
   useEffect(() => {
     async function hydrateConfig() {
@@ -611,9 +649,18 @@ export default function UserEditPage({ params }: UserEditPageProps) {
     setError(null)
     setSuccess(null)
 
+    if (!memberPermissions.editMember) {
+      toast({
+        variant: "warning",
+        title: "Access denied",
+        description: `You do not have permission to edit ${terminology.singular.toLowerCase()} details.`,
+      })
+      return
+    }
+
     // Client-side validation
     const email = formData.email.trim()
-    const phone = formData.phoneNumber.trim()
+    let phone = formData.phoneNumber.trim()
     if (!formData.fullName.trim()) {
       setError("Full Name is required")
       return
@@ -626,6 +673,7 @@ export default function UserEditPage({ params }: UserEditPageProps) {
       setError("Phone Number is required")
       return
     }
+    if (phone.startsWith("0")) phone = "+256" + phone.slice(1)
     if (formData.monthlyIncome && Number.isNaN(Number(formData.monthlyIncome))) {
       setError("Monthly Income must be a number")
       return
@@ -637,7 +685,7 @@ export default function UserEditPage({ params }: UserEditPageProps) {
 
     setSaving(true)
     try {
-      // Update client information
+      // Update member information
       const payload = {
         fullName: formData.fullName,
         email,
@@ -646,7 +694,8 @@ export default function UserEditPage({ params }: UserEditPageProps) {
         joinDate: formData.joinDate,
         gender: formData.gender,
         maritalStatus: formData.maritalStatus,
-        location: formData.location,
+        district: formData.district,
+        village: formData.village,
         occupation: formData.occupation,
         monthlyIncome: formData.monthlyIncome ? Number(formData.monthlyIncome) : undefined,
         monthlySavings: formData.monthlySavings ? Number(formData.monthlySavings) : undefined,
@@ -671,10 +720,30 @@ export default function UserEditPage({ params }: UserEditPageProps) {
       })
       if (!res.ok) {
         const { error } = await res.json()
-        throw new Error(error || "Failed to update client")
+        if (res.status === 403 && error === "missing_permission:edit_member") {
+          toast({
+            variant: "warning",
+            title: "Access denied",
+            description: `You do not have permission to edit ${terminology.singular.toLowerCase()} details.`,
+          })
+          return
+        }
+        if (res.status === 400 && error === "invalid_phone_ug_format") {
+          throw new Error("Phone number must start with +256 or 0 (Uganda format)")
+        }
+        if (res.status === 400 && error === "invalid_email") {
+          throw new Error("Enter a valid email address")
+        }
+        throw new Error(error || `Failed to update ${terminology.singular.toLowerCase()}`)
       }
 
       if (formData.sharesToBuy && Number(formData.sharesToBuy) > 0) {
+        if (!sharesPaymentDate) {
+          throw new Error("Please select a payment date for the share purchase")
+        }
+        if (sharesPaymentMode !== "Cash" && !sharesReferenceNumber.trim()) {
+          throw new Error(`Reference number is required for ${sharesPaymentMode} share purchases`)
+        }
         const sharesToBuy = Number(formData.sharesToBuy)
         const sharesRes = await fetch(`/api/institution/members/${id}/shares`, {
           method: "POST",
@@ -683,6 +752,8 @@ export default function UserEditPage({ params }: UserEditPageProps) {
             numberOfShares: sharesToBuy,
             mode: sharesPaymentMode,
             description: "Shares purchase",
+            paymentDate: sharesPaymentDate || undefined,
+            referenceNumber: sharesReferenceNumber.trim() || undefined,
           }),
         })
         if (!sharesRes.ok) {
@@ -691,11 +762,15 @@ export default function UserEditPage({ params }: UserEditPageProps) {
         }
       }
 
-      setSuccess("Saved successfully")
+      toast({
+        variant: "success",
+        title: `${terminology.singular} updated`,
+        description: `${formData.fullName.trim()} has been saved successfully.`,
+      })
       router.push(`/users/${id}`)
       router.refresh()
     } catch (err: any) {
-      setError(err?.message || "Failed to update client")
+      setError(err?.message || `Failed to update ${terminology.singular.toLowerCase()}`)
     } finally {
       setSaving(false)
     }
@@ -715,6 +790,14 @@ export default function UserEditPage({ params }: UserEditPageProps) {
       setError(`Payment amount cannot exceed the remaining fee of ${currency} ${remaining.toLocaleString()}`)
       return
     }
+    if (!feePaymentDate) {
+      setError("Please select a payment date")
+      return
+    }
+    if (feePaymentMode !== "Cash" && !feeReferenceNumber.trim()) {
+      setError(`Reference number is required for ${feePaymentMode} payments`)
+      return
+    }
 
     setFeeSubmitting(true)
     try {
@@ -725,6 +808,8 @@ export default function UserEditPage({ params }: UserEditPageProps) {
           amount,
           mode: feePaymentMode,
           description: "Membership fee payment",
+          paymentDate: feePaymentDate || undefined,
+          reference_number: feeReferenceNumber.trim() || undefined,
         }),
       })
       const data = await res.json()
@@ -732,7 +817,16 @@ export default function UserEditPage({ params }: UserEditPageProps) {
 
       setMembershipFeePaid(data.membershipFeePaid)
       setFeePaymentAmount("")
+      setFeeReferenceNumber("")
+      setFeeTransactionCharges("")
+      setFeeBankAccountId("")
+      setFeePaymentDate("")
       setFeeSuccess(`Payment of ${currency} ${amount.toLocaleString()} recorded successfully`)
+      toast({
+        variant: "success",
+        title: "Membership fee recorded",
+        description: `${currency} ${amount.toLocaleString()} paid${data?.invoice?.status === "paid" ? " — invoice fully settled." : "."}`,
+      })
 
       // Reload payment history
       const histRes = await fetch(`/api/institution/members/${id}/membership-fee`, { cache: "no-store" })
@@ -752,6 +846,14 @@ export default function UserEditPage({ params }: UserEditPageProps) {
       setError("Please enter a valid number of shares to buy")
       return
     }
+    if (!sharesPaymentDate) {
+      setError("Please select a payment date for the share purchase")
+      return
+    }
+    if (sharesPaymentMode !== "Cash" && !sharesReferenceNumber.trim()) {
+      setError(`Reference number is required for ${sharesPaymentMode} share purchases`)
+      return
+    }
 
     setError(null)
     setSuccess(null)
@@ -766,6 +868,8 @@ export default function UserEditPage({ params }: UserEditPageProps) {
           numberOfShares: sharesToBuy,
           mode: sharesPaymentMode,
           description: "Shares purchase",
+          paymentDate: sharesPaymentDate || undefined,
+          referenceNumber: sharesReferenceNumber.trim() || undefined,
         }),
       })
       if (!res.ok) {
@@ -774,6 +878,15 @@ export default function UserEditPage({ params }: UserEditPageProps) {
       }
       setSuccess("Shares purchased successfully")
       setFormData((prev) => ({ ...prev, sharesToBuy: "" }))
+      setSharesReferenceNumber("")
+      setSharesTransactionCharges("")
+      setSharesBankAccountId("")
+      setSharesPaymentDate("")
+      toast({
+        variant: "success",
+        title: "Shares purchased",
+        description: `${sharesToBuy} share(s) recorded successfully.`,
+      })
       // Reload shares data
       if (hasShares) {
         const sharesRes = await fetch(`/api/institution/members/${id}/shares`, { cache: "no-store" })
@@ -1060,11 +1173,21 @@ export default function UserEditPage({ params }: UserEditPageProps) {
                 <CardContent className="space-y-4">
                   <div className="grid gap-4 md:grid-cols-2">
                     <div className="space-y-2">
-                      <Label htmlFor="location">Location</Label>
+                      <Label htmlFor="district">District</Label>
                       <StyledInput
-                        id="location"
-                        value={formData.location}
-                        onChange={(e) => handleInputChange("location", e.target.value)}
+                        id="district"
+                        value={formData.district}
+                        onChange={(e) => handleInputChange("district", e.target.value)}
+                        placeholder="e.g., Kampala"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="village">Village / Area</Label>
+                      <StyledInput
+                        id="village"
+                        value={formData.village}
+                        onChange={(e) => handleInputChange("village", e.target.value)}
+                        placeholder="e.g., Ntinda"
                       />
                     </div>
                     <div className="space-y-2">
@@ -1576,7 +1699,7 @@ export default function UserEditPage({ params }: UserEditPageProps) {
 
                               <div className="border-t pt-4">
                                 <div className="space-y-4">
-                                  <div className="grid gap-4 md:grid-cols-4 items-end">
+                                  <div className="grid gap-4 md:grid-cols-3 items-end">
                                     <div className="space-y-2">
                                       <Label htmlFor="sharesToBuy">Shares to Purchase</Label>
                                       <StyledInput
@@ -1606,31 +1729,87 @@ export default function UserEditPage({ params }: UserEditPageProps) {
                                         ]}
                                       />
                                     </div>
-                                    <div className="flex items-center gap-2">
-                                      <Calculator className="h-4 w-4 text-muted-foreground" />
-                                      {!memberPermissions.editShares ? (
-                                        <TooltipButton
-                                          tooltip="Missing edit_shares permission"
-                                          disabled
-                                          className="flex-1 inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-all h-9 px-4 py-2 bg-primary text-primary-foreground opacity-50 cursor-not-allowed"
-                                        >
-                                          Purchase Shares
-                                        </TooltipButton>
-                                      ) : (
-                                        <Button
-                                          type="button"
-                                          onClick={handleSharesPurchaseOnly}
-                                          disabled={!configuredShareValue || saving}
-                                          className="flex-1"
-                                        >
-                                          {saving ? "Processing..." : "Purchase Shares"}
-                                        </Button>
-                                      )}
-                                    </div>
                                   </div>
-                                  <p className="text-xs text-muted-foreground">
-                                    You can purchase shares separately or include them when saving all changes.
-                                  </p>
+                                  <div className="grid gap-4 md:grid-cols-3">
+                                    <div className="space-y-2">
+                                      <Label htmlFor="sharesPaymentDate">Payment Date</Label>
+                                      <ReeveDatePicker
+                                        value={sharesPaymentDate}
+                                        onChange={setSharesPaymentDate}
+                                        placeholder="Select payment date"
+                                      />
+                                    </div>
+                                    {sharesPaymentMode !== "Cash" && (
+                                      <>
+                                        {BANK_ROUTED_MODES.includes(sharesPaymentMode) && (
+                                          <div className="space-y-2">
+                                            <Label htmlFor="sharesBankAccountId">
+                                              Bank Account <span className="text-destructive">*</span>
+                                            </Label>
+                                            <StyledSelect
+                                              value={sharesBankAccountId}
+                                              onChange={setSharesBankAccountId}
+                                              placeholder={bankAccounts.length ? "Select bank account" : "No branch bank accounts"}
+                                              options={bankAccounts.map((ba) => ({
+                                                value: ba.id,
+                                                label: `${ba.bank_name} — ${ba.bank_account_number}`,
+                                              }))}
+                                            />
+                                          </div>
+                                        )}
+                                        <div className="space-y-2">
+                                          <Label htmlFor="sharesTransactionCharges">
+                                            Transaction Charges ({currency})
+                                          </Label>
+                                          <StyledInput
+                                            id="sharesTransactionCharges"
+                                            type="number"
+                                            min={0}
+                                            value={sharesTransactionCharges}
+                                            onChange={(e) => setSharesTransactionCharges(e.target.value)}
+                                            placeholder="0"
+                                          />
+                                        </div>
+                                        <div className="space-y-2">
+                                          <Label htmlFor="sharesReferenceNumber">
+                                            Reference Number <span className="text-destructive">*</span>
+                                          </Label>
+                                          <StyledInput
+                                            id="sharesReferenceNumber"
+                                            value={sharesReferenceNumber}
+                                            onChange={(e) => setSharesReferenceNumber(e.target.value)}
+                                            placeholder={`e.g. transaction id`}
+                                          />
+                                          <p className="text-xs text-muted-foreground">
+                                            Required for {sharesPaymentMode} payments.
+                                          </p>
+                                        </div>
+                                      </>
+                                    )}
+                                  </div>
+                                  <div className="flex items-center justify-between gap-3">
+                                    <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+                                      <Calculator className="h-3.5 w-3.5" />
+                                      You can purchase shares separately or include them when saving all changes.
+                                    </p>
+                                    {!memberPermissions.editShares ? (
+                                      <TooltipButton
+                                        tooltip="Missing edit_shares permission"
+                                        disabled
+                                        className="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-all h-9 px-4 py-2 bg-primary text-primary-foreground opacity-50 cursor-not-allowed"
+                                      >
+                                        Purchase Shares
+                                      </TooltipButton>
+                                    ) : (
+                                      <Button
+                                        type="button"
+                                        onClick={handleSharesPurchaseOnly}
+                                        disabled={!configuredShareValue || saving}
+                                      >
+                                        {saving ? "Processing..." : "Purchase Shares"}
+                                      </Button>
+                                    )}
+                                  </div>
                                 </div>
                               </div>
                             </>
@@ -1769,6 +1948,63 @@ export default function UserEditPage({ params }: UserEditPageProps) {
                                     ]}
                                   />
                                 </div>
+                                <div className="space-y-2">
+                                  <Label htmlFor="feePaymentDate">Payment Date</Label>
+                                  <ReeveDatePicker
+                                    value={feePaymentDate}
+                                    onChange={setFeePaymentDate}
+                                    placeholder="Select payment date"
+                                  />
+                                </div>
+                              </div>
+                              {feePaymentMode !== "Cash" && (
+                                <div className={`grid gap-4 ${BANK_ROUTED_MODES.includes(feePaymentMode) ? "md:grid-cols-3" : "md:grid-cols-2"}`}>
+                                  {BANK_ROUTED_MODES.includes(feePaymentMode) && (
+                                    <div className="space-y-2">
+                                      <Label htmlFor="feeBankAccountId">
+                                        Bank Account <span className="text-destructive">*</span>
+                                      </Label>
+                                      <StyledSelect
+                                        value={feeBankAccountId}
+                                        onChange={setFeeBankAccountId}
+                                        placeholder={bankAccounts.length ? "Select bank account" : "No branch bank accounts"}
+                                        options={bankAccounts.map((ba) => ({
+                                          value: ba.id,
+                                          label: `${ba.bank_name} — ${ba.bank_account_number}`,
+                                        }))}
+                                      />
+                                    </div>
+                                  )}
+                                  <div className="space-y-2">
+                                    <Label htmlFor="feeTransactionCharges">
+                                      Transaction Charges ({currency})
+                                    </Label>
+                                    <StyledInput
+                                      id="feeTransactionCharges"
+                                      type="number"
+                                      min={0}
+                                      value={feeTransactionCharges}
+                                      onChange={(e) => setFeeTransactionCharges(e.target.value)}
+                                      placeholder="0"
+                                    />
+                                  </div>
+                                  <div className="space-y-2">
+                                    <Label htmlFor="feeReferenceNumber">
+                                      Reference Number <span className="text-destructive">*</span>
+                                    </Label>
+                                    <StyledInput
+                                      id="feeReferenceNumber"
+                                      value={feeReferenceNumber}
+                                      onChange={(e) => setFeeReferenceNumber(e.target.value)}
+                                      placeholder={`e.g. transaction id`}
+                                    />
+                                    <p className="text-xs text-muted-foreground">
+                                      Required for {feePaymentMode} payments.
+                                    </p>
+                                  </div>
+                                </div>
+                              )}
+                              <div className="flex justify-end">
                                 {!memberPermissions.editMembershipFee ? (
                                   <TooltipButton
                                     tooltip="Missing edit_membership_fee permission"
@@ -1890,10 +2126,21 @@ export default function UserEditPage({ params }: UserEditPageProps) {
                           Cancel
                         </Button>
                       </Link>
-                      <Button type="submit" disabled={saving}>
-                        <Save className="h-4 w-4 mr-2" />
-                        {saving ? "Saving..." : terminology.update}
-                      </Button>
+                      {memberPermissions.editMember ? (
+                        <Button type="submit" disabled={saving}>
+                          <Save className="h-4 w-4 mr-2" />
+                          {saving ? "Saving..." : terminology.update}
+                        </Button>
+                      ) : (
+                        <TooltipButton
+                          tooltip="Missing edit_member permission"
+                          disabled
+                          className="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-all h-9 px-4 py-2 bg-primary text-primary-foreground opacity-50 cursor-not-allowed"
+                        >
+                          <Save className="h-4 w-4 mr-2" />
+                          {terminology.update}
+                        </TooltipButton>
+                      )}
                     </div>
                   </div>
                 </div>

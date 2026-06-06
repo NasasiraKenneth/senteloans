@@ -26,8 +26,8 @@ async function resolveActorContext(client: any, authUserId: string): Promise<Act
          WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
          ELSE NULL
        END AS role
-     FROM senteloans_users u
-     LEFT JOIN senteloans_roles r ON r.id = u.role_id
+     FROM users u
+     LEFT JOIN roles r ON r.id = u.role_id
      WHERE u.supabase_user_id = $1
      LIMIT 1`,
     [authUserId]
@@ -41,8 +41,8 @@ async function hasPermission(client: any, actor: ActorContext, permission: strin
   if (!actor.role_id || !actor.branch_id) return false
   const permRes = await client.query(
     `SELECT 1
-     FROM senteloans_role_permissions rp
-     JOIN senteloans_permissions p ON p.id = rp.permission_id
+     FROM role_permissions rp
+     JOIN permissions p ON p.id = rp.permission_id
      WHERE rp.role_id = $1 AND rp.branch_id = $2 AND p.name = $3
      LIMIT 1`,
     [actor.role_id, actor.branch_id, permission]
@@ -126,18 +126,18 @@ export async function GET(req: Request) {
 
       let branchScopes: BranchScope[] = []
       if (isSuperAdmin) {
-        const branchRes = await client.query(`SELECT id, name FROM senteloans_branches WHERE institution_id = $1 ORDER BY name ASC`, [actor.institution_id])
+        const branchRes = await client.query(`SELECT id, name FROM branches WHERE institution_id = $1 ORDER BY name ASC`, [actor.institution_id])
         const allBranches = branchRes.rows as BranchScope[]
         branchScopes = selectedBranchIds.length > 0 ? allBranches.filter((b) => selectedBranchIds.includes(b.id)) : allBranches
       } else {
-        const branchRes = await client.query(`SELECT id, name FROM senteloans_branches WHERE id = $1 LIMIT 1`, [actor.branch_id])
+        const branchRes = await client.query(`SELECT id, name FROM branches WHERE id = $1 LIMIT 1`, [actor.branch_id])
         branchScopes = branchRes.rows.length > 0 ? [branchRes.rows[0] as BranchScope] : []
       }
 
       let loanProductsLabel = ""
       if (selectedProductIds.length > 0) {
         const pRes = await client.query(
-          `SELECT product_name FROM senteloans_loan_products WHERE institution_id = $1 AND id = ANY($2::uuid[]) ORDER BY product_name ASC`,
+          `SELECT product_name FROM loan_products WHERE institution_id = $1 AND id = ANY($2::uuid[]) ORDER BY product_name ASC`,
           [actor.institution_id, selectedProductIds]
         )
         loanProductsLabel = pRes.rows.map((r: { product_name: string }) => r.product_name).join(", ")
@@ -187,9 +187,9 @@ export async function GET(req: Request) {
         const loanRes = await client.query(
           `SELECT l.application_id, COALESCE(m.full_name, '') AS member_name, COALESCE(p.product_name, '') AS product_name,
                   l.status, l.loan_type, l.principal_amount, l.tenure_months, l.outstanding_balance, l.application_date, l.next_payment_date
-           FROM senteloans_loans l
-           LEFT JOIN senteloans_members m ON m.id = l.member_id
-           LEFT JOIN senteloans_loan_products p ON p.id = l.loan_product_id
+           FROM loans l
+           LEFT JOIN members m ON m.id = l.member_id
+           LEFT JOIN loan_products p ON p.id = l.loan_product_id
            WHERE ${where}
            ORDER BY l.application_date DESC`,
           params

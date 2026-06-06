@@ -24,7 +24,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
 
     const invRes = await client.query(
       `SELECT id, current_value
-       FROM senteloans_investments
+       FROM investments
        WHERE id = $1 AND institution_id = $2
        ${isSuperAdmin ? "" : "AND branch_id = $3"}
        LIMIT 1`,
@@ -47,16 +47,16 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
          cf.description,
          cf.date,
          cf.created_at
-       FROM senteloans_investment_cashflows cf
-       LEFT JOIN senteloans_transactions t ON t.id = cf.transaction_id
-       LEFT JOIN senteloans_investment_reports r ON r.id = cf.report_id
+       FROM investment_cashflows cf
+       LEFT JOIN transactions t ON t.id = cf.transaction_id
+       LEFT JOIN investment_reports r ON r.id = cf.report_id
        WHERE cf.investment_id = $1
        ORDER BY COALESCE(cf.date, cf.created_at::date) DESC NULLS LAST, cf.created_at DESC`,
       [id],
     )
     const previousValRes = await client.query(
       `SELECT value
-       FROM senteloans_investment_valuations
+       FROM investment_valuations
        WHERE investment_id = $1
        ORDER BY valuation_date DESC, created_at DESC
        LIMIT 1`,
@@ -117,7 +117,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     try {
       const invRes = await client.query(
         `SELECT id, institution_id, branch_id, provider_id, investment_number, status, current_value
-         FROM senteloans_investments
+         FROM investments
          WHERE id = $1 AND institution_id = $2
          ${isSuperAdmin ? "" : "AND branch_id = $3"}
          LIMIT 1`,
@@ -150,7 +150,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       if (category === "adjustment") {
         const prevValRes = await client.query(
           `SELECT value
-           FROM senteloans_investment_valuations
+           FROM investment_valuations
            WHERE investment_id = $1
            ORDER BY valuation_date DESC, created_at DESC
            LIMIT 1`,
@@ -190,7 +190,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         const inserted = await insertWithTransactionNumberRetry(
           (transactionNumber) =>
             client.query(
-              `INSERT INTO senteloans_transactions (
+              `INSERT INTO transactions (
                  institution_id, branch_id, client_id, transaction_number, type, amount, mode, description,
                  reference_number, processed_by, transaction_date, status
                )
@@ -241,7 +241,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       if (category === "adjustment") {
         try {
           const valRes = await client.query(
-            `INSERT INTO senteloans_investment_valuations (investment_id, valuation_date, value, notes)
+            `INSERT INTO investment_valuations (investment_id, valuation_date, value, notes)
              VALUES ($1, $2::date, $3, $4)
              RETURNING id`,
             [id, date, currentValue, description],
@@ -249,7 +249,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
           const valuationId = String(valRes.rows[0]?.id || "")
           if (valuationId) {
             await auditLogger.logInsert(
-              "senteloans_investment_valuations",
+              "investment_valuations",
               valuationId,
               { investment_id: id, valuation_date: date, value: currentValue, notes: description },
               inv.institution_id,
@@ -268,14 +268,14 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       }
 
       const insertRes = await client.query(
-        `INSERT INTO senteloans_investment_cashflows (investment_id, transaction_id, report_id, type, category, amount, description, date)
+        `INSERT INTO investment_cashflows (investment_id, transaction_id, report_id, type, category, amount, description, date)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
          RETURNING id`,
         [id, transactionId, null, type, category, effectiveAmount, description, date],
       )
       const cashflowId = String(insertRes.rows[0]?.id || "")
       await auditLogger.logInsert(
-        "senteloans_investment_cashflows",
+        "investment_cashflows",
         cashflowId,
         {
           investment_id: id,

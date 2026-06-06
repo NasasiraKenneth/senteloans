@@ -53,10 +53,10 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
            e.updated_at,
            e.approved_at,
            u.full_name AS created_by_name
-         FROM senteloans_expenses e
-         JOIN senteloans_expense_categories c ON c.id = e.category_id
-         LEFT JOIN senteloans_branches b ON b.id = e.branch_id
-         JOIN senteloans_users u ON u.id = e.created_by
+         FROM expenses e
+         JOIN expense_categories c ON c.id = e.category_id
+         LEFT JOIN branches b ON b.id = e.branch_id
+         JOIN users u ON u.id = e.created_by
          WHERE ${where}
          LIMIT 1`,
         values,
@@ -70,7 +70,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
 
       const fundingRes = await client.query(
         `SELECT id, source_type, loan_id, amount::float, created_at
-         FROM senteloans_expense_funding_sources
+         FROM expense_funding_sources
          WHERE expense_id = $1::uuid
          ORDER BY created_at DESC`,
         [expenseId],
@@ -99,10 +99,10 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
            su.full_name AS staff_name,
            c.name AS client_name,
            u.full_name AS completed_by_name
-         FROM senteloans_expense_cashflows cf
-         LEFT JOIN senteloans_users su ON su.id = cf.staff_id
-         LEFT JOIN senteloans_clients c ON c.id = cf.client_id
-         LEFT JOIN senteloans_users u ON u.id = cf.completed_by
+         FROM expense_cashflows cf
+         LEFT JOIN users su ON su.id = cf.staff_id
+         LEFT JOIN clients c ON c.id = cf.client_id
+         LEFT JOIN users u ON u.id = cf.completed_by
          WHERE cf.expense_id = $1::uuid
          ORDER BY cf.created_at DESC`,
         [expenseId],
@@ -241,7 +241,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       const existing = await client.query(
         `SELECT e.id, e.expense_number, e.name, e.description, e.status, e.type, e.category_id, e.branch_id,
                 e.approved_by, e.approved_at, e.rejected_by, e.rejected_at, e.completed_by, e.completed_at
-         FROM senteloans_expenses e WHERE ${where} LIMIT 1`,
+         FROM expenses e WHERE ${where} LIMIT 1`,
         values,
       )
       const ex = existing.rows[0] as Record<string, unknown> | undefined
@@ -253,13 +253,13 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         }
       }
 
-      const cat = await client.query(`SELECT id FROM senteloans_expense_categories WHERE id = $1::uuid LIMIT 1`, [category_id])
+      const cat = await client.query(`SELECT id FROM expense_categories WHERE id = $1::uuid LIMIT 1`, [category_id])
       if ((cat.rowCount ?? 0) === 0) return { error: "invalid_category" as const }
 
       let nextBranchId: string = String(ex.branch_id || "")
       if (isSuperAdmin(actor) && branch_id_input) {
         const br = await client.query(
-          `SELECT id FROM senteloans_branches WHERE id = $1::uuid AND institution_id = $2::uuid LIMIT 1`,
+          `SELECT id FROM branches WHERE id = $1::uuid AND institution_id = $2::uuid LIMIT 1`,
           [branch_id_input, actor.institution_id],
         )
         if ((br.rowCount ?? 0) === 0) return { error: "invalid_branch" as const }
@@ -275,7 +275,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       }
 
       const upd = await client.query(
-        `UPDATE senteloans_expenses e
+        `UPDATE expenses e
          SET name = $1,
              description = $2,
              category_id = $3::uuid,

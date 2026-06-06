@@ -35,8 +35,8 @@ export async function GET(req: Request) {
              WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
              ELSE NULL
            END AS actor_role
-         FROM senteloans_users u
-         LEFT JOIN senteloans_roles r ON r.id = u.role_id
+         FROM users u
+         LEFT JOIN roles r ON r.id = u.role_id
          WHERE u.supabase_user_id = $1
          LIMIT 1`,
         [session.user.authUserId]
@@ -54,7 +54,7 @@ export async function GET(req: Request) {
              WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
              ELSE NULL
            END AS value
-         FROM senteloans_roles r
+         FROM roles r
          WHERE r.name IS NOT NULL
          ORDER BY r.name ASC`
       )

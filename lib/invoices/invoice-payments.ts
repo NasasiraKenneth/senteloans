@@ -21,7 +21,7 @@ const round2 = (n: number): number =>
   Math.round((Number(n) + Number.EPSILON) * 100) / 100
 
 /**
- * Sum of amounts applied to an invoice via senteloans_invoice_payments.
+ * Sum of amounts applied to an invoice via invoice_payments.
  */
 export async function getInvoicePaidAmount(
   client: PoolClient,
@@ -29,7 +29,7 @@ export async function getInvoicePaidAmount(
 ): Promise<number> {
   const res = await client.query<{ total: string }>(
     `SELECT COALESCE(SUM(amount), 0)::numeric AS total
-       FROM senteloans_invoice_payments
+       FROM invoice_payments
       WHERE invoice_id = $1`,
     [invoiceId],
   )
@@ -74,13 +74,13 @@ export async function findOpenMemberMembershipInvoice(
     status: string
   }>(
     `SELECT i.id, i.total_amount, i.status
-       FROM senteloans_invoices i
+       FROM invoices i
       WHERE i.institution_id = $1
         AND i.member_id = $2
         AND LOWER(i.invoice_type) = 'auto'
         AND LOWER(i.status) NOT IN ('paid', 'cancelled')
         AND EXISTS (
-          SELECT 1 FROM senteloans_invoice_items it
+          SELECT 1 FROM invoice_items it
            WHERE it.invoice_id = i.id
              AND LOWER(it.description) = 'annual membership fee'
         )
@@ -119,7 +119,7 @@ export async function recordInvoicePayment(
       : String(input.paymentDate)
 
   const res = await client.query<{ id: string }>(
-    `INSERT INTO senteloans_invoice_payments (
+    `INSERT INTO invoice_payments (
        institution_id, branch_id, invoice_id, amount, payment_date,
        transaction_id, membership_fee_id, processed_by
      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
@@ -152,7 +152,7 @@ export async function syncInvoiceStatusFromPayments(
     invoice_due: string | null
     status: string
   }>(
-    `SELECT total_amount, invoice_due, status FROM senteloans_invoices WHERE id = $1`,
+    `SELECT total_amount, invoice_due, status FROM invoices WHERE id = $1`,
     [invoiceId],
   )
   const inv = invRes.rows[0]
@@ -180,7 +180,7 @@ export async function syncInvoiceStatusFromPayments(
   }
 
   await client.query(
-    `UPDATE senteloans_invoices SET status = $1, updated_at = NOW() WHERE id = $2`,
+    `UPDATE invoices SET status = $1, updated_at = NOW() WHERE id = $2`,
     [nextStatus, invoiceId],
   )
 

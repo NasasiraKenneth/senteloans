@@ -59,10 +59,10 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
            ud.notes,
            COALESCE(m.full_name, c.name, '') AS assignee_name,
            t.transaction_number AS linked_transaction_number
-         FROM senteloans_unclaimed_deposits ud
-         LEFT JOIN senteloans_members m ON m.id = ud.member_id
-         LEFT JOIN senteloans_clients c ON c.id = ud.client_id
-         LEFT JOIN senteloans_transactions t ON t.id = ud.transaction_id
+         FROM unclaimed_deposits ud
+         LEFT JOIN members m ON m.id = ud.member_id
+         LEFT JOIN clients c ON c.id = ud.client_id
+         LEFT JOIN transactions t ON t.id = ud.transaction_id
          WHERE ${where}
          LIMIT 1`,
         values,
@@ -156,7 +156,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       const existing = await client.query(
         `SELECT id, branch_id, status, unclaimed_deposit_number, transaction_number, amount, mode, date,
                 member_id, client_id, transaction_id, notes
-         FROM senteloans_unclaimed_deposits ud
+         FROM unclaimed_deposits ud
          WHERE ${where}
          LIMIT 1`,
         values,
@@ -180,7 +180,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
       if (isSuperAdmin(actor) && branchId) {
         const branchCheck = await client.query(
-          `SELECT 1 FROM senteloans_branches WHERE id = $1::uuid AND institution_id = $2::uuid LIMIT 1`,
+          `SELECT 1 FROM branches WHERE id = $1::uuid AND institution_id = $2::uuid LIMIT 1`,
           [targetBranchId, actor.institution_id],
         )
         if ((branchCheck.rowCount ?? 0) === 0) return { error: "invalid_branch" as const }
@@ -205,7 +205,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       }
 
       const updateRes = await client.query(
-        `UPDATE senteloans_unclaimed_deposits ud
+        `UPDATE unclaimed_deposits ud
          SET transaction_number = $1,
              amount = $2,
              mode = $3::payment_mode,

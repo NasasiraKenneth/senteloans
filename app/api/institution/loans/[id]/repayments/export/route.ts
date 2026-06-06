@@ -47,8 +47,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
 
       const loanRes = await client.query(
         `SELECT l.id, l.application_id, l.institution_id, l.branch_id, l.member_id, m.full_name AS member_name
-         FROM senteloans_loans l
-         LEFT JOIN senteloans_members m ON m.id = l.member_id
+         FROM loans l
+         LEFT JOIN members m ON m.id = l.member_id
          WHERE l.id = $1`,
         [loanId],
       )
@@ -71,7 +71,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       const res = await client.query(
         `SELECT installment_number, due_date, principal_amount, interest_amount, total_amount,
                 amount_paid, payment_date, penalty_amount, amount_due, days_overdue, status
-         FROM senteloans_loan_repayments
+         FROM loan_repayments
          WHERE loan_id = $1
          ORDER BY installment_number ASC`,
         [loanId],

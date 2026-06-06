@@ -24,8 +24,8 @@ async function resolveActorContext(client: any, authUserId: string): Promise<Act
          WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
          ELSE NULL
        END AS role
-     FROM senteloans_users u
-     LEFT JOIN senteloans_roles r ON r.id = u.role_id
+     FROM users u
+     LEFT JOIN roles r ON r.id = u.role_id
      WHERE u.supabase_user_id = $1
      LIMIT 1`,
     [authUserId]
@@ -40,8 +40,8 @@ async function hasPermission(client: any, actor: ActorContext, permission: strin
 
   const permRes = await client.query(
     `SELECT 1
-     FROM senteloans_role_permissions rp
-     JOIN senteloans_permissions p ON p.id = rp.permission_id
+     FROM role_permissions rp
+     JOIN permissions p ON p.id = rp.permission_id
      WHERE rp.role_id = $1
        AND rp.branch_id = $2
        AND p.name = $3
@@ -104,37 +104,37 @@ async function resolveEntityMap(client: any, source: IdKeySpec["source"], ids: s
   let query = ""
   switch (source) {
     case "clients":
-      query = `SELECT id::text AS id, name::text AS label FROM senteloans_clients WHERE id = ANY($1::uuid[])`
+      query = `SELECT id::text AS id, name::text AS label FROM clients WHERE id = ANY($1::uuid[])`
       break
     case "members":
-      query = `SELECT id::text AS id, full_name::text AS label FROM senteloans_members WHERE id = ANY($1::uuid[])`
+      query = `SELECT id::text AS id, full_name::text AS label FROM members WHERE id = ANY($1::uuid[])`
       break
     case "users":
-      query = `SELECT id::text AS id, full_name::text AS label FROM senteloans_users WHERE id = ANY($1::uuid[])`
+      query = `SELECT id::text AS id, full_name::text AS label FROM users WHERE id = ANY($1::uuid[])`
       break
     case "branches":
-      query = `SELECT id::text AS id, name::text AS label FROM senteloans_branches WHERE id = ANY($1::uuid[])`
+      query = `SELECT id::text AS id, name::text AS label FROM branches WHERE id = ANY($1::uuid[])`
       break
     case "loans":
-      query = `SELECT id::text AS id, application_id::text AS label FROM senteloans_loans WHERE id = ANY($1::uuid[])`
+      query = `SELECT id::text AS id, application_id::text AS label FROM loans WHERE id = ANY($1::uuid[])`
       break
     case "sacco_loans":
-      query = `SELECT id::text AS id, COALESCE(NULLIF(loan_product, ''), id::text) AS label FROM senteloans_institution_loans WHERE id = ANY($1::uuid[])`
+      query = `SELECT id::text AS id, COALESCE(NULLIF(loan_product, ''), id::text) AS label FROM institution_loans WHERE id = ANY($1::uuid[])`
       break
     case "investments":
-      query = `SELECT id::text AS id, COALESCE(NULLIF(investment_number, ''), id::text) AS label FROM senteloans_investments WHERE id = ANY($1::uuid[])`
+      query = `SELECT id::text AS id, COALESCE(NULLIF(investment_number, ''), id::text) AS label FROM investments WHERE id = ANY($1::uuid[])`
       break
     case "roles":
-      query = `SELECT id::text AS id, name::text AS label FROM senteloans_roles WHERE id = ANY($1::uuid[])`
+      query = `SELECT id::text AS id, name::text AS label FROM roles WHERE id = ANY($1::uuid[])`
       break
     case "loan_products":
-      query = `SELECT id::text AS id, product_name::text AS label FROM senteloans_loan_products WHERE id = ANY($1::uuid[])`
+      query = `SELECT id::text AS id, product_name::text AS label FROM loan_products WHERE id = ANY($1::uuid[])`
       break
     case "savings_accounts":
-      query = `SELECT id::text AS id, account_number::text AS label FROM senteloans_savings_accounts WHERE id = ANY($1::uuid[])`
+      query = `SELECT id::text AS id, account_number::text AS label FROM savings_accounts WHERE id = ANY($1::uuid[])`
       break
     case "transactions":
-      query = `SELECT id::text AS id, transaction_number::text AS label FROM senteloans_transactions WHERE id = ANY($1::uuid[])`
+      query = `SELECT id::text AS id, transaction_number::text AS label FROM transactions WHERE id = ANY($1::uuid[])`
       break
   }
   const res = await client.query(query, [uniq])
@@ -276,9 +276,9 @@ export async function GET(req: Request) {
            a.operation,
            a.old_values,
            a.new_values
-         FROM senteloans_audit_logs a
-         LEFT JOIN senteloans_branches b ON b.id = a.branch_id
-         LEFT JOIN senteloans_users u ON u.id = a.user_id
+         FROM audit_logs a
+         LEFT JOIN branches b ON b.id = a.branch_id
+         LEFT JOIN users u ON u.id = a.user_id
          WHERE ${where}
          ORDER BY a.created_at DESC
          LIMIT $${idx}`,
@@ -291,7 +291,7 @@ export async function GET(req: Request) {
            COUNT(*) FILTER (WHERE operation = 'INSERT')::int AS inserts,
            COUNT(*) FILTER (WHERE operation = 'UPDATE')::int AS updates,
            COUNT(*) FILTER (WHERE operation = 'DELETE')::int AS deletes
-         FROM senteloans_audit_logs a
+         FROM audit_logs a
          WHERE ${where}`,
         params
       )

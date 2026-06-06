@@ -37,8 +37,8 @@ async function resolveActorContext(client: any, authUserId: string): Promise<Act
          WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
          ELSE NULL
        END AS role
-     FROM senteloans_users u
-     LEFT JOIN senteloans_roles r ON r.id = u.role_id
+     FROM users u
+     LEFT JOIN roles r ON r.id = u.role_id
      WHERE u.supabase_user_id = $1
        AND u.status = 'Active'
      LIMIT 1`,
@@ -54,8 +54,8 @@ async function hasPermission(client: any, actor: ActorContext, permission: strin
 
   const permRes = await client.query(
     `SELECT 1
-     FROM senteloans_role_permissions rp
-     JOIN senteloans_permissions p ON p.id = rp.permission_id
+     FROM role_permissions rp
+     JOIN permissions p ON p.id = rp.permission_id
      WHERE rp.role_id = $1
        AND rp.branch_id = $2
        AND p.name = $3
@@ -103,7 +103,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 
       const loanRes = await client.query(
         `SELECT id, institution_id, branch_id, member_id, loan_product_id, application_id, principal_amount, interest_rate, tenure_months, monthly_payment, total_amount, outstanding_balance, disbursement_balance, status, loan_type, purpose, collateral_description, application_date, approved_at, disbursement_date, maturity_date, next_payment_date, overdue_days, created_by, created_at, updated_at
-         FROM senteloans_loans WHERE id = $1`,
+         FROM loans WHERE id = $1`,
         [id]
       )
       const loan = loanRes.rows[0]
@@ -114,7 +114,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       let member_name = ""
       let member_number = ""
       if (loan.member_id) {
-        const mRes = await client.query(`SELECT id, full_name, member_number FROM senteloans_members WHERE id = $1`, [loan.member_id])
+        const mRes = await client.query(`SELECT id, full_name, member_number FROM members WHERE id = $1`, [loan.member_id])
         member_name = mRes.rows[0]?.full_name || ""
         member_number = mRes.rows[0]?.member_number || ""
       }
@@ -124,7 +124,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       if (loan.loan_product_id) {
         const pRes = await client.query(
           `SELECT id, product_name, processing_fee_percentage
-           FROM senteloans_loan_products
+           FROM loan_products
            WHERE id = $1`,
           [loan.loan_product_id]
         )
@@ -133,14 +133,14 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       }
 
       const guarsRes = await client.query(
-        `SELECT id, guarantor_member_id, guaranteed_amount, status FROM senteloans_loan_guarantors WHERE loan_id = $1`,
+        `SELECT id, guarantor_member_id, guaranteed_amount, status FROM loan_guarantors WHERE loan_id = $1`,
         [loan.id]
       )
       const guarsRows = guarsRes.rows
       let guarantors: Array<{ member_id: string; member_name: string; guaranteed_amount: number; status: string }> = []
       if (guarsRows.length > 0) {
         const gIds = [...new Set(guarsRows.map((g: { guarantor_member_id: string }) => g.guarantor_member_id))]
-        const gMembersRes = await client.query(`SELECT id, full_name FROM senteloans_members WHERE id = ANY($1::uuid[])`, [gIds])
+        const gMembersRes = await client.query(`SELECT id, full_name FROM members WHERE id = ANY($1::uuid[])`, [gIds])
         const gMap: Record<string, string> = Object.fromEntries(gMembersRes.rows.map((m: { id: string; full_name: string }) => [m.id, m.full_name]))
         guarantors = guarsRows.map((g: { guarantor_member_id: string; guaranteed_amount: number; status: string }) => ({
           member_id: g.guarantor_member_id,
@@ -151,7 +151,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       }
 
       const repRes = await client.query(
-        `SELECT id, due_date, total_amount, amount_paid, status FROM senteloans_loan_repayments WHERE loan_id = $1 ORDER BY due_date ASC`,
+        `SELECT id, due_date, total_amount, amount_paid, status FROM loan_repayments WHERE loan_id = $1 ORDER BY due_date ASC`,
         [loan.id]
       )
       const repayments = repRes.rows
@@ -174,9 +174,9 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
            s.settlement_status,
            s.created_at,
            l.application_id AS settled_application_id
-         FROM senteloans_loan_settlements s
-         LEFT JOIN senteloans_loans l ON l.id = s.settled_loan_id
-         LEFT JOIN senteloans_clients c ON c.id = s.external_lender_id
+         FROM loan_settlements s
+         LEFT JOIN loans l ON l.id = s.settled_loan_id
+         LEFT JOIN clients c ON c.id = s.external_lender_id
          WHERE s.new_loan_id = $1 OR (s.settled_loan_id = $1 AND s.new_loan_id IS NULL)
          ORDER BY s.created_at DESC
          LIMIT 1`,
@@ -191,7 +191,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       })
       const disbursedTotalsRes = await client.query(
         `SELECT COALESCE(SUM(amount), 0)::numeric AS total_disbursed
-         FROM senteloans_loan_disbursements
+         FROM loan_disbursements
          WHERE loan_id = $1
            AND NOT (
              disbursement_type = 'partial loan disburse'
@@ -214,7 +214,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       )
       const eligibilityRes = await client.query(
         `SELECT id, eligibility, is_eligible, reviewed_at, reviewed_by, updated_at
-         FROM senteloans_loan_eligibility_reviews
+         FROM loan_eligibility_reviews
          WHERE loan_id = $1
          ORDER BY created_at ASC`,
         [loan.id]
@@ -381,11 +381,11 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       const [loanRes, actorRes] = await Promise.all([
         client.query(
           `SELECT id, institution_id, branch_id, member_id, status, approved_at, total_amount, principal_amount, interest_rate, tenure_months, loan_product_id, loan_type, disbursement_balance
-           FROM senteloans_loans
+           FROM loans
            WHERE id = $1`,
           [id]
         ),
-        client.query(`SELECT id, institution_id, branch_id FROM senteloans_users WHERE id = $1`, [actor.id]),
+        client.query(`SELECT id, institution_id, branch_id FROM users WHERE id = $1`, [actor.id]),
       ])
       const loan = loanRes.rows[0]
       const actorRow = actorRes.rows[0]
@@ -413,7 +413,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
           if (!reviewId) continue
           const nextEligible = Boolean(row?.is_eligible)
           const updateRes = await client.query(
-            `UPDATE senteloans_loan_eligibility_reviews
+            `UPDATE loan_eligibility_reviews
              SET is_eligible = $1,
                  reviewed_at = NOW(),
                  reviewed_by = $2,
@@ -426,9 +426,9 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
           if ((updateRes.rowCount ?? 0) > 0) {
             eligibilityUpdatesApplied = true
             await client.query(
-              `INSERT INTO senteloans_audit_logs
+              `INSERT INTO audit_logs
                 (institution_id, branch_id, user_id, table_name, category, operation, record_id, new_values)
-               VALUES ($1, $2, $3, 'senteloans_loan_eligibility_reviews', 'loans', 'UPDATE', $4, $5)`,
+               VALUES ($1, $2, $3, 'loan_eligibility_reviews', 'loans', 'UPDATE', $4, $5)`,
               [
                 actor.institution_id,
                 loan.branch_id,
@@ -455,7 +455,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
         if (newStatus === "Approved") {
           const eligibilityGuardRes = await client.query(
             `SELECT COUNT(*)::int AS c
-             FROM senteloans_loan_eligibility_reviews
+             FROM loan_eligibility_reviews
              WHERE loan_id = $1
                AND is_eligible = FALSE`,
             [id]
@@ -489,7 +489,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
           if (loan.loan_product_id) {
             const feeRes = await client.query(
               `SELECT processing_fee_percentage
-               FROM senteloans_loan_products
+               FROM loan_products
                WHERE id = $1`,
               [loan.loan_product_id]
             )
@@ -497,7 +497,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
           }
           const settlementRes = await client.query(
             `SELECT settlement_amount
-             FROM senteloans_loan_settlements
+             FROM loan_settlements
              WHERE new_loan_id = $1
              ORDER BY created_at DESC
              LIMIT 1`,
@@ -563,7 +563,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
             let calcMethod: string = "reducing_balance"
             if (loan.loan_product_id) {
               const methodRes = await client.query(
-                `SELECT interest_calculation_method FROM senteloans_loan_products WHERE id = $1`,
+                `SELECT interest_calculation_method FROM loan_products WHERE id = $1`,
                 [loan.loan_product_id]
               )
               calcMethod = String(methodRes.rows[0]?.interest_calculation_method || "reducing_balance")
@@ -582,16 +582,16 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
 
         if (Object.keys(updates).length > 0) {
         const setClause = Object.keys(updates).map((k, i) => `${k} = $${i + 2}`).join(", ")
-        await client.query(`UPDATE senteloans_loans SET ${setClause} WHERE id = $1`, [id, ...Object.values(updates)])
+        await client.query(`UPDATE loans SET ${setClause} WHERE id = $1`, [id, ...Object.values(updates)])
         } else {
-          await client.query(`UPDATE senteloans_loans SET updated_at = NOW() WHERE id = $1`, [id])
+          await client.query(`UPDATE loans SET updated_at = NOW() WHERE id = $1`, [id])
         }
 
         if (newStatus === "Fully Disbursed") {
         const loanDetailRes = await client.query(
           `SELECT l.principal_amount, l.interest_rate, l.tenure_months, l.disbursement_date, lp.interest_calculation_method
-           FROM senteloans_loans l
-           LEFT JOIN senteloans_loan_products lp ON lp.id = l.loan_product_id
+           FROM loans l
+           LEFT JOIN loan_products lp ON lp.id = l.loan_product_id
            WHERE l.id = $1`,
           [id]
         )
@@ -611,7 +611,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
           const firstDueDateStr = schedule[0]?.dueDate ?? null
           for (const row of schedule) {
             await client.query(
-              `INSERT INTO senteloans_loan_repayments (loan_id, installment_number, due_date, principal_amount, interest_amount, amount_due, status)
+              `INSERT INTO loan_repayments (loan_id, installment_number, due_date, principal_amount, interest_amount, amount_due, status)
                VALUES ($1, $2, $3, $4, $5, $6, 'Pending')
                ON CONFLICT (loan_id, installment_number) DO NOTHING`,
               [id, row.installmentNumber, row.dueDate, row.principalAmount, row.interestAmount, row.totalAmount]
@@ -619,24 +619,24 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
           }
           if (firstDueDateStr) {
             await client.query(
-              `UPDATE senteloans_loans SET next_payment_date = $1, updated_at = NOW() WHERE id = $2`,
+              `UPDATE loans SET next_payment_date = $1, updated_at = NOW() WHERE id = $2`,
               [firstDueDateStr, id]
             )
           } else {
             await client.query(
-              `UPDATE senteloans_loans SET updated_at = NOW() WHERE id = $1`,
+              `UPDATE loans SET updated_at = NOW() WHERE id = $1`,
               [id]
             )
           }
         } else {
           await client.query(
-            `UPDATE senteloans_loans SET updated_at = NOW() WHERE id = $1`,
+            `UPDATE loans SET updated_at = NOW() WHERE id = $1`,
             [id]
           )
         }
         } else if (newStatus === "Partially Disbursed") {
         await client.query(
-          `UPDATE senteloans_loans SET updated_at = NOW() WHERE id = $1`,
+          `UPDATE loans SET updated_at = NOW() WHERE id = $1`,
           [id]
         )
       }
@@ -649,7 +649,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
           disburseTxNumber = makePrefixedNumber("LD")
           try {
             txRes = await client.query(
-              `INSERT INTO senteloans_transactions (institution_id, branch_id, member_id, account_id, loan_id, transaction_number, type, amount, mode, description, reference_number, balance_before, balance_after, processed_by, transaction_date, status)
+              `INSERT INTO transactions (institution_id, branch_id, member_id, account_id, loan_id, transaction_number, type, amount, mode, description, reference_number, balance_before, balance_after, processed_by, transaction_date, status)
                VALUES ($1, $2, $3, NULL, $4, $5, 'Loan Disbursement', $6, $7, $8, $9, $10, $11, $12, $13, 'Completed')
                RETURNING id`,
               [
@@ -678,7 +678,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
         const transactionId = String(txRes.rows[0]?.id || "")
         if (!transactionId) return { error: "disbursement_transaction_create_failed" as const }
         await auditLogger.logInsert(
-          "senteloans_transactions",
+          "transactions",
           transactionId,
           {
             member_id: loan.member_id,
@@ -700,7 +700,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
         )
 
         const disbInsertRes = await client.query(
-          `INSERT INTO senteloans_loan_disbursements
+          `INSERT INTO loan_disbursements
             (institution_id, branch_id, loan_id, disbursement_type, transaction_id, amount, disbursement_date, notes, created_by)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
            RETURNING id`,
@@ -719,7 +719,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
         const disbursementId = String(disbInsertRes.rows[0]?.id || "")
         if (disbursementId) {
           await auditLogger.logInsert(
-            "senteloans_loan_disbursements",
+            "loan_disbursements",
             disbursementId,
             {
               loan_id: id,
@@ -742,7 +742,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
           oldValues[k] = (loan as Record<string, unknown>)[k]
         })
         await auditLogger.logUpdate(
-          "senteloans_loans",
+          "loans",
           id,
           oldValues,
           updates,
@@ -753,7 +753,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
         )
 
         if (newStatus) {
-        const loanWithMemberRes = await client.query(`SELECT member_id, principal_amount FROM senteloans_loans WHERE id = $1`, [id])
+        const loanWithMemberRes = await client.query(`SELECT member_id, principal_amount FROM loans WHERE id = $1`, [id])
         const loanWithMember = loanWithMemberRes.rows[0]
         if (loanWithMember?.member_id) {
           let tpl: { title: string; message: string; actionUrl: string } | null = null

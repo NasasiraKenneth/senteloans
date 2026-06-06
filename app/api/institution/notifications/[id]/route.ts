@@ -17,14 +17,14 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
     const result = await runWithAuth(session.user.authUserId, async (client) => {
       const userRes = await client.query(
-        `SELECT id, institution_id FROM senteloans_users WHERE supabase_user_id = $1`,
+        `SELECT id, institution_id FROM users WHERE supabase_user_id = $1`,
         [session!.user!.authUserId]
       )
       const instUser = userRes.rows[0]
       if (!instUser) return { error: "user_not_found" as const }
 
       const updateRes = await client.query(
-        `UPDATE senteloans_notifications SET read = $1, read_at = $2 WHERE id = $3 AND recipient_type = 'institution_user' AND recipient_id = $4`,
+        `UPDATE notifications SET read = $1, read_at = $2 WHERE id = $3 AND recipient_type = 'institution_user' AND recipient_id = $4`,
         [read, read_at, notificationId, instUser.id]
       )
       if (updateRes.rowCount === 0) return { error: "not_found" as const }

@@ -92,7 +92,7 @@ export async function POST(
         status: string;
         branch_id: string;
       }>(
-        `SELECT e.id, e.status, e.branch_id FROM senteloans_expenses e WHERE ${where} LIMIT 1`,
+        `SELECT e.id, e.status, e.branch_id FROM expenses e WHERE ${where} LIMIT 1`,
         values,
       );
       const expense = ex.rows[0];
@@ -103,7 +103,7 @@ export async function POST(
 
       if (sourceType === "loan" && loanId) {
         const lr = await client.query(
-          `SELECT id FROM senteloans_institution_loans
+          `SELECT id FROM institution_loans
            WHERE id = $1::uuid AND institution_id = $2::uuid
            LIMIT 1`,
           [loanId, actor.institution_id],
@@ -112,7 +112,7 @@ export async function POST(
       }
 
       const ins = await client.query(
-        `INSERT INTO senteloans_expense_funding_sources (expense_id, source_type, loan_id, amount)
+        `INSERT INTO expense_funding_sources (expense_id, source_type, loan_id, amount)
          VALUES ($1::uuid, $2, $3::uuid, $4)
          RETURNING id, expense_id, source_type, loan_id, amount::float, created_at`,
         [expenseId, sourceType, sourceType === "loan" ? loanId : null, amount],

@@ -9,6 +9,7 @@ import {
   recordInvoicePayment,
   syncInvoiceStatusFromPayments,
 } from "@/lib/invoices/invoice-payments"
+import { insertWithTransactionNumberRetry } from "@/lib/transactions/transaction-number-retry"
 
 type ActorContext = {
   id: string
@@ -32,8 +33,8 @@ async function resolveActorContext(client: any, authUserId: string): Promise<Act
          WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
          ELSE NULL
        END AS role
-     FROM senteloans_users u
-     LEFT JOIN senteloans_roles r ON r.id = u.role_id
+     FROM users u
+     LEFT JOIN roles r ON r.id = u.role_id
      WHERE u.supabase_user_id = $1
      LIMIT 1`,
     [authUserId]
@@ -48,8 +49,8 @@ async function hasPermission(client: any, actor: ActorContext, permission: strin
 
   const permRes = await client.query(
     `SELECT 1
-     FROM senteloans_role_permissions rp
-     JOIN senteloans_permissions p ON p.id = rp.permission_id
+     FROM role_permissions rp
+     JOIN permissions p ON p.id = rp.permission_id
      WHERE rp.role_id = $1
        AND rp.branch_id = $2
        AND p.name = $3
@@ -82,21 +83,21 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       if (!allowed) return { error: "missing_permission:view_members" as const }
 
       const memberRes = await client.query(
-        `SELECT id, branch_id FROM senteloans_members WHERE institution_id = $1 AND id = $2`,
+        `SELECT id, branch_id FROM members WHERE institution_id = $1 AND id = $2`,
         [actor.institution_id, memberId]
       )
       const memberRow = memberRes.rows[0]
       if (!memberRow) return { error: "member_not_found" as const }
 
       const cfgRes = await client.query(
-        `SELECT membership_fee FROM senteloans_config WHERE branch_id = $1 LIMIT 1`,
+        `SELECT membership_fee FROM config WHERE branch_id = $1 LIMIT 1`,
         [memberRow.branch_id]
       )
       const membershipFee = Number(cfgRes.rows[0]?.membership_fee ?? 0)
 
       const paidRes = await client.query(
         `SELECT COALESCE(SUM(amount_paid), 0)::numeric AS total_paid
-         FROM senteloans_membership_fees
+         FROM membership_fees
          WHERE institution_id = $1 AND member_id = $2`,
         [actor.institution_id, memberId]
       )
@@ -113,8 +114,8 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
             mf.reference_number,
             mf.payment_date AS transaction_date,
             'Completed'::transaction_status AS status
-         FROM senteloans_membership_fees mf
-         LEFT JOIN senteloans_transactions t ON t.id = mf.transaction_id
+         FROM membership_fees mf
+         LEFT JOIN transactions t ON t.id = mf.transaction_id
          WHERE mf.institution_id = $1 AND mf.member_id = $2
          ORDER BY mf.payment_date DESC`,
         [actor.institution_id, memberId]
@@ -199,7 +200,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       if (!allowed) return { error: "missing_permission:edit_membership_fee" as const }
 
       const memberRes = await client.query(
-        `SELECT id, institution_id, branch_id, status FROM senteloans_members WHERE id = $1`,
+        `SELECT id, institution_id, branch_id, status FROM members WHERE id = $1`,
         [memberId]
       )
       const memberRow = memberRes.rows[0]
@@ -209,14 +210,14 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       }
 
       const cfgRes = await client.query(
-        `SELECT membership_fee FROM senteloans_config WHERE branch_id = $1 LIMIT 1`,
+        `SELECT membership_fee FROM config WHERE branch_id = $1 LIMIT 1`,
         [memberRow.branch_id]
       )
       const membershipFee = Number(cfgRes.rows[0]?.membership_fee ?? 0)
 
       const paidRes = await client.query(
         `SELECT COALESCE(SUM(amount_paid), 0)::numeric AS total_paid
-         FROM senteloans_membership_fees
+         FROM membership_fees
          WHERE institution_id = $1 AND member_id = $2`,
         [actor.institution_id, memberId]
       )
@@ -228,7 +229,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       }
 
       const newPaid = currentPaid + amount
-      const transactionNumber = `FEE-${Date.now()}`
       const txDate = resolvedPaymentDate.toISOString()
       const balanceBefore = Math.max(membershipFee - currentPaid, 0)
       const balanceAfter = Math.max(membershipFee - newPaid, 0)
@@ -236,34 +236,41 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       try {
         await client.query("BEGIN")
 
-        const txRes = await client.query(
-          `INSERT INTO senteloans_transactions
-            (institution_id, branch_id, member_id, account_id, loan_id, transaction_number, type, amount, mode, description, reference_number, balance_before, balance_after, processed_by, transaction_date, status)
-           VALUES ($1, $2, $3, NULL, NULL, $4, 'Fee Payment', $5, $6, $7, $8, $9, $10, $11, $12, 'Completed')
-           RETURNING id`,
-          [
-            actor.institution_id,
-            memberRow.branch_id,
-            memberId,
-            transactionNumber,
-            amount,
-            mode,
-            description,
-            referenceNumber,
-            balanceBefore,
-            balanceAfter,
-            actor.id,
-            txDate,
-          ]
+        // Use the shared retry helper so a rare transaction_number collision
+        // self-heals (mirrors how other transaction inserts work).
+        const txInsert = await insertWithTransactionNumberRetry<{ id: string }>(
+          (transactionNumber) =>
+            client.query<{ id: string }>(
+              `INSERT INTO transactions
+                (institution_id, branch_id, member_id, account_id, loan_id, transaction_number, type, amount, mode, description, reference_number, balance_before, balance_after, processed_by, transaction_date, status)
+               VALUES ($1, $2, $3, NULL, NULL, $4, 'Fee Payment', $5, $6, $7, $8, $9, $10, $11, $12, 'Completed')
+               RETURNING id`,
+              [
+                actor.institution_id,
+                memberRow.branch_id,
+                memberId,
+                transactionNumber,
+                amount,
+                mode,
+                description,
+                referenceNumber,
+                balanceBefore,
+                balanceAfter,
+                actor.id,
+                txDate,
+              ],
+            ),
+          { client },
         )
-        const txRow = txRes.rows[0]
-        if (!txRow) {
+        if (!txInsert) {
           await client.query("ROLLBACK")
           return { error: "insert_failed" as const }
         }
+        const txRow = txInsert.row
+        const transactionNumber = txInsert.transactionNumber
 
         const feeRes = await client.query(
-          `INSERT INTO senteloans_membership_fees
+          `INSERT INTO membership_fees
             (institution_id, branch_id, member_id, amount_paid, total_membership_fee, balance_before, balance_after, mode, reference_number, description, transaction_id, processed_by, payment_date)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
            RETURNING id`,
@@ -286,7 +293,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         const feeRow = feeRes.rows[0]
 
         await auditLogger.logInsert(
-          "senteloans_transactions",
+          "transactions",
           txRow.id,
           {
             member_id: memberId,
@@ -309,7 +316,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
           client
         )
         await auditLogger.logInsert(
-          "senteloans_membership_fees",
+          "membership_fees",
           feeRow.id,
           {
             member_id: memberId,

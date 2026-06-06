@@ -6,7 +6,10 @@ export const DEFAULT_RETRY_ATTEMPTS = 5
 export type PrefixedNumberInsertRow = { id: string }
 
 export interface InsertWithPrefixedNumberRetryOptions {
-  /** Prefix passed to `makePrefixedNumber` (e.g. "TXN", "INV"). Required. */
+  /**
+   * Prefix passed to the default `makePrefixedNumber` (e.g. "TXN", "INV").
+   * Ignored when a custom `generateNumber` is supplied.
+   */
   prefix: string
   /**
    * Distinct SAVEPOINT identifier — must be a valid unquoted Postgres identifier.
@@ -21,6 +24,20 @@ export interface InsertWithPrefixedNumberRetryOptions {
    * doesn't abort the caller's outer BEGIN/COMMIT.
    */
   client?: PoolClient
+  /**
+   * Override the candidate-number generator. Defaults to
+   * `makePrefixedNumber(prefix)`. Use this when the caller wants a different
+   * format (e.g. members keep their compact `M{INST}-{YYMM}-{RAND}` style).
+   */
+  generateNumber?: () => string
+  /**
+   * Predicate to decide whether a Postgres `23505` unique violation should
+   * trigger a retry. Useful when the target table has multiple unique
+   * constraints (e.g. `senteloans_members` has both `member_number` and
+   * `national_id`) and only one of them should be retried with a fresh
+   * candidate. Default: retry on every `23505`.
+   */
+  shouldRetryOnUniqueViolation?: (err: unknown) => boolean
 }
 
 export interface InsertWithPrefixedNumberRetryResult<T> {
@@ -42,9 +59,10 @@ export async function insertWithPrefixedNumberRetry<T extends PrefixedNumberInse
   const maxAttempts = options.maxAttempts ?? DEFAULT_RETRY_ATTEMPTS
   const pgClient = options.client
   const savepoint = options.savepointName
+  const generate = options.generateNumber ?? (() => makePrefixedNumber(options.prefix))
   let number = ""
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    number = makePrefixedNumber(options.prefix)
+    number = generate()
     try {
       if (pgClient) {
         await pgClient.query(`SAVEPOINT ${savepoint}`)
@@ -65,7 +83,12 @@ export async function insertWithPrefixedNumberRetry<T extends PrefixedNumberInse
         await pgClient.query(`ROLLBACK TO SAVEPOINT ${savepoint}`).catch(() => undefined)
       }
       const code = String((e as { code?: string })?.code || "")
-      if (code === "23505") continue
+      if (code === "23505") {
+        const retry = options.shouldRetryOnUniqueViolation
+          ? options.shouldRetryOnUniqueViolation(e)
+          : true
+        if (retry) continue
+      }
       throw e
     }
   }

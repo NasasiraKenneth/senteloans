@@ -2,7 +2,7 @@
 -- Creates sample institutions matching the exact schema structure.
 -- Idempotent: skips rows that already exist (safe to re-run migrations).
 
-INSERT INTO senteloans_institutions (
+INSERT INTO institutions (
     id,
     name,
     type,
@@ -55,7 +55,7 @@ INSERT INTO senteloans_institutions (
 ON CONFLICT (registration_number) DO NOTHING;
 
 -- Seed branch types
-INSERT INTO senteloans_branch_types (name, description)
+INSERT INTO branch_types (name, description)
 VALUES
   ('Head Office', 'Main institution headquarters'),
   ('Regional Office', 'Regional management office'),
@@ -73,16 +73,16 @@ DECLARE
     opportunity_mfi_id UUID;
 BEGIN
     SELECT id INTO head_office_type_id
-    FROM senteloans_branch_types
+    FROM branch_types
     WHERE name = 'Head Office'
     LIMIT 1;
 
-    SELECT id INTO platform_id FROM senteloans_institutions WHERE name = 'SenteLoans Platform';
-    SELECT id INTO kampala_sacco_id FROM senteloans_institutions WHERE name = 'Kampala Central SACCO';
-    SELECT id INTO quick_cash_id FROM senteloans_institutions WHERE name = 'Quick Cash Uganda';
-    SELECT id INTO opportunity_mfi_id FROM senteloans_institutions WHERE name = 'Opportunity Microfinance Uganda';
+    SELECT id INTO platform_id FROM institutions WHERE name = 'SenteLoans Platform';
+    SELECT id INTO kampala_sacco_id FROM institutions WHERE name = 'Kampala Central SACCO';
+    SELECT id INTO quick_cash_id FROM institutions WHERE name = 'Quick Cash Uganda';
+    SELECT id INTO opportunity_mfi_id FROM institutions WHERE name = 'Opportunity Microfinance Uganda';
 
-    INSERT INTO senteloans_branches (
+    INSERT INTO branches (
         institution_id,
         branch_type_id,
         branch_code,
@@ -140,8 +140,8 @@ BEGIN
     ON CONFLICT (institution_id, branch_code) DO NOTHING;
 END $$;
 
--- Seed branch-level settings in senteloans_config only (fields from senteloans_config table).
-INSERT INTO senteloans_config (
+-- Seed branch-level settings in config only (fields from config table).
+INSERT INTO config (
     branch_id,
     loans,
     shares,
@@ -186,8 +186,8 @@ SELECT
     30 AS membership_overdue_period,
     0::numeric(18,2) AS membership_overdue_interest,
     'day' AS membership_overdue_interest_per
-FROM senteloans_branches b
-JOIN senteloans_institutions i ON i.id = b.institution_id
+FROM branches b
+JOIN institutions i ON i.id = b.institution_id
 WHERE b.branch_code IN ('PLAT-001', 'KCS-001', 'QCU-001', 'OMU-001')
 ON CONFLICT (branch_id) DO NOTHING;
 
@@ -195,7 +195,7 @@ ON CONFLICT (branch_id) DO NOTHING;
 SELECT 
     'Institution Seed Data Created' as status,
     COUNT(*) as institutions_created
-FROM senteloans_institutions;
+FROM institutions;
 
 -- Show created institutions with their details
 SELECT 
@@ -205,5 +205,5 @@ SELECT
     registration_number,
     license_number,
     status
-FROM senteloans_institutions
+FROM institutions
 ORDER BY name;

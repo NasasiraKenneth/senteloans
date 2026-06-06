@@ -83,7 +83,7 @@ export async function GET(req: Request) {
       if (isSuperAdmin(actor)) {
         const branchRes = await client.query(
           `SELECT id, name
-           FROM senteloans_branches
+           FROM branches
            WHERE institution_id = $1
            ORDER BY name ASC`,
           [actor.institution_id],
@@ -95,7 +95,7 @@ export async function GET(req: Request) {
             : allBranches
       } else {
         const branchRes = await client.query(
-          `SELECT id, name FROM senteloans_branches WHERE id = $1 LIMIT 1`,
+          `SELECT id, name FROM branches WHERE id = $1 LIMIT 1`,
           [actor.branch_id],
         )
         branchScopes = branchRes.rows.length > 0 ? [branchRes.rows[0] as BranchScope] : []
@@ -159,9 +159,9 @@ export async function GET(req: Request) {
              COALESCE(ud.mode::text, '') AS mode,
              COALESCE(ud.amount, 0)::numeric AS amount,
              COALESCE(ud.status, 'unclaimed') AS status
-           FROM senteloans_unclaimed_deposits ud
-           LEFT JOIN senteloans_members m ON m.id = ud.member_id
-           LEFT JOIN senteloans_clients c ON c.id = ud.client_id
+           FROM unclaimed_deposits ud
+           LEFT JOIN members m ON m.id = ud.member_id
+           LEFT JOIN clients c ON c.id = ud.client_id
            WHERE ${where}
            ORDER BY ud.date DESC NULLS LAST, ud.created_at DESC`,
           params,

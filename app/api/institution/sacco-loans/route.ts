@@ -27,8 +27,8 @@ async function resolveActorContext(client: any, authUserId: string): Promise<Act
          WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
          ELSE NULL
        END AS role
-     FROM senteloans_users u
-     LEFT JOIN senteloans_roles r ON r.id = u.role_id
+     FROM users u
+     LEFT JOIN roles r ON r.id = u.role_id
      WHERE u.supabase_user_id = $1
      LIMIT 1`,
     [authUserId],
@@ -43,8 +43,8 @@ async function hasPermission(client: any, actor: ActorContext, permission: strin
 
   const permRes = await client.query(
     `SELECT 1
-     FROM senteloans_role_permissions rp
-     JOIN senteloans_permissions p ON p.id = rp.permission_id
+     FROM role_permissions rp
+     JOIN permissions p ON p.id = rp.permission_id
      WHERE rp.role_id = $1
        AND rp.branch_id = $2
        AND p.name = $3
@@ -123,8 +123,8 @@ export async function GET(req: Request) {
 
       const countRes = await client.query<{ c: number }>(
         `SELECT COUNT(*)::int AS c
-         FROM senteloans_institution_loans l
-         LEFT JOIN senteloans_clients c ON c.id = l.client_id
+         FROM institution_loans l
+         LEFT JOIN clients c ON c.id = l.client_id
          WHERE ${where}`,
         params,
       )
@@ -157,8 +157,8 @@ export async function GET(req: Request) {
            l.created_at,
            l.updated_at,
            COALESCE(c.name, '') AS client_name
-         FROM senteloans_institution_loans l
-         LEFT JOIN senteloans_clients c ON c.id = l.client_id
+         FROM institution_loans l
+         LEFT JOIN clients c ON c.id = l.client_id
          WHERE ${where}
          ORDER BY l.created_at DESC
          LIMIT $${idx} OFFSET $${idx + 1}`,
@@ -281,7 +281,7 @@ export async function POST(req: Request) {
 
       const clientRes = await client.query(
         `SELECT id, institution_id, branch_id, status
-         FROM senteloans_clients
+         FROM clients
          WHERE id = $1 AND institution_id = $2
          LIMIT 1`,
         [client_id, actor.institution_id],
@@ -295,7 +295,7 @@ export async function POST(req: Request) {
       if (!UUID_REGEX.test(cBranch)) return { error: "client_branch_missing" as const }
 
       const ins = await client.query(
-        `INSERT INTO senteloans_institution_loans (
+        `INSERT INTO institution_loans (
            institution_id, branch_id, client_id,
            loan_product, principal_amount, interest_rate, tenure_months,
            monthly_payment, total_amount, outstanding_balance, status,
@@ -334,7 +334,7 @@ export async function POST(req: Request) {
       const row = ins.rows[0] as { id?: string } | undefined
       if (!row?.id) return { error: "insert_failed" as const }
       await auditLogger.logInsert(
-        "senteloans_institution_loans",
+        "institution_loans",
         String(row.id),
         {
           client_id,

@@ -27,8 +27,8 @@ async function resolveActorContext(client: any, authUserId: string): Promise<Act
          WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
          ELSE NULL
        END AS role
-     FROM senteloans_users u
-     LEFT JOIN senteloans_roles r ON r.id = u.role_id
+     FROM users u
+     LEFT JOIN roles r ON r.id = u.role_id
      WHERE u.supabase_user_id = $1
      LIMIT 1`,
     [authUserId],
@@ -42,8 +42,8 @@ async function hasPermission(client: any, actor: ActorContext, permission: strin
   if (!actor.role_id || !actor.branch_id) return false
   const permRes = await client.query(
     `SELECT 1
-     FROM senteloans_role_permissions rp
-     JOIN senteloans_permissions p ON p.id = rp.permission_id
+     FROM role_permissions rp
+     JOIN permissions p ON p.id = rp.permission_id
      WHERE rp.role_id = $1
        AND rp.branch_id = $2
        AND p.name = $3
@@ -140,7 +140,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         outstanding_balance: string | number
       }>(
         `SELECT l.id, l.branch_id, l.client_id, l.loan_product, l.next_payment_date, l.tenure_months, l.outstanding_balance
-         FROM senteloans_institution_loans l
+         FROM institution_loans l
          WHERE ${where}
          LIMIT 1`,
         qparams,
@@ -160,7 +160,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       await client.query("BEGIN")
       try {
         const repaymentRes = await client.query<{ id: string }>(
-          `INSERT INTO senteloans_institution_loan_repayments (
+          `INSERT INTO institution_loan_repayments (
              loan_id, due_date, amount_paid, payment_date, status
            ) VALUES ($1, $2, $3, $4, 'Paid'::repayment_status)
            RETURNING id`,
@@ -172,7 +172,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
           return { error: "repayment_insert_failed" as const }
         }
         await auditLogger.logInsert(
-          "senteloans_institution_loan_repayments",
+          "institution_loan_repayments",
           repaymentId,
           {
             loan_id: loanId,
@@ -188,13 +188,13 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         )
 
         const loanStatusBeforeRes = await client.query<{ status: string }>(
-          `SELECT status FROM senteloans_institution_loans WHERE id = $1 LIMIT 1`,
+          `SELECT status FROM institution_loans WHERE id = $1 LIMIT 1`,
           [loanId],
         )
         const loanStatusBefore = String(loanStatusBeforeRes.rows[0]?.status || "")
 
         await client.query(
-          `UPDATE senteloans_institution_loans
+          `UPDATE institution_loans
            SET tenure_months = $1,
                outstanding_balance = $2,
                next_payment_date = CASE WHEN $6 THEN NULL ELSE $3::date END,
@@ -205,7 +205,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
           [nextTenureMonths, outstandingAfter, next_payment_date, actor.id, loanId, isClosed],
         )
         await auditLogger.logUpdate(
-          "senteloans_institution_loans",
+          "institution_loans",
           loanId,
           {
             tenure_months: Number(loan.tenure_months ?? 0),
@@ -226,7 +226,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         )
 
         await client.query(
-          `INSERT INTO senteloans_transactions (
+          `INSERT INTO transactions (
              institution_id, branch_id, member_id, client_id, account_id, loan_id, sacco_loan_id,
              transaction_number, type, amount, mode, description, reference_number,
              balance_before, balance_after, processed_by, transaction_date, status
@@ -253,7 +253,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
           ],
         )
         await auditLogger.logInsert(
-          "senteloans_transactions",
+          "transactions",
           txNumber,
           {
             transaction_number: txNumber,

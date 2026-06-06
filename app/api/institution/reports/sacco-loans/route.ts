@@ -23,8 +23,8 @@ async function resolveActorContext(client: any, authUserId: string): Promise<Act
          WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
          ELSE NULL
        END AS role
-     FROM senteloans_users u
-     LEFT JOIN senteloans_roles r ON r.id = u.role_id
+     FROM users u
+     LEFT JOIN roles r ON r.id = u.role_id
      WHERE u.supabase_user_id = $1
      LIMIT 1`,
     [authUserId],
@@ -38,8 +38,8 @@ async function hasPermission(client: any, actor: ActorContext, permission: strin
   if (!actor.role_id || !actor.branch_id) return false
   const permRes = await client.query(
     `SELECT 1
-     FROM senteloans_role_permissions rp
-     JOIN senteloans_permissions p ON p.id = rp.permission_id
+     FROM role_permissions rp
+     JOIN permissions p ON p.id = rp.permission_id
      WHERE rp.role_id = $1
        AND rp.branch_id = $2
        AND p.name = $3
@@ -151,8 +151,8 @@ export async function GET(req: Request) {
          l.created_by,
          c.name AS client_name,
          c.phone AS client_phone
-       FROM senteloans_institution_loans l
-       LEFT JOIN senteloans_clients c ON c.id = l.client_id
+       FROM institution_loans l
+       LEFT JOIN clients c ON c.id = l.client_id
        WHERE ${where}
        ORDER BY l.application_date DESC, l.created_at DESC
        LIMIT $${idx}`,
@@ -165,7 +165,7 @@ export async function GET(req: Request) {
 
     let creatorMap: Record<string, string> = {}
     if (createdByIds.length > 0) {
-      const cRes = await client.query(`SELECT id, full_name FROM senteloans_users WHERE id = ANY($1::uuid[])`, [createdByIds])
+      const cRes = await client.query(`SELECT id, full_name FROM users WHERE id = ANY($1::uuid[])`, [createdByIds])
       creatorMap = Object.fromEntries(cRes.rows.map((u: { id: string; full_name: string }) => [u.id, u.full_name || ""]))
     }
 
@@ -173,7 +173,7 @@ export async function GET(req: Request) {
     if (loanIds.length > 0) {
       const repRes = await client.query(
         `SELECT loan_id, due_date, amount_paid, payment_date, status
-         FROM senteloans_institution_loan_repayments
+         FROM institution_loan_repayments
          WHERE loan_id = ANY($1::uuid[])`,
         [loanIds],
       )

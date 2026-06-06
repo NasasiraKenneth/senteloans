@@ -11,14 +11,14 @@ DECLARE
     opportunity_mfi_branch_id UUID;
 BEGIN
     -- Get institution IDs
-    SELECT id INTO kampala_sacco_id FROM senteloans_institutions WHERE name = 'Kampala Central SACCO';
-    SELECT id INTO quick_cash_id FROM senteloans_institutions WHERE name = 'Quick Cash Uganda';
-    SELECT id INTO opportunity_mfi_id FROM senteloans_institutions WHERE name = 'Opportunity Microfinance Uganda';
-    SELECT id INTO kampala_sacco_branch_id FROM senteloans_branches WHERE institution_id = kampala_sacco_id ORDER BY created_at LIMIT 1;
-    SELECT id INTO quick_cash_branch_id FROM senteloans_branches WHERE institution_id = quick_cash_id ORDER BY created_at LIMIT 1;
-    SELECT id INTO opportunity_mfi_branch_id FROM senteloans_branches WHERE institution_id = opportunity_mfi_id ORDER BY created_at LIMIT 1;
+    SELECT id INTO kampala_sacco_id FROM institutions WHERE name = 'Kampala Central SACCO';
+    SELECT id INTO quick_cash_id FROM institutions WHERE name = 'Quick Cash Uganda';
+    SELECT id INTO opportunity_mfi_id FROM institutions WHERE name = 'Opportunity Microfinance Uganda';
+    SELECT id INTO kampala_sacco_branch_id FROM branches WHERE institution_id = kampala_sacco_id ORDER BY created_at LIMIT 1;
+    SELECT id INTO quick_cash_branch_id FROM branches WHERE institution_id = quick_cash_id ORDER BY created_at LIMIT 1;
+    SELECT id INTO opportunity_mfi_branch_id FROM branches WHERE institution_id = opportunity_mfi_id ORDER BY created_at LIMIT 1;
     -- Create loan products for Kampala Central SACCO
-    INSERT INTO senteloans_loan_products (
+    INSERT INTO loan_products (
         id,
         institution_id,
         branch_id,
@@ -57,7 +57,7 @@ BEGIN
         'Active'
     )
     ON CONFLICT (institution_id, product_code) DO NOTHING;
-    INSERT INTO senteloans_loan_products (
+    INSERT INTO loan_products (
         id,
         institution_id,
         branch_id,
@@ -96,7 +96,7 @@ BEGIN
         'Active'
     )
     ON CONFLICT (institution_id, product_code) DO NOTHING;
-    INSERT INTO senteloans_loan_products (
+    INSERT INTO loan_products (
         id,
         institution_id,
         branch_id,
@@ -137,7 +137,7 @@ BEGIN
     ON CONFLICT (institution_id, product_code) DO NOTHING;
 
     -- Create loan products for Quick Cash Uganda (Money Lender)
-    INSERT INTO senteloans_loan_products (
+    INSERT INTO loan_products (
         id,
         institution_id,
         branch_id,
@@ -216,7 +216,7 @@ BEGIN
     ON CONFLICT (institution_id, product_code) DO NOTHING;
 
     -- Create loan products for Opportunity Microfinance Uganda (MFI)
-    INSERT INTO senteloans_loan_products (
+    INSERT INTO loan_products (
         id,
         institution_id,
         branch_id,
@@ -255,7 +255,7 @@ BEGIN
         'Active'
     )
     ON CONFLICT (institution_id, product_code) DO NOTHING;
-    INSERT INTO senteloans_loan_products (
+    INSERT INTO loan_products (
         id,
         institution_id,
         branch_id,
@@ -296,9 +296,9 @@ BEGIN
     ON CONFLICT (institution_id, product_code) DO NOTHING;
 
     -- Seed product eligibility statements in normalized table
-    INSERT INTO senteloans_loan_product_eligibilities (loan_product_id, eligibility, status)
+    INSERT INTO loan_product_eligibilities (loan_product_id, eligibility, status)
     SELECT lp.id, e.eligibility, 'Active'
-    FROM senteloans_loan_products lp
+    FROM loan_products lp
     JOIN (
       VALUES
         ('KCS-PL-001', 'minimum of 5 shares'),
@@ -349,16 +349,16 @@ END $$;
 -- Display results for verification
 SELECT 
     'Loan Products Migration Completed' as status,
-    (SELECT COUNT(*) FROM senteloans_loan_products) as loan_products_created,
-    (SELECT COUNT(*) FROM senteloans_loan_product_eligibilities) as eligibilities_created;
+    (SELECT COUNT(*) FROM loan_products) as loan_products_created,
+    (SELECT COUNT(*) FROM loan_product_eligibilities) as eligibilities_created;
 
 -- Show loan products by institution
 SELECT 
     i.name as institution_name,
     COUNT(lp.id) as loan_products_count,
     STRING_AGG(lp.product_name, ', ') as products
-FROM senteloans_institutions i
-LEFT JOIN senteloans_loan_products lp ON i.id = lp.institution_id
+FROM institutions i
+LEFT JOIN loan_products lp ON i.id = lp.institution_id
 GROUP BY i.id, i.name
 ORDER BY i.name;
 
@@ -367,8 +367,8 @@ SELECT
     lp.product_code,
     lp.product_name,
     COUNT(e.id) as eligibility_count
-FROM senteloans_loan_products lp
-LEFT JOIN senteloans_loan_product_eligibilities e
+FROM loan_products lp
+LEFT JOIN loan_product_eligibilities e
   ON e.loan_product_id = lp.id
 GROUP BY lp.product_code, lp.product_name
 ORDER BY lp.product_code;

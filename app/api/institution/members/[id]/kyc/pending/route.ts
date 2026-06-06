@@ -28,8 +28,8 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
             WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
             ELSE NULL
           END AS app_role
-         FROM senteloans_users u
-         LEFT JOIN senteloans_roles r ON r.id = u.role_id
+         FROM users u
+         LEFT JOIN roles r ON r.id = u.role_id
          WHERE u.supabase_user_id = $1`,
         [session!.user!.authUserId]
       )
@@ -37,7 +37,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       if (!appUser) return null
 
       const targetRes = await client.query(
-        `SELECT id, institution_id FROM senteloans_members WHERE id = $1`,
+        `SELECT id, institution_id FROM members WHERE id = $1`,
         [memberId]
       )
       const target = targetRes.rows[0]
@@ -46,7 +46,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       if (!isSystemAdmin && target.institution_id !== appUser.institution_id) return null
 
       const rowsRes = await client.query(
-        `SELECT id, doc_type, url, status, rejection_reason, created_at FROM senteloans_member_kyc_docs WHERE member_id = $1 AND status = 'pending_review' ORDER BY created_at DESC`,
+        `SELECT id, doc_type, url, status, rejection_reason, created_at FROM member_kyc_docs WHERE member_id = $1 AND status = 'pending_review' ORDER BY created_at DESC`,
         [memberId]
       )
       return { ok: true, pending: rowsRes.rows }

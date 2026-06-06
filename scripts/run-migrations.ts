@@ -30,7 +30,7 @@ async function seedAuthUsers(pool: Pool) {
 
     const staffRes = await client.query<{ id: string; email: string }>(
       `SELECT id, email
-       FROM senteloans_users
+       FROM users
        WHERE supabase_user_id IS NULL
          AND email IS NOT NULL
          AND email <> ''`
@@ -52,7 +52,7 @@ async function seedAuthUsers(pool: Pool) {
       if (!authId) continue
 
       await client.query(
-        `UPDATE senteloans_users
+        `UPDATE users
          SET supabase_user_id = $1
          WHERE id = $2`,
         [authId, row.id]
@@ -62,7 +62,7 @@ async function seedAuthUsers(pool: Pool) {
 
     const memberRes = await client.query<{ id: string; email: string }>(
       `SELECT id, email
-       FROM senteloans_members
+       FROM members
        WHERE supabase_user_id IS NULL
          AND email IS NOT NULL
          AND email <> ''`
@@ -84,7 +84,7 @@ async function seedAuthUsers(pool: Pool) {
       if (!authId) continue
 
       await client.query(
-        `UPDATE senteloans_members
+        `UPDATE members
          SET supabase_user_id = $1
          WHERE id = $2`,
         [authId, row.id]

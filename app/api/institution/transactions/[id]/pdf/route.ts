@@ -28,8 +28,8 @@ async function resolveActorContext(client: any, authUserId: string): Promise<Act
          WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
          ELSE NULL
        END AS role
-     FROM senteloans_users u
-     LEFT JOIN senteloans_roles r ON r.id = u.role_id
+     FROM users u
+     LEFT JOIN roles r ON r.id = u.role_id
      WHERE u.supabase_user_id = $1
      LIMIT 1`,
     [authUserId],
@@ -44,8 +44,8 @@ async function hasPermission(client: any, actor: ActorContext, permission: strin
 
   const permRes = await client.query(
     `SELECT 1
-     FROM senteloans_role_permissions rp
-     JOIN senteloans_permissions p ON p.id = rp.permission_id
+     FROM role_permissions rp
+     JOIN permissions p ON p.id = rp.permission_id
      WHERE rp.role_id = $1
        AND rp.branch_id = $2
        AND p.name = $3
@@ -92,9 +92,9 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
            COALESCE(b.name, '') AS branch_name,
            COALESCE(b.phone_number, '') AS branch_phone,
            COALESCE(b.address, '') AS branch_address
-         FROM senteloans_transactions t
-         LEFT JOIN senteloans_institutions ins ON ins.id = t.institution_id
-         LEFT JOIN senteloans_branches b ON b.id = t.branch_id
+         FROM transactions t
+         LEFT JOIN institutions ins ON ins.id = t.institution_id
+         LEFT JOIN branches b ON b.id = t.branch_id
          WHERE ${scope.clause}`,
         [id, actor.institution_id, ...scope.params],
       )
@@ -105,13 +105,13 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       let accountNumber = ""
       let accountType = ""
       if (tx.account_id) {
-        const aRes = await client.query(`SELECT account_number, account_type FROM senteloans_savings_accounts WHERE id = $1`, [tx.account_id])
+        const aRes = await client.query(`SELECT account_number, account_type FROM savings_accounts WHERE id = $1`, [tx.account_id])
         accountNumber = aRes.rows[0]?.account_number || ""
         accountType = aRes.rows[0]?.account_type || ""
       }
       let processedByName = ""
       if (tx.processed_by) {
-        const uRes = await client.query(`SELECT full_name FROM senteloans_users WHERE id = $1`, [tx.processed_by])
+        const uRes = await client.query(`SELECT full_name FROM users WHERE id = $1`, [tx.processed_by])
         processedByName = uRes.rows[0]?.full_name || ""
       }
       let transferToAccountNumber = ""
@@ -120,8 +120,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       if (tx.transferred_to_id) {
         const taRes = await client.query(
           `SELECT sa.account_number, m.member_number, m.full_name
-           FROM senteloans_savings_accounts sa
-           LEFT JOIN senteloans_members m ON m.id = sa.member_id
+           FROM savings_accounts sa
+           LEFT JOIN members m ON m.id = sa.member_id
            WHERE sa.id = $1
            LIMIT 1`,
           [tx.transferred_to_id],

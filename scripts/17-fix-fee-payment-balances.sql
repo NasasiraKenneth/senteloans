@@ -6,19 +6,19 @@
 
 SET search_path = public;
 
-UPDATE senteloans_transactions t
+UPDATE transactions t
 SET
   balance_before = COALESCE(
     (SELECT c.membership_fee
-     FROM senteloans_config c
-     JOIN senteloans_branches b ON b.id = c.branch_id
+     FROM config c
+     JOIN branches b ON b.id = c.branch_id
      WHERE b.institution_id = t.institution_id
      LIMIT 1), 0
   ) - t.balance_before,
   balance_after = COALESCE(
     (SELECT c.membership_fee
-     FROM senteloans_config c
-     JOIN senteloans_branches b ON b.id = c.branch_id
+     FROM config c
+     JOIN branches b ON b.id = c.branch_id
      WHERE b.institution_id = t.institution_id
      LIMIT 1), 0
   ) - t.balance_after

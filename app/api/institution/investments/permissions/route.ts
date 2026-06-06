@@ -33,7 +33,7 @@ export async function GET(req: Request) {
           ? (
               await client.query(
                 `SELECT id, name
-                 FROM senteloans_branches
+                 FROM branches
                  WHERE institution_id = $1
                  ORDER BY name ASC`,
                 [actor.institution_id],

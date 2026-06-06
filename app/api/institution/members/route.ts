@@ -8,6 +8,7 @@ import { assertBranchActive } from "@/lib/branches/branch-status"
 import { createInvoiceWithItems, type CreatedInvoice } from "@/lib/invoices/create-invoice"
 import { notifyMemberRegistration } from "@/lib/notifications/member-events"
 import { enqueueMemberRegistrationEmails } from "@/lib/email/member-emails"
+import { insertWithPrefixedNumberRetry } from "@/lib/ids/insert-with-prefixed-number-retry"
 
 type MemberCreatePostCommit = {
   institutionName: string
@@ -99,8 +100,8 @@ async function resolveActorContext(client: any, authUserId: string): Promise<Act
          WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
          ELSE NULL
        END AS role
-     FROM senteloans_users u
-     LEFT JOIN senteloans_roles r ON r.id = u.role_id
+     FROM users u
+     LEFT JOIN roles r ON r.id = u.role_id
      WHERE u.supabase_user_id = $1
      LIMIT 1`,
     [authUserId]
@@ -115,8 +116,8 @@ async function hasPermission(client: any, actor: ActorContext, permission: strin
 
   const permRes = await client.query(
     `SELECT 1
-     FROM senteloans_role_permissions rp
-     JOIN senteloans_permissions p ON p.id = rp.permission_id
+     FROM role_permissions rp
+     JOIN permissions p ON p.id = rp.permission_id
      WHERE rp.role_id = $1
        AND rp.branch_id = $2
        AND p.name = $3
@@ -160,7 +161,7 @@ export async function GET(req: Request) {
 
       // Keep a branch-local membership fee for UI compatibility.
       const cfgRes = await client.query(
-        `SELECT membership_fee FROM senteloans_config WHERE branch_id = $1 LIMIT 1`,
+        `SELECT membership_fee FROM config WHERE branch_id = $1 LIMIT 1`,
         [actor.branch_id]
       )
       const membershipFee = Number(cfgRes.rows[0]?.membership_fee ?? 0)
@@ -197,29 +198,29 @@ export async function GET(req: Request) {
         where += ` AND (
           EXISTS (
             SELECT 1
-            FROM senteloans_config cfg
+            FROM config cfg
             WHERE cfg.branch_id = c.branch_id
               AND COALESCE(cfg.membership_fee, 0) > 0
-              AND COALESCE((SELECT SUM(mf.amount_paid) FROM senteloans_membership_fees mf WHERE mf.member_id = c.id), 0) >= cfg.membership_fee
+              AND COALESCE((SELECT SUM(mf.amount_paid) FROM membership_fees mf WHERE mf.member_id = c.id), 0) >= cfg.membership_fee
           )
           OR (
             NOT EXISTS (
               SELECT 1
-              FROM senteloans_config cfg2
+              FROM config cfg2
               WHERE cfg2.branch_id = c.branch_id
                 AND COALESCE(cfg2.membership_fee, 0) > 0
             )
-            AND COALESCE((SELECT SUM(mf.amount_paid) FROM senteloans_membership_fees mf WHERE mf.member_id = c.id), 0) > 0
+            AND COALESCE((SELECT SUM(mf.amount_paid) FROM membership_fees mf WHERE mf.member_id = c.id), 0) > 0
           )
         )`
       } else if (membershipPaymentStatus === "partial") {
         where += ` AND EXISTS (
           SELECT 1
-          FROM senteloans_config cfg
+          FROM config cfg
           WHERE cfg.branch_id = c.branch_id
             AND COALESCE(cfg.membership_fee, 0) > 0
-            AND COALESCE((SELECT SUM(mf.amount_paid) FROM senteloans_membership_fees mf WHERE mf.member_id = c.id), 0) > 0
-            AND COALESCE((SELECT SUM(mf.amount_paid) FROM senteloans_membership_fees mf WHERE mf.member_id = c.id), 0) < cfg.membership_fee
+            AND COALESCE((SELECT SUM(mf.amount_paid) FROM membership_fees mf WHERE mf.member_id = c.id), 0) > 0
+            AND COALESCE((SELECT SUM(mf.amount_paid) FROM membership_fees mf WHERE mf.member_id = c.id), 0) < cfg.membership_fee
         )`
       }
       if (kycApprovedAtStart) {
@@ -248,16 +249,16 @@ export async function GET(req: Request) {
             c.district,
             c.status,
             c.kyc_status,
-            COALESCE((SELECT SUM(mf.amount_paid) FROM senteloans_membership_fees mf WHERE mf.member_id = c.id), 0)::numeric AS membership_fee_paid,
+            COALESCE((SELECT SUM(mf.amount_paid) FROM membership_fees mf WHERE mf.member_id = c.id), 0)::numeric AS membership_fee_paid,
             c.join_date,
             c.created_by,
             c.kyc_approved_by,
             c.kyc_approved_at,
             cb.full_name AS created_by_name,
             kb.full_name AS kyc_approved_by_name
-         FROM senteloans_members c
-         LEFT JOIN senteloans_users cb ON cb.id = c.created_by
-         LEFT JOIN senteloans_users kb ON kb.id = c.kyc_approved_by
+         FROM members c
+         LEFT JOIN users cb ON cb.id = c.created_by
+         LEFT JOIN users kb ON kb.id = c.kyc_approved_by
          WHERE ${where}
          ORDER BY c.created_at DESC
          LIMIT $${idx}`,
@@ -285,7 +286,7 @@ export async function GET(req: Request) {
       count: members.length,
       authUserId: session.user.authUserId,
     })
-    return NextResponse.json({ members, clients: members, membershipFee: result?.membershipFee ?? 0 })
+    return NextResponse.json({ members, membershipFee: result?.membershipFee ?? 0 })
   } catch (e: unknown) {
     const err = e as Error
     apiLog("error", "members.list.error", {
@@ -384,7 +385,7 @@ export async function POST(req: Request) {
       }
 
       const instRes = await client.query(
-        `SELECT id, name, type FROM senteloans_institutions WHERE id = $1`,
+        `SELECT id, name, type FROM institutions WHERE id = $1`,
         [actor.institution_id],
       )
       const institution = instRes.rows[0]
@@ -394,7 +395,7 @@ export async function POST(req: Request) {
       // Branch-scoped config used for invoice + currency context.
       const cfgRes = await client.query(
         `SELECT currency, membership_fee, invoice_overdue_period
-           FROM senteloans_config WHERE branch_id = $1 LIMIT 1`,
+           FROM config WHERE branch_id = $1 LIMIT 1`,
         [branchId],
       )
       const cfg = cfgRes.rows[0] || {}
@@ -405,10 +406,14 @@ export async function POST(req: Request) {
       const inst = String(actor.institution_id).slice(0, 6).replace(/-/g, "").toUpperCase()
       const now = new Date()
       const yymm = `${String(now.getFullYear()).slice(2)}${String(now.getMonth() + 1).padStart(2, "0")}`
-      const candidate = `M${inst}-${yymm}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`
-      const savingsAccountNumber = shouldCreateSavings
-        ? `SA${inst}-${yymm}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`
-        : null
+      // Number generators kept compact (no timestamp) — these IDs are
+      // human-facing. Collisions on the 4-char random suffix are vanishingly
+      // rare but possible at scale, so each INSERT is wrapped in a SAVEPOINT
+      // retry that mints a fresh candidate on 23505.
+      const memberNumberGen = () =>
+        `M${inst}-${yymm}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`
+      const savingsNumberGen = () =>
+        `SA${inst}-${yymm}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`
       const joinDate = body.joinDate || new Date().toISOString().slice(0, 10)
       const monthlyIncome = typeof body.monthlyIncome !== "undefined" && body.monthlyIncome !== null && !Number.isNaN(Number(body.monthlyIncome)) ? Number(body.monthlyIncome) : null
       const monthlySavings = typeof body.monthlySavings !== "undefined" && body.monthlySavings !== null && !Number.isNaN(Number(body.monthlySavings)) ? Number(body.monthlySavings) : null
@@ -427,41 +432,58 @@ export async function POST(req: Request) {
       let data: { id: string; member_number: string }
 
       try {
-        const insertRes = await client.query<{ id: string; member_number: string }>(
-          `INSERT INTO senteloans_members (institution_id, branch_id, member_number, full_name, date_of_birth, gender, member_type, phone_number, national_id, email, marital_status, district, village, occupation, monthly_income, monthly_savings, next_of_kin_name, next_of_kin_relationship, next_of_kin_phone, join_date, created_by, modified_by)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $21) RETURNING id, member_number`,
-          [
-            actor.institution_id,
-            branchId,
-            candidate,
-            String(body.fullName).trim(),
-            body.dateOfBirth,
-            body.gender,
-            body.memberType,
-            phone,
-            String(body.nationalId).trim(),
-            memberEmail,
-            typeof body.maritalStatus === "string" ? body.maritalStatus : null,
-            typeof body.district === "string" ? body.district : null,
-            typeof body.village === "string" ? body.village : null,
-            typeof body.occupation === "string" ? body.occupation : null,
-            monthlyIncome,
-            monthlySavings,
-            nextOfKinName,
-            nextOfKinRelationship,
-            nextOfKinPhone,
-            joinDate,
-            actor.id,
-          ],
+        const memberInsert = await insertWithPrefixedNumberRetry<{
+          id: string
+          member_number: string
+        }>(
+          (memberNumber) =>
+            client.query<{ id: string; member_number: string }>(
+              `INSERT INTO members (institution_id, branch_id, member_number, full_name, date_of_birth, gender, member_type, phone_number, national_id, email, marital_status, district, village, occupation, monthly_income, monthly_savings, next_of_kin_name, next_of_kin_relationship, next_of_kin_phone, join_date, created_by, modified_by)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $21) RETURNING id, member_number`,
+              [
+                actor.institution_id,
+                branchId,
+                memberNumber,
+                String(body.fullName).trim(),
+                body.dateOfBirth,
+                body.gender,
+                body.memberType,
+                phone,
+                String(body.nationalId).trim(),
+                memberEmail,
+                typeof body.maritalStatus === "string" ? body.maritalStatus : null,
+                typeof body.district === "string" ? body.district : null,
+                typeof body.village === "string" ? body.village : null,
+                typeof body.occupation === "string" ? body.occupation : null,
+                monthlyIncome,
+                monthlySavings,
+                nextOfKinName,
+                nextOfKinRelationship,
+                nextOfKinPhone,
+                joinDate,
+                actor.id,
+              ],
+            ),
+          {
+            prefix: "M",
+            savepointName: "sp_ins_member_num_retry",
+            client,
+            generateNumber: memberNumberGen,
+            // Only retry on member_number collisions; let national_id (or any
+            // other unique constraint) bubble up so the outer catch can
+            // translate it into a friendly 409.
+            shouldRetryOnUniqueViolation: (err) =>
+              mapMemberDuplicateError(err) === "duplicate_member_number",
+          },
         )
-        data = insertRes.rows[0]
-        if (!data) {
+        if (!memberInsert) {
           await client.query("ROLLBACK")
-          return { error: "create_failed_no_record" as const }
+          return { error: "duplicate_member_number" as const }
         }
+        data = memberInsert.row
 
         await auditLogger.logInsert(
-          "senteloans_members",
+          "members",
           data.id,
           {
             member_number: data.member_number,
@@ -489,31 +511,49 @@ export async function POST(req: Request) {
           client,
         )
 
-        if (shouldCreateSavings && savingsAccountNumber) {
-          const savRes = await client.query<{ id: string }>(
-            `INSERT INTO senteloans_savings_accounts (institution_id, branch_id, member_id, account_number, account_type, available_balance, total_balance, status, open_date)
-             VALUES ($1, $2, $3, $4, $5, 0, 0, 'Active', $6) RETURNING id`,
-            [actor.institution_id, branchId, data.id, savingsAccountNumber, savingsAccountType, joinDate],
-          )
-          const savId = savRes.rows[0]?.id
-          savingsAccountData = { account_number: savingsAccountNumber, account_type: savingsAccountType }
-          if (savId) {
-            await auditLogger.logInsert(
-              "senteloans_savings_accounts",
-              savId,
-              {
-                member_id: data.id,
-                account_number: savingsAccountNumber,
-                account_type: savingsAccountType,
-                open_date: joinDate,
-                auto_created: true,
-              },
-              actor.institution_id,
-              actor.id,
-              { branch_id: branchId },
+        if (shouldCreateSavings) {
+          const savInsert = await insertWithPrefixedNumberRetry<{
+            id: string
+            account_number: string
+          }>(
+            (accountNumber) =>
+              client.query<{ id: string; account_number: string }>(
+                `INSERT INTO savings_accounts (institution_id, branch_id, member_id, account_number, account_type, available_balance, total_balance, status, open_date)
+                 VALUES ($1, $2, $3, $4, $5, 0, 0, 'Active', $6) RETURNING id, account_number`,
+                [actor.institution_id, branchId, data.id, accountNumber, savingsAccountType, joinDate],
+              ),
+            {
+              prefix: "SA",
+              savepointName: "sp_ins_savings_num_retry",
               client,
-            )
+              generateNumber: savingsNumberGen,
+              shouldRetryOnUniqueViolation: (err) =>
+                mapMemberDuplicateError(err) === "duplicate_savings_account_number",
+            },
+          )
+          if (!savInsert) {
+            await client.query("ROLLBACK")
+            return { error: "duplicate_savings_account_number" as const }
           }
+          savingsAccountData = {
+            account_number: savInsert.row.account_number,
+            account_type: savingsAccountType,
+          }
+          await auditLogger.logInsert(
+            "savings_accounts",
+            savInsert.row.id,
+            {
+              member_id: data.id,
+              account_number: savInsert.row.account_number,
+              account_type: savingsAccountType,
+              open_date: joinDate,
+              auto_created: true,
+            },
+            actor.institution_id,
+            actor.id,
+            { branch_id: branchId },
+            client,
+          )
         }
 
         // Auto-create a membership-fee invoice when the branch has a fee
@@ -617,7 +657,7 @@ export async function POST(req: Request) {
     try {
       // Acquire a fresh client so notifyMemberRegistration can fan out to
       // institution admins (the staff branch needs a client to query
-      // senteloans_users / senteloans_roles). Without it, staff
+      // users / roles). Without it, staff
       // notifications are silently skipped.
       const notifyRes = await runWithoutAuth((notifyClient) =>
         notifyMemberRegistration({

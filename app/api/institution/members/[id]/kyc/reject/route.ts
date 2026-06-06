@@ -37,8 +37,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
             WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
             ELSE NULL
           END AS app_role
-         FROM senteloans_users u
-         LEFT JOIN senteloans_roles r ON r.id = u.role_id
+         FROM users u
+         LEFT JOIN roles r ON r.id = u.role_id
          WHERE u.supabase_user_id = $1`,
         [session!.user!.authUserId]
       )
@@ -46,7 +46,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       if (!appUser) return { error: "forbidden" as const }
 
       const targetRes = await client.query(
-        `SELECT id, institution_id FROM senteloans_members WHERE id = $1`,
+        `SELECT id, institution_id FROM members WHERE id = $1`,
         [memberId]
       )
       const targetMember = targetRes.rows[0]
@@ -55,7 +55,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       if (!isSystemAdmin && targetMember.institution_id !== appUser.institution_id) return { error: "forbidden" as const }
 
       const pendingRes = await client.query(
-        `SELECT id, institution_id, member_id, doc_type, url, status, rejection_reason FROM senteloans_member_kyc_docs WHERE id = $1`,
+        `SELECT id, institution_id, member_id, doc_type, url, status, rejection_reason FROM member_kyc_docs WHERE id = $1`,
         [pendingId]
       )
       const pending = pendingRes.rows[0]
@@ -68,12 +68,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       const oldValues = { status: pending.status, rejection_reason: pending.rejection_reason }
 
       await client.query(
-        `UPDATE senteloans_member_kyc_docs SET status = 'rejected', rejection_reason = $1, reviewed_by = $2, reviewed_at = $3 WHERE id = $4`,
+        `UPDATE member_kyc_docs SET status = 'rejected', rejection_reason = $1, reviewed_by = $2, reviewed_at = $3 WHERE id = $4`,
         [reason || null, appUser.id, new Date().toISOString(), pendingId]
       )
 
       await auditLogger.logUpdate(
-        "senteloans_member_kyc_docs",
+        "member_kyc_docs",
         pendingId,
         oldValues,
         { status: "rejected", rejection_reason: reason || null },

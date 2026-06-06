@@ -111,11 +111,11 @@ export async function createInvoiceWithItems(
   const status = normalizeInvoiceStatus(input.status)
 
   // Insert with SAVEPOINT-based retry on invoice_number collisions
-  // (mirrors how senteloans_transactions handles transaction_number).
+  // (mirrors how transactions handles transaction_number).
   const inserted = await insertWithInvoiceNumberRetry(
     (invoiceNumber) =>
       client.query<{ id: string; invoice_number: string }>(
-        `INSERT INTO senteloans_invoices (
+        `INSERT INTO invoices (
            institution_id, branch_id, member_id, client_id,
            invoice_number, invoice_date, invoice_due,
            subtotal, vat, total_amount, inwords, invoice_type, status, created_by
@@ -149,7 +149,7 @@ export async function createInvoiceWithItems(
 
   for (const item of validItems) {
     await client.query(
-      `INSERT INTO senteloans_invoice_items (
+      `INSERT INTO invoice_items (
          invoice_id, unit, description, quantity, unit_price, total_price, vatinclusive
        ) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
       [
@@ -165,7 +165,7 @@ export async function createInvoiceWithItems(
   }
 
   await auditLogger.logInsert(
-    "senteloans_invoices",
+    "invoices",
     invoice.id,
     {
       member_id: input.target.member_id ?? null,

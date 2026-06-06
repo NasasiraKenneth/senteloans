@@ -1,4 +1,4 @@
--- Consolidated RLS hardening for senteloans_members
+-- Consolidated RLS hardening for members
 -- Mirrors the currently applied database state
 -- Safe to run multiple times (idempotent constructs where possible)
 
@@ -14,7 +14,7 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
   SELECT u.institution_id
-  FROM senteloans_users u
+  FROM users u
   WHERE u.supabase_user_id = auth.uid()
   LIMIT 1
 $$;
@@ -34,30 +34,30 @@ AS $$
     WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
     ELSE NULL
   END
-  FROM senteloans_users u
-  LEFT JOIN senteloans_roles r ON r.id = u.role_id
+  FROM users u
+  LEFT JOIN roles r ON r.id = u.role_id
   WHERE u.supabase_user_id = auth.uid()
   LIMIT 1
 $$;
 
 -- Ensure supporting index for auth helper lookups
-CREATE INDEX IF NOT EXISTS idx_users_supabase_user_id ON senteloans_users(supabase_user_id);
+CREATE INDEX IF NOT EXISTS idx_users_supabase_user_id ON users(supabase_user_id);
 
 -- Ensure RLS is enabled on clients
-ALTER TABLE senteloans_members ENABLE ROW LEVEL SECURITY;
+ALTER TABLE members ENABLE ROW LEVEL SECURITY;
 
 -- Drop any legacy catch-all policy (if present)
-DROP POLICY IF EXISTS clients_access_policy ON senteloans_members;
+DROP POLICY IF EXISTS clients_access_policy ON members;
 
 -- Drop and recreate explicit per-action policies to avoid duplicates
-DROP POLICY IF EXISTS clients_select_same_institution ON senteloans_members;
-DROP POLICY IF EXISTS clients_insert_same_institution ON senteloans_members;
-DROP POLICY IF EXISTS clients_update_same_institution ON senteloans_members;
-DROP POLICY IF EXISTS clients_delete_same_institution ON senteloans_members;
+DROP POLICY IF EXISTS clients_select_same_institution ON members;
+DROP POLICY IF EXISTS clients_insert_same_institution ON members;
+DROP POLICY IF EXISTS clients_update_same_institution ON members;
+DROP POLICY IF EXISTS clients_delete_same_institution ON members;
 
 -- SELECT: allow system_admins or same institution
 CREATE POLICY clients_select_same_institution
-ON senteloans_members
+ON members
 FOR SELECT
 USING (
   (
@@ -68,7 +68,7 @@ USING (
 
 -- INSERT: row must belong to caller's institution (or system_admin)
 CREATE POLICY clients_insert_same_institution
-ON senteloans_members
+ON members
 FOR INSERT
 WITH CHECK (
   COALESCE(app.current_role(), '') = 'system_admin'
@@ -77,7 +77,7 @@ WITH CHECK (
 
 -- UPDATE: only within institution (or system_admin) and cannot flip institution_id
 CREATE POLICY clients_update_same_institution
-ON senteloans_members
+ON members
 FOR UPDATE
 USING (
   COALESCE(app.current_role(), '') = 'system_admin'
@@ -90,7 +90,7 @@ WITH CHECK (
 
 -- DELETE: only within institution (or system_admin)
 CREATE POLICY clients_delete_same_institution
-ON senteloans_members
+ON members
 FOR DELETE
 USING (
   COALESCE(app.current_role(), '') = 'system_admin'

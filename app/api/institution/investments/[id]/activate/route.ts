@@ -53,7 +53,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     try {
       const invRes = await client.query(
         `SELECT id, institution_id, branch_id, provider_id, investment_number, initial_amount, status, start_date, maturity_date
-         FROM senteloans_investments
+         FROM investments
          WHERE id = $1 AND institution_id = $2
          ${isSuperAdmin ? "" : "AND branch_id = $3"}
          LIMIT 1`,
@@ -94,7 +94,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       const inserted = await insertWithTransactionNumberRetry(
         (transactionNumber) =>
           client.query(
-            `INSERT INTO senteloans_transactions (
+            `INSERT INTO transactions (
                institution_id, branch_id, client_id, transaction_number, type, amount, mode, description,
                reference_number, processed_by, transaction_date, status
              )
@@ -137,7 +137,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       })
 
       await client.query(
-        `UPDATE senteloans_investments
+        `UPDATE investments
          SET status = 'under_development',
              start_date = $1::date,
              maturity_date = $2::date,
@@ -148,7 +148,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       )
 
       await auditLogger.logUpdate(
-        "senteloans_investments",
+        "investments",
         id,
         {
           status: inv.status,

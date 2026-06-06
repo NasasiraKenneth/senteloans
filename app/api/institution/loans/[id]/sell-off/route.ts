@@ -27,8 +27,8 @@ async function resolveActorContext(client: any, authUserId: string): Promise<Act
          WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
          ELSE NULL
        END AS role
-     FROM senteloans_users u
-     LEFT JOIN senteloans_roles r ON r.id = u.role_id
+     FROM users u
+     LEFT JOIN roles r ON r.id = u.role_id
      WHERE u.supabase_user_id = $1
      LIMIT 1`,
     [authUserId]
@@ -43,8 +43,8 @@ async function hasPermission(client: any, actor: ActorContext, permission: strin
 
   const permRes = await client.query(
     `SELECT 1
-     FROM senteloans_role_permissions rp
-     JOIN senteloans_permissions p ON p.id = rp.permission_id
+     FROM role_permissions rp
+     JOIN permissions p ON p.id = rp.permission_id
      WHERE rp.role_id = $1
        AND rp.branch_id = $2
        AND p.name = $3
@@ -99,7 +99,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
       const loanRes = await client.query(
         `SELECT id, institution_id, branch_id, status, outstanding_balance
-         FROM senteloans_loans
+         FROM loans
          WHERE id = $1`,
         [id]
       )
@@ -121,19 +121,19 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       }
 
       const extRes = await client.query(
-        `SELECT id FROM senteloans_clients WHERE id = $1 AND institution_id = $2 AND branch_id = $3`,
+        `SELECT id FROM clients WHERE id = $1 AND institution_id = $2 AND branch_id = $3`,
         [externalLenderId, loan.institution_id, loan.branch_id]
       )
       if (!extRes.rows[0]) return { error: "external_lender_not_found" as const }
 
       await client.query(
-        `UPDATE senteloans_loans
+        `UPDATE loans
          SET status = 'Closed', outstanding_balance = 0, updated_at = NOW()
          WHERE id = $1`,
         [id]
       )
       await auditLogger.logUpdate(
-        "senteloans_loans",
+        "loans",
         id,
         { status: currentStatus, outstanding_balance: roundedOutstanding },
         { status: "Closed", outstanding_balance: 0 },
@@ -144,7 +144,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       )
 
       const settlementInsertRes = await client.query(
-        `INSERT INTO senteloans_loan_settlements
+        `INSERT INTO loan_settlements
           (institution_id, branch_id, disbursement_id, new_loan_id, settled_loan_id, external_lender_id, settlement_amount, settlement_type)
          VALUES
           ($1, $2, NULL, NULL, $3, $4, $5, 'external sell off')
@@ -154,7 +154,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       const settlementId = String(settlementInsertRes.rows[0]?.id || "")
       if (settlementId) {
         await auditLogger.logInsert(
-          "senteloans_loan_settlements",
+          "loan_settlements",
           settlementId,
           {
             settled_loan_id: id,
@@ -170,10 +170,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       }
 
       await client.query(
-        `INSERT INTO senteloans_audit_logs
+        `INSERT INTO audit_logs
           (institution_id, branch_id, user_id, table_name, category, operation, record_id, new_values)
          VALUES
-          ($1, $2, $3, 'senteloans_loans', 'loans', 'UPDATE', $4, $5)`,
+          ($1, $2, $3, 'loans', 'loans', 'UPDATE', $4, $5)`,
         [
           loan.institution_id,
           loan.branch_id,

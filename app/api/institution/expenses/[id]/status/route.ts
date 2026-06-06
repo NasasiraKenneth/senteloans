@@ -84,7 +84,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       const existing = await client.query(
         `SELECT e.id, e.expense_number, e.name, e.description, e.status, e.type, e.category_id, e.branch_id,
                 e.approved_by, e.approved_at, e.rejected_by, e.rejected_at, e.completed_by, e.completed_at
-         FROM senteloans_expenses e WHERE ${where} LIMIT 1`,
+         FROM expenses e WHERE ${where} LIMIT 1`,
         values,
       )
       const ex = existing.rows[0] as Record<string, unknown> | undefined
@@ -123,7 +123,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         if (action === "approve") {
           const updParams: unknown[] = [actor.id, ...updBase]
           const upd = await client.query(
-            `UPDATE senteloans_expenses e
+            `UPDATE expenses e
              SET status = 'Approved',
                  approved_by = $1::uuid,
                  approved_at = NOW(),
@@ -140,7 +140,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
           await auditExpenseUpdate(client, actor, expenseId, oldExpense, expenseSnapshot(row), expenseBranchId)
 
-          const nameRes = await client.query(`SELECT full_name FROM senteloans_users WHERE id = $1::uuid LIMIT 1`, [actor.id])
+          const nameRes = await client.query(`SELECT full_name FROM users WHERE id = $1::uuid LIMIT 1`, [actor.id])
           const approved_by_name =
             nameRes.rows[0]?.full_name != null ? String(nameRes.rows[0].full_name).trim() : null
 
@@ -160,7 +160,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         if (action === "complete") {
           const updParams: unknown[] = [actor.id, ...updBase]
           const upd = await client.query(
-            `UPDATE senteloans_expenses e
+            `UPDATE expenses e
              SET status = 'Completed',
                  completed_by = $1::uuid,
                  completed_at = NOW(),
@@ -189,7 +189,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
         const updParams: unknown[] = [actor.id, ...updBase]
         const upd = await client.query(
-          `UPDATE senteloans_expenses e
+          `UPDATE expenses e
            SET status = 'Rejected',
                rejected_by = $1::uuid,
                rejected_at = NOW(),
@@ -211,7 +211,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         const pendingCf = await client.query(
           `SELECT id, expense_id, staff_id, client_id, payment_method::text AS payment_method, amount,
                   description, status, date::text AS date, transaction_id, completed_by, completed_at
-           FROM senteloans_expense_cashflows
+           FROM expense_cashflows
            WHERE expense_id = $1::uuid
              AND LOWER(TRIM(COALESCE(status::text, ''))) = 'pending'
            FOR UPDATE`,
@@ -221,7 +221,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         let cashflowsRejected = 0
         if ((pendingCf.rowCount ?? 0) > 0) {
           const cfUpd = await client.query(
-            `UPDATE senteloans_expense_cashflows
+            `UPDATE expense_cashflows
              SET status = 'Rejected',
                  completed_by = $2::uuid,
                  completed_at = NOW()

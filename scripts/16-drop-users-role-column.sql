@@ -1,7 +1,7 @@
 -- Migration: remove legacy users.role enum column and rely on role_id
 -- Safe to run multiple times.
 
-ALTER TABLE senteloans_users
+ALTER TABLE users
   DROP COLUMN IF EXISTS role;
 
 -- Drop enum type only if no remaining columns depend on it.

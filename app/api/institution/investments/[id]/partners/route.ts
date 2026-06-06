@@ -22,7 +22,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     if (!isSuperAdmin && !actor.branch_id) return NextResponse.json({ error: "actor_branch_missing" }, { status: 400 })
 
     const invRes = await client.query(
-      `SELECT id, branch_id FROM senteloans_investments
+      `SELECT id, branch_id FROM investments
        WHERE id = $1 AND institution_id = $2
        ${isSuperAdmin ? "" : "AND branch_id = $3"}
        LIMIT 1`,
@@ -39,7 +39,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const ownershipPercentage = body.ownershipPercentage ?? body.ownership_percentage ?? null
     if (!counterpartyId) return NextResponse.json({ error: "counterparty_required" }, { status: 400 })
     const res = await client.query(
-      `INSERT INTO senteloans_investment_partners (
+      `INSERT INTO investment_partners (
          investment_id, counterparty_id, role, status, contribution_percentage, contribution_amount, ownership_percentage, created_by, modified_by, updated_at
        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$8,NOW())
        RETURNING id`,
@@ -47,7 +47,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     )
     const newId = String(res.rows[0]?.id || "")
     await auditLogger.logInsert(
-      "senteloans_investment_partners",
+      "investment_partners",
       newId,
       {
         investment_id: id,
