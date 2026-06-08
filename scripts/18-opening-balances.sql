@@ -16,6 +16,6 @@ END $$;
 -- Opening Balance transactions for savings have account_id set, for loans have loan_id set
 -- No special exemption needed since they follow the normal pattern
 
--- Add an opening_balance_recorded flag to clients to track if opening balances have been set
+-- Add an opening_balance_recorded flag to members to track if opening balances have been set
 ALTER TABLE members
   ADD COLUMN IF NOT EXISTS opening_balance_recorded BOOLEAN NOT NULL DEFAULT FALSE;

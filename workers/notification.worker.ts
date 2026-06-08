@@ -14,7 +14,7 @@ async function deleteExpiredNotifications(): Promise<number> {
   const pool = new Pool({ connectionString: url })
   try {
     const res = await pool.query(
-      `DELETE FROM senteloans_notifications WHERE expires_at < NOW() RETURNING id`
+      `DELETE FROM notifications WHERE expires_at < NOW() RETURNING id`
     )
     return res.rowCount ?? 0
   } finally {

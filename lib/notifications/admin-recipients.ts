@@ -107,3 +107,53 @@ export async function getInstitutionAdminRecipients(
   )
   return res.rows
 }
+
+export interface GetRecipientsWithPermissionOptions {
+  /** Exclude a user id (typically the actor that triggered the event). */
+  excludeUserId?: string | null
+}
+
+/**
+ * Return Active staff in the institution who hold a specific permission, so a
+ * notification only reaches users who can actually view the affected module.
+ *
+ * Permission resolution mirrors `hasPermission` in `lib/api/rbac.ts`:
+ *   - "Super Admin" implicitly holds every permission.
+ *   - Everyone else must have the permission granted to their role at their
+ *     branch (role_permissions scoped by role_id + branch_id).
+ */
+export async function getInstitutionRecipientsWithPermission(
+  client: PoolClient,
+  institutionId: string,
+  permission: string,
+  opts: GetRecipientsWithPermissionOptions = {},
+): Promise<AdminRecipient[]> {
+  const params: unknown[] = [institutionId, permission]
+  let where = `u.institution_id = $1
+       AND u.status = 'Active'
+       AND (
+         r.name = 'Super Admin'
+         OR EXISTS (
+           SELECT 1
+             FROM role_permissions rp
+             JOIN permissions p ON p.id = rp.permission_id
+            WHERE rp.role_id = u.role_id
+              AND rp.branch_id = u.branch_id
+              AND p.name = $2
+         )
+       )`
+
+  if (opts.excludeUserId) {
+    params.push(opts.excludeUserId)
+    where += ` AND u.id != $${params.length}`
+  }
+
+  const res = await client.query<AdminRecipient>(
+    `SELECT u.id, u.branch_id
+       FROM users u
+       JOIN roles r ON r.id = u.role_id
+      WHERE ${where}`,
+    params,
+  )
+  return res.rows
+}

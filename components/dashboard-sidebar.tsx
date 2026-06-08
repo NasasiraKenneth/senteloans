@@ -200,8 +200,8 @@ export function DashboardSidebar() {
         label: "People",
         items: [
           { name: "Staff", href: "/staff", icon: UserCog },
-          { name: clientLabel, href: "/users", icon: Users },
-          { name: "Clients", href: "/clients", icon: Building2 },
+          { name: clientLabel, href: "/members", icon: Users },
+          { name: "Third Party Agents", href: "/clients", icon: Building2 },
         ],
       },
       {

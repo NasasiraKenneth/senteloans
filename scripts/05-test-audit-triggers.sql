@@ -8,15 +8,15 @@ DO $$
 DECLARE
     test_institution_id UUID;
     test_user_id UUID;
-    test_client_id UUID;
-    test_client_id_2 UUID;
+    test_member_id UUID;
+    test_member_id_2 UUID;
     test_loan_id UUID;
 BEGIN
     -- Generate UUIDs for test data
     test_institution_id := uuid_generate_v4();
     test_user_id := uuid_generate_v4();
-    test_client_id := uuid_generate_v4();
-    test_client_id_2 := uuid_generate_v4();
+    test_member_id := uuid_generate_v4();
+    test_member_id_2 := uuid_generate_v4();
     test_loan_id := uuid_generate_v4();
 
     -- Create test institution with correct columns (see 01-create-schema.sql)
@@ -31,8 +31,8 @@ BEGIN
     -- Store IDs for use in tests
     PERFORM set_config('test.institution_id', test_institution_id::text, true);
     PERFORM set_config('test.user_id', test_user_id::text, true);
-    PERFORM set_config('test.member_id', test_client_id::text, true);
-    PERFORM set_config('test.client_id_2', test_client_id_2::text, true);
+    PERFORM set_config('test.member_id', test_member_id::text, true);
+    PERFORM set_config('test.member_id_2', test_member_id_2::text, true);
     PERFORM set_config('test.loan_id', test_loan_id::text, true);
 END $$;
 
@@ -43,25 +43,25 @@ SELECT 'Test 1: INSERT audit logging' as test_name;
 SELECT COUNT(*) as initial_count FROM audit_logs WHERE table_name = 'members';
 
 -- Removed created_by column that doesn't exist in schema
--- Insert a new client with correct required columns only
+-- Insert a new member with correct required columns only
 INSERT INTO members (
     id, 
     institution_id, 
     full_name, 
-    client_number, 
+    member_number, 
     email, 
     phone_number, 
     date_of_birth, 
     gender,
-    client_type,
+    member_type,
     national_id,
     join_date
 ) VALUES (
     current_setting('test.member_id')::uuid,
     current_setting('test.institution_id')::uuid,
-    'Audit Test Client',
+    'Audit Test Member',
     'CLI-AUDIT-001',
-    'audit.client@test.com',
+    'audit.member@test.com',
     '+254700000002',
     '1990-01-01',
     'Male',
@@ -84,7 +84,7 @@ AND record_id = current_setting('test.member_id')::uuid;
 -- Test 2: Verify audit logs are created on UPDATE
 SELECT 'Test 2: UPDATE audit logging' as test_name;
 
--- Update the client
+-- Update the member
 -- Updated to use a valid column for testing
 UPDATE members 
 SET occupation = 'Updated Manager'
@@ -122,7 +122,7 @@ LIMIT 1;
 -- Test 4: Verify audit logs are created on DELETE
 SELECT 'Test 4: DELETE audit logging' as test_name;
 
--- Delete the client
+-- Delete the member
 DELETE FROM members WHERE id = current_setting('test.member_id')::uuid;
 
 -- Check if audit log was created for delete
@@ -139,26 +139,26 @@ AND record_id = current_setting('test.member_id')::uuid;
 -- Test 5: Verify audit logs for loan operations
 SELECT 'Test 5: Loan audit logging' as test_name;
 
--- Removed created_by column from second client insert as well
--- Create client for loan testing
+-- Removed created_by column from second member insert as well
+-- Create member for loan testing
 INSERT INTO members (
     id, 
     institution_id, 
     full_name, 
-    client_number, 
+    member_number, 
     email, 
     phone_number, 
     date_of_birth, 
     gender,
-    client_type,
+    member_type,
     national_id,
     join_date
 ) VALUES (
-    current_setting('test.client_id_2')::uuid,
+    current_setting('test.member_id_2')::uuid,
     current_setting('test.institution_id')::uuid,
-    'Loan Test Client',
+    'Loan Test Member',
     'CLI-LOAN-001',
-    'loan.client@test.com',
+    'loan.member@test.com',
     '+254700000003',
     '1985-05-15',
     'Female',
@@ -205,7 +205,7 @@ INSERT INTO loans (
 ) VALUES (
     current_setting('test.loan_id')::uuid,
     current_setting('test.institution_id')::uuid,
-    current_setting('test.client_id_2')::uuid,
+    current_setting('test.member_id_2')::uuid,
     (SELECT id FROM loan_products WHERE institution_id = current_setting('test.institution_id')::uuid LIMIT 1),
     'APP-AUDIT-001',
     15000.00,

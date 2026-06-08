@@ -8,13 +8,13 @@ DECLARE
     kampala_sacco_branch_id UUID;
     opportunity_mfi_branch_id UUID;
     
-    -- Client IDs for Kampala Central SACCO
+    -- Member IDs for Kampala Central SACCO
     sarah_id UUID;
     david_id UUID;
     grace_id UUID;
     robert_id UUID;
     
-    -- Client IDs for Opportunity MFI
+    -- Member IDs for Opportunity MFI
     agnes_id UUID;
     womens_group_id UUID;
     patricia_id UUID;

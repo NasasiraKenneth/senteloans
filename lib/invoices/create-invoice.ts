@@ -2,11 +2,11 @@ import type { PoolClient } from "pg"
 import { auditLogger } from "@/lib/audit/audit-logger"
 import { insertWithInvoiceNumberRetry } from "./invoice-number-retry"
 
-export type InvoiceStatus = "draft" | "sent" | "paid" | "overdue" | "cancelled"
+export type InvoiceStatus = "draft" | "sent" | "partially paid" | "fully paid" | "overdue" | "cancelled"
 
 const normalizeInvoiceStatus = (value?: string): InvoiceStatus => {
   const s = String(value || "draft").trim().toLowerCase()
-  const allowed: InvoiceStatus[] = ["draft", "sent", "paid", "overdue", "cancelled"]
+  const allowed: InvoiceStatus[] = ["draft", "sent", "partially paid", "fully paid", "overdue", "cancelled"]
   return allowed.includes(s as InvoiceStatus) ? (s as InvoiceStatus) : "draft"
 }
 
@@ -21,8 +21,8 @@ export interface InvoiceItemInput {
 }
 
 export type InvoiceTarget =
-  | { member_id: string; client_id?: undefined }
-  | { client_id: string; member_id?: undefined }
+  | { member_id: string; third_party_agent_id?: undefined }
+  | { third_party_agent_id: string; member_id?: undefined }
 
 export interface CreateInvoiceInput {
   institutionId: string
@@ -116,7 +116,7 @@ export async function createInvoiceWithItems(
     (invoiceNumber) =>
       client.query<{ id: string; invoice_number: string }>(
         `INSERT INTO invoices (
-           institution_id, branch_id, member_id, client_id,
+           institution_id, branch_id, member_id, third_party_agent_id,
            invoice_number, invoice_date, invoice_due,
            subtotal, vat, total_amount, inwords, invoice_type, status, created_by
          ) VALUES (
@@ -129,7 +129,7 @@ export async function createInvoiceWithItems(
           input.institutionId,
           input.branchId,
           input.target.member_id ?? null,
-          input.target.client_id ?? null,
+          input.target.third_party_agent_id ?? null,
           invoiceNumber,
           input.invoiceDate,
           input.invoiceDue ?? null,
@@ -169,7 +169,7 @@ export async function createInvoiceWithItems(
     invoice.id,
     {
       member_id: input.target.member_id ?? null,
-      client_id: input.target.client_id ?? null,
+      third_party_agent_id: input.target.third_party_agent_id ?? null,
       invoice_number: invoice.invoice_number,
       invoice_date: input.invoiceDate,
       invoice_due: input.invoiceDue ?? null,

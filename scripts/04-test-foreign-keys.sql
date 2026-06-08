@@ -13,7 +13,7 @@ DO $$
 DECLARE
     test_inst_id UUID;
     test_user_id UUID;
-    test_client_id UUID;
+    test_member_id UUID;
     test_loan_product_id UUID;
     test_loan_id UUID;
 BEGIN
@@ -29,11 +29,11 @@ BEGIN
     INSERT INTO users (id, institution_id, email, password_hash, full_name, role) VALUES 
     (test_user_id, test_inst_id, 'test@fktest.com', 'hashed_password', 'Test User', 'loan_officer');
     
-    -- Create client with valid institution_id
-    test_client_id := uuid_generate_v4();
+    -- Create member with valid institution_id
+    test_member_id := uuid_generate_v4();
     -- Updated to use correct column names and required fields from schema
-    INSERT INTO members (id, institution_id, client_number, full_name, date_of_birth, gender, client_type, phone_number, national_id, join_date) VALUES 
-    (test_client_id, test_inst_id, 'CLT001', 'Test Client', '1990-01-01', 'Male', 'Individual', '555-0000', 'ID123456', CURRENT_DATE);
+    INSERT INTO members (id, institution_id, member_number, full_name, date_of_birth, gender, member_type, phone_number, national_id, join_date) VALUES 
+    (test_member_id, test_inst_id, 'CLT001', 'Test Member', '1990-01-01', 'Male', 'Individual', '555-0000', 'ID123456', CURRENT_DATE);
     
     -- Create loan product first (required for loans)
     test_loan_product_id := uuid_generate_v4();
@@ -43,12 +43,12 @@ BEGIN
     -- Create loan with valid member_id and loan_product_id
     test_loan_id := uuid_generate_v4();
     INSERT INTO loans (id, institution_id, member_id, loan_product_id, application_id, principal_amount, interest_rate, tenure_months, application_date) VALUES 
-    (test_loan_id, test_inst_id, test_client_id, test_loan_product_id, 'APP001', 10000.00, 5.5, 36, CURRENT_DATE);
+    (test_loan_id, test_inst_id, test_member_id, test_loan_product_id, 'APP001', 10000.00, 5.5, 36, CURRENT_DATE);
     
     -- Create transaction with valid loan_id
     -- Updated to use correct column names and required fields from schema
     INSERT INTO transactions (id, institution_id, member_id, loan_id, transaction_number, type, amount, mode, processed_by, transaction_date) VALUES 
-    (uuid_generate_v4(), test_inst_id, test_client_id, test_loan_id, 'TXN001', 'Loan Disbursement', 10000.00, 'Cash', test_user_id, NOW());
+    (uuid_generate_v4(), test_inst_id, test_member_id, test_loan_id, 'TXN001', 'Loan Disbursement', 10000.00, 'Cash', test_user_id, NOW());
     
     RAISE NOTICE 'PASSED: Valid FK relationships created successfully';
     
@@ -79,7 +79,7 @@ BEGIN
     RAISE NOTICE 'Test 3: Cascading behavior';
     
     -- Delete child records first to avoid FK constraint violations
-    -- Delete in proper order: transactions -> loans -> loan_products -> clients -> users -> institution
+    -- Delete in proper order: transactions -> loans -> loan_products -> members -> users -> institution
     DELETE FROM transactions WHERE institution_id = test_inst_id;
     DELETE FROM loans WHERE institution_id = test_inst_id;
     DELETE FROM loan_products WHERE institution_id = test_inst_id;

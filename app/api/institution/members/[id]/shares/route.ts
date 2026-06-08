@@ -1,58 +1,29 @@
 import { NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
-import { runWithAuth } from "@/lib/db"
+import { runWithAuth, runWithoutAuth } from "@/lib/db"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
 import { auditLogger } from "@/lib/audit/audit-logger"
-import { insertWithTransactionNumberRetry } from "@/lib/transactions/transaction-number-retry"
+import { resolveActorContext, hasPermission } from "@/lib/api/rbac"
+import { createTransaction } from "@/lib/transactions/create-transaction"
+import { assertBranchActive, type BranchStatus } from "@/lib/branches/branch-status"
+import { applyDailyFinanceEntry } from "@/lib/finances/daily-finance"
+import { getBranchBankAccount, adjustBankAccountBalance, type BankAccountRow } from "@/lib/finances/bank-account"
+import { createInvoiceWithItems } from "@/lib/invoices/create-invoice"
+import { recordInvoicePayment } from "@/lib/invoices/invoice-payments"
+import { notifySharePurchase } from "@/lib/notifications/share-events"
+import { enqueueSharePurchaseEmails } from "@/lib/email/share-emails"
 
-type ActorContext = {
-  id: string
-  institution_id: string
-  branch_id: string | null
-  role_id: string | null
-  role: string | null
-}
-
-async function resolveActorContext(client: any, authUserId: string): Promise<ActorContext | null> {
-  const actorRes = await client.query(
-    `SELECT
-       u.id,
-       u.institution_id,
-       u.branch_id,
-       u.role_id,
-       CASE
-         WHEN r.name = 'System Admin' THEN 'system_admin'
-         WHEN r.name = 'Super Admin' THEN 'super_admin'
-         WHEN r.name = 'Admin' THEN 'institution_admin'
-         WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
-         ELSE NULL
-       END AS role
-     FROM users u
-     LEFT JOIN roles r ON r.id = u.role_id
-     WHERE u.supabase_user_id = $1
-     LIMIT 1`,
-    [authUserId]
-  )
-  return actorRes.rows[0] || null
-}
-
-async function hasPermission(client: any, actor: ActorContext, permission: string): Promise<boolean> {
-  const role = String(actor.role || "").trim().toLowerCase()
-  if (role === "super_admin") return true
-  if (!actor.role_id || !actor.branch_id) return false
-
-  const permRes = await client.query(
-    `SELECT 1
-     FROM role_permissions rp
-     JOIN permissions p ON p.id = rp.permission_id
-     WHERE rp.role_id = $1
-       AND rp.branch_id = $2
-       AND p.name = $3
-     LIMIT 1`,
-    [actor.role_id, actor.branch_id, permission]
-  )
-  return permRes.rowCount > 0
+type SharePurchasePostCommit = {
+  actorId: string
+  institutionId: string
+  branchId: string
+  institutionName: string
+  currency: string
+  member: { id: string; full_name: string; member_number: string; email: string }
+  shares: { numberOfShares: number; totalValue: number }
+  transaction: { id: string; transaction_number: string; amount: number }
+  invoice: { id: string; invoice_number: string; total_amount: number }
 }
 
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -65,6 +36,10 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     if (!session?.user?.authUserId) {
       apiLog("warn", "member.shares.list.denied", { method: "GET", apiPath, status: 401, error: "unauthorized" })
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+    if (session.user.type !== "staff") {
+      apiLog("warn", "member.shares.list.denied", { method: "GET", apiPath, status: 403, error: "no_app_user_profile" })
+      return NextResponse.json({ error: "no_app_user_profile" }, { status: 403 })
     }
 
     const result = await runWithAuth(session.user.authUserId, async (client) => {
@@ -119,10 +94,23 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       paymentDate?: string
       referenceNumber?: string
       reference_number?: string
+      transaction_charges?: number | string
+      bank_account_id?: string
     }
     const numberOfShares = Number(body?.numberOfShares)
     if (!Number.isInteger(numberOfShares) || numberOfShares <= 0) {
       return NextResponse.json({ error: "invalid_number_of_shares" }, { status: 400 })
+    }
+
+    // Optional transaction charges (e.g. bank/mobile-money fees). Must be a
+    // non-negative number; ignored when absent or zero.
+    const transactionChargesRaw = body?.transaction_charges
+    const transactionCharges =
+      transactionChargesRaw == null || transactionChargesRaw === ""
+        ? 0
+        : Number(transactionChargesRaw)
+    if (Number.isNaN(transactionCharges) || transactionCharges < 0) {
+      return NextResponse.json({ error: "invalid_transaction_charges" }, { status: 400 })
     }
 
     // Resolve optional payment date (defaults to today). Reject future dates so
@@ -149,11 +137,20 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
           ? body.reference_number.trim()
           : ""
 
+    const bankAccountIdInput =
+      typeof body.bank_account_id === "string" ? body.bank_account_id.trim() : ""
+
     const session = await getServerSession(authOptions)
     if (!session?.user?.authUserId) {
       apiLog("warn", "member.shares.create.denied", { method: "POST", apiPath, status: 401, error: "unauthorized" })
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
+    if (session.user.type !== "staff") {
+      apiLog("warn", "member.shares.create.denied", { method: "POST", apiPath, status: 403, error: "no_app_user_profile" })
+      return NextResponse.json({ error: "no_app_user_profile" }, { status: 403 })
+    }
+
+    let postCommit: SharePurchasePostCommit | null = null
 
     const result = await runWithAuth(session.user.authUserId, async (client) => {
       const actor = await resolveActorContext(client, session!.user!.authUserId)
@@ -162,15 +159,24 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       if (!allowed) return { error: "missing_permission:edit_shares" as const }
 
       const memberRes = await client.query(
-        `SELECT id, institution_id FROM members WHERE id = $1`,
+        `SELECT id, institution_id, branch_id, full_name, member_number, email FROM members WHERE id = $1`,
         [memberId]
       )
       const memberRow = memberRes.rows[0]
       if (!memberRow) return { error: "member_not_found" as const }
       if (memberRow.institution_id !== actor.institution_id) return { error: "forbidden" as const }
 
+      // Reusable branch gate: block share purchases against inactive branches.
+      const branchCheck = await assertBranchActive(client, memberRow.branch_id)
+      if (!branchCheck.ok) {
+        return {
+          error: branchCheck.error as "branch_not_found" | "branch_inactive",
+          branchStatus: branchCheck.error === "branch_inactive" ? branchCheck.status : undefined,
+        }
+      }
+
       const cfgRes = await client.query(
-        `SELECT shares, share_value, minimum_shares, maximum_shares
+        `SELECT shares, share_value, minimum_shares, maximum_shares, currency
          FROM config
          WHERE branch_id = $1
          LIMIT 1`,
@@ -183,19 +189,37 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       const valuePerShare = Number(cfg.share_value ?? 0)
       const minShares = cfg.minimum_shares != null ? Number(cfg.minimum_shares) : undefined
       const maxShares = cfg.maximum_shares != null ? Number(cfg.maximum_shares) : undefined
+      const currency = (cfg.currency as string) || "UGX"
 
       if (!sharesEnabled) return { error: "shares_disabled" as const }
       if (!valuePerShare || Number.isNaN(valuePerShare) || valuePerShare <= 0) {
         return { error: "share_value_not_configured" as const }
       }
-      if (typeof minShares === "number" && numberOfShares < minShares) return { error: `minimum_shares_${minShares}` as const }
-      if (typeof maxShares === "number" && numberOfShares > maxShares) return { error: `maximum_shares_${maxShares}` as const }
+
+      // Limits apply to the resulting holding, not just this single purchase.
+      const currentSharesRes = await client.query(
+        `SELECT COALESCE(SUM(number_of_shares), 0)::int AS total_shares FROM member_shares WHERE member_id = $1`,
+        [memberId]
+      )
+      const currentShares = Number(currentSharesRes.rows[0]?.total_shares || 0)
+      const projectedShares = currentShares + numberOfShares
+      if (typeof minShares === "number" && minShares > 0 && projectedShares < minShares) {
+        return { error: `minimum_shares_${minShares}` as const }
+      }
+      if (typeof maxShares === "number" && maxShares > 0 && projectedShares > maxShares) {
+        return { error: `maximum_shares_${maxShares}` as const }
+      }
 
       const purchaseDate = resolvedPaymentDate.toISOString().slice(0, 10)
       const purchaseValue = numberOfShares * valuePerShare
       const validModes = ["Cash", "Mobile Money", "Bank Transfer", "Cheque", "Card"]
+      // Default to Cash when absent, but reject an explicit unsupported mode
+      // instead of silently mis-recording the payment channel.
       const requestedMode = typeof body.mode === "string" && body.mode.trim() ? body.mode.trim() : "Cash"
-      const mode = validModes.includes(requestedMode) ? requestedMode : "Cash"
+      if (!validModes.includes(requestedMode)) {
+        return { error: "invalid_mode" as const }
+      }
+      const mode = requestedMode
       if (mode !== "Cash" && !referenceNumberInput) {
         return { error: "reference_number_required" as const }
       }
@@ -203,8 +227,40 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         ? body.description.trim()
         : `Shares purchase: ${numberOfShares} share(s) @ ${valuePerShare.toLocaleString()} each`
 
+      // Bank-routed payments settle into a branch bank account, which we credit
+      // with the purchase value. Validate the selected account up-front.
+      const BANK_ROUTED_MODES = ["Bank Transfer", "Cheque", "Card"]
+      let bankAccount: BankAccountRow | null = null
+      if (BANK_ROUTED_MODES.includes(mode)) {
+        if (!bankAccountIdInput) return { error: "bank_account_required" as const }
+        bankAccount = await getBranchBankAccount(client, {
+          bankAccountId: bankAccountIdInput,
+          institutionId: actor.institution_id,
+          branchId: memberRow.branch_id,
+        })
+        if (!bankAccount) return { error: "bank_account_not_found" as const }
+      }
+
       try {
         await client.query("BEGIN")
+
+        // Lock the member row so two concurrent purchases can't both pass the
+        // holding-limit check and push the total past maximum_shares.
+        await client.query("SELECT id FROM members WHERE id = $1 FOR UPDATE", [memberId])
+
+        // Authoritative holding recompute under the lock (the pre-check above is
+        // only for fast failure before we start writing).
+        const lockedSharesRes = await client.query(
+          `SELECT COALESCE(SUM(number_of_shares), 0)::int AS total_shares FROM member_shares WHERE member_id = $1`,
+          [memberId]
+        )
+        const lockedProjected = Number(lockedSharesRes.rows[0]?.total_shares || 0) + numberOfShares
+        if (typeof minShares === "number" && minShares > 0 && lockedProjected < minShares) {
+          throw new Error(`minimum_shares_${minShares}`)
+        }
+        if (typeof maxShares === "number" && maxShares > 0 && lockedProjected > maxShares) {
+          throw new Error(`maximum_shares_${maxShares}`)
+        }
 
         // Track running share value balance for this member
         const shareBalRes = await client.query(
@@ -231,7 +287,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
             },
             actor.institution_id,
             actor.id,
-            undefined,
+            { branch_id: memberRow.branch_id },
             client
           )
         }
@@ -265,89 +321,238 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
           }
         }
 
-        // Use the shared retry helper so a rare transaction_number collision
-        // (multiple rapid share purchases) self-heals. Mirrors fee/transactions.
-        const txInsert = await insertWithTransactionNumberRetry<{ id: string }>(
-          (transactionNumber) =>
-            client.query<{ id: string }>(
-              `INSERT INTO transactions
-                (institution_id, member_id, account_id, loan_id, transaction_number, type, amount, mode, description, reference_number, balance_before, balance_after, processed_by, transaction_date, status)
-               VALUES ($1, $2, $3, NULL, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'Completed')
-               RETURNING id`,
-              [
-                actor.institution_id,
-                memberId,
-                fallbackAccountId,
-                transactionNumber,
-                txType,
-                purchaseValue,
-                mode,
-                description,
-                // Use caller-supplied reference for non-Cash modes; for Cash,
-                // fall back to the generated transaction number for traceability.
-                referenceNumberInput || transactionNumber,
-                balanceBefore,
-                balanceAfter,
-                actor.id,
-                resolvedPaymentDate.toISOString(),
-              ],
-            ),
-          { client },
-        )
-        if (!txInsert) {
-          throw new Error("shares_transaction_failed")
+        // Shared transaction writer: collision-safe number + audit log.
+        const tx = await createTransaction(client, {
+          institutionId: actor.institution_id,
+          branchId: memberRow.branch_id,
+          memberId,
+          accountId: fallbackAccountId,
+          type: txType,
+          amount: purchaseValue,
+          mode,
+          description,
+          // Store the reference number captured on the form. Empty (e.g. Cash
+          // payments) is persisted as NULL rather than a fallback.
+          referenceNumber: referenceNumberInput || null,
+          balanceBefore,
+          balanceAfter,
+          charges: transactionCharges,
+          processedBy: actor.id,
+          // Payment date from the form drives the transaction date.
+          transactionDate: resolvedPaymentDate.toISOString(),
+        })
+        const txNumber = tx.transactionNumber
+
+        // Credit the selected branch bank account for bank-routed payments.
+        if (bankAccount) {
+          await adjustBankAccountBalance(client, {
+            account: bankAccount,
+            amount: purchaseValue,
+            actor,
+          })
         }
-        const txId = txInsert.row.id
-        const txNumber = txInsert.transactionNumber
-        if (txId) {
-          await auditLogger.logInsert(
-            "transactions",
-            txId,
+
+        // Roll the purchase into the branch's daily finance ledger (today's row,
+        // carrying forward from the previous day when none exists yet).
+        await applyDailyFinanceEntry(client, {
+          institutionId: actor.institution_id,
+          branchId: memberRow.branch_id,
+          amount: purchaseValue,
+          mode,
+          actor,
+          // Backdated purchases settle on the payment date, not today.
+          entryDate: resolvedPaymentDate,
+        })
+
+        // Auto-generate a paid invoice for the share purchase.
+        const invoice = await createInvoiceWithItems(client, {
+          institutionId: actor.institution_id,
+          branchId: memberRow.branch_id,
+          createdBy: actor.id,
+          // Invoice date follows the payment date so backdated purchases land
+          // on the right accounting period (matches the transaction date).
+          invoiceDate: purchaseDate,
+          invoiceType: "Auto",
+          status: "fully paid",
+          vat: 0,
+          target: { member_id: memberId },
+          items: [
             {
-              member_id: memberId,
-              transaction_number: txNumber,
-              type: txType,
-              amount: purchaseValue,
-              mode,
-              description,
-              reference_number: referenceNumberInput || txNumber,
-              balance_before: balanceBefore,
-              balance_after: balanceAfter,
-              processed_by: actor.id,
-              transaction_date: resolvedPaymentDate.toISOString(),
-              status: "Completed",
+              unit: "Shares",
+              description: "Share Purchase",
+              quantity: numberOfShares,
+              unit_price: valuePerShare,
+              total_price: purchaseValue,
+              vatinclusive: false,
             },
-            actor.institution_id,
-            actor.id,
-            undefined,
-            client
-          )
+          ],
+        })
+
+        // Link the share transaction to the invoice via invoice_payments.
+        await recordInvoicePayment(client, {
+          institutionId: actor.institution_id,
+          branchId: memberRow.branch_id,
+          invoiceId: invoice.id,
+          amount: purchaseValue,
+          paymentDate: resolvedPaymentDate,
+          processedBy: actor.id,
+          transactionId: tx.id,
+        })
+
+        // Resolve institution name for post-commit notifications/emails.
+        const instRes = await client.query<{ name: string }>(
+          `SELECT name FROM institutions WHERE id = $1`,
+          [actor.institution_id],
+        )
+        const institutionName = instRes.rows[0]?.name || ""
+
+        // Stash context for best-effort notifications + emails after COMMIT.
+        postCommit = {
+          actorId: actor.id,
+          institutionId: actor.institution_id,
+          branchId: memberRow.branch_id,
+          institutionName,
+          currency,
+          member: {
+            id: String(memberRow.id),
+            full_name: String(memberRow.full_name || ""),
+            member_number: String(memberRow.member_number || ""),
+            email: memberRow.email ? String(memberRow.email) : "",
+          },
+          shares: { numberOfShares, totalValue: purchaseValue },
+          transaction: {
+            id: tx.id,
+            transaction_number: tx.transactionNumber,
+            amount: purchaseValue,
+          },
+          invoice: {
+            id: invoice.id,
+            invoice_number: invoice.invoice_number,
+            total_amount: invoice.total_amount,
+          },
         }
 
         await client.query("COMMIT")
-        return { ok: true, id: row?.id, transaction_number: txNumber }
+        return { ok: true, id: row?.id, transaction_number: txNumber, invoice_number: invoice.invoice_number }
       } catch (e: unknown) {
         await client.query("ROLLBACK")
-        const err = e as Error
-        return { error: err?.message === "shares_transaction_account_missing" ? "shares_transaction_account_missing" as const : "shares_transaction_failed" as const }
+        const err = e as Error & { code?: string }
+        const msg = err?.message || ""
+        apiLog("error", "member.shares.transaction_rollback", {
+          method: "POST",
+          apiPath,
+          memberId,
+          error: msg,
+          ...(err?.code ? { pgCode: err.code } : {}),
+        })
+        if (msg === "shares_transaction_account_missing") {
+          return { error: "shares_transaction_account_missing" as const }
+        }
+        // Holding-limit violations detected under the row lock surface as the
+        // same coded errors the pre-check uses (mapped to 400 by the client).
+        if (msg.startsWith("minimum_shares_") || msg.startsWith("maximum_shares_")) {
+          return { error: msg as `minimum_shares_${number}` | `maximum_shares_${number}` }
+        }
+        if (/relation "invoice_payments" does not exist/i.test(msg)) {
+          return { error: "invoice_payments_table_missing" as const }
+        }
+        if (/relation "invoices" does not exist/i.test(msg)) {
+          return { error: "invoices_table_missing" as const }
+        }
+        return { error: "shares_transaction_failed" as const, detail: msg || undefined }
       }
     })
 
     if (result && "error" in result) {
       const status =
-        result.error === "forbidden" || result.error === "no_app_user" || result.error === "missing_permission:edit_shares"
+        result.error === "forbidden" ||
+        result.error === "no_app_user" ||
+        result.error === "missing_permission:edit_shares" ||
+        result.error === "branch_inactive" ||
+        result.error === "branch_not_found"
           ? 403
           : result.error === "member_not_found" || result.error === "institution_not_found"
             ? 404
             : result.error === "shares_transaction_account_missing" ||
-                result.error === "reference_number_required"
+                result.error === "reference_number_required" ||
+                result.error === "bank_account_required" ||
+                result.error === "bank_account_not_found" ||
+                result.error === "invalid_mode" ||
+                result.error === "invoice_payments_table_missing" ||
+                result.error === "invoices_table_missing"
               ? 400
             : result.error === "shares_transaction_failed"
               ? 500
               : 400
-      return NextResponse.json({ error: result.error }, { status })
+      const payload: Record<string, unknown> = { error: result.error }
+      if ("detail" in result && (result as { detail?: string }).detail) {
+        payload.detail = (result as { detail?: string }).detail
+      }
+      if ("branchStatus" in result && (result as { branchStatus?: BranchStatus }).branchStatus) {
+        payload.branch_status = (result as { branchStatus?: BranchStatus }).branchStatus
+      }
+      return NextResponse.json(payload, { status })
     }
     apiLog("info", "member.shares.create.success", { method: "POST", apiPath, status: 200, memberId, authUserId: session.user.authUserId })
+
+    // Post-commit side-effects: notifications + emails. Best-effort — never
+    // raise back to the client (the purchase is already persisted).
+    const ctx = postCommit as SharePurchasePostCommit | null
+    if (ctx) {
+      try {
+        // Fresh client so staff fan-out can query users/roles.
+        const notifyRes = await runWithoutAuth((notifyClient) =>
+          notifySharePurchase({
+            client: notifyClient,
+            actor: { id: ctx.actorId, institution_id: ctx.institutionId, branch_id: ctx.branchId },
+            member: ctx.member,
+            shares: ctx.shares,
+            transaction: ctx.transaction,
+            invoice: ctx.invoice,
+            currency: ctx.currency,
+          }),
+        )
+        apiLog(notifyRes.ok ? "info" : "warn",
+          notifyRes.ok ? "member.shares.notifications_dispatched" : "member.shares.notifications_partial",
+          {
+            method: "POST",
+            apiPath,
+            status: 200,
+            memberId,
+            memberNotifications: notifyRes.memberNotifications,
+            staffNotifications: notifyRes.staffNotifications,
+            ...(notifyRes.errors.length ? { errors: notifyRes.errors } : {}),
+          },
+        )
+      } catch (notifyErr) {
+        apiLog("error", "member.shares.notifications_failed", {
+          method: "POST", apiPath, status: 200, memberId,
+          error: (notifyErr as Error)?.message || "notify_failed",
+        })
+      }
+
+      try {
+        const emailRes = await enqueueSharePurchaseEmails({
+          member: ctx.member,
+          institutionName: ctx.institutionName,
+          currency: ctx.currency,
+          shares: ctx.shares,
+          invoice: ctx.invoice,
+          context: { institutionId: ctx.institutionId, actorId: ctx.actorId },
+        })
+        if (emailRes.errors.length > 0) {
+          apiLog("warn", "member.shares.email_enqueue_partial", {
+            method: "POST", apiPath, status: 200, memberId, errors: emailRes.errors,
+          })
+        }
+      } catch (emailErr) {
+        apiLog("error", "member.shares.email_enqueue_failed", {
+          method: "POST", apiPath, status: 200, memberId,
+          error: (emailErr as Error)?.message || "email_failed",
+        })
+      }
+    }
+
     return NextResponse.json(result)
   } catch (e: unknown) {
     const err = e as Error

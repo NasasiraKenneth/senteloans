@@ -954,7 +954,7 @@ export default function UserEditPage({ params }: UserEditPageProps) {
       <div className="max-w-5xl mx-auto space-y-6">
             {/* Back link */}
             <div>
-              <Link href={`/users/${id}`} className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors">
+              <Link href={`/members/${id}`} className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors">
                 <ArrowLeft className="h-4 w-4" />
                 Back to {terminology.singular}
               </Link>

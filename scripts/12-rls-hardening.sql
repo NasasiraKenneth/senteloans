@@ -43,20 +43,20 @@ $$;
 -- Ensure supporting index for auth helper lookups
 CREATE INDEX IF NOT EXISTS idx_users_supabase_user_id ON users(supabase_user_id);
 
--- Ensure RLS is enabled on clients
+-- Ensure RLS is enabled on members
 ALTER TABLE members ENABLE ROW LEVEL SECURITY;
 
 -- Drop any legacy catch-all policy (if present)
-DROP POLICY IF EXISTS clients_access_policy ON members;
+DROP POLICY IF EXISTS members_access_policy ON members;
 
 -- Drop and recreate explicit per-action policies to avoid duplicates
-DROP POLICY IF EXISTS clients_select_same_institution ON members;
-DROP POLICY IF EXISTS clients_insert_same_institution ON members;
-DROP POLICY IF EXISTS clients_update_same_institution ON members;
-DROP POLICY IF EXISTS clients_delete_same_institution ON members;
+DROP POLICY IF EXISTS members_select_same_institution ON members;
+DROP POLICY IF EXISTS members_insert_same_institution ON members;
+DROP POLICY IF EXISTS members_update_same_institution ON members;
+DROP POLICY IF EXISTS members_delete_same_institution ON members;
 
 -- SELECT: allow system_admins or same institution
-CREATE POLICY clients_select_same_institution
+CREATE POLICY members_select_same_institution
 ON members
 FOR SELECT
 USING (
@@ -67,7 +67,7 @@ USING (
 );
 
 -- INSERT: row must belong to caller's institution (or system_admin)
-CREATE POLICY clients_insert_same_institution
+CREATE POLICY members_insert_same_institution
 ON members
 FOR INSERT
 WITH CHECK (
@@ -76,7 +76,7 @@ WITH CHECK (
 );
 
 -- UPDATE: only within institution (or system_admin) and cannot flip institution_id
-CREATE POLICY clients_update_same_institution
+CREATE POLICY members_update_same_institution
 ON members
 FOR UPDATE
 USING (
@@ -89,7 +89,7 @@ WITH CHECK (
 );
 
 -- DELETE: only within institution (or system_admin)
-CREATE POLICY clients_delete_same_institution
+CREATE POLICY members_delete_same_institution
 ON members
 FOR DELETE
 USING (

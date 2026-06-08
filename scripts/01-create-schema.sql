@@ -291,7 +291,7 @@ CREATE TABLE IF NOT EXISTS daily_finances (
     updated_at TIMESTAMPTZ
 );
 
--- 5. third_party_agents TABLE (Customer/Member records)
+-- 5. MEMBERS TABLE (Customer/Member records)
 CREATE TABLE IF NOT EXISTS members (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     institution_id UUID NOT NULL REFERENCES institutions(id) ON DELETE RESTRICT,
@@ -336,16 +336,16 @@ CREATE TABLE IF NOT EXISTS members (
     updated_at TIMESTAMPTZ,
     
     CONSTRAINT uk_members_number UNIQUE (institution_id, member_number),
-    CONSTRAINT uk_third_party_agents_national_id UNIQUE (institution_id, national_id),
+    CONSTRAINT uk_members_national_id UNIQUE (institution_id, national_id),
     -- Added to support composite FK from savings (member_id, institution_id)
-    CONSTRAINT uk_third_party_agents_id_institution UNIQUE (id, institution_id)
+    CONSTRAINT uk_members_id_institution UNIQUE (id, institution_id)
 );
 
-CREATE INDEX IF NOT EXISTS idx_third_party_agents_created_by ON members(created_by);
-CREATE INDEX IF NOT EXISTS idx_third_party_agents_modified_by ON members(modified_by);
-CREATE INDEX IF NOT EXISTS idx_third_party_agents_kyc_approved_by ON members(kyc_approved_by);
+CREATE INDEX IF NOT EXISTS idx_members_created_by ON members(created_by);
+CREATE INDEX IF NOT EXISTS idx_members_modified_by ON members(modified_by);
+CREATE INDEX IF NOT EXISTS idx_members_kyc_approved_by ON members(kyc_approved_by);
 
--- 6. third_party_agent SHARES TABLE (For SACCO institutions only)
+-- 6. MEMBER SHARES TABLE (For SACCO institutions only)
 CREATE TABLE IF NOT EXISTS member_shares (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     member_id UUID NOT NULL REFERENCES members(id) ON DELETE CASCADE,
@@ -566,8 +566,8 @@ CREATE TABLE IF NOT EXISTS savings_accounts (
     
     CONSTRAINT chk_accounts_balance CHECK (available_balance <= total_balance)
     ,
-    -- Enforce that savings.member_id and savings.institution_id match the third_party_agent's institution
-    CONSTRAINT fk_savings_third_party_agent_institution
+    -- Enforce that savings.member_id and savings.institution_id match the member's institution
+    CONSTRAINT fk_savings_member_institution
       FOREIGN KEY (member_id, institution_id)
       REFERENCES members (id, institution_id)
       ON UPDATE CASCADE
@@ -636,8 +636,8 @@ CREATE TABLE IF NOT EXISTS transactions (
     
     CONSTRAINT uk_transactions_number UNIQUE (institution_id, transaction_number),
     
-    -- Enforce tenant consistency via composite FKs (third_party_agent/account only for now; loans to be added later)
-    CONSTRAINT fk_transactions_third_party_agent_institution
+    -- Enforce tenant consistency via composite FKs (member/account only for now; loans to be added later)
+    CONSTRAINT fk_transactions_member_institution
       FOREIGN KEY (member_id, institution_id)
       REFERENCES members (id, institution_id)
       ON UPDATE CASCADE
@@ -754,7 +754,7 @@ CREATE INDEX IF NOT EXISTS idx_role_permissions_permission ON role_permissions(p
 CREATE INDEX IF NOT EXISTS idx_users_institution_id ON users(institution_id);
 CREATE INDEX IF NOT EXISTS idx_bank_accounts_institution_id ON bank_accounts(institution_id);
 CREATE INDEX IF NOT EXISTS idx_bank_accounts_branch_id ON bank_accounts(branch_id);
-CREATE INDEX IF NOT EXISTS idx_third_party_agents_institution_id ON members(institution_id);
+CREATE INDEX IF NOT EXISTS idx_members_institution_id ON members(institution_id);
 CREATE INDEX IF NOT EXISTS idx_loans_institution_id ON loans(institution_id);
 CREATE INDEX IF NOT EXISTS idx_savings_accounts_institution_id ON savings_accounts(institution_id);
 CREATE INDEX IF NOT EXISTS idx_transactions_institution_id ON transactions(institution_id);
@@ -768,10 +768,10 @@ CREATE INDEX IF NOT EXISTS idx_loan_product_eligibilities_product_status ON loan
 CREATE INDEX IF NOT EXISTS idx_loan_settlements_institution_settled ON loan_settlements(institution_id, settled_loan_id);
 CREATE INDEX IF NOT EXISTS idx_loan_eligibility_reviews_loan ON loan_eligibility_reviews(loan_id);
 -- Common query patterns
-CREATE INDEX IF NOT EXISTS idx_third_party_agents_status ON members(institution_id, status);
+CREATE INDEX IF NOT EXISTS idx_members_status ON members(institution_id, status);
 CREATE INDEX IF NOT EXISTS idx_loans_status ON loans(institution_id, status);
-CREATE INDEX IF NOT EXISTS idx_loans_third_party_agent_id ON loans(member_id);
-CREATE INDEX IF NOT EXISTS idx_transactions_third_party_agent_id ON transactions(member_id);
+CREATE INDEX IF NOT EXISTS idx_loans_member_id ON loans(member_id);
+CREATE INDEX IF NOT EXISTS idx_transactions_member_id ON transactions(member_id);
 CREATE INDEX IF NOT EXISTS idx_transactions_date ON transactions(institution_id, transaction_date DESC);
 CREATE INDEX IF NOT EXISTS idx_transactions_account_id ON transactions(account_id);
 CREATE INDEX IF NOT EXISTS idx_transactions_transferred_to_id ON transactions(transferred_to_id);
@@ -796,7 +796,7 @@ CREATE INDEX IF NOT EXISTS idx_grants_branch_id ON grants(branch_id);
 CREATE INDEX IF NOT EXISTS idx_grants_third_party_agent_id ON grants(third_party_agent_id);
 CREATE INDEX IF NOT EXISTS idx_grants_institution_branch ON grants(institution_id, branch_id);
 
--- 16. third_party_agent KYC DOCS TABLE (Pending/review documents uploaded by third_party_agents)
+-- 16. MEMBER KYC DOCS TABLE (Pending/review documents uploaded by members)
 CREATE TABLE IF NOT EXISTS member_kyc_docs (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     institution_id UUID NOT NULL REFERENCES institutions(id) ON DELETE RESTRICT,
@@ -1105,9 +1105,9 @@ CREATE INDEX IF NOT EXISTS idx_investment_funding_sources_loan_id
   ON investment_funding_sources(loan_id);
 
 -- Indexes for KYC docs
-CREATE INDEX IF NOT EXISTS idx_third_party_agent_kyc_docs_institution ON member_kyc_docs(institution_id);
-CREATE INDEX IF NOT EXISTS idx_third_party_agent_kyc_docs_third_party_agent_doc ON member_kyc_docs(member_id, doc_type, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_third_party_agent_kyc_docs_status ON member_kyc_docs(status);
+CREATE INDEX IF NOT EXISTS idx_member_kyc_docs_institution ON member_kyc_docs(institution_id);
+CREATE INDEX IF NOT EXISTS idx_member_kyc_docs_member_doc ON member_kyc_docs(member_id, doc_type, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_member_kyc_docs_status ON member_kyc_docs(status);
 
 -- 17. NOTIFICATIONS TABLE (In-app notifications for members and institution users)
 CREATE TABLE IF NOT EXISTS notifications (
@@ -1163,8 +1163,8 @@ $$ language 'plpgsql';
 -- Apply updated_at triggers to all tables
 CREATE OR REPLACE TRIGGER update_institutions_updated_at BEFORE UPDATE ON institutions FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE OR REPLACE TRIGGER update_users_updated_at BEFORE UPDATE ON users FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-CREATE OR REPLACE TRIGGER update_third_party_agents_updated_at BEFORE UPDATE ON members FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-CREATE OR REPLACE TRIGGER update_third_party_agent_shares_updated_at BEFORE UPDATE ON member_shares FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE OR REPLACE TRIGGER update_members_updated_at BEFORE UPDATE ON members FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE OR REPLACE TRIGGER update_member_shares_updated_at BEFORE UPDATE ON member_shares FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE OR REPLACE TRIGGER update_membership_fees_updated_at BEFORE UPDATE ON membership_fees FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE OR REPLACE TRIGGER update_loan_products_updated_at BEFORE UPDATE ON loan_products FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE OR REPLACE TRIGGER update_loans_updated_at BEFORE UPDATE ON loans FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
@@ -1173,8 +1173,8 @@ CREATE OR REPLACE TRIGGER update_loan_guarantors_updated_at BEFORE UPDATE ON loa
 CREATE OR REPLACE TRIGGER update_savings_accounts_updated_at BEFORE UPDATE ON savings_accounts FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE OR REPLACE TRIGGER update_transactions_updated_at BEFORE UPDATE ON transactions FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE OR REPLACE TRIGGER update_loan_repayments_updated_at BEFORE UPDATE ON loan_repayments FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
--- Added trigger for third_party_agent KYC docs table
-CREATE OR REPLACE TRIGGER update_third_party_agent_kyc_docs_updated_at BEFORE UPDATE ON member_kyc_docs FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+-- Added trigger for member KYC docs table
+CREATE OR REPLACE TRIGGER update_member_kyc_docs_updated_at BEFORE UPDATE ON member_kyc_docs FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 -- Added trigger for notification preferences table
 CREATE OR REPLACE TRIGGER update_notification_prefs_updated_at BEFORE UPDATE ON notification_preferences FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
@@ -1182,7 +1182,7 @@ CREATE OR REPLACE TRIGGER update_notification_prefs_updated_at BEFORE UPDATE ON 
 COMMENT ON TABLE institutions IS 'Multi-tenant root table for financial institutions';
 COMMENT ON TABLE users IS 'System users with role-based access control';
 COMMENT ON TABLE members IS 'Customer/member records for each institution';
-COMMENT ON TABLE member_shares IS 'Share ownership records for SACCO third_party_agents';
+COMMENT ON TABLE member_shares IS 'Share ownership records for SACCO members';
 COMMENT ON TABLE membership_fees IS 'One row per membership-fee payment; domain projection of the matching transactions row';
 COMMENT ON TABLE loan_products IS 'Loan product definitions per institution with support for different lending models';
 COMMENT ON TABLE loans IS 'Individual loan applications and tracking';
@@ -1192,6 +1192,6 @@ COMMENT ON TABLE savings_accounts IS 'Savings account records (not for Money Len
 COMMENT ON TABLE transactions IS 'All financial transaction records';
 COMMENT ON TABLE loan_repayments IS 'Loan repayment schedule and tracking';
 COMMENT ON TABLE audit_logs IS 'System audit trail for all operations';
-COMMENT ON TABLE member_kyc_docs IS 'third_party_agent KYC document uploads and verification tracking';
+COMMENT ON TABLE member_kyc_docs IS 'Member KYC document uploads and verification tracking';
 COMMENT ON TABLE notifications IS 'In-app notifications for members and institution users';
 COMMENT ON TABLE notification_preferences IS 'User notification channel preferences';

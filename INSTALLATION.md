@@ -106,7 +106,7 @@ This runs all `scripts/NN-*.sql` files (e.g. `00-postgres-auth.sql`, `01-create-
 **If you use Supabase** and want RLS to allow clients to insert their own rows into `senteloans_loans`, run this once after migrations (and after `senteloans_loans` exists):
 
 ```bash
-psql "$DATABASE_URL" -f scripts/02z-client-loan-insert.sql
+psql "$DATABASE_URL" -f scripts/02z-member-loan-insert.sql
 ```
 
 The script is safe to run on plain Postgres: it will no-op (client inserts remain enforced by the API). If you see "relation senteloans_loans does not exist", run the main migrations first (`npm run db:migrate`).

@@ -57,7 +57,7 @@ describe("insertWithPrefixedNumberRetry", () => {
   })
 
   it("rethrows when shouldRetryOnUniqueViolation returns false", async () => {
-    const err = { code: "23505", constraint: "uk_clients_national_id" }
+    const err = { code: "23505", constraint: "uk_members_national_id" }
     const insertFn = jest.fn().mockRejectedValue(err)
 
     await expect(
@@ -66,7 +66,7 @@ describe("insertWithPrefixedNumberRetry", () => {
         savepointName: "sp_test4",
         maxAttempts: 3,
         shouldRetryOnUniqueViolation: (e: unknown) =>
-          (e as { constraint?: string }).constraint !== "uk_clients_national_id",
+          (e as { constraint?: string }).constraint !== "uk_members_national_id",
       }),
     ).rejects.toEqual(err)
     expect(insertFn).toHaveBeenCalledTimes(1)

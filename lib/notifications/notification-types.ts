@@ -28,6 +28,11 @@ export type NotificationType =
   | 'member_welcome'
   | 'membership_invoice_created'
   | 'kyc_verification_required'
+  // Shares events
+  | 'shares_purchased'
+  // Generic finance events
+  | 'transaction_recorded'
+  | 'invoice_created'
 
 export type RecipientType = 'member' | 'institution_user'
 
@@ -230,15 +235,95 @@ export const NotificationTemplates = {
     message: `A new invoice of ${formatCurrency(amount)} was issued to ${memberName}.`,
     actionUrl: `/invoices?invoice_id=${invoiceId}`,
   }),
+
+  // --- Shares templates -------------------------------------------------
+  sharesPurchased: (
+    numberOfShares: number,
+    totalValue: number,
+    invoiceNumber?: string | null,
+    currency?: string,
+  ) => ({
+    title: 'Shares Purchased',
+    message: invoiceNumber
+      ? `You purchased ${numberOfShares} share(s) worth ${formatCurrency(totalValue, currency)}. Invoice ${invoiceNumber} has been issued.`
+      : `You purchased ${numberOfShares} share(s) worth ${formatCurrency(totalValue, currency)}.`,
+    actionUrl: '/client-portal/shares',
+  }),
+
+  sharesPurchasedForStaff: (
+    memberName: string,
+    numberOfShares: number,
+    totalValue: number,
+    memberId: string,
+    currency?: string,
+  ) => ({
+    title: 'Shares Purchased',
+    message: `${memberName} purchased ${numberOfShares} share(s) worth ${formatCurrency(totalValue, currency)}.`,
+    actionUrl: `/members/${memberId}`,
+  }),
+
+  // --- Generic transaction templates ------------------------------------
+  transactionRecorded: (
+    amount: number,
+    transactionNumber?: string | null,
+    currency?: string,
+  ) => ({
+    title: 'Transaction Recorded',
+    message: transactionNumber
+      ? `A transaction of ${formatCurrency(amount, currency)} (${transactionNumber}) has been recorded on your account.`
+      : `A transaction of ${formatCurrency(amount, currency)} has been recorded on your account.`,
+    actionUrl: '/client-portal/transactions',
+  }),
+
+  transactionRecordedForStaff: (
+    memberName: string,
+    amount: number,
+    transactionNumber: string,
+    memberId: string,
+    currency?: string,
+  ) => ({
+    title: 'Transaction Recorded',
+    message: `A transaction of ${formatCurrency(amount, currency)} (${transactionNumber}) was recorded for ${memberName}.`,
+    actionUrl: `/members/${memberId}`,
+  }),
+
+  // --- Generic invoice templates ----------------------------------------
+  invoiceCreated: (
+    invoiceNumber: string,
+    amount: number,
+    invoiceId?: string,
+    currency?: string,
+  ) => ({
+    title: `New Invoice ${invoiceNumber}`,
+    message: `An invoice of ${formatCurrency(amount, currency)} has been issued.`,
+    actionUrl: '/client-portal',
+  }),
+
+  invoiceCreatedForStaff: (
+    invoiceNumber: string,
+    memberName: string,
+    amount: number,
+    invoiceId: string,
+    currency?: string,
+  ) => ({
+    title: `Invoice ${invoiceNumber} Created`,
+    message: `An invoice of ${formatCurrency(amount, currency)} was issued to ${memberName}.`,
+    actionUrl: `/invoices?invoice_id=${invoiceId}`,
+  }),
 }
 
 // Helper functions
-function formatCurrency(amount: number): string {
-  return new Intl.NumberFormat('en-UG', {
-    style: 'currency',
-    currency: 'UGX',
-    minimumFractionDigits: 0,
-  }).format(amount)
+function formatCurrency(amount: number, currency = 'UGX'): string {
+  const code = currency && currency.trim() ? currency.trim() : 'UGX'
+  try {
+    return new Intl.NumberFormat('en-UG', {
+      style: 'currency',
+      currency: code,
+      minimumFractionDigits: 0,
+    }).format(Number(amount) || 0)
+  } catch {
+    return `${code} ${(Number(amount) || 0).toLocaleString()}`
+  }
 }
 
 function formatDocType(docType: string): string {

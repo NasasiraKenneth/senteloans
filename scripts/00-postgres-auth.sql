@@ -26,4 +26,4 @@ AS $$
   SELECT NULLIF(trim(current_setting('app.current_user_id', true)), '')::uuid;
 $$;
 
-COMMENT ON TABLE public.app_auth_users IS 'App-backed auth users (replaces Supabase auth.users). Link via senteloans_users.supabase_user_id / senteloans_members.supabase_user_id';
+COMMENT ON TABLE public.app_auth_users IS 'App-backed auth users (replaces Supabase auth.users). Link via users.supabase_user_id / members.supabase_user_id';

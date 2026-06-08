@@ -66,7 +66,7 @@ const mapMemberDuplicateError = (
   if (String(e?.code || "") !== "23505") return null
   const constraint = String(e?.constraint || "")
   const detail = String(e?.detail || e?.message || "")
-  if (constraint === "uk_clients_national_id" || /national_id/.test(detail)) {
+  if (constraint === "uk_members_national_id" || /national_id/.test(detail)) {
     return "duplicate_national_id"
   }
   if (constraint === "uk_members_number" || /member_number/.test(detail)) {

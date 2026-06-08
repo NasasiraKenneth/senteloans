@@ -232,11 +232,11 @@ export default function UsersPage() {
   }, [])
 
   const handleView = (row: UiMember) => {
-    router.push(`/users/${row.id}`)
+    router.push(`/members/${row.id}`)
   }
 
   const handleEdit = (row: UiMember) => {
-    router.push(`/users/${row.id}/edit`)
+    router.push(`/members/${row.id}/edit`)
   }
 
   const terminology = {

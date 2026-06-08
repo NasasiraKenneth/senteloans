@@ -1,5 +1,5 @@
 /**
- * Create app_auth_users for existing users (and optionally clients) and link them.
+ * Create app_auth_users for existing users (and optionally members) and link them.
  * Run after 09-seed-users.sql. Default password: "changeme" (change in production).
  * Usage: npm run db:seed-auth  (loads .env.local / .env from project root)
  */

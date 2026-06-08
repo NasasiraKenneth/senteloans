@@ -1,5 +1,8 @@
 -- Links payments (transactions or membership-fee rows) to invoices.
 -- Paid/outstanding amounts are computed from SUM(amount) on read.
+-- Safe to run standalone (also embedded in scripts/23-create-invoices.sql).
+
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 CREATE TABLE IF NOT EXISTS invoice_payments (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),

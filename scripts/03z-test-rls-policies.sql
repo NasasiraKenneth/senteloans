@@ -31,8 +31,8 @@ BEGIN
     (uuid_generate_v4(), inst_2_id, 'admin@testbankb.com', 'hashed_password_3', 'Admin B', 'institution_admin'),
     (uuid_generate_v4(), inst_2_id, 'loan@testbankb.com', 'hashed_password_4', 'Officer B', 'loan_officer');
 
-    -- Create test clients for each institution
-    INSERT INTO members (id, institution_id, client_number, full_name, date_of_birth, gender, client_type, phone_number, national_id, join_date) VALUES 
+    -- Create test members for each institution
+    INSERT INTO members (id, institution_id, member_number, full_name, date_of_birth, gender, member_type, phone_number, national_id, join_date) VALUES 
     (uuid_generate_v4(), inst_1_id, 'CLT001', 'John Doe', '1985-01-15', 'Male', 'Individual', '555-0101', 'ID001', '2024-01-01'),
     (uuid_generate_v4(), inst_1_id, 'CLT002', 'Jane Smith', '1990-03-22', 'Female', 'Individual', '555-0102', 'ID002', '2024-01-02'),
     (uuid_generate_v4(), inst_2_id, 'CLT001', 'Bob Wilson', '1988-07-10', 'Male', 'Individual', '555-0201', 'ID003', '2024-01-01');
@@ -56,9 +56,9 @@ DECLARE
   inst_2_id UUID;
   admin_1_id UUID;
   admin_2_id UUID;
-  client_1_id UUID;
-  client_2_id UUID;
-  client_3_id UUID;
+  member_1_id UUID;
+  member_2_id UUID;
+  member_3_id UUID;
   v_rows INT;
 BEGIN
   SELECT id INTO inst_1_id FROM institutions WHERE registration_number = 'REG001';
@@ -67,44 +67,44 @@ BEGIN
   SELECT id INTO admin_1_id FROM users WHERE email = 'admin@testbanka.com';
   SELECT id INTO admin_2_id FROM users WHERE email = 'admin@testbankb.com';
 
-  -- Capture specific client ids
-  SELECT id INTO client_1_id FROM members WHERE institution_id = inst_1_id ORDER BY created_at LIMIT 1;
-  SELECT id INTO client_2_id FROM members WHERE institution_id = inst_1_id ORDER BY created_at OFFSET 1 LIMIT 1;
-  SELECT id INTO client_3_id FROM members WHERE institution_id = inst_2_id ORDER BY created_at LIMIT 1;
+  -- Capture specific member ids
+  SELECT id INTO member_1_id FROM members WHERE institution_id = inst_1_id ORDER BY created_at LIMIT 1;
+  SELECT id INTO member_2_id FROM members WHERE institution_id = inst_1_id ORDER BY created_at OFFSET 1 LIMIT 1;
+  SELECT id INTO member_3_id FROM members WHERE institution_id = inst_2_id ORDER BY created_at LIMIT 1;
 
   RAISE NOTICE 'inst_1_id=%, inst_2_id=%', inst_1_id, inst_2_id;
   RAISE NOTICE 'admin_1_id=%, admin_2_id=%', admin_1_id, admin_2_id;
-  RAISE NOTICE 'client_1_id=%, client_2_id=%, client_3_id=%', client_1_id, client_2_id, client_3_id;
+  RAISE NOTICE 'member_1_id=%, member_2_id=%, member_3_id=%', member_1_id, member_2_id, member_3_id;
 
   -- =============================
   -- Test 1: SELECT isolation (institution admin A)
   -- =============================
   PERFORM set_session_context(admin_1_id, inst_1_id, FALSE, NULL);
   GET DIAGNOSTICS v_rows = ROW_COUNT;
-  -- Expect: can see clients only from inst_1
+  -- Expect: can see members only from inst_1
   RAISE NOTICE 'Test 1a: SELECT all (inst_1 context)';
   PERFORM 1 FROM members WHERE institution_id = inst_1_id;
   RAISE NOTICE '  rows(inst_1)=%', (SELECT count(*) FROM members WHERE institution_id = inst_1_id);
   RAISE NOTICE '  rows(inst_2)=% (should be 0 with RLS)', (SELECT count(*) FROM members WHERE institution_id = inst_2_id);
 
   -- Assert-style check: cross-tenant record not visible
-  IF (SELECT count(*) FROM members WHERE id = client_3_id) <> 0 THEN
-    RAISE EXCEPTION 'RLS FAILED: inst_1 admin can see inst_2 client';
+  IF (SELECT count(*) FROM members WHERE id = member_3_id) <> 0 THEN
+    RAISE EXCEPTION 'RLS FAILED: inst_1 admin can see inst_2 member';
   END IF;
 
   -- =============================
   -- Test 2: UPDATE own tenant succeeds, cross-tenant blocked
   -- =============================
   RAISE NOTICE 'Test 2a: UPDATE within tenant should succeed';
-  UPDATE members SET phone_number = '555-0101-upd' WHERE id = client_1_id;
+  UPDATE members SET phone_number = '555-0101-upd' WHERE id = member_1_id;
   IF NOT FOUND THEN
-    RAISE EXCEPTION 'RLS FAILED: inst_1 admin could not UPDATE own client';
+    RAISE EXCEPTION 'RLS FAILED: inst_1 admin could not UPDATE own member';
   END IF;
 
   RAISE NOTICE 'Test 2b: UPDATE cross-tenant should affect 0 rows';
-  UPDATE members SET phone_number = '555-0201-upd' WHERE id = client_3_id;
+  UPDATE members SET phone_number = '555-0201-upd' WHERE id = member_3_id;
   IF FOUND THEN
-    RAISE EXCEPTION 'RLS FAILED: inst_1 admin updated cross-tenant client';
+    RAISE EXCEPTION 'RLS FAILED: inst_1 admin updated cross-tenant member';
   END IF;
 
   -- =============================
@@ -112,7 +112,7 @@ BEGIN
   -- This will surface missing WITH CHECK in UPDATE policies if allowed
   -- =============================
   RAISE NOTICE 'Test 3: attempt to change institution_id to another tenant (should be blocked)';
-  UPDATE members SET institution_id = inst_2_id WHERE id = client_1_id;
+  UPDATE members SET institution_id = inst_2_id WHERE id = member_1_id;
   IF FOUND THEN
     RAISE EXCEPTION 'RLS FAILED: UPDATE changed institution_id across tenants (missing WITH CHECK)';
   END IF;
@@ -122,7 +122,7 @@ BEGIN
   -- =============================
   RAISE NOTICE 'Test 4a: INSERT for current institution (should succeed)';
   INSERT INTO members (
-    institution_id, client_number, full_name, date_of_birth, gender, client_type,
+    institution_id, member_number, full_name, date_of_birth, gender, member_type,
     phone_number, national_id, join_date
   ) VALUES (
     inst_1_id, 'CLT999', 'Tenant One New', '1991-01-01', 'Male', 'Individual', '555-0999', 'ID999', '2024-01-10'
@@ -131,7 +131,7 @@ BEGIN
   RAISE NOTICE 'Test 4b: INSERT for other institution (should be blocked)';
   BEGIN
     INSERT INTO members (
-      institution_id, client_number, full_name, date_of_birth, gender, client_type,
+      institution_id, member_number, full_name, date_of_birth, gender, member_type,
       phone_number, national_id, join_date
     ) VALUES (
       inst_2_id, 'CLT888', 'Cross Tenant New', '1992-02-02', 'Female', 'Individual', '555-0888', 'ID888', '2024-01-11'
@@ -144,24 +144,24 @@ BEGIN
   -- Test 5: DELETE should be limited to own tenant
   -- =============================
   RAISE NOTICE 'Test 5a: DELETE own tenant record should succeed';
-  DELETE FROM members WHERE id = client_2_id;
+  DELETE FROM members WHERE id = member_2_id;
   IF NOT FOUND THEN
-    RAISE EXCEPTION 'RLS FAILED: inst_1 admin could not DELETE own client';
+    RAISE EXCEPTION 'RLS FAILED: inst_1 admin could not DELETE own member';
   END IF;
 
   RAISE NOTICE 'Test 5b: DELETE cross-tenant should affect 0 rows';
-  DELETE FROM members WHERE id = client_3_id;
+  DELETE FROM members WHERE id = member_3_id;
   IF FOUND THEN
-    RAISE EXCEPTION 'RLS FAILED: inst_1 admin deleted cross-tenant client';
+    RAISE EXCEPTION 'RLS FAILED: inst_1 admin deleted cross-tenant member';
   END IF;
 
   -- Switch to institution 2 admin and sanity check visibility
   PERFORM clear_session_context();
   PERFORM set_session_context(admin_2_id, inst_2_id, FALSE, NULL);
 
-  RAISE NOTICE 'Test 6: inst_2 admin cannot see inst_1 clients';
+  RAISE NOTICE 'Test 6: inst_2 admin cannot see inst_1 members';
   IF (SELECT count(*) FROM members WHERE institution_id = inst_1_id) <> 0 THEN
-    RAISE EXCEPTION 'RLS FAILED: inst_2 admin can see inst_1 clients';
+    RAISE EXCEPTION 'RLS FAILED: inst_2 admin can see inst_1 members';
   END IF;
 
   -- Cleanup context
@@ -194,7 +194,7 @@ SELECT
   CASE 
     WHEN (SELECT count(*) FROM institutions WHERE registration_number IN ('REG001', 'REG002')) = 2
          AND (SELECT count(*) FROM users WHERE email LIKE '%testbank%.com') = 4
-         AND (SELECT count(*) FROM members WHERE client_number LIKE 'CLT%') = 3
+         AND (SELECT count(*) FROM members WHERE member_number LIKE 'CLT%') = 3
     THEN 'PASSED: All test data created successfully'
     ELSE 'FAILED: Test data creation incomplete'
   END as integrity_test;

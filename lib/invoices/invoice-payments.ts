@@ -1,4 +1,5 @@
 import type { PoolClient } from "pg"
+import { auditLogger } from "@/lib/audit/audit-logger"
 
 export interface InvoicePaymentSummary {
   paid_amount: number
@@ -137,6 +138,24 @@ export async function recordInvoicePayment(
   )
   const row = res.rows[0]
   if (!row) throw new Error("invoice_payment_insert_failed")
+
+  await auditLogger.logInsert(
+    "invoice_payments",
+    row.id,
+    {
+      invoice_id: input.invoiceId,
+      amount,
+      payment_date: paymentDate,
+      transaction_id: input.transactionId ?? null,
+      membership_fee_id: input.membershipFeeId ?? null,
+      processed_by: input.processedBy,
+    },
+    input.institutionId,
+    input.processedBy,
+    { branch_id: input.branchId },
+    client,
+  )
+
   return { id: row.id }
 }
 

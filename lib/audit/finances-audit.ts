@@ -196,3 +196,14 @@ export async function auditDailyFinanceInsert(
 ): Promise<void> {
   await logInsert(client, DAILY_FINANCES_TABLE, actor, recordId, newValues, rowBranchId)
 }
+
+export async function auditDailyFinanceUpdate(
+  client: PoolClient,
+  actor: ActorForAudit,
+  recordId: string,
+  oldValues: Record<string, unknown>,
+  newValues: Record<string, unknown>,
+  rowBranchId?: string | null,
+): Promise<void> {
+  await logUpdate(client, DAILY_FINANCES_TABLE, actor, recordId, oldValues, newValues, rowBranchId)
+}

@@ -1,4 +1,4 @@
--- Phase 3: Client Data Migration Script
+-- Phase 3: Member Data Migration Script
 -- Migrates member data with proper institution mapping. Idempotent: ON CONFLICT DO NOTHING.
 
 DO $$
@@ -434,7 +434,7 @@ END $$;
 
 -- Display results for verification
 SELECT 
-    'Client Migration Completed Successfully' as status,
+    'Member Migration Completed Successfully' as status,
     COUNT(*) as total_members_created
 FROM members;
 
@@ -452,7 +452,7 @@ ORDER BY i.name;
 
 -- Show member shares summary
 SELECT 
-    'Client Shares Created' as status,
+    'Member Shares Created' as status,
     COUNT(*) as total_share_records,
     SUM(number_of_shares) as total_shares,
     SUM(total_value) as total_share_value

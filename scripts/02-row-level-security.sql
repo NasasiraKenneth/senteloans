@@ -199,9 +199,9 @@ CREATE POLICY institutions_select_policy ON institutions
     is_system_admin() OR id = get_current_institution_id()
   );
 
--- Clients can read their own institution
-DROP POLICY IF EXISTS institutions_client_self_access ON institutions;
-CREATE POLICY institutions_client_self_access ON institutions
+-- Members can read their own institution
+DROP POLICY IF EXISTS institutions_member_self_access ON institutions;
+CREATE POLICY institutions_member_self_access ON institutions
   FOR SELECT
   USING (
     EXISTS (
@@ -244,27 +244,27 @@ CREATE POLICY users_self_update_policy ON users
     id = get_current_user_id()
   );
 
--- CLIENTS TABLE POLICIES
+-- MEMBERS TABLE POLICIES
 -- Explicit per-action policies with WITH CHECK to prevent tenant flips
 -- Prefer auth-based helpers; fallback to session helper for tests
-DROP POLICY IF EXISTS clients_access_policy ON members;
+DROP POLICY IF EXISTS members_access_policy ON members;
 
-DROP POLICY IF EXISTS clients_select_same_institution ON members;
-CREATE POLICY clients_select_same_institution ON members
+DROP POLICY IF EXISTS members_select_same_institution ON members;
+CREATE POLICY members_select_same_institution ON members
     FOR SELECT
     USING (
         can_access_row(institution_id, branch_id)
     );
 
-DROP POLICY IF EXISTS clients_insert_same_institution ON members;
-CREATE POLICY clients_insert_same_institution ON members
+DROP POLICY IF EXISTS members_insert_same_institution ON members;
+CREATE POLICY members_insert_same_institution ON members
     FOR INSERT
     WITH CHECK (
         can_access_row(institution_id, branch_id)
     );
 
-DROP POLICY IF EXISTS clients_update_same_institution ON members;
-CREATE POLICY clients_update_same_institution ON members
+DROP POLICY IF EXISTS members_update_same_institution ON members;
+CREATE POLICY members_update_same_institution ON members
     FOR UPDATE
     USING (
         can_access_row(institution_id, branch_id)
@@ -273,9 +273,9 @@ CREATE POLICY clients_update_same_institution ON members
         can_access_row(institution_id, branch_id)
     );
 
--- Allow authenticated clients to update their own profile row
-DROP POLICY IF EXISTS client_profile_self_update ON members;
-CREATE POLICY client_profile_self_update ON members
+-- Allow authenticated members to update their own profile row
+DROP POLICY IF EXISTS member_profile_self_update ON members;
+CREATE POLICY member_profile_self_update ON members
   FOR UPDATE
   USING (
     supabase_user_id = auth.uid()
@@ -284,17 +284,17 @@ CREATE POLICY client_profile_self_update ON members
     supabase_user_id = auth.uid()
   );
 
-DROP POLICY IF EXISTS clients_delete_same_institution ON members;
-CREATE POLICY clients_delete_same_institution ON members
+DROP POLICY IF EXISTS members_delete_same_institution ON members;
+CREATE POLICY members_delete_same_institution ON members
     FOR DELETE
     USING (
         can_access_row(institution_id, branch_id)
     );
 
--- CLIENT KYC DOCS TABLE POLICIES
--- Clients can only read their own KYC doc rows
-DROP POLICY IF EXISTS client_kyc_docs_select_self ON member_kyc_docs;
-CREATE POLICY client_kyc_docs_select_self ON member_kyc_docs
+-- MEMBER KYC DOCS TABLE POLICIES
+-- Members can only read their own KYC doc rows
+DROP POLICY IF EXISTS member_kyc_docs_select_self ON member_kyc_docs;
+CREATE POLICY member_kyc_docs_select_self ON member_kyc_docs
   FOR SELECT
   USING (
     EXISTS (
@@ -305,9 +305,9 @@ CREATE POLICY client_kyc_docs_select_self ON member_kyc_docs
     )
   );
 
--- Clients can insert new KYC doc rows for themselves
-DROP POLICY IF EXISTS client_kyc_docs_insert_self ON member_kyc_docs;
-CREATE POLICY client_kyc_docs_insert_self ON member_kyc_docs
+-- Members can insert new KYC doc rows for themselves
+DROP POLICY IF EXISTS member_kyc_docs_insert_self ON member_kyc_docs;
+CREATE POLICY member_kyc_docs_insert_self ON member_kyc_docs
   FOR INSERT
   WITH CHECK (
     EXISTS (
@@ -319,8 +319,8 @@ CREATE POLICY client_kyc_docs_insert_self ON member_kyc_docs
   );
 
 -- Institution staff/admins can update (approval/rejection)
-DROP POLICY IF EXISTS client_kyc_docs_update_admin ON member_kyc_docs;
-CREATE POLICY client_kyc_docs_update_admin ON member_kyc_docs
+DROP POLICY IF EXISTS member_kyc_docs_update_admin ON member_kyc_docs;
+CREATE POLICY member_kyc_docs_update_admin ON member_kyc_docs
   FOR UPDATE
   USING (
     (coalesce(app.current_role(), '') IN ('system_admin','super_admin','institution_admin','manager','loan_officer'))
@@ -332,18 +332,18 @@ CREATE POLICY client_kyc_docs_update_admin ON member_kyc_docs
   );
 
 -- Institution staff/admins can delete (cleanup)
-DROP POLICY IF EXISTS client_kyc_docs_delete_admin ON member_kyc_docs;
-CREATE POLICY client_kyc_docs_delete_admin ON member_kyc_docs
+DROP POLICY IF EXISTS member_kyc_docs_delete_admin ON member_kyc_docs;
+CREATE POLICY member_kyc_docs_delete_admin ON member_kyc_docs
   FOR DELETE
   USING (
     (coalesce(app.current_role(), '') IN ('system_admin','super_admin','institution_admin','manager','loan_officer'))
     AND can_access_row(institution_id, branch_id)
   );
 
--- CLIENT SHARES TABLE POLICIES
--- Access through client relationship (inherits institution isolation)
-DROP POLICY IF EXISTS client_shares_access_policy ON member_shares;
-CREATE POLICY client_shares_access_policy ON member_shares
+-- MEMBER SHARES TABLE POLICIES
+-- Access through member relationship (inherits institution isolation)
+DROP POLICY IF EXISTS member_shares_access_policy ON member_shares;
+CREATE POLICY member_shares_access_policy ON member_shares
   FOR ALL
   USING (
     EXISTS (
@@ -373,9 +373,9 @@ CREATE POLICY loan_products_access_policy ON loan_products
         can_access_row(institution_id, branch_id)
     );
 
--- Allow clients to SELECT loan products within their institution
-DROP POLICY IF EXISTS client_loan_products_self_access_policy ON loan_products;
-CREATE POLICY client_loan_products_self_access_policy ON loan_products
+-- Allow members to SELECT loan products within their institution
+DROP POLICY IF EXISTS member_loan_products_self_access_policy ON loan_products;
+CREATE POLICY member_loan_products_self_access_policy ON loan_products
   FOR SELECT
   USING (
     EXISTS (
@@ -478,17 +478,17 @@ CREATE POLICY audit_logs_access_policy ON audit_logs
 -- Create role-based access policies for specific operations
 -- These will be used in conjunction with application-level permission checks
 
--- CLIENT ACCESS POLICIES (for client portal users)
--- Clients can only see their own data using Supabase Auth mapping
-DROP POLICY IF EXISTS clients_self_access_policy ON members;
-CREATE POLICY clients_self_access_policy ON members
+-- MEMBER ACCESS POLICIES (for member portal users)
+-- Members can only see their own data using Supabase Auth mapping
+DROP POLICY IF EXISTS members_self_access_policy ON members;
+CREATE POLICY members_self_access_policy ON members
   FOR SELECT
   USING (
     supabase_user_id = auth.uid()
   );
 
-DROP POLICY IF EXISTS client_loans_self_access_policy ON loans;
-CREATE POLICY client_loans_self_access_policy ON loans
+DROP POLICY IF EXISTS member_loans_self_access_policy ON loans;
+CREATE POLICY member_loans_self_access_policy ON loans
   FOR SELECT
   USING (
     EXISTS (
@@ -500,8 +500,8 @@ CREATE POLICY client_loans_self_access_policy ON loans
     )
   );
 
-DROP POLICY IF EXISTS client_accounts_self_access_policy ON savings_accounts;
-CREATE POLICY client_accounts_self_access_policy ON savings_accounts
+DROP POLICY IF EXISTS member_accounts_self_access_policy ON savings_accounts;
+CREATE POLICY member_accounts_self_access_policy ON savings_accounts
   FOR SELECT
   USING (
     EXISTS (
@@ -513,8 +513,8 @@ CREATE POLICY client_accounts_self_access_policy ON savings_accounts
     )
   );
 
-DROP POLICY IF EXISTS client_transactions_self_access_policy ON transactions;
-CREATE POLICY client_transactions_self_access_policy ON transactions
+DROP POLICY IF EXISTS member_transactions_self_access_policy ON transactions;
+CREATE POLICY member_transactions_self_access_policy ON transactions
   FOR SELECT
   USING (
     EXISTS (
@@ -526,9 +526,9 @@ CREATE POLICY client_transactions_self_access_policy ON transactions
     )
   );
 
--- Client shares: allow clients to read their own share records
-DROP POLICY IF EXISTS client_shares_self_access_policy ON member_shares;
-CREATE POLICY client_shares_self_access_policy ON member_shares
+-- Member shares: allow members to read their own share records
+DROP POLICY IF EXISTS member_shares_self_access_policy ON member_shares;
+CREATE POLICY member_shares_self_access_policy ON member_shares
   FOR SELECT
   USING (
     EXISTS (
@@ -539,9 +539,9 @@ CREATE POLICY client_shares_self_access_policy ON member_shares
     )
   );
 
--- Loan repayments: allow clients to read repayments for their loans
-DROP POLICY IF EXISTS client_loan_repayments_self_access_policy ON loan_repayments;
-CREATE POLICY client_loan_repayments_self_access_policy ON loan_repayments
+-- Loan repayments: allow members to read repayments for their loans
+DROP POLICY IF EXISTS member_loan_repayments_self_access_policy ON loan_repayments;
+CREATE POLICY member_loan_repayments_self_access_policy ON loan_repayments
   FOR SELECT
   USING (
     EXISTS (
@@ -558,7 +558,7 @@ CREATE OR REPLACE FUNCTION set_session_context(
     p_user_id UUID,
     p_institution_id UUID,
     p_is_system_admin BOOLEAN DEFAULT FALSE,
-    p_client_id UUID DEFAULT NULL
+    p_member_id UUID DEFAULT NULL
 )
 RETURNS VOID AS $$
 BEGIN
@@ -567,8 +567,8 @@ BEGIN
     PERFORM set_config('app.current_institution_id', p_institution_id::TEXT, false);
     PERFORM set_config('app.is_system_admin', p_is_system_admin::TEXT, false);
     
-    IF p_client_id IS NOT NULL THEN
-        PERFORM set_config('app.current_member_id', p_client_id::TEXT, false);
+    IF p_member_id IS NOT NULL THEN
+        PERFORM set_config('app.current_member_id', p_member_id::TEXT, false);
     END IF;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
@@ -585,7 +585,7 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- NOTIFICATIONS TABLE POLICIES
--- Clients can only read their own notifications
+-- Members can only read their own notifications
 DROP POLICY IF EXISTS notifications_member_select ON notifications;
 CREATE POLICY notifications_member_select ON notifications
   FOR SELECT

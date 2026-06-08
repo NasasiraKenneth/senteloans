@@ -4,13 +4,13 @@
 -- Drop existing audit triggers first
 DROP TRIGGER IF EXISTS audit_institutions_trigger ON institutions;
 DROP TRIGGER IF EXISTS audit_users_trigger ON users;
-DROP TRIGGER IF EXISTS audit_clients_trigger ON members;
+DROP TRIGGER IF EXISTS audit_members_trigger ON members;
 DROP TRIGGER IF EXISTS audit_loans_trigger ON loans;
 DROP TRIGGER IF EXISTS audit_loan_products_trigger ON loan_products;
 DROP TRIGGER IF EXISTS audit_savings_accounts_trigger ON savings_accounts;
 DROP TRIGGER IF EXISTS audit_transactions_trigger ON transactions;
 DROP TRIGGER IF EXISTS audit_loan_repayments_trigger ON loan_repayments;
-DROP TRIGGER IF EXISTS audit_client_shares_trigger ON member_shares;
+DROP TRIGGER IF EXISTS audit_member_shares_trigger ON member_shares;
 
 -- Drop and recreate the audit trigger function with better error handling
 DROP FUNCTION IF EXISTS audit_trigger_function();
@@ -38,7 +38,7 @@ BEGIN
     -- Get institution_id based on table structure
     CASE TG_TABLE_NAME
         WHEN 'member_shares' THEN
-            -- Get institution_id through client relationship
+            -- Get institution_id through member relationship
             IF TG_OP = 'DELETE' THEN
                 SELECT c.institution_id INTO audit_institution_id 
                 FROM members c WHERE c.id = OLD.member_id;
@@ -130,7 +130,7 @@ CREATE TRIGGER audit_users_trigger
     AFTER INSERT OR UPDATE OR DELETE ON users
     FOR EACH ROW EXECUTE FUNCTION audit_trigger_function();
 
-CREATE TRIGGER audit_clients_trigger
+CREATE TRIGGER audit_members_trigger
     AFTER INSERT OR UPDATE OR DELETE ON members
     FOR EACH ROW EXECUTE FUNCTION audit_trigger_function();
 
@@ -154,7 +154,7 @@ CREATE TRIGGER audit_loan_repayments_trigger
     AFTER INSERT OR UPDATE OR DELETE ON loan_repayments
     FOR EACH ROW EXECUTE FUNCTION audit_trigger_function();
 
-CREATE TRIGGER audit_client_shares_trigger
+CREATE TRIGGER audit_member_shares_trigger
     AFTER INSERT OR UPDATE OR DELETE ON member_shares
     FOR EACH ROW EXECUTE FUNCTION audit_trigger_function();
 
