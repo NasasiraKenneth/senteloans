@@ -38,14 +38,14 @@ export async function PUT(req: Request) {
 
     const result = await runWithAuth(session.user.authUserId, async (client) => {
       const clientRes = await client.query(
-        `SELECT id, institution_id, village, district, occupation, next_of_kin_name, next_of_kin_relationship, next_of_kin_phone FROM senteloans_clients WHERE supabase_user_id = $1`,
+        `SELECT id, institution_id, village, district, occupation, next_of_kin_name, next_of_kin_relationship, next_of_kin_phone FROM clients WHERE supabase_user_id = $1`,
         [session!.user!.authUserId]
       )
       const row = clientRes.rows[0]
       if (!row) return null
 
       const setClause = Object.keys(updates).map((k, i) => `${k} = $${i + 2}`).join(", ")
-      await client.query(`UPDATE senteloans_clients SET ${setClause} WHERE id = $1`, [row.id, ...Object.values(updates)])
+      await client.query(`UPDATE clients SET ${setClause} WHERE id = $1`, [row.id, ...Object.values(updates)])
 
       const oldValues = {
         village: row.village,
@@ -55,10 +55,10 @@ export async function PUT(req: Request) {
         next_of_kin_relationship: row.next_of_kin_relationship,
         next_of_kin_phone: row.next_of_kin_phone,
       }
-      await auditLogger.logUpdate("senteloans_clients", row.id, oldValues, updates, row.institution_id, undefined, undefined, client)
+      await auditLogger.logUpdate("clients", row.id, oldValues, updates, row.institution_id, undefined, undefined, client)
 
       const selRes = await client.query(
-        `SELECT id, village, district, occupation, next_of_kin_name, next_of_kin_relationship, next_of_kin_phone FROM senteloans_clients WHERE id = $1`,
+        `SELECT id, village, district, occupation, next_of_kin_name, next_of_kin_relationship, next_of_kin_phone FROM clients WHERE id = $1`,
         [row.id]
       )
       return { ok: true, updated: true, profile: selRes.rows[0] }

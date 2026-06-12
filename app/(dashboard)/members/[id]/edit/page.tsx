@@ -14,7 +14,7 @@ import TooltipButton from "@/components/newUI/tooltip_button"
 
 import { FileUpload } from "@/components/ui/file-upload"
 // Removed mock-data; use live API
-import { ArrowLeft, Save, CreditCard, Smartphone, Share, Calculator, DollarSign, Check, BookOpen, PiggyBank, Landmark, AlertCircle, User, MapPin, Users, FileText, Shield, Phone, Eye } from "lucide-react"
+import { ArrowLeft, Save, CreditCard, Smartphone, Check, BookOpen, PiggyBank, Landmark, AlertCircle, User, MapPin, Users, FileText, Shield, Phone, Eye } from "lucide-react"
 import Image from "next/image"
 import { upload } from "@vercel/blob/client"
 import Link from "next/link"
@@ -29,9 +29,6 @@ interface UserEditPageProps {
 
 const inputClass =
   "w-full px-3 py-2.5 text-sm rounded-md border transition-all duration-200 focus:ring-[1.5px] focus:ring-[#f08c2b] focus:border-transparent focus:outline-none border-gray-300 hover:border-gray-400"
-
-// Payment modes that settle into a branch bank account (require account selection).
-const BANK_ROUTED_MODES = ["Bank Transfer", "Cheque", "Card"]
 
 type SelectOption = { value: string; label: string }
 const normalizeDateFromApi = (value: unknown): string => {
@@ -156,25 +153,6 @@ export default function UserEditPage({ params }: UserEditPageProps) {
   const [docs, setDocs] = useState({ passportPhoto: "", nationalIdFront: "", nationalIdBack: "" })
   const [docUploading, setDocUploading] = useState<{ [k: string]: boolean }>({})
 
-  // Membership fee state
-  const [membershipFee, setMembershipFee] = useState(0)
-  const [membershipFeePaid, setMembershipFeePaid] = useState(0)
-  const [feePaymentAmount, setFeePaymentAmount] = useState("")
-  const [feePaymentMode, setFeePaymentMode] = useState("Cash")
-  const [feePaymentType, setFeePaymentType] = useState<"remaining" | "custom">("remaining")
-  const [feePaymentDate, setFeePaymentDate] = useState<string>("")
-  const [feeReferenceNumber, setFeeReferenceNumber] = useState<string>("")
-  const [feeTransactionCharges, setFeeTransactionCharges] = useState<string>("")
-  const [feeBankAccountId, setFeeBankAccountId] = useState<string>("")
-  const [feeSubmitting, setFeeSubmitting] = useState(false)
-  const [feeSuccess, setFeeSuccess] = useState<string | null>(null)
-  const [feePayments, setFeePayments] = useState<any[]>([])
-  const [sharesPaymentMode, setSharesPaymentMode] = useState("Cash")
-  const [sharesPaymentDate, setSharesPaymentDate] = useState<string>("")
-  const [sharesReferenceNumber, setSharesReferenceNumber] = useState<string>("")
-  const [sharesTransactionCharges, setSharesTransactionCharges] = useState<string>("")
-  const [sharesBankAccountId, setSharesBankAccountId] = useState<string>("")
-  const [bankAccounts, setBankAccounts] = useState<{ id: string; bank_name: string; bank_account_number: string }[]>([])
   const [currency, setCurrency] = useState("UGX")
   const [memberPermissions, setMemberPermissions] = useState({
     editMember: false,
@@ -221,7 +199,6 @@ export default function UserEditPage({ params }: UserEditPageProps) {
     nextOfKinRelationship: "",
     nextOfKinPhone: "",
     status: "",
-    kycStatus: "",
     notes: "",
     mobileMoneyProvider: "",
     mobileMoneyNumber: "",
@@ -229,7 +206,6 @@ export default function UserEditPage({ params }: UserEditPageProps) {
     bankAccountNumber: "",
     bankAccountName: "",
     bankBranch: "",
-    sharesToBuy: "",
   })
 
   useEffect(() => {
@@ -249,12 +225,6 @@ export default function UserEditPage({ params }: UserEditPageProps) {
         const client = responseData.member
         if (cancelled) return
         setUser(client)
-        if (typeof responseData.membershipFee === "number") {
-          setMembershipFee(responseData.membershipFee)
-        }
-        if (typeof client.membership_fee_paid === "number") {
-          setMembershipFeePaid(client.membership_fee_paid)
-        }
         setFormData({
           fullName: client.full_name || "",
           email: client.email || "",
@@ -272,7 +242,6 @@ export default function UserEditPage({ params }: UserEditPageProps) {
           nextOfKinRelationship: client.next_of_kin_relationship || "",
           nextOfKinPhone: client.next_of_kin_phone || "",
           status: client.status || "",
-          kycStatus: client.kyc_status || "",
           notes: client.notes || "",
           mobileMoneyProvider: client.mobile_money_provider || "",
           mobileMoneyNumber: client.mobile_money_number || "",
@@ -280,7 +249,6 @@ export default function UserEditPage({ params }: UserEditPageProps) {
           bankAccountNumber: client.bank_account_number || "",
           bankAccountName: client.bank_account_name || "",
           bankBranch: client.bank_branch || "",
-          sharesToBuy: "",
         })
         setDocs({
           passportPhoto: client.passport_photo || "",
@@ -329,28 +297,6 @@ export default function UserEditPage({ params }: UserEditPageProps) {
     return () => {
       cancelled = true
     }
-  }, [id])
-
-  // Load membership fee payment history
-  useEffect(() => {
-    let cancelled = false
-    async function loadFeeData() {
-      try {
-        const res = await fetch(`/api/institution/members/${id}/membership-fee`, { cache: "no-store" })
-        if (res.ok) {
-          const data = await res.json()
-          if (!cancelled) {
-            setFeePayments(data.payments || [])
-            if (typeof data.membershipFee === "number") setMembershipFee(data.membershipFee)
-            if (typeof data.membershipFeePaid === "number") setMembershipFeePaid(data.membershipFeePaid)
-          }
-        }
-      } catch {
-        // ignore
-      }
-    }
-    loadFeeData()
-    return () => { cancelled = true }
   }, [id])
 
   // Load institution currency
@@ -489,53 +435,8 @@ export default function UserEditPage({ params }: UserEditPageProps) {
 
   // Local fallback config if session is missing or stale
   const [instConfig, setInstConfig] = useState<any | null>(null)
-  const [instType, setInstType] = useState<string | null>(null)
-  const hasShares = Boolean(
-    (session?.institution?.config?.modules?.shares ?? instConfig?.modules?.shares) &&
-      ["SACCO", "MFI"].includes((session?.institution?.type as string) || instType || ""),
-  )
-  const hasSavings = session?.institution?.config?.modules?.savings
-  const [shares, setShares] = useState<any[] | null>(null)
-  const configuredShareValue = (session?.institution?.config?.shareValue ?? instConfig?.shareValue) as
-    | number
-    | undefined
-
-  useEffect(() => {
-    if (hasShares) {
-      async function loadShares() {
-        try {
-          const res = await fetch(`/api/institution/members/${id}/shares`, { cache: "no-store" })
-          if (!res.ok) {
-            const { error } = await res.json()
-            throw new Error(error || "Failed to load shares")
-          }
-          const { shares } = (await res.json()) as any
-          setShares(shares)
-        } catch (e: any) {
-          setError(e?.message || "Failed to load shares")
-        }
-      }
-      loadShares()
-    }
-  }, [hasShares, id])
-
-  // Load the member's branch bank accounts (used when a bank-routed payment
-  // mode is selected for membership fee / shares).
-  useEffect(() => {
-    async function loadBankAccounts() {
-      try {
-        const res = await fetch(`/api/institution/members/${id}/bank-accounts`, { cache: "no-store" })
-        if (!res.ok) return
-        const data = (await res.json()) as {
-          bankAccounts?: { id: string; bank_name: string; bank_account_number: string }[]
-        }
-        setBankAccounts(data.bankAccounts || [])
-      } catch {
-        // Best-effort; selection simply shows no options if this fails.
-      }
-    }
-    loadBankAccounts()
-  }, [id])
+  const hasSavings =
+    session?.institution?.config?.modules?.savings ?? instConfig?.modules?.savings
 
   // If session config is missing, hydrate from API and cache locally (best-effort)
   useEffect(() => {
@@ -547,7 +448,6 @@ export default function UserEditPage({ params }: UserEditPageProps) {
             const data = await res.json()
             if (data?.config) {
               setInstConfig(data.config)
-              setInstType(data.type)
               // Attempt to cache in localStorage if a session exists
               try {
                 updateInstitutionConfig(data.config)
@@ -704,7 +604,6 @@ export default function UserEditPage({ params }: UserEditPageProps) {
         nextOfKinPhone: formData.nextOfKinPhone,
         notes: formData.notes,
         status: formData.status,
-        kycStatus: formData.kycStatus,
         // Payout accounts
         mobileMoneyProvider: formData.mobileMoneyProvider || undefined,
         mobileMoneyNumber: formData.mobileMoneyNumber || undefined,
@@ -737,31 +636,6 @@ export default function UserEditPage({ params }: UserEditPageProps) {
         throw new Error(error || `Failed to update ${terminology.singular.toLowerCase()}`)
       }
 
-      if (formData.sharesToBuy && Number(formData.sharesToBuy) > 0) {
-        if (!sharesPaymentDate) {
-          throw new Error("Please select a payment date for the share purchase")
-        }
-        if (sharesPaymentMode !== "Cash" && !sharesReferenceNumber.trim()) {
-          throw new Error(`Reference number is required for ${sharesPaymentMode} share purchases`)
-        }
-        const sharesToBuy = Number(formData.sharesToBuy)
-        const sharesRes = await fetch(`/api/institution/members/${id}/shares`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            numberOfShares: sharesToBuy,
-            mode: sharesPaymentMode,
-            description: "Shares purchase",
-            paymentDate: sharesPaymentDate || undefined,
-            referenceNumber: sharesReferenceNumber.trim() || undefined,
-          }),
-        })
-        if (!sharesRes.ok) {
-          const { error } = await sharesRes.json()
-          throw new Error(error || "Failed to purchase shares")
-        }
-      }
-
       toast({
         variant: "success",
         title: `${terminology.singular} updated`,
@@ -771,132 +645,6 @@ export default function UserEditPage({ params }: UserEditPageProps) {
       router.refresh()
     } catch (err: any) {
       setError(err?.message || `Failed to update ${terminology.singular.toLowerCase()}`)
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const handleFeePayment = async () => {
-    setError(null)
-    setFeeSuccess(null)
-    const remaining = membershipFee - membershipFeePaid
-    const amount = feePaymentType === "remaining" ? remaining : Number(feePaymentAmount) || 0
-
-    if (amount <= 0) {
-      setError("Please enter a valid payment amount")
-      return
-    }
-    if (amount > remaining + 0.01) {
-      setError(`Payment amount cannot exceed the remaining fee of ${currency} ${remaining.toLocaleString()}`)
-      return
-    }
-    if (!feePaymentDate) {
-      setError("Please select a payment date")
-      return
-    }
-    if (feePaymentMode !== "Cash" && !feeReferenceNumber.trim()) {
-      setError(`Reference number is required for ${feePaymentMode} payments`)
-      return
-    }
-
-    setFeeSubmitting(true)
-    try {
-      const res = await fetch(`/api/institution/members/${id}/membership-fee`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          amount,
-          mode: feePaymentMode,
-          description: "Membership fee payment",
-          paymentDate: feePaymentDate || undefined,
-          reference_number: feeReferenceNumber.trim() || undefined,
-        }),
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || "Failed to record payment")
-
-      setMembershipFeePaid(data.membershipFeePaid)
-      setFeePaymentAmount("")
-      setFeeReferenceNumber("")
-      setFeeTransactionCharges("")
-      setFeeBankAccountId("")
-      setFeePaymentDate("")
-      setFeeSuccess(`Payment of ${currency} ${amount.toLocaleString()} recorded successfully`)
-      toast({
-        variant: "success",
-        title: "Membership fee recorded",
-        description: `${currency} ${amount.toLocaleString()} paid${data?.invoice?.status === "paid" ? " — invoice fully settled." : "."}`,
-      })
-
-      // Reload payment history
-      const histRes = await fetch(`/api/institution/members/${id}/membership-fee`, { cache: "no-store" })
-      if (histRes.ok) {
-        const histData = await histRes.json()
-        setFeePayments(histData.payments || [])
-      }
-    } catch (err: any) {
-      setError(err?.message || "Failed to record membership fee payment")
-    } finally {
-      setFeeSubmitting(false)
-    }
-  }
-
-  const handleSharesPurchaseOnly = async () => {
-    if (!formData.sharesToBuy || Number(formData.sharesToBuy) <= 0) {
-      setError("Please enter a valid number of shares to buy")
-      return
-    }
-    if (!sharesPaymentDate) {
-      setError("Please select a payment date for the share purchase")
-      return
-    }
-    if (sharesPaymentMode !== "Cash" && !sharesReferenceNumber.trim()) {
-      setError(`Reference number is required for ${sharesPaymentMode} share purchases`)
-      return
-    }
-
-    setError(null)
-    setSuccess(null)
-    setSaving(true)
-
-    try {
-      const sharesToBuy = Number(formData.sharesToBuy)
-      const res = await fetch(`/api/institution/members/${id}/shares`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          numberOfShares: sharesToBuy,
-          mode: sharesPaymentMode,
-          description: "Shares purchase",
-          paymentDate: sharesPaymentDate || undefined,
-          referenceNumber: sharesReferenceNumber.trim() || undefined,
-        }),
-      })
-      if (!res.ok) {
-        const { error } = await res.json()
-        throw new Error(error || "Failed to purchase shares")
-      }
-      setSuccess("Shares purchased successfully")
-      setFormData((prev) => ({ ...prev, sharesToBuy: "" }))
-      setSharesReferenceNumber("")
-      setSharesTransactionCharges("")
-      setSharesBankAccountId("")
-      setSharesPaymentDate("")
-      toast({
-        variant: "success",
-        title: "Shares purchased",
-        description: `${sharesToBuy} share(s) recorded successfully.`,
-      })
-      // Reload shares data
-      if (hasShares) {
-        const sharesRes = await fetch(`/api/institution/members/${id}/shares`, { cache: "no-store" })
-        if (sharesRes.ok) {
-          const { shares } = await sharesRes.json()
-          setShares(shares)
-        }
-      }
-    } catch (err: any) {
-      setError(err?.message || "Failed to purchase shares")
     } finally {
       setSaving(false)
     }
@@ -944,8 +692,6 @@ export default function UserEditPage({ params }: UserEditPageProps) {
     { id: "nok", label: "Next of Kin", icon: Users },
     { id: "payout", label: "Payout Accounts", icon: CreditCard },
     { id: "opening-balances", label: "Opening Balances", icon: BookOpen },
-    ...(hasShares ? [{ id: "shares", label: "Shares", icon: Share }] : []),
-    ...(membershipFee > 0 ? [{ id: "membership-fee", label: "Membership Fee", icon: DollarSign }] : []),
     { id: "status", label: "Status & Notes", icon: Shield },
   ]
 
@@ -988,7 +734,7 @@ export default function UserEditPage({ params }: UserEditPageProps) {
                       )}
                     </div>
                   </div>
-                  <Link href={`/users/${id}`} className="hidden sm:inline-flex">
+                  <Link href={`/members/${id}`} className="hidden sm:inline-flex">
                     <Button variant="outline" size="sm">
                       <Eye className="h-4 w-4 mr-2" />
                       View Profile
@@ -1647,414 +1393,6 @@ export default function UserEditPage({ params }: UserEditPageProps) {
                 </CardContent>
               </Card>
 
-              {hasShares && (
-                <Card id="shares" className="scroll-mt-24">
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <Share className="h-5 w-5 text-primary" />
-                      Shares Management
-                    </CardTitle>
-                    <CardDescription>
-                      Purchase and manage shares for this {terminology.singular.toLowerCase()}.
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    {!configuredShareValue && (
-                      <div className="bg-yellow-50 border border-yellow-200 p-3 rounded-lg">
-                        <p className="text-sm text-yellow-700 font-medium">
-                          Share value is not configured. Please configure it in the institution settings.
-                        </p>
-                      </div>
-                    )}
-                    {shares && (
-                      <div className="space-y-4">
-                        {(() => {
-                          const totalShares = Array.isArray(shares)
-                            ? shares.reduce((acc, r: any) => acc + (r.number_of_shares || 0), 0)
-                            : 0
-                          const lastShareValue = Array.isArray(shares) && shares[0]?.share_value
-                          const totalValue = Array.isArray(shares)
-                            ? shares.reduce((acc, r: any) => acc + Number(r.total_value || 0), 0)
-                            : 0
-                          return (
-                            <>
-                              <div className="grid grid-cols-3 gap-4 p-4 bg-muted/50 rounded-lg">
-                                <div className="text-center">
-                                  <div className="text-2xl font-bold text-primary">{totalShares}</div>
-                                  <div className="text-sm text-muted-foreground">Total Shares</div>
-                                </div>
-                                <div className="text-center">
-                                  <div className="text-2xl font-bold text-primary">
-                                    {lastShareValue ?? configuredShareValue ?? "-"}
-                                  </div>
-                                  <div className="text-sm text-muted-foreground">Value per Share</div>
-                                </div>
-                                <div className="text-center">
-                                  <div className="text-2xl font-bold text-primary">
-                                    UGX {Number(totalValue || 0).toLocaleString("en-UG")}
-                                  </div>
-                                  <div className="text-sm text-muted-foreground">Total Value</div>
-                                </div>
-                              </div>
-
-                              <div className="border-t pt-4">
-                                <div className="space-y-4">
-                                  <div className="grid gap-4 md:grid-cols-3 items-end">
-                                    <div className="space-y-2">
-                                      <Label htmlFor="sharesToBuy">Shares to Purchase</Label>
-                                      <StyledInput
-                                        id="sharesToBuy"
-                                        type="number"
-                                        min={1}
-                                        value={formData.sharesToBuy}
-                                        onChange={(e) => handleInputChange("sharesToBuy", e.target.value)}
-                                      />
-                                    </div>
-                                    <div className="space-y-2">
-                                      <Label>Value per Share</Label>
-                                      <StyledInput value={`UGX ${configuredShareValue ?? "-"}`} readOnly />
-                                    </div>
-                                    <div className="space-y-2">
-                                      <Label>Payment Mode</Label>
-                                      <StyledSelect
-                                        value={sharesPaymentMode}
-                                        onChange={setSharesPaymentMode}
-                                        placeholder="Select mode"
-                                        options={[
-                                          { value: "Cash", label: "Cash" },
-                                          { value: "Mobile Money", label: "Mobile Money" },
-                                          { value: "Bank Transfer", label: "Bank Transfer" },
-                                          { value: "Cheque", label: "Cheque" },
-                                          { value: "Card", label: "Card" },
-                                        ]}
-                                      />
-                                    </div>
-                                  </div>
-                                  <div className="grid gap-4 md:grid-cols-3">
-                                    <div className="space-y-2">
-                                      <Label htmlFor="sharesPaymentDate">Payment Date</Label>
-                                      <ReeveDatePicker
-                                        value={sharesPaymentDate}
-                                        onChange={setSharesPaymentDate}
-                                        placeholder="Select payment date"
-                                      />
-                                    </div>
-                                    {sharesPaymentMode !== "Cash" && (
-                                      <>
-                                        {BANK_ROUTED_MODES.includes(sharesPaymentMode) && (
-                                          <div className="space-y-2">
-                                            <Label htmlFor="sharesBankAccountId">
-                                              Bank Account <span className="text-destructive">*</span>
-                                            </Label>
-                                            <StyledSelect
-                                              value={sharesBankAccountId}
-                                              onChange={setSharesBankAccountId}
-                                              placeholder={bankAccounts.length ? "Select bank account" : "No branch bank accounts"}
-                                              options={bankAccounts.map((ba) => ({
-                                                value: ba.id,
-                                                label: `${ba.bank_name} — ${ba.bank_account_number}`,
-                                              }))}
-                                            />
-                                          </div>
-                                        )}
-                                        <div className="space-y-2">
-                                          <Label htmlFor="sharesTransactionCharges">
-                                            Transaction Charges ({currency})
-                                          </Label>
-                                          <StyledInput
-                                            id="sharesTransactionCharges"
-                                            type="number"
-                                            min={0}
-                                            value={sharesTransactionCharges}
-                                            onChange={(e) => setSharesTransactionCharges(e.target.value)}
-                                            placeholder="0"
-                                          />
-                                        </div>
-                                        <div className="space-y-2">
-                                          <Label htmlFor="sharesReferenceNumber">
-                                            Reference Number <span className="text-destructive">*</span>
-                                          </Label>
-                                          <StyledInput
-                                            id="sharesReferenceNumber"
-                                            value={sharesReferenceNumber}
-                                            onChange={(e) => setSharesReferenceNumber(e.target.value)}
-                                            placeholder={`e.g. transaction id`}
-                                          />
-                                          <p className="text-xs text-muted-foreground">
-                                            Required for {sharesPaymentMode} payments.
-                                          </p>
-                                        </div>
-                                      </>
-                                    )}
-                                  </div>
-                                  <div className="flex items-center justify-between gap-3">
-                                    <p className="text-xs text-muted-foreground flex items-center gap-1.5">
-                                      <Calculator className="h-3.5 w-3.5" />
-                                      You can purchase shares separately or include them when saving all changes.
-                                    </p>
-                                    {!memberPermissions.editShares ? (
-                                      <TooltipButton
-                                        tooltip="Missing edit_shares permission"
-                                        disabled
-                                        className="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-all h-9 px-4 py-2 bg-primary text-primary-foreground opacity-50 cursor-not-allowed"
-                                      >
-                                        Purchase Shares
-                                      </TooltipButton>
-                                    ) : (
-                                      <Button
-                                        type="button"
-                                        onClick={handleSharesPurchaseOnly}
-                                        disabled={!configuredShareValue || saving}
-                                      >
-                                        {saving ? "Processing..." : "Purchase Shares"}
-                                      </Button>
-                                    )}
-                                  </div>
-                                </div>
-                              </div>
-                            </>
-                          )
-                        })()}
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              )}
-
-              {/* Membership Fee */}
-              {membershipFee > 0 && (
-                <Card id="membership-fee" className="scroll-mt-24">
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <DollarSign className="h-5 w-5 text-primary" />
-                      Membership Fee
-                    </CardTitle>
-                    <CardDescription>
-                      Manage membership fee payments for this {terminology.singular.toLowerCase()}.
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    {/* Current Status */}
-                    {(() => {
-                      const remaining = membershipFee - membershipFeePaid
-                      const percentage = membershipFee > 0 ? (membershipFeePaid / membershipFee) * 100 : 0
-                      const isFullyPaid = membershipFeePaid >= membershipFee
-
-                      return (
-                        <>
-                          <div className="grid grid-cols-3 gap-4 p-4 bg-muted/50 rounded-lg">
-                            <div className="text-center">
-                              <div className="text-2xl font-bold text-primary">
-                                {currency} {membershipFeePaid.toLocaleString()}
-                              </div>
-                              <div className="text-sm text-muted-foreground">Paid</div>
-                            </div>
-                            <div className="text-center">
-                              <div className="text-2xl font-bold text-primary">
-                                {currency} {membershipFee.toLocaleString()}
-                              </div>
-                              <div className="text-sm text-muted-foreground">Total Fee</div>
-                            </div>
-                            <div className="text-center">
-                              <div className={`text-2xl font-bold ${isFullyPaid ? "text-green-600" : "text-orange-600"}`}>
-                                {Math.round(percentage)}%
-                              </div>
-                              <div className="text-sm text-muted-foreground">Progress</div>
-                            </div>
-                          </div>
-
-                          {/* Progress bar */}
-                          <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
-                            <div
-                              className={`h-full rounded-full transition-all duration-300 ${isFullyPaid ? "bg-green-500" : "bg-orange-500"}`}
-                              style={{ width: `${Math.min(percentage, 100)}%` }}
-                            />
-                          </div>
-
-                          {isFullyPaid ? (
-                            <div className="flex items-center gap-2 p-3 bg-green-50 border border-green-200 rounded-lg">
-                              <Check className="h-4 w-4 text-green-600" />
-                              <span className="text-sm font-medium text-green-700">Membership fee fully paid</span>
-                            </div>
-                          ) : (
-                            <div className="border-t pt-4 space-y-4">
-                              <h4 className="text-sm font-semibold text-gray-900">Record Additional Payment</h4>
-
-                              {feeSuccess && (
-                                <div className="text-sm text-green-700 bg-green-50 border border-green-200 p-2 rounded">{feeSuccess}</div>
-                              )}
-
-                              {/* Payment Type */}
-                              <div className="flex gap-4">
-                                <label className="flex items-center gap-2 cursor-pointer">
-                                  <input
-                                    type="radio"
-                                    name="feePaymentType"
-                                    value="remaining"
-                                    checked={feePaymentType === "remaining"}
-                                    onChange={() => setFeePaymentType("remaining")}
-                                    className="w-4 h-4 accent-[#f08c2b]"
-                                  />
-                                  <span className="text-sm text-gray-700">
-                                    Pay Remaining ({currency} {remaining.toLocaleString()})
-                                  </span>
-                                </label>
-                                <label className="flex items-center gap-2 cursor-pointer">
-                                  <input
-                                    type="radio"
-                                    name="feePaymentType"
-                                    value="custom"
-                                    checked={feePaymentType === "custom"}
-                                    onChange={() => setFeePaymentType("custom")}
-                                    className="w-4 h-4 accent-[#f08c2b]"
-                                  />
-                                  <span className="text-sm text-gray-700">Custom Amount</span>
-                                </label>
-                              </div>
-
-                              <div className="grid gap-4 md:grid-cols-3 items-end">
-                                <div className="space-y-2">
-                                  <Label htmlFor="feePaymentAmount">Amount ({currency})</Label>
-                                  {feePaymentType === "remaining" ? (
-                                    <StyledInput
-                                      value={remaining.toLocaleString()}
-                                      readOnly
-                                      className="bg-gray-50 text-gray-600"
-                                    />
-                                  ) : (
-                                    <StyledInput
-                                      id="feePaymentAmount"
-                                      type="number"
-                                      value={feePaymentAmount}
-                                      onChange={(e) => setFeePaymentAmount(e.target.value)}
-                                      placeholder={`Max: ${remaining.toLocaleString()}`}
-                                      max={remaining}
-                                      min={1}
-                                    />
-                                  )}
-                                </div>
-                                <div className="space-y-2">
-                                  <Label>Payment Mode</Label>
-                                  <StyledSelect
-                                    value={feePaymentMode}
-                                    onChange={setFeePaymentMode}
-                                    placeholder="Select mode"
-                                    options={[
-                                      { value: "Cash", label: "Cash" },
-                                      { value: "Mobile Money", label: "Mobile Money" },
-                                      { value: "Bank Transfer", label: "Bank Transfer" },
-                                      { value: "Cheque", label: "Cheque" },
-                                      { value: "Card", label: "Card" },
-                                    ]}
-                                  />
-                                </div>
-                                <div className="space-y-2">
-                                  <Label htmlFor="feePaymentDate">Payment Date</Label>
-                                  <ReeveDatePicker
-                                    value={feePaymentDate}
-                                    onChange={setFeePaymentDate}
-                                    placeholder="Select payment date"
-                                  />
-                                </div>
-                              </div>
-                              {feePaymentMode !== "Cash" && (
-                                <div className={`grid gap-4 ${BANK_ROUTED_MODES.includes(feePaymentMode) ? "md:grid-cols-3" : "md:grid-cols-2"}`}>
-                                  {BANK_ROUTED_MODES.includes(feePaymentMode) && (
-                                    <div className="space-y-2">
-                                      <Label htmlFor="feeBankAccountId">
-                                        Bank Account <span className="text-destructive">*</span>
-                                      </Label>
-                                      <StyledSelect
-                                        value={feeBankAccountId}
-                                        onChange={setFeeBankAccountId}
-                                        placeholder={bankAccounts.length ? "Select bank account" : "No branch bank accounts"}
-                                        options={bankAccounts.map((ba) => ({
-                                          value: ba.id,
-                                          label: `${ba.bank_name} — ${ba.bank_account_number}`,
-                                        }))}
-                                      />
-                                    </div>
-                                  )}
-                                  <div className="space-y-2">
-                                    <Label htmlFor="feeTransactionCharges">
-                                      Transaction Charges ({currency})
-                                    </Label>
-                                    <StyledInput
-                                      id="feeTransactionCharges"
-                                      type="number"
-                                      min={0}
-                                      value={feeTransactionCharges}
-                                      onChange={(e) => setFeeTransactionCharges(e.target.value)}
-                                      placeholder="0"
-                                    />
-                                  </div>
-                                  <div className="space-y-2">
-                                    <Label htmlFor="feeReferenceNumber">
-                                      Reference Number <span className="text-destructive">*</span>
-                                    </Label>
-                                    <StyledInput
-                                      id="feeReferenceNumber"
-                                      value={feeReferenceNumber}
-                                      onChange={(e) => setFeeReferenceNumber(e.target.value)}
-                                      placeholder={`e.g. transaction id`}
-                                    />
-                                    <p className="text-xs text-muted-foreground">
-                                      Required for {feePaymentMode} payments.
-                                    </p>
-                                  </div>
-                                </div>
-                              )}
-                              <div className="flex justify-end">
-                                {!memberPermissions.editMembershipFee ? (
-                                  <TooltipButton
-                                    tooltip="Missing edit_membership_fee permission"
-                                    disabled
-                                    className="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-all h-9 px-4 py-2 bg-primary text-primary-foreground opacity-50 cursor-not-allowed"
-                                  >
-                                    Record Payment
-                                  </TooltipButton>
-                                ) : (
-                                  <Button
-                                    type="button"
-                                    onClick={handleFeePayment}
-                                    disabled={feeSubmitting}
-                                  >
-                                    {feeSubmitting ? "Processing..." : "Record Payment"}
-                                  </Button>
-                                )}
-                              </div>
-                            </div>
-                          )}
-
-                          {/* Payment History */}
-                          {feePayments.length > 0 && (
-                            <div className="border-t pt-4">
-                              <h4 className="text-sm font-semibold text-gray-900 mb-3">Payment History</h4>
-                              <div className="space-y-2">
-                                {feePayments.map((p: any) => (
-                                  <div key={p.id} className="flex items-center justify-between p-2 bg-muted/30 rounded-md text-sm">
-                                    <div className="flex items-center gap-2">
-                                      <span className="text-muted-foreground">{p.transaction_number}</span>
-                                      <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">{p.mode}</span>
-                                    </div>
-                                    <div className="flex items-center gap-3">
-                                      <span className="font-medium">{currency} {Number(p.amount).toLocaleString()}</span>
-                                      <span className="text-muted-foreground text-xs">
-                                        {new Date(p.transaction_date).toLocaleDateString("en-UG", { year: "numeric", month: "short", day: "numeric" })}
-                                      </span>
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-                        </>
-                      )
-                    })()}
-                  </CardContent>
-                </Card>
-              )}
-
               {/* Status & Management */}
               <Card id="status" className="scroll-mt-24">
                 <CardHeader>
@@ -2062,10 +1400,10 @@ export default function UserEditPage({ params }: UserEditPageProps) {
                     <Shield className="h-5 w-5 text-primary" />
                     Status & Management
                   </CardTitle>
-                  <CardDescription>Account status, KYC verification, and administrative notes.</CardDescription>
+                  <CardDescription>Account status and administrative notes.</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-6">
-                  <div className="grid gap-4 md:grid-cols-3">
+                  <div className="grid gap-4 md:grid-cols-2">
                     <div className="space-y-2">
                       <Label htmlFor="status">Account Status</Label>
                       <StyledSelect
@@ -2076,19 +1414,6 @@ export default function UserEditPage({ params }: UserEditPageProps) {
                           { value: "Active", label: "Active" },
                           { value: "Inactive", label: "Inactive" },
                           { value: "Suspended", label: "Suspended" },
-                        ]}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="kycStatus">KYC Status</Label>
-                      <StyledSelect
-                        value={formData.kycStatus}
-                        onChange={(value) => handleInputChange("kycStatus", value)}
-                        placeholder="Select KYC status"
-                        options={[
-                          { value: "Verified", label: "Verified" },
-                          { value: "Pending", label: "Pending" },
-                          { value: "Rejected", label: "Rejected" },
                         ]}
                       />
                     </div>

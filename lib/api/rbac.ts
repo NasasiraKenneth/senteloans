@@ -18,6 +18,38 @@ export function isSuperAdmin(actor: Pick<ActorContext, "role">): boolean {
   return normalizeRole(actor.role) === "super_admin"
 }
 
+/** Machine-readable error code returned when a super admin attempts a write. */
+export const SUPER_ADMIN_WRITE_BLOCKED = "super_admin_write_blocked"
+
+/** Human-readable message surfaced to the client (banner/toast) for the same case. */
+export const SUPER_ADMIN_WRITE_BLOCKED_MESSAGE =
+  "Super admins are not allowed to edit or modify data."
+
+export type WriteGuardResult =
+  | { ok: true }
+  | { ok: false; status: 403; error: typeof SUPER_ADMIN_WRITE_BLOCKED; message: string }
+
+/**
+ * Guard for any write/modify endpoint: super admin is a read-only oversight role,
+ * so all mutations are blocked. Call this right after `resolveActorContext` in a
+ * route's write handler (POST/PUT/PATCH/DELETE).
+ *
+ * @example
+ *   const guard = assertNotSuperAdmin(actor)
+ *   if (!guard.ok) return NextResponse.json({ error: guard.message }, { status: guard.status })
+ */
+export function assertNotSuperAdmin(actor: Pick<ActorContext, "role">): WriteGuardResult {
+  if (isSuperAdmin(actor)) {
+    return {
+      ok: false,
+      status: 403,
+      error: SUPER_ADMIN_WRITE_BLOCKED,
+      message: SUPER_ADMIN_WRITE_BLOCKED_MESSAGE,
+    }
+  }
+  return { ok: true }
+}
+
 export async function requireStaffSession(): Promise<
   | { ok: true; authUserId: string }
   | { ok: false; status: 401 | 403; error: "unauthorized" | "not_staff" | "no_app_user_profile" }

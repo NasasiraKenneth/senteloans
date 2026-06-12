@@ -22,7 +22,7 @@ type Payload = {
 }
 
 export async function renderClientsPdfBuffer(payload: Payload): Promise<Buffer> {
-  const columns = ["Client", "Status", "Email", "Phone", "Address", "Created"]
+  const columns = ["Third Party Agents", "Status", "Email", "Phone", "Address", "Created"]
   const doc = (
     <Document>
       {payload.sheets.map((sheet, idx) => (

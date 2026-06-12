@@ -23,7 +23,7 @@ export async function GET(req: Request) {
         : `recipient_type = 'member' AND recipient_id = $1`
       const notifRes = await client.query(
         `SELECT id, type, title, message, action_url, metadata, read, read_at, created_at
-           FROM senteloans_notifications
+           FROM notifications
           WHERE ${where}
           ORDER BY created_at DESC
           LIMIT $2`,
@@ -31,7 +31,7 @@ export async function GET(req: Request) {
       )
       const countRes = await client.query(
         `SELECT COUNT(*)::int AS c
-           FROM senteloans_notifications
+           FROM notifications
           WHERE recipient_type = 'member' AND recipient_id = $1 AND read = false`,
         [memberId]
       )

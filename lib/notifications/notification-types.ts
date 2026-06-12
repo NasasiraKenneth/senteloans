@@ -30,9 +30,15 @@ export type NotificationType =
   | 'kyc_verification_required'
   // Shares events
   | 'shares_purchased'
+  // Membership fee events
+  | 'membership_fee_paid'
+  // Opening balance (migration) events
+  | 'opening_savings_recorded'
+  | 'opening_loan_recorded'
   // Generic finance events
   | 'transaction_recorded'
   | 'invoice_created'
+  | 'invoice_payment_recorded'
 
 export type RecipientType = 'member' | 'institution_user'
 
@@ -262,6 +268,65 @@ export const NotificationTemplates = {
     actionUrl: `/members/${memberId}`,
   }),
 
+  // --- Membership fee templates -----------------------------------------
+  membershipFeePaid: (
+    amount: number,
+    remaining: number,
+    currency?: string,
+  ) => ({
+    title: 'Membership Fee Payment Received',
+    message: remaining > 0
+      ? `We've received your membership fee payment of ${formatCurrency(amount, currency)}. Outstanding balance: ${formatCurrency(remaining, currency)}.`
+      : `We've received your membership fee payment of ${formatCurrency(amount, currency)}. Your membership fee is now fully paid.`,
+    actionUrl: '/client-portal/transactions',
+  }),
+
+  membershipFeePaidForStaff: (
+    memberName: string,
+    amount: number,
+    memberId: string,
+    currency?: string,
+  ) => ({
+    title: 'Membership Fee Payment Received',
+    message: `${memberName} paid a membership fee of ${formatCurrency(amount, currency)}.`,
+    actionUrl: `/members/${memberId}`,
+  }),
+
+  // --- Opening balance (migration) templates ----------------------------
+  openingSavingsRecorded: (amount: number, currency?: string) => ({
+    title: 'Opening Savings Balance Recorded',
+    message: `An opening savings balance of ${formatCurrency(amount, currency)} has been recorded on your account from your previous records.`,
+    actionUrl: '/client-portal/savings',
+  }),
+
+  openingSavingsRecordedForStaff: (
+    memberName: string,
+    amount: number,
+    memberId: string,
+    currency?: string,
+  ) => ({
+    title: 'Opening Savings Balance Recorded',
+    message: `An opening savings balance of ${formatCurrency(amount, currency)} was recorded for ${memberName}.`,
+    actionUrl: `/members/${memberId}`,
+  }),
+
+  openingLoanRecorded: (outstanding: number, currency?: string) => ({
+    title: 'Opening Loan Balance Recorded',
+    message: `An opening loan with an outstanding balance of ${formatCurrency(outstanding, currency)} has been recorded on your account from your previous records.`,
+    actionUrl: '/client-portal/loans',
+  }),
+
+  openingLoanRecordedForStaff: (
+    memberName: string,
+    outstanding: number,
+    memberId: string,
+    currency?: string,
+  ) => ({
+    title: 'Opening Loan Balance Recorded',
+    message: `An opening loan with an outstanding balance of ${formatCurrency(outstanding, currency)} was recorded for ${memberName}.`,
+    actionUrl: `/members/${memberId}`,
+  }),
+
   // --- Generic transaction templates ------------------------------------
   transactionRecorded: (
     amount: number,
@@ -308,6 +373,34 @@ export const NotificationTemplates = {
   ) => ({
     title: `Invoice ${invoiceNumber} Created`,
     message: `An invoice of ${formatCurrency(amount, currency)} was issued to ${memberName}.`,
+    actionUrl: `/invoices?invoice_id=${invoiceId}`,
+  }),
+
+  invoicePaymentRecorded: (
+    invoiceNumber: string,
+    amount: number,
+    fullySettled: boolean,
+    currency?: string,
+  ) => ({
+    title: `Payment Applied to Invoice ${invoiceNumber}`,
+    message: fullySettled
+      ? `A payment of ${formatCurrency(amount, currency)} was applied to invoice ${invoiceNumber}, which is now fully settled.`
+      : `A payment of ${formatCurrency(amount, currency)} was applied to invoice ${invoiceNumber}.`,
+    actionUrl: '/client-portal/invoices',
+  }),
+
+  invoicePaymentRecordedForStaff: (
+    invoiceNumber: string,
+    memberName: string,
+    amount: number,
+    invoiceId: string,
+    fullySettled: boolean,
+    currency?: string,
+  ) => ({
+    title: `Payment Applied to Invoice ${invoiceNumber}`,
+    message: fullySettled
+      ? `A payment of ${formatCurrency(amount, currency)} from ${memberName} settled invoice ${invoiceNumber}.`
+      : `A payment of ${formatCurrency(amount, currency)} from ${memberName} was applied to invoice ${invoiceNumber}.`,
     actionUrl: `/invoices?invoice_id=${invoiceId}`,
   }),
 }

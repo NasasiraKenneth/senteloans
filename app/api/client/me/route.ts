@@ -14,13 +14,13 @@ export async function GET() {
                 passport_photo, join_date, date_of_birth, gender, marital_status, monthly_income, village, district,
                 occupation, next_of_kin_name, next_of_kin_relationship, next_of_kin_phone,
                 mobile_money_provider, mobile_money_number, bank_name, bank_account_number, bank_account_name, bank_branch
-         FROM senteloans_clients WHERE supabase_user_id = $1`,
+         FROM clients WHERE supabase_user_id = $1`,
         [session!.user!.authUserId]
       )
       const row = clientRes.rows[0]
       if (!row) return null
       const instRes = await client.query(
-        `SELECT id, name, type, logo, status FROM senteloans_institutions WHERE id = $1`,
+        `SELECT id, name, type, logo, status FROM institutions WHERE id = $1`,
         [row.institution_id]
       )
       const inst = instRes.rows[0]

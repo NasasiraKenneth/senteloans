@@ -10,7 +10,7 @@ export async function GET() {
 
     const result = await runWithAuth(session.user.authUserId, async (client) => {
       const clientRes = await client.query(
-        `SELECT id, institution_id FROM senteloans_clients WHERE supabase_user_id = $1`,
+        `SELECT id, institution_id FROM clients WHERE supabase_user_id = $1`,
         [session!.user!.authUserId]
       )
       const row = clientRes.rows[0]
@@ -18,17 +18,17 @@ export async function GET() {
 
       const txRes = await client.query(
         `SELECT id, transaction_number, type, amount, mode, description, balance_after, transaction_date, account_id
-         FROM senteloans_transactions
+         FROM transactions
          WHERE client_id = $1 AND institution_id = $2
          ORDER BY transaction_date DESC LIMIT 20`,
         [row.id, row.institution_id]
       )
       const savRes = await client.query(
-        `SELECT COALESCE(SUM(total_balance), 0)::numeric AS total FROM senteloans_savings_accounts WHERE client_id = $1 AND institution_id = $2`,
+        `SELECT COALESCE(SUM(total_balance), 0)::numeric AS total FROM savings_accounts WHERE client_id = $1 AND institution_id = $2`,
         [row.id, row.institution_id]
       )
       const shareRes = await client.query(
-        `SELECT COALESCE(SUM(total_value), 0)::numeric AS total FROM senteloans_client_shares WHERE client_id = $1`,
+        `SELECT COALESCE(SUM(total_value), 0)::numeric AS total FROM client_shares WHERE client_id = $1`,
         [row.id]
       )
       return {

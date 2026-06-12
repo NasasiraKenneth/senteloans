@@ -59,11 +59,11 @@ export async function GET(req: Request) {
   try {
     const session = await getServerSession(authOptions)
     if (!session?.user?.authUserId) {
-      apiLog("warn", "clients.list.denied", { method: "GET", apiPath, status: 401, error: "unauthorized" })
+      apiLog("warn", "third_party_agents.list.denied", { method: "GET", apiPath, status: 401, error: "unauthorized" })
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
     if (session.user.type !== "staff") {
-      apiLog("warn", "clients.list.denied", { method: "GET", apiPath, status: 403, error: "no_app_user_profile" })
+      apiLog("warn", "third_party_agents.list.denied", { method: "GET", apiPath, status: 403, error: "no_app_user_profile" })
       return NextResponse.json({ error: "no_app_user_profile" }, { status: 403 })
     }
 
@@ -77,8 +77,8 @@ export async function GET(req: Request) {
     const result = await runWithAuth(session.user.authUserId, async (client) => {
       const actor = await resolveActorContext(client, session.user.authUserId as string)
       if (!actor?.institution_id) return { error: "no_app_user_profile" as const }
-      const allowed = await hasPermission(client, actor, "view_clients")
-      if (!allowed) return { error: "missing_permission:view_clients" as const }
+      const allowed = await hasPermission(client, actor, "view_third_party_agents")
+      if (!allowed) return { error: "missing_permission:view_third_party_agents" as const }
       const actorRole = String(actor.role || "").trim().toLowerCase()
       if (actorRole !== "super_admin" && !actor.branch_id) return { error: "actor_branch_missing" as const }
 
@@ -125,7 +125,7 @@ export async function GET(req: Request) {
            c.updated_at,
            cu.full_name AS created_by_name,
            mu.full_name AS modified_by_name
-         FROM clients c
+         FROM third_party_agents c
          LEFT JOIN branches b ON b.id = c.branch_id
          LEFT JOIN users cu ON cu.id = c.created_by
          LEFT JOIN users mu ON mu.id = c.modified_by
@@ -134,19 +134,19 @@ export async function GET(req: Request) {
          LIMIT $${idx}`,
         params
       )
-      return { clients: listRes.rows }
+      return { third_party_agents: listRes.rows }
     })
 
     if (result && "error" in result) {
       const statusCode = result.error === "actor_branch_missing" ? 400 : 403
-      apiLog("warn", "clients.list.denied", { method: "GET", apiPath, status: statusCode, error: result.error, authUserId: session.user.authUserId })
+      apiLog("warn", "third_party_agents.list.denied", { method: "GET", apiPath, status: statusCode, error: result.error, authUserId: session.user.authUserId })
       return NextResponse.json({ error: result.error }, { status: statusCode })
     }
-    apiLog("info", "clients.list.success", { method: "GET", apiPath, status: 200, count: result?.clients?.length || 0, authUserId: session.user.authUserId })
-    return NextResponse.json({ clients: result?.clients || [] })
+    apiLog("info", "third_party_agents.list.success", { method: "GET", apiPath, status: 200, count: result?.third_party_agents?.length || 0, authUserId: session.user.authUserId })
+    return NextResponse.json({ third_party_agents: result?.third_party_agents || [] })
   } catch (e: unknown) {
     const err = e as Error
-    apiLog("error", "clients.list.error", { method: "GET", apiPath, status: 500, error: err?.message || "Unexpected error" })
+    apiLog("error", "third_party_agents.list.error", { method: "GET", apiPath, status: 500, error: err?.message || "Unexpected error" })
     return NextResponse.json({ error: err?.message || "Unexpected error" }, { status: 500 })
   }
 }
@@ -156,11 +156,11 @@ export async function POST(req: Request) {
   try {
     const session = await getServerSession(authOptions)
     if (!session?.user?.authUserId) {
-      apiLog("warn", "clients.create.denied", { method: "POST", apiPath, status: 401, error: "unauthorized" })
+      apiLog("warn", "third_party_agents.create.denied", { method: "POST", apiPath, status: 401, error: "unauthorized" })
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
     if (session.user.type !== "staff") {
-      apiLog("warn", "clients.create.denied", { method: "POST", apiPath, status: 403, error: "no_app_user_profile" })
+      apiLog("warn", "third_party_agents.create.denied", { method: "POST", apiPath, status: 403, error: "no_app_user_profile" })
       return NextResponse.json({ error: "no_app_user_profile" }, { status: 403 })
     }
 
@@ -193,7 +193,7 @@ export async function POST(req: Request) {
       if (!allowed) return { error: "missing_permission:create_client" as const }
 
       const insertRes = await client.query(
-        `INSERT INTO clients (
+        `INSERT INTO third_party_agents (
            institution_id, branch_id, name, status, email, address, phone, created_by, modified_by
          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)
          RETURNING id, institution_id, branch_id, name, status, email, address, phone, created_by, created_at, modified_by, updated_at`,
@@ -211,7 +211,7 @@ export async function POST(req: Request) {
       const inserted = insertRes.rows[0]
       if (inserted?.id) {
         await auditLogger.logInsert(
-          "clients",
+          "third_party_agents",
           inserted.id,
           {
             name: inserted.name,
@@ -234,14 +234,14 @@ export async function POST(req: Request) {
       const statusCode =
         errorCode === "actor_branch_missing" ? 400 :
         errorCode.startsWith("missing_permission:") ? 403 : 400
-      apiLog("warn", "clients.create.denied", { method: "POST", apiPath, status: statusCode, error: errorCode, authUserId: session.user.authUserId })
+      apiLog("warn", "third_party_agents.create.denied", { method: "POST", apiPath, status: statusCode, error: errorCode, authUserId: session.user.authUserId })
       return NextResponse.json({ error: errorCode }, { status: statusCode })
     }
-    apiLog("info", "clients.create.success", { method: "POST", apiPath, status: 201, authUserId: session.user.authUserId, clientId: result?.client?.id })
+    apiLog("info", "third_party_agents.create.success", { method: "POST", apiPath, status: 201, authUserId: session.user.authUserId, clientId: result?.client?.id })
     return NextResponse.json(result, { status: 201 })
   } catch (e: unknown) {
     const err = e as Error
-    apiLog("error", "clients.create.error", { method: "POST", apiPath, status: 500, error: err?.message || "Unexpected error" })
+    apiLog("error", "third_party_agents.create.error", { method: "POST", apiPath, status: 500, error: err?.message || "Unexpected error" })
     return NextResponse.json({ error: err?.message || "Unexpected error" }, { status: 500 })
   }
 }

@@ -28,6 +28,7 @@ import {
   Clock,
   Calculator,
   Plus,
+  BookOpen,
 } from "lucide-react"
 import Image from "next/image"
 import Link from "next/link"
@@ -36,6 +37,7 @@ import { cn } from "@/lib/utils"
 import AddMembershipFeeModal from "../components/membershipFee/add"
 import AddSharesModal from "../components/shares/add"
 import SharesCalculatorModal from "../components/shares/calculator"
+import AddOpeningBalanceModal from "../components/openningBalance/add"
 import { formatCurrency as fmtCurrency } from "@/lib/format-currency"
 
 const tabPanelMotion = {
@@ -82,8 +84,11 @@ export default function UserProfilePage() {
   const [showSharesCalculator, setShowSharesCalculator] = useState(false)
   const [showMembershipFeeModal, setShowMembershipFeeModal] = useState(false)
   const [showSharesModal, setShowSharesModal] = useState(false)
+  const [showOpeningBalanceModal, setShowOpeningBalanceModal] = useState(false)
   const [canEditShares, setCanEditShares] = useState(false)
   const [canEditMembershipFee, setCanEditMembershipFee] = useState(false)
+  const [canEditOpeningSavings, setCanEditOpeningSavings] = useState(false)
+  const [canEditOpeningLoans, setCanEditOpeningLoans] = useState(false)
 
   useEffect(() => {
     const sessionData = getSession()
@@ -209,11 +214,18 @@ export default function UserProfilePage() {
         const res = await fetch(`/api/institution/members/permissions`, { cache: "no-store" })
         if (!res.ok) return
         const data = (await res.json()) as {
-          permissions?: { editShares?: boolean; editMembershipFee?: boolean }
+          permissions?: {
+            editShares?: boolean
+            editMembershipFee?: boolean
+            editOpeningSavings?: boolean
+            editOpeningLoans?: boolean
+          }
         }
         if (cancelled) return
         setCanEditShares(Boolean(data.permissions?.editShares))
         setCanEditMembershipFee(Boolean(data.permissions?.editMembershipFee))
+        setCanEditOpeningSavings(Boolean(data.permissions?.editOpeningSavings))
+        setCanEditOpeningLoans(Boolean(data.permissions?.editOpeningLoans))
       } catch {
         // Best-effort; buttons stay hidden if this fails.
       }
@@ -527,11 +539,15 @@ export default function UserProfilePage() {
     <>
       <div className="max-w-6xl mx-auto space-y-6">
             {/* Back navigation */}
-            <div>
+            <div className="flex items-center justify-between gap-3">
               <Link href="/members" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors">
                 <ArrowLeft className="h-4 w-4" />
                 Back to {clientTerm}s
               </Link>
+              <Button variant="outline" size="sm" onClick={() => setShowOpeningBalanceModal(true)}>
+                <BookOpen className="h-4 w-4 mr-2" />
+                Record Opening Balance
+              </Button>
             </div>
 
             {/* Profile Header */}
@@ -1205,14 +1221,22 @@ export default function UserProfilePage() {
               <motion.div variants={staggerContainer} initial="hidden" animate="show" className="space-y-4">
               {/* Identification Documents */}
               <motion.div variants={staggerItem} className="space-y-4 rounded-xl border border-border bg-card p-5">
-                <div className="flex items-center gap-2.5">
-                  <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10">
-                    <FileText className="h-4 w-4 text-primary" />
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2.5">
+                    <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10">
+                      <FileText className="h-4 w-4 text-primary" />
+                    </div>
+                    <div>
+                      <h2 className="text-base font-semibold">Identification Documents</h2>
+                      <p className="text-xs text-muted-foreground">{clientTerm} identification documents</p>
+                    </div>
                   </div>
-                  <div>
-                    <h2 className="text-base font-semibold">Identification Documents</h2>
-                    <p className="text-xs text-muted-foreground">{clientTerm} identification documents</p>
-                  </div>
+                  <Link href={`/members/${user.id}/edit#kyc`}>
+                    <Button variant="outline" size="sm">
+                      <Plus className="h-4 w-4 mr-2" />
+                      Verify Documents
+                    </Button>
+                  </Link>
                 </div>
 
                 <div className="grid grid-cols-1 items-start gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -1412,6 +1436,15 @@ export default function UserProfilePage() {
           setShowSharesCalculator(false)
           setShowSharesModal(true)
         }}
+      />
+
+      <AddOpeningBalanceModal
+        isOpen={showOpeningBalanceModal}
+        onClose={() => setShowOpeningBalanceModal(false)}
+        memberId={user.id}
+        currency={currency}
+        canEditSavings={canEditOpeningSavings}
+        canEditLoans={canEditOpeningLoans}
       />
     </>
   )

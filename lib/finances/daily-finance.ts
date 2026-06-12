@@ -37,16 +37,15 @@ export interface DailyFinanceEntryParams {
   /** Payment mode used; determines which channel column is incremented. */
   mode: string
   actor: ActorForFinance
-  /**
-   * Ledger date this entry belongs to. Defaults to today. Used to target the
-   * correct daily_finances row for backdated payments (the payment date drives
-   * the ledger, not the wall-clock insert time).
-   */
-  entryDate?: Date | string
 }
 
 /**
  * Roll a money movement into the branch's `daily_finances` ledger for today.
+ *
+ * The ledger always tracks the *actual posting day* (DB `CURRENT_DATE` /
+ * `NOW()`), never a backdated payment date. Writing to a past day's row would
+ * silently rewrite history and make the running cash position for the days in
+ * between inaccurate, so even backdated payments land on today's row.
  *
  * Behaviour:
  *  - `bank_total_amount` is always recomputed as the live SUM of the branch's
@@ -65,16 +64,11 @@ export interface DailyFinanceEntryParams {
  */
 export async function applyDailyFinanceEntry(
   client: PoolClient,
-  { institutionId, branchId, amount, mode, actor, entryDate }: DailyFinanceEntryParams,
+  { institutionId, branchId, amount, mode, actor }: DailyFinanceEntryParams,
 ): Promise<void> {
   const channel = channelForMode(mode)
   const mmAdd = channel === "mobile_money" ? amount : 0
   const cashAdd = channel === "cash" ? amount : 0
-
-  // The ledger date this entry settles on (payment date), as YYYY-MM-DD.
-  const entryDateIso = entryDate
-    ? (typeof entryDate === "string" ? entryDate : entryDate.toISOString()).slice(0, 10)
-    : new Date().toISOString().slice(0, 10)
 
   // Live total across the branch's bank accounts (already includes any credit
   // the caller applied earlier in this transaction).
@@ -86,14 +80,14 @@ export async function applyDailyFinanceEntry(
   )
   const bankTotal = Number(bankRes.rows[0]?.bank_total || 0)
 
-  // The ledger row for the entry date, if one exists.
+  // Today's ledger row (actual posting day), if one exists.
   const todayRes = await client.query(
     `SELECT id, bank_total_amount, mobile_money_amount, cash_amount, total_amount, available_balance, branch_id
        FROM daily_finances
-      WHERE institution_id = $1 AND branch_id = $2 AND created_at::date = $3::date
+      WHERE institution_id = $1 AND branch_id = $2 AND created_at::date = CURRENT_DATE
       ORDER BY created_at DESC
       LIMIT 1`,
-    [institutionId, branchId, entryDateIso],
+    [institutionId, branchId],
   )
 
   if (todayRes.rows[0]) {
@@ -127,15 +121,14 @@ export async function applyDailyFinanceEntry(
     return
   }
 
-  // No row for the entry date: carry forward the most recent prior day's
-  // channel balances (relative to the entry date).
+  // No row today: carry forward the most recent prior day's channel balances.
   const prevRes = await client.query(
     `SELECT mobile_money_amount, cash_amount
        FROM daily_finances
-      WHERE institution_id = $1 AND branch_id = $2 AND created_at::date < $3::date
+      WHERE institution_id = $1 AND branch_id = $2 AND created_at::date < CURRENT_DATE
       ORDER BY created_at DESC
       LIMIT 1`,
-    [institutionId, branchId, entryDateIso],
+    [institutionId, branchId],
   )
   const prev = prevRes.rows[0] as Record<string, unknown> | undefined
   const newMm = Number(prev?.mobile_money_amount ?? 0) + mmAdd
@@ -146,9 +139,9 @@ export async function applyDailyFinanceEntry(
     `INSERT INTO daily_finances
        (institution_id, branch_id, bank_total_amount, mobile_money_amount, cash_amount,
         total_amount, available_balance, created_by, created_at, modified_by, updated_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $6, $7, $8::date, $7, NOW())
+     VALUES ($1, $2, $3, $4, $5, $6, $6, $7, NOW(), $7, NOW())
      RETURNING id, bank_total_amount, mobile_money_amount, cash_amount, total_amount, available_balance, branch_id`,
-    [institutionId, branchId, bankTotal, newMm, newCash, newTotal, actor.id, entryDateIso],
+    [institutionId, branchId, bankTotal, newMm, newCash, newTotal, actor.id],
   )
   const inserted = (insRes.rows[0] as Record<string, unknown>) || {}
   await auditDailyFinanceInsert(

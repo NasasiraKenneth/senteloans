@@ -9,7 +9,7 @@ type InvoiceRow = {
   id: string;
   institution_id: string;
   member_id: string | null;
-  client_id: string | null;
+  third_party_agent_id: string | null;
   branch_id: string;
   invoice_number: string;
   invoice_date: string;

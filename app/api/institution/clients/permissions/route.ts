@@ -58,11 +58,11 @@ export async function GET(req: Request) {
   try {
     const session = await getServerSession(authOptions)
     if (!session?.user?.authUserId) {
-      apiLog("warn", "clients.permissions.denied", { method: "GET", apiPath, status: 401, error: "unauthorized" })
+      apiLog("warn", "third_party_agents.permissions.denied", { method: "GET", apiPath, status: 401, error: "unauthorized" })
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
     if (session.user.type !== "staff") {
-      apiLog("warn", "clients.permissions.denied", { method: "GET", apiPath, status: 403, error: "no_app_user_profile" })
+      apiLog("warn", "third_party_agents.permissions.denied", { method: "GET", apiPath, status: 403, error: "no_app_user_profile" })
       return NextResponse.json({ error: "no_app_user_profile" }, { status: 403 })
     }
 
@@ -71,8 +71,8 @@ export async function GET(req: Request) {
       if (!actor) return null
       const role = String(actor.role || "").trim().toLowerCase()
 
-      const [viewClients, createClient, editClient] = await Promise.all([
-        hasPermission(client, actor, "view_clients"),
+      const [viewThird_party_agents, createClient, editClient] = await Promise.all([
+        hasPermission(client, actor, "view_third_party_agents"),
         hasPermission(client, actor, "create_client"),
         hasPermission(client, actor, "edit_client"),
       ])
@@ -91,7 +91,7 @@ export async function GET(req: Request) {
           : []
 
       return {
-        viewClients,
+        viewThird_party_agents,
         createClient,
         editClient,
         isSuperAdmin: role === "super_admin",
@@ -100,14 +100,14 @@ export async function GET(req: Request) {
     })
 
     if (!permissions) {
-      apiLog("warn", "clients.permissions.denied", { method: "GET", apiPath, status: 403, error: "no_app_user_profile" })
+      apiLog("warn", "third_party_agents.permissions.denied", { method: "GET", apiPath, status: 403, error: "no_app_user_profile" })
       return NextResponse.json({ error: "no_app_user_profile" }, { status: 403 })
     }
-    apiLog("info", "clients.permissions.success", { method: "GET", apiPath, status: 200, authUserId: session.user.authUserId })
+    apiLog("info", "third_party_agents.permissions.success", { method: "GET", apiPath, status: 200, authUserId: session.user.authUserId })
     return NextResponse.json({ permissions })
   } catch (e: unknown) {
     const err = e as Error
-    apiLog("error", "clients.permissions.error", { method: "GET", apiPath, status: 500, error: err?.message || "Unexpected error" })
+    apiLog("error", "third_party_agents.permissions.error", { method: "GET", apiPath, status: 500, error: err?.message || "Unexpected error" })
     return NextResponse.json({ error: err?.message || "Unexpected error" }, { status: 500 })
   }
 }

@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-import { useState, useRef, useCallback } from "react"
+import { useState, useRef, useCallback, useEffect } from "react"
 import { Upload, FileText, ImageIcon, AlertCircle, CheckCircle } from "lucide-react"
 import { cn } from "@/lib/utils"
 
@@ -30,10 +30,29 @@ export function FileUpload({
 }: FileUploadProps) {
   const [dragActive, setDragActive] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Object URL of the staged (not-yet-uploaded) file, used to preview the new
+  // selection (images and PDFs) before it is uploaded.
   const [preview, setPreview] = useState<string | null>(null)
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [justUploaded, setJustUploaded] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
+  const objectUrlRef = useRef<string | null>(null)
+
+  const revokePreview = useCallback(() => {
+    if (objectUrlRef.current) {
+      URL.revokeObjectURL(objectUrlRef.current)
+      objectUrlRef.current = null
+    }
+  }, [])
+
+  const clearSelection = useCallback(() => {
+    revokePreview()
+    setSelectedFile(null)
+    setPreview(null)
+  }, [revokePreview])
+
+  // Revoke any outstanding object URL when the component unmounts.
+  useEffect(() => revokePreview, [revokePreview])
 
   const validateFile = (file: File): string | null => {
     if (file.size > maxSize * 1024 * 1024) {
@@ -61,22 +80,19 @@ export function FileUpload({
       const validationError = validateFile(file)
       if (validationError) {
         setError(validationError)
-        setSelectedFile(null)
-        setPreview(null)
+        clearSelection()
         return
       }
 
-      // Stage file for upload and create preview for images
+      // Stage file for upload and build a preview URL (images render inline,
+      // PDFs embed via <object>). Revoke any previous staged URL first.
+      revokePreview()
+      const url = URL.createObjectURL(file)
+      objectUrlRef.current = url
       setSelectedFile(file)
-      if (file.type.startsWith("image/")) {
-        const reader = new FileReader()
-        reader.onload = (e) => setPreview(e.target?.result as string)
-        reader.readAsDataURL(file)
-      } else {
-        setPreview(null)
-      }
+      setPreview(url)
     },
-    [],
+    [clearSelection, revokePreview],
   )
 
   const startUpload = useCallback(async () => {
@@ -85,8 +101,7 @@ export function FileUpload({
     try {
       await onUpload(selectedFile)
       // Clear staged file and preview on success
-      setSelectedFile(null)
-      setPreview(null)
+      clearSelection()
       setJustUploaded(true)
       // auto-hide success after 3 seconds
       window.setTimeout(() => setJustUploaded(false), 3000)
@@ -94,7 +109,7 @@ export function FileUpload({
       // Keep preview so user can retry
       setError(err?.message || "Upload failed")
     }
-  }, [onUpload, selectedFile, disabled, uploading])
+  }, [onUpload, selectedFile, disabled, uploading, clearSelection])
 
   const handleDrag = useCallback((e: React.DragEvent) => {
     e.preventDefault()
@@ -210,8 +225,7 @@ export function FileUpload({
               type="button"
               onClick={(e) => {
                 e.stopPropagation()
-                setSelectedFile(null)
-                setPreview(null)
+                clearSelection()
                 setError(null)
               }}
               className="text-muted-foreground hover:underline"
@@ -273,50 +287,91 @@ export function FileUpload({
       </div>
       {layout === "inline" ? (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-3">
-          {/* Left: Dropzone already rendered above; Right: Current Document */}
+          {/* Left: Dropzone already rendered above; Right: live preview panel */}
           <div className="hidden md:block" />
-          <div className={cn("relative border rounded-lg p-3", disabled ? "opacity-60" : "")}
+          <div className={cn("relative border rounded-lg p-3 space-y-3", disabled ? "opacity-60" : "")}
                aria-live="polite">
             {justUploaded && (
-              <div className="mb-2 text-sm text-green-700 bg-green-50 border border-green-200 px-2 py-1 rounded">
+              <div className="text-sm text-green-700 bg-green-50 border border-green-200 px-2 py-1 rounded">
                 Document uploaded successfully
               </div>
             )}
-            {currentUrl ? (
-              <a
-                href={currentUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                aria-label={`Open current ${label}`}
-                className="group block"
-              >
-                {isImageUrl(currentUrl) ? (
-                  <div className="relative">
-                    <img
-                      src={currentUrl}
-                      alt={label}
-                      className={cn("max-h-32 w-auto rounded border object-cover",
-                        selectedFile ? "opacity-80" : "")}
-                    />
-                    <div className="absolute inset-0 hidden md:flex items-end justify-end p-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <span className="text-[10px] bg-black/60 text-white px-1.5 py-0.5 rounded">Open current</span>
-                    </div>
-                  </div>
+
+            {/* New selection (staged, not yet uploaded). Shown alongside the
+                saved document below so the user can compare old vs new. */}
+            {selectedFile && (
+              <div className="space-y-1">
+                <div className="text-xs font-medium">
+                  <span className="inline-flex items-center rounded bg-amber-100 text-amber-800 px-2 py-0.5 border border-amber-200">
+                    New selection — pending upload
+                  </span>
+                </div>
+                {selectedFile.type.startsWith("image/") ? (
+                  <img
+                    src={preview || "/placeholder.svg"}
+                    alt={`New ${label}`}
+                    className="max-h-40 w-auto rounded border object-cover"
+                  />
                 ) : (
-                  <div className={cn("flex items-center gap-2 p-2 rounded border",
-                    selectedFile ? "opacity-80" : "")}
+                  <object
+                    data={preview ?? undefined}
+                    type="application/pdf"
+                    className="w-full h-40 rounded border"
+                    aria-label={`Preview of new ${label}`}
                   >
-                    <FileText className="h-5 w-5 text-muted-foreground" />
-                    <span className="text-sm truncate max-w-[16rem]" title={fileNameFromUrl(currentUrl)}>
-                      {fileNameFromUrl(currentUrl)}
-                    </span>
-                  </div>
+                    <div className="flex items-center gap-2 p-2 rounded border">
+                      <FileText className="h-5 w-5 text-muted-foreground" />
+                      <span className="text-sm truncate max-w-[16rem]" title={selectedFile.name}>
+                        {selectedFile.name}
+                      </span>
+                    </div>
+                  </object>
                 )}
-                <div className="mt-1 md:hidden text-xs text-muted-foreground">Open current</div>
-              </a>
-            ) : (
-              <div className="text-xs text-muted-foreground">No document on file</div>
+                <p className="text-xs text-muted-foreground truncate" title={selectedFile.name}>
+                  {selectedFile.name}
+                </p>
+              </div>
             )}
+
+            {/* Saved document currently on file. */}
+            {currentUrl ? (
+              <div className="space-y-1">
+                <div className="text-xs font-medium text-muted-foreground">
+                  {selectedFile ? "Current document (will be replaced)" : "Current document"}
+                </div>
+                <a
+                  href={currentUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-label={`Open current ${label}`}
+                  className="group block"
+                >
+                  {isImageUrl(currentUrl) ? (
+                    <div className="relative">
+                      <img
+                        src={currentUrl}
+                        alt={label}
+                        className={cn("max-h-32 w-auto rounded border object-cover", selectedFile ? "opacity-70" : "")}
+                      />
+                      <div className="absolute inset-0 hidden md:flex items-end justify-end p-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <span className="text-[10px] bg-black/60 text-white px-1.5 py-0.5 rounded">Open current</span>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className={cn("flex items-center gap-2 p-2 rounded border", selectedFile ? "opacity-70" : "")}>
+                      <FileText className="h-5 w-5 text-muted-foreground" />
+                      <span className="text-sm truncate max-w-[16rem]" title={fileNameFromUrl(currentUrl)}>
+                        {fileNameFromUrl(currentUrl)}
+                      </span>
+                    </div>
+                  )}
+                  <div className="mt-1 md:hidden text-xs text-muted-foreground">Open current</div>
+                </a>
+              </div>
+            ) : (
+              !selectedFile && <div className="text-xs text-muted-foreground">No document on file</div>
+            )}
+
             {currentUrl && !selectedFile && (
               <div className="absolute top-2 right-2">
                 <CheckCircle className="h-4 w-4 text-green-600" />

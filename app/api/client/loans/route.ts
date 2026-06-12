@@ -15,7 +15,7 @@ export async function GET() {
 
     const result = await runWithAuth(session.user.authUserId, async (client) => {
       const clientRes = await client.query(
-        `SELECT id, institution_id FROM senteloans_clients WHERE supabase_user_id = $1`,
+        `SELECT id, institution_id FROM clients WHERE supabase_user_id = $1`,
         [session!.user!.authUserId]
       )
       const row = clientRes.rows[0]
@@ -23,14 +23,14 @@ export async function GET() {
 
       const loansRes = await client.query(
         `SELECT id, application_id, principal_amount, interest_rate, tenure_months, outstanding_balance, status, next_payment_date, loan_product_id, application_date
-         FROM senteloans_loans WHERE client_id = $1 AND institution_id = $2 ORDER BY application_date DESC`,
+         FROM loans WHERE client_id = $1 AND institution_id = $2 ORDER BY application_date DESC`,
         [row.id, row.institution_id]
       )
       const productIds = [...new Set(loansRes.rows.map((l: Record<string, unknown>) => l.loan_product_id).filter(Boolean))]
       let productMap: Record<string, string> = {}
       if (productIds.length > 0) {
         const prodRes = await client.query(
-          `SELECT id, product_name FROM senteloans_loan_products WHERE id = ANY($1::uuid[])`,
+          `SELECT id, product_name FROM loan_products WHERE id = ANY($1::uuid[])`,
           [productIds]
         )
         productMap = Object.fromEntries(prodRes.rows.map((p: Record<string, unknown>) => [p.id, p.product_name as string]))
@@ -80,7 +80,7 @@ export async function POST(req: Request) {
 
     const result = await runWithAuth(session.user.authUserId, async (client) => {
       const clientRes = await client.query(
-        `SELECT id, institution_id, branch_id, full_name, status, kyc_status FROM senteloans_clients WHERE supabase_user_id = $1`,
+        `SELECT id, institution_id, branch_id, full_name, status, kyc_status FROM clients WHERE supabase_user_id = $1`,
         [session!.user!.authUserId]
       )
       const clientRow = clientRes.rows[0]
@@ -90,7 +90,7 @@ export async function POST(req: Request) {
 
       const productRes = await client.query(
         `SELECT id, product_name, interest_rate, interest_calculation_method, minimum_amount, maximum_amount, minimum_tenure_months, maximum_tenure_months
-         FROM senteloans_loan_products WHERE id = $1 AND institution_id = $2`,
+         FROM loan_products WHERE id = $1 AND institution_id = $2`,
         [loan_product_id, clientRow.institution_id]
       )
       const product = productRes.rows[0]
@@ -104,7 +104,7 @@ export async function POST(req: Request) {
         return { error: `Tenure must be between ${product.minimum_tenure_months} and ${product.maximum_tenure_months} months` as const }
 
       const instRes = await client.query(
-        `SELECT type FROM senteloans_institutions WHERE id = $1`,
+        `SELECT type FROM institutions WHERE id = $1`,
         [clientRow.institution_id]
       )
       const institutionType = (instRes.rows[0]?.type as string) || "SACCO"
@@ -113,7 +113,7 @@ export async function POST(req: Request) {
       if (institutionType === "SACCO") {
         if (guarantorIds.length === 0) return { error: "At least one guarantor is required for SACCO loans" as const }
         const guarRes = await client.query(
-          `SELECT id, status, kyc_status FROM senteloans_clients WHERE id = ANY($1::uuid[]) AND institution_id = $2`,
+          `SELECT id, status, kyc_status FROM clients WHERE id = ANY($1::uuid[]) AND institution_id = $2`,
           [guarantorIds, clientRow.institution_id]
         )
         if (guarRes.rows.length !== guarantorIds.length) return { error: "Invalid guarantor selection" as const }
@@ -155,7 +155,7 @@ export async function POST(req: Request) {
       }
 
       const loanRes = await client.query(
-        `INSERT INTO senteloans_loans (institution_id, client_id, loan_product_id, application_id, principal_amount, interest_rate, tenure_months, purpose, monthly_payment, total_amount, outstanding_balance, collateral_description, application_date, status)
+        `INSERT INTO loans (institution_id, client_id, loan_product_id, application_id, principal_amount, interest_rate, tenure_months, purpose, monthly_payment, total_amount, outstanding_balance, collateral_description, application_date, status)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'Applied')
          RETURNING id, application_id`,
         [
@@ -180,14 +180,14 @@ export async function POST(req: Request) {
         const guaranteedAmount = Math.round((principal / guarantorIds.length) * 100) / 100
         for (const gid of guarantorIds) {
           await client.query(
-            `INSERT INTO senteloans_loan_guarantors (loan_id, guarantor_client_id, guaranteed_amount, status) VALUES ($1, $2, $3, 'Active')`,
+            `INSERT INTO loan_guarantors (loan_id, guarantor_client_id, guaranteed_amount, status) VALUES ($1, $2, $3, 'Active')`,
             [loan.id, gid, guaranteedAmount]
           )
         }
       }
 
       await auditLogger.logInsert(
-        "senteloans_loans",
+        "loans",
         loan.id,
         loanInsert as Record<string, unknown>,
         clientRow.institution_id,

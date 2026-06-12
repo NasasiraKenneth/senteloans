@@ -571,7 +571,7 @@ export default function UsersPage() {
             <p className="text-muted-foreground text-pretty">{terminology.description}</p>
           </div>
           {memberPermissions.createMember ? (
-            <Link href="/users/new">
+            <Link href="/members/new">
               <Button>
                 <Plus className="h-4 w-4 mr-2" />
                 {terminology.addButton}

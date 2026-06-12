@@ -1,6 +1,7 @@
 import type { PoolClient } from "pg"
 import { auditLogger } from "@/lib/audit/audit-logger"
 import { insertWithInvoiceNumberRetry } from "./invoice-number-retry"
+import { numberToWords } from "./utils"
 
 export type InvoiceStatus = "draft" | "sent" | "partially paid" | "fully paid" | "overdue" | "cancelled"
 
@@ -110,6 +111,13 @@ export async function createInvoiceWithItems(
   const totalAmount = round2(subtotal + vat)
   const status = normalizeInvoiceStatus(input.status)
 
+  // Default the amount-in-words to the total when the caller doesn't supply one
+  // so every invoice (shares, registration, etc.) carries a populated inwords.
+  const inwords =
+    typeof input.inwords === "string" && input.inwords.trim()
+      ? input.inwords.trim()
+      : numberToWords(totalAmount)
+
   // Insert with SAVEPOINT-based retry on invoice_number collisions
   // (mirrors how transactions handles transaction_number).
   const inserted = await insertWithInvoiceNumberRetry(
@@ -136,7 +144,7 @@ export async function createInvoiceWithItems(
           subtotal,
           vat,
           totalAmount,
-          input.inwords ?? null,
+          inwords,
           String(input.invoiceType || "").slice(0, 10),
           status,
           input.createdBy,

@@ -352,16 +352,15 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
           })
         }
 
-        // Roll the purchase into the branch's daily finance ledger (today's row,
-        // carrying forward from the previous day when none exists yet).
+        // Roll the purchase into the branch's daily finance ledger for the
+        // actual posting day (today). Backdated purchases still post to today's
+        // row so the running cash position stays accurate.
         await applyDailyFinanceEntry(client, {
           institutionId: actor.institution_id,
           branchId: memberRow.branch_id,
           amount: purchaseValue,
           mode,
           actor,
-          // Backdated purchases settle on the payment date, not today.
-          entryDate: resolvedPaymentDate,
         })
 
         // Auto-generate a paid invoice for the share purchase.

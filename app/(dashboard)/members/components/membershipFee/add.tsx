@@ -26,10 +26,22 @@ function mapError(code: unknown, currency: string, remaining?: unknown): string 
       return "Please enter a valid amount."
     case "invalid_mode":
       return "Please select a valid payment mode."
+    case "invalid_transaction_charges":
+      return "Transaction charges must be a valid, non-negative amount."
     case "invalid_payment_date":
       return "The selected payment date is invalid."
     case "payment_date_in_future":
       return "Payment date cannot be in the future."
+    case "reference_number_required":
+      return "A reference number is required for this payment mode."
+    case "bank_account_required":
+      return "Please select a bank account for this payment mode."
+    case "bank_account_not_found":
+      return "The selected bank account could not be found for this branch."
+    case "branch_inactive":
+      return "This member's branch is not active. Fee payments are disabled until the branch is reactivated."
+    case "branch_not_found":
+      return "This member's branch could not be found."
     case "member_not_found":
       return "Member not found."
     case "cross_tenant_forbidden":
@@ -75,7 +87,7 @@ export default function AddMembershipFeeModal({
         variant: "success",
         title: "Membership fee recorded",
         description: `${formatCurrency(Number(data.amount), currency)} paid${
-          body?.invoice?.status === "paid" ? " — invoice fully settled." : "."
+          body?.invoice?.status === "fully paid" ? " — invoice fully settled." : "."
         }`,
       })
       onSuccess?.()

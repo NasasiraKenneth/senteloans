@@ -327,7 +327,7 @@ export function MemberRegistrationForm({ onClose }: MemberRegistrationFormProps)
         title: `${clientTerminology} registered`,
         description: `${formData.fullName.trim()} (${created.member_number}) has been added successfully.`,
       })
-      router.push(`/users/${created.id}`)
+      router.push(`/members/${created.id}`)
       router.refresh()
     } finally {
       setSubmitting(false)

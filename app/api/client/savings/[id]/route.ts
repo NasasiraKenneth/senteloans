@@ -14,21 +14,21 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 
     const result = await runWithAuth(session.user.authUserId, async (client) => {
       const clientRes = await client.query(
-        `SELECT id, institution_id FROM senteloans_clients WHERE supabase_user_id = $1`,
+        `SELECT id, institution_id FROM clients WHERE supabase_user_id = $1`,
         [session!.user!.authUserId]
       )
       const row = clientRes.rows[0]
       if (!row) return null
 
       const accRes = await client.query(
-        `SELECT id, account_number, account_type, available_balance, total_balance, status, open_date, last_transaction_date FROM senteloans_savings_accounts WHERE id = $1 AND client_id = $2 AND institution_id = $3`,
+        `SELECT id, account_number, account_type, available_balance, total_balance, status, open_date, last_transaction_date FROM savings_accounts WHERE id = $1 AND client_id = $2 AND institution_id = $3`,
         [id, row.id, row.institution_id]
       )
       const account = accRes.rows[0]
       if (!account) return null
 
       const txRes = await client.query(
-        `SELECT id, type, amount, mode, description, balance_after, transaction_date FROM senteloans_transactions WHERE account_id = $1 AND client_id = $2 ORDER BY transaction_date DESC LIMIT 20`,
+        `SELECT id, type, amount, mode, description, balance_after, transaction_date FROM transactions WHERE account_id = $1 AND client_id = $2 ORDER BY transaction_date DESC LIMIT 20`,
         [account.id, row.id]
       )
       const transactions = txRes.rows.map((t: Record<string, unknown>) => ({

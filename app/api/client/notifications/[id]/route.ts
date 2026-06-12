@@ -22,7 +22,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
     const result = await runWithAuth(session.user.authUserId, async (client) => {
       const updateRes = await client.query(
-        `UPDATE senteloans_notifications
+        `UPDATE notifications
             SET read = $1, read_at = $2
           WHERE id = $3 AND recipient_type = 'member' AND recipient_id = $4`,
         [read, read_at, notificationId, memberId]

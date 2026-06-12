@@ -10,14 +10,14 @@ export async function GET() {
 
     const result = await runWithAuth(session.user.authUserId, async (client) => {
       const clientRes = await client.query(
-        `SELECT institution_id FROM senteloans_clients WHERE supabase_user_id = $1`,
+        `SELECT institution_id FROM clients WHERE supabase_user_id = $1`,
         [session!.user!.authUserId]
       )
       const row = clientRes.rows[0]
       if (!row) return null
       const productsRes = await client.query(
         `SELECT id, product_name, description, interest_rate, minimum_amount, maximum_amount, minimum_tenure_months, maximum_tenure_months
-         FROM senteloans_loan_products WHERE institution_id = $1 AND status = 'Active' ORDER BY product_name`,
+         FROM loan_products WHERE institution_id = $1 AND status = 'Active' ORDER BY product_name`,
         [row.institution_id]
       )
       return productsRes.rows.map((p: Record<string, unknown>) => ({

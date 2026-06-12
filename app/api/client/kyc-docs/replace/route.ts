@@ -24,14 +24,14 @@ export async function POST(req: Request) {
 
     const result = await runWithAuth(session.user.authUserId, async (client) => {
       const clientRes = await client.query(
-        `SELECT id, institution_id, branch_id FROM senteloans_clients WHERE supabase_user_id = $1`,
+        `SELECT id, institution_id, branch_id FROM clients WHERE supabase_user_id = $1`,
         [session!.user!.authUserId]
       )
       const row = clientRes.rows[0]
       if (!row) return null
 
       const insertRes = await client.query(
-        `INSERT INTO senteloans_client_kyc_docs (institution_id, client_id, doc_type, url, status) VALUES ($1, $2, $3, $4, 'pending_review') RETURNING id, created_at`,
+        `INSERT INTO client_kyc_docs (institution_id, client_id, doc_type, url, status) VALUES ($1, $2, $3, $4, 'pending_review') RETURNING id, created_at`,
         [row.institution_id, row.id, docType, url]
       )
       const inserted = insertRes.rows[0]
@@ -39,7 +39,7 @@ export async function POST(req: Request) {
 
       const insertPayload = { institution_id: row.institution_id, client_id: row.id, doc_type: docType, url, status: "pending_review" }
       await auditLogger.logInsert(
-        "senteloans_client_kyc_docs",
+        "client_kyc_docs",
         inserted.id,
         insertPayload,
         row.institution_id,
@@ -48,7 +48,7 @@ export async function POST(req: Request) {
         client
       )
 
-      const clientInfoRes = await client.query(`SELECT full_name FROM senteloans_clients WHERE id = $1`, [row.id])
+      const clientInfoRes = await client.query(`SELECT full_name FROM clients WHERE id = $1`, [row.id])
       const clientInfo = clientInfoRes.rows[0] as { full_name: string } | undefined
       const admins = await getInstitutionAdminRecipients(client, row.institution_id, {
         roles: ["institution_admin", "manager", "loan_officer"],

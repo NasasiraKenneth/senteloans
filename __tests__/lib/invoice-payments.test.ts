@@ -23,7 +23,7 @@ describe("invoice-payments", () => {
     expect(summary.is_fully_paid).toBe(false)
   })
 
-  it("syncInvoiceStatusFromPayments sets paid when fully settled", async () => {
+  it("syncInvoiceStatusFromPayments sets fully paid when fully settled", async () => {
     const query = jest
       .fn()
       .mockResolvedValueOnce({
@@ -33,7 +33,7 @@ describe("invoice-payments", () => {
       .mockResolvedValueOnce({ rows: [] })
     const client = { query } as any
     const synced = await syncInvoiceStatusFromPayments(client, "inv-1")
-    expect(synced.status).toBe("paid")
+    expect(synced.status).toBe("fully paid")
     expect(synced.outstanding).toBe(0)
     expect(query).toHaveBeenCalledTimes(3)
   })

@@ -75,8 +75,8 @@ export async function GET(req: Request) {
     const result = await runWithAuth(session.user.authUserId, async (client) => {
       const actor = await resolveActorContext(client, session.user.authUserId as string)
       if (!actor?.institution_id) return { error: "no_app_user_profile" as const }
-      const allowed = await hasPermission(client, actor, "view_clients")
-      if (!allowed) return { error: "missing_permission:view_clients" as const }
+      const allowed = await hasPermission(client, actor, "view_third_party_agents")
+      if (!allowed) return { error: "missing_permission:view_third_party_agents" as const }
       const actorRole = String(actor.role || "").trim().toLowerCase()
 
       let branchScopes: BranchScope[] = []
@@ -113,7 +113,7 @@ export async function GET(req: Request) {
 
         const clientRes = await client.query(
           `SELECT c.name, c.status, c.email, c.address, c.phone, c.created_at
-           FROM clients c
+           FROM third_party_agents c
            WHERE ${where}
            ORDER BY c.created_at DESC`,
           params
@@ -125,7 +125,7 @@ export async function GET(req: Request) {
     })
 
     if (result && "error" in result) {
-      const statusCode = result.error === "missing_permission:view_clients" || result.error === "no_app_user_profile" ? 403 : 400
+      const statusCode = result.error === "missing_permission:view_third_party_agents" || result.error === "no_app_user_profile" ? 403 : 400
       return NextResponse.json({ error: result.error }, { status: statusCode })
     }
     if (!result || ("error" in result)) return NextResponse.json({ error: "Unexpected export payload" }, { status: 500 })

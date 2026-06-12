@@ -14,14 +14,14 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 
     const result = await runWithAuth(session.user.authUserId, async (client) => {
       const clientRes = await client.query(
-        `SELECT id, institution_id FROM senteloans_clients WHERE supabase_user_id = $1`,
+        `SELECT id, institution_id FROM clients WHERE supabase_user_id = $1`,
         [session!.user!.authUserId]
       )
       const row = clientRes.rows[0]
       if (!row) return null
 
       const loanRes = await client.query(
-        `SELECT id, application_id, client_id, loan_product_id, principal_amount, interest_rate, tenure_months, outstanding_balance, status, purpose, application_date, approval_date, disbursement_date, maturity_date, next_payment_date, overdue_days, created_by FROM senteloans_loans WHERE id = $1 AND client_id = $2`,
+        `SELECT id, application_id, client_id, loan_product_id, principal_amount, interest_rate, tenure_months, outstanding_balance, status, purpose, application_date, approval_date, disbursement_date, maturity_date, next_payment_date, overdue_days, created_by FROM loans WHERE id = $1 AND client_id = $2`,
         [id, row.id]
       )
       const loan = loanRes.rows[0]
@@ -29,12 +29,12 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 
       let product_name = "Loan"
       if (loan.loan_product_id) {
-        const pRes = await client.query(`SELECT product_name FROM senteloans_loan_products WHERE id = $1`, [loan.loan_product_id])
+        const pRes = await client.query(`SELECT product_name FROM loan_products WHERE id = $1`, [loan.loan_product_id])
         product_name = pRes.rows[0]?.product_name || "Loan"
       }
 
       const repRes = await client.query(
-        `SELECT installment_number, due_date, principal_amount, interest_amount, total_amount, amount_paid, status FROM senteloans_loan_repayments WHERE loan_id = $1 ORDER BY installment_number ASC`,
+        `SELECT installment_number, due_date, principal_amount, interest_amount, total_amount, amount_paid, status FROM loan_repayments WHERE loan_id = $1 ORDER BY installment_number ASC`,
         [loan.id]
       )
       const repayments = repRes.rows.map((r: Record<string, unknown>) => ({
@@ -49,7 +49,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 
       let loanOfficer: string | null = null
       if (loan.created_by) {
-        const uRes = await client.query(`SELECT full_name FROM senteloans_users WHERE id = $1`, [loan.created_by])
+        const uRes = await client.query(`SELECT full_name FROM users WHERE id = $1`, [loan.created_by])
         loanOfficer = uRes.rows[0]?.full_name || null
       }
 

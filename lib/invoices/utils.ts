@@ -30,10 +30,16 @@ export const numberToWords = (num: number): string => {
         ' thousand' +
         (num % 1000 ? ' ' + numToWord(num % 1000) : '')
       );
+    if (num < 1000000000)
+      return (
+        numToWord(Math.floor(num / 1000000)) +
+        ' million' +
+        (num % 1000000 ? ' ' + numToWord(num % 1000000) : '')
+      );
     return (
-      numToWord(Math.floor(num / 1000000)) +
-      ' million' +
-      (num % 1000000 ? ' ' + numToWord(num % 1000000) : '')
+      numToWord(Math.floor(num / 1000000000)) +
+      ' billion' +
+      (num % 1000000000 ? ' ' + numToWord(num % 1000000000) : '')
     );
   };
 

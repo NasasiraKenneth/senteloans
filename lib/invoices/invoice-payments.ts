@@ -61,25 +61,26 @@ export async function getInvoicePaymentSummary(
  * Identity: invoice_type = 'Auto' AND a line item described as
  * "Annual Membership Fee" (created by the member-registration flow).
  *
- * Excludes paid/cancelled invoices and returns the oldest match so repeat
- * fee payments settle the original registration invoice first.
+ * Excludes fully paid/cancelled invoices and returns the oldest match so
+ * repeat fee payments settle the original registration invoice first.
  */
 export async function findOpenMemberMembershipInvoice(
   client: PoolClient,
   institutionId: string,
   memberId: string,
-): Promise<{ id: string; total_amount: number; status: string } | null> {
+): Promise<{ id: string; invoice_number: string; total_amount: number; status: string } | null> {
   const res = await client.query<{
     id: string
+    invoice_number: string
     total_amount: string
     status: string
   }>(
-    `SELECT i.id, i.total_amount, i.status
+    `SELECT i.id, i.invoice_number, i.total_amount, i.status
        FROM invoices i
       WHERE i.institution_id = $1
         AND i.member_id = $2
         AND LOWER(i.invoice_type) = 'auto'
-        AND LOWER(i.status) NOT IN ('paid', 'cancelled')
+        AND LOWER(i.status) NOT IN ('fully paid', 'cancelled')
         AND EXISTS (
           SELECT 1 FROM invoice_items it
            WHERE it.invoice_id = i.id
@@ -93,6 +94,7 @@ export async function findOpenMemberMembershipInvoice(
   if (!row) return null
   return {
     id: row.id,
+    invoice_number: row.invoice_number,
     total_amount: Number(row.total_amount),
     status: row.status,
   }
@@ -160,7 +162,8 @@ export async function recordInvoicePayment(
 }
 
 /**
- * Recompute paid total and set invoice status to paid | sent | overdue.
+ * Recompute paid total and set invoice status to fully paid | partially paid |
+ * sent | overdue (aligned with create-invoice InvoiceStatus vocabulary).
  */
 export async function syncInvoiceStatusFromPayments(
   client: PoolClient,
@@ -180,22 +183,16 @@ export async function syncInvoiceStatusFromPayments(
   const total = round2(Number(inv.total_amount))
   const summary = await getInvoicePaymentSummary(client, invoiceId, total)
 
-  let nextStatus = String(inv.status || "sent").toLowerCase()
+  const due = inv.invoice_due ? new Date(`${inv.invoice_due}T00:00:00Z`) : null
+  const isOverdue = due != null && due.getTime() < Date.now()
+
+  let nextStatus: string
   if (summary.is_fully_paid) {
-    nextStatus = "paid"
+    nextStatus = "fully paid"
   } else if (summary.paid_amount > 0) {
-    nextStatus = "sent"
-    const due = inv.invoice_due ? new Date(`${inv.invoice_due}T00:00:00Z`) : null
-    if (due && due.getTime() < Date.now()) {
-      nextStatus = "overdue"
-    }
+    nextStatus = isOverdue ? "overdue" : "partially paid"
   } else {
-    const due = inv.invoice_due ? new Date(`${inv.invoice_due}T00:00:00Z`) : null
-    if (due && due.getTime() < Date.now()) {
-      nextStatus = "overdue"
-    } else {
-      nextStatus = "sent"
-    }
+    nextStatus = isOverdue ? "overdue" : "sent"
   }
 
   await client.query(

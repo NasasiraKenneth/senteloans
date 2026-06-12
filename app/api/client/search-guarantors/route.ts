@@ -18,7 +18,7 @@ export async function GET(req: Request) {
 
     const result = await runWithAuth(session.user.authUserId, async (client) => {
       const clientRes = await client.query(
-        `SELECT id, institution_id FROM senteloans_clients WHERE supabase_user_id = $1`,
+        `SELECT id, institution_id FROM clients WHERE supabase_user_id = $1`,
         [session!.user!.authUserId]
       )
       const row = clientRes.rows[0]
@@ -26,7 +26,7 @@ export async function GET(req: Request) {
 
       const searchPattern = `%${searchQuery}%`
       const membersRes = await client.query(
-        `SELECT id, full_name, phone_number, client_number, kyc_status FROM senteloans_clients WHERE institution_id = $1 AND status = 'Active' AND id != $2 AND (full_name ILIKE $3 OR phone_number ILIKE $3) LIMIT 10`,
+        `SELECT id, full_name, phone_number, client_number, kyc_status FROM clients WHERE institution_id = $1 AND status = 'Active' AND id != $2 AND (full_name ILIKE $3 OR phone_number ILIKE $3) LIMIT 10`,
         [row.institution_id, row.id, searchPattern]
       )
       const members = membersRes.rows.filter((m: { kyc_status: string }) => m.kyc_status === "Verified")

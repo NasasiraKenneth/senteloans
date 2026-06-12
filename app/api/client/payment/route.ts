@@ -39,17 +39,17 @@ export async function PUT(req: Request) {
 
     const result = await runWithAuth(session.user.authUserId, async (client) => {
       const clientRes = await client.query(
-        `SELECT id, institution_id, mobile_money_provider, mobile_money_number, bank_name, bank_account_number, bank_account_name, bank_branch FROM senteloans_clients WHERE supabase_user_id = $1`,
+        `SELECT id, institution_id, mobile_money_provider, mobile_money_number, bank_name, bank_account_number, bank_account_name, bank_branch FROM clients WHERE supabase_user_id = $1`,
         [session!.user!.authUserId]
       )
       const row = clientRes.rows[0]
       if (!row) return null
 
       const setClause = Object.keys(updates).map((k, i) => `${k} = $${i + 2}`).join(", ")
-      await client.query(`UPDATE senteloans_clients SET ${setClause} WHERE id = $1`, [row.id, ...Object.values(updates)])
+      await client.query(`UPDATE clients SET ${setClause} WHERE id = $1`, [row.id, ...Object.values(updates)])
 
       await auditLogger.logUpdate(
-        "senteloans_clients",
+        "clients",
         row.id,
         {
           mobile_money_provider: row.mobile_money_provider,
@@ -67,7 +67,7 @@ export async function PUT(req: Request) {
       )
 
       const selRes = await client.query(
-        `SELECT id, mobile_money_provider, mobile_money_number, bank_name, bank_account_number, bank_account_name, bank_branch FROM senteloans_clients WHERE id = $1`,
+        `SELECT id, mobile_money_provider, mobile_money_number, bank_name, bank_account_number, bank_account_name, bank_branch FROM clients WHERE id = $1`,
         [row.id]
       )
       return { ok: true, updated: true, payment: selRes.rows[0] }

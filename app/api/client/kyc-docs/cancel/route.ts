@@ -16,14 +16,14 @@ export async function POST(req: Request) {
 
     const result = await runWithAuth(session.user.authUserId, async (client) => {
       const clientRes = await client.query(
-        `SELECT id, institution_id FROM senteloans_clients WHERE supabase_user_id = $1`,
+        `SELECT id, institution_id FROM clients WHERE supabase_user_id = $1`,
         [session!.user!.authUserId]
       )
       const row = clientRes.rows[0]
       if (!row) return null
 
       const docRes = await client.query(
-        `SELECT id, client_id, institution_id, status FROM senteloans_client_kyc_docs WHERE id = $1`,
+        `SELECT id, client_id, institution_id, status FROM client_kyc_docs WHERE id = $1`,
         [pendingId]
       )
       const doc = docRes.rows[0]
@@ -32,11 +32,11 @@ export async function POST(req: Request) {
       if (doc.status !== "pending_review") return { error: "not_pending" as const }
 
       await client.query(
-        `UPDATE senteloans_client_kyc_docs SET status = 'rejected', rejection_reason = 'cancelled_by_client' WHERE id = $1`,
+        `UPDATE client_kyc_docs SET status = 'rejected', rejection_reason = 'cancelled_by_client' WHERE id = $1`,
         [pendingId]
       )
       await auditLogger.logUpdate(
-        "senteloans_client_kyc_docs",
+        "client_kyc_docs",
         pendingId,
         { status: "pending_review" },
         { status: "rejected", rejection_reason: "cancelled_by_client" },

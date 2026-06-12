@@ -73,19 +73,19 @@ export async function GET(
 
     const session = await getServerSession(authOptions)
     if (!session?.user?.authUserId) {
-      apiLog("warn", "clients.detail.denied", { method: "GET", apiPath, status: 401, error: "unauthorized" })
+      apiLog("warn", "third_party_agents.detail.denied", { method: "GET", apiPath, status: 401, error: "unauthorized" })
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
     if (session.user.type !== "staff") {
-      apiLog("warn", "clients.detail.denied", { method: "GET", apiPath, status: 403, error: "no_app_user_profile" })
+      apiLog("warn", "third_party_agents.detail.denied", { method: "GET", apiPath, status: 403, error: "no_app_user_profile" })
       return NextResponse.json({ error: "no_app_user_profile" }, { status: 403 })
     }
 
     const result = await runWithAuth(session.user.authUserId, async (client) => {
       const actor = await resolveActorContext(client, session.user.authUserId as string)
       if (!actor?.institution_id) return { error: "no_app_user_profile" as const }
-      const allowed = await hasPermission(client, actor, "view_clients")
-      if (!allowed) return { error: "missing_permission:view_clients" as const }
+      const allowed = await hasPermission(client, actor, "view_third_party_agents")
+      if (!allowed) return { error: "missing_permission:view_third_party_agents" as const }
 
       const actorRole = String(actor.role || "").trim().toLowerCase()
       if (actorRole !== "super_admin" && !actor.branch_id) return { error: "actor_branch_missing" as const }
@@ -108,7 +108,7 @@ export async function GET(
            c.updated_at,
            cu.full_name AS created_by_name,
            mu.full_name AS modified_by_name
-         FROM clients c
+         FROM third_party_agents c
          LEFT JOIN branches b ON b.id = c.branch_id
          LEFT JOIN users cu ON cu.id = c.created_by
          LEFT JOIN users mu ON mu.id = c.modified_by
@@ -126,14 +126,14 @@ export async function GET(
         errorCode === "client_not_found" ? 404 :
         errorCode === "actor_branch_missing" ? 400 :
         errorCode.startsWith("missing_permission:") ? 403 : 400
-      apiLog("warn", "clients.detail.denied", { method: "GET", apiPath, status: statusCode, error: errorCode, authUserId: session.user.authUserId, clientId: id })
+      apiLog("warn", "third_party_agents.detail.denied", { method: "GET", apiPath, status: statusCode, error: errorCode, authUserId: session.user.authUserId, clientId: id })
       return NextResponse.json({ error: errorCode }, { status: statusCode })
     }
-    apiLog("info", "clients.detail.success", { method: "GET", apiPath, status: 200, authUserId: session.user.authUserId, clientId: id })
+    apiLog("info", "third_party_agents.detail.success", { method: "GET", apiPath, status: 200, authUserId: session.user.authUserId, clientId: id })
     return NextResponse.json(result)
   } catch (e: unknown) {
     const err = e as Error
-    apiLog("error", "clients.detail.error", { method: "GET", apiPath, status: 500, error: err?.message || "Unexpected error" })
+    apiLog("error", "third_party_agents.detail.error", { method: "GET", apiPath, status: 500, error: err?.message || "Unexpected error" })
     return NextResponse.json({ error: err?.message || "Unexpected error" }, { status: 500 })
   }
 }
@@ -149,11 +149,11 @@ export async function PATCH(
 
     const session = await getServerSession(authOptions)
     if (!session?.user?.authUserId) {
-      apiLog("warn", "clients.update.denied", { method: "PATCH", apiPath, status: 401, error: "unauthorized" })
+      apiLog("warn", "third_party_agents.update.denied", { method: "PATCH", apiPath, status: 401, error: "unauthorized" })
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
     if (session.user.type !== "staff") {
-      apiLog("warn", "clients.update.denied", { method: "PATCH", apiPath, status: 403, error: "no_app_user_profile" })
+      apiLog("warn", "third_party_agents.update.denied", { method: "PATCH", apiPath, status: 403, error: "no_app_user_profile" })
       return NextResponse.json({ error: "no_app_user_profile" }, { status: 403 })
     }
 
@@ -189,7 +189,7 @@ export async function PATCH(
 
       const existingRes = await client.query(
         `SELECT c.id, c.name, c.status, c.email, c.address, c.phone
-         FROM clients c
+         FROM third_party_agents c
          WHERE ${scope.clause}
          LIMIT 1`,
         [id, actor.institution_id, ...scope.params]
@@ -198,7 +198,7 @@ export async function PATCH(
       const previous = existingRes.rows[0]
 
       const updateRes = await client.query(
-        `UPDATE clients c
+        `UPDATE third_party_agents c
          SET
            name = $4,
            status = $5,
@@ -216,7 +216,7 @@ export async function PATCH(
       if (updateRes.rows.length === 0) return { error: "client_not_found" as const }
       const updated = updateRes.rows[0]
       await auditLogger.logUpdate(
-        "clients",
+        "third_party_agents",
         id,
         {
           name: previous.name,
@@ -246,14 +246,14 @@ export async function PATCH(
         errorCode === "client_not_found" ? 404 :
         errorCode === "actor_branch_missing" ? 400 :
         errorCode.startsWith("missing_permission:") ? 403 : 400
-      apiLog("warn", "clients.update.denied", { method: "PATCH", apiPath, status: statusCode, error: errorCode, authUserId: session.user.authUserId, clientId: id })
+      apiLog("warn", "third_party_agents.update.denied", { method: "PATCH", apiPath, status: statusCode, error: errorCode, authUserId: session.user.authUserId, clientId: id })
       return NextResponse.json({ error: errorCode }, { status: statusCode })
     }
-    apiLog("info", "clients.update.success", { method: "PATCH", apiPath, status: 200, authUserId: session.user.authUserId, clientId: id })
+    apiLog("info", "third_party_agents.update.success", { method: "PATCH", apiPath, status: 200, authUserId: session.user.authUserId, clientId: id })
     return NextResponse.json(result)
   } catch (e: unknown) {
     const err = e as Error
-    apiLog("error", "clients.update.error", { method: "PATCH", apiPath, status: 500, error: err?.message || "Unexpected error" })
+    apiLog("error", "third_party_agents.update.error", { method: "PATCH", apiPath, status: 500, error: err?.message || "Unexpected error" })
     return NextResponse.json({ error: err?.message || "Unexpected error" }, { status: 500 })
   }
 }
