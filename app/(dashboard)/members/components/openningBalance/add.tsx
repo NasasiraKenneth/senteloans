@@ -35,6 +35,12 @@ function mapError(code: unknown): string {
       return "The selected loan product could not be found.";
     case "loan_creation_failed":
       return "The opening loan could not be created. Please try again.";
+    case "bank_account_required":
+      return "Select a bank account to record the savings opening balance.";
+    case "bank_account_not_found":
+      return "The selected bank account could not be found for this branch.";
+    case "bank_account_insufficient_funds":
+      return "The selected bank account has insufficient funds for this loan's net adjustment. Choose an account with a higher balance.";
     case "branch_inactive":
       return "This member's branch is not active. Opening balances are disabled until it is reactivated.";
     case "branch_not_found":
@@ -98,11 +104,22 @@ export default function AddOpeningBalanceModal({
     }
   };
 
+  const resolvedTitle =
+    title !== "Record Opening Balance"
+      ? title
+      : canEditSavings && canEditLoans
+        ? "Record Opening Balance"
+        : canEditSavings
+          ? "Record Savings Opening Balance"
+          : canEditLoans
+            ? "Record Loan Opening Balance"
+            : title
+
   return (
     <ReeveModal
       isOpen={isOpen}
       onClose={onClose}
-      title={title}
+      title={resolvedTitle}
       className="z-50"
     >
       <OpeningBalanceForm

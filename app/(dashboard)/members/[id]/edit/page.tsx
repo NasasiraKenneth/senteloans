@@ -14,13 +14,12 @@ import TooltipButton from "@/components/newUI/tooltip_button"
 
 import { FileUpload } from "@/components/ui/file-upload"
 // Removed mock-data; use live API
-import { ArrowLeft, Save, CreditCard, Smartphone, Check, BookOpen, PiggyBank, Landmark, AlertCircle, User, MapPin, Users, FileText, Shield, Phone, Eye } from "lucide-react"
+import { ArrowLeft, Save, CreditCard, Smartphone, Check, AlertCircle, User, MapPin, Users, FileText, Shield, Phone, Eye } from "lucide-react"
 import Image from "next/image"
 import { upload } from "@vercel/blob/client"
 import Link from "next/link"
 import { getSession } from "@/lib/session"
 import { notFound } from "next/navigation"
-import { calculateLoanTerms, normalizeLoanMethod } from "@/lib/loans/calculations"
 import { useToast } from "@/components/ui/toast"
 
 interface UserEditPageProps {
@@ -156,30 +155,8 @@ export default function UserEditPage({ params }: UserEditPageProps) {
   const [currency, setCurrency] = useState("UGX")
   const [memberPermissions, setMemberPermissions] = useState({
     editMember: false,
-    editMembershipFee: false,
-    editShares: false,
-    editOpeningSavings: false,
-    editOpeningLoans: false,
   })
   const { toast } = useToast()
-
-  // Opening balances state
-  const [obLoading, setObLoading] = useState(true)
-  const [obRecorded, setObRecorded] = useState(false)
-  const [obSavingsAccounts, setObSavingsAccounts] = useState<any[]>([])
-  const [obLoans, setObLoans] = useState<any[]>([])
-  const [obLoanProducts, setObLoanProducts] = useState<any[]>([])
-  const [obSavingsBalance, setObSavingsBalance] = useState("")
-  const [obSavingsAccountId, setObSavingsAccountId] = useState("")
-  const [obLoanBalance, setObLoanBalance] = useState("")
-  const [obLoanProductId, setObLoanProductId] = useState("")
-  const [obLoanTenure, setObLoanTenure] = useState("")
-  const [obLoanPrincipal, setObLoanPrincipal] = useState("")
-  const [obLoanLastPaymentDate, setObLoanLastPaymentDate] = useState("")
-  const [obLoanOriginalTenure, setObLoanOriginalTenure] = useState("")
-  const [obSubmitting, setObSubmitting] = useState(false)
-  const [obSuccess, setObSuccess] = useState<string | null>(null)
-  const [obError, setObError] = useState<string | null>(null)
 
   // Form state
   const [formData, setFormData] = useState({
@@ -270,26 +247,14 @@ export default function UserEditPage({ params }: UserEditPageProps) {
         const data = (await res.json()) as {
           permissions?: {
             editMember?: boolean
-            editMembershipFee?: boolean
-            editShares?: boolean
-            editOpeningSavings?: boolean
-            editOpeningLoans?: boolean
           }
         }
         setMemberPermissions({
           editMember: !!data.permissions?.editMember,
-          editMembershipFee: !!data.permissions?.editMembershipFee,
-          editShares: !!data.permissions?.editShares,
-          editOpeningSavings: !!data.permissions?.editOpeningSavings,
-          editOpeningLoans: !!data.permissions?.editOpeningLoans,
         })
       } catch {
         setMemberPermissions({
           editMember: false,
-          editMembershipFee: false,
-          editShares: false,
-          editOpeningSavings: false,
-          editOpeningLoans: false,
         })
       }
     }
@@ -315,129 +280,6 @@ export default function UserEditPage({ params }: UserEditPageProps) {
     loadCurrency()
   }, [])
 
-  // Load opening balance data
-  useEffect(() => {
-    let cancelled = false
-    async function loadOb() {
-      setObLoading(true)
-      try {
-        const res = await fetch(`/api/institution/members/${id}/opening-balances`, { cache: "no-store" })
-        if (res.ok) {
-          const data = await res.json()
-          if (!cancelled) {
-            setObRecorded(data.openingBalanceRecorded || false)
-            setObSavingsAccounts(data.savingsAccounts || [])
-            setObLoans(data.loans || [])
-            setObLoanProducts(data.loanProducts || [])
-            if (data.savingsAccounts?.length > 0) {
-              setObSavingsAccountId(data.savingsAccounts[0].id)
-            }
-          }
-        }
-      } catch {
-        // ignore
-      } finally {
-        if (!cancelled) setObLoading(false)
-      }
-    }
-    loadOb()
-    return () => { cancelled = true }
-  }, [id])
-
-  const handleOpeningBalanceSubmit = async () => {
-    setObError(null)
-    setObSuccess(null)
-
-    const canEditOpeningSavings = memberPermissions.editOpeningSavings
-    const canEditOpeningLoans = memberPermissions.editOpeningLoans
-
-    if (!canEditOpeningSavings && !canEditOpeningLoans) {
-      setObError("You do not have permission to edit opening balances")
-      return
-    }
-
-    const savBal = canEditOpeningSavings ? (Number(obSavingsBalance) || 0) : 0
-    const loanBal = canEditOpeningLoans ? (Number(obLoanBalance) || 0) : 0
-
-    if (savBal <= 0 && loanBal <= 0) {
-      setObError("Enter at least a savings balance or loan balance")
-      return
-    }
-
-    setObSubmitting(true)
-    try {
-      const payload: Record<string, unknown> = {}
-      if (savBal > 0) {
-        payload.savingsBalance = savBal
-        if (obSavingsAccountId) payload.savingsAccountId = obSavingsAccountId
-      }
-      if (loanBal > 0) {
-        if (!obLoanProductId) {
-          setObError("Select a loan product for the opening loan balance")
-          setObSubmitting(false)
-          return
-        }
-        const remTenure = Number(obLoanTenure) || 0
-        if (remTenure <= 0) {
-          setObError("Remaining tenure is required for loan opening balance")
-          setObSubmitting(false)
-          return
-        }
-        const principal = Number(obLoanPrincipal) || 0
-        if (principal > 0 && principal < loanBal) {
-          setObError("Original principal amount cannot be less than the outstanding balance")
-          setObSubmitting(false)
-          return
-        }
-        const origTenure = Number(obLoanOriginalTenure) || 0
-        if (origTenure > 0 && remTenure > 0 && origTenure < remTenure) {
-          setObError("Original tenure cannot be less than remaining tenure")
-          setObSubmitting(false)
-          return
-        }
-        payload.loanOutstandingBalance = loanBal
-        payload.loanProductId = obLoanProductId
-        if (obLoanTenure) payload.loanTenureMonths = Number(obLoanTenure)
-        if (principal > 0) payload.loanPrincipalAmount = principal
-        if (obLoanLastPaymentDate) payload.loanLastPaymentDate = obLoanLastPaymentDate
-        if (origTenure > 0) payload.loanOriginalTenure = origTenure
-      }
-
-      const res = await fetch(`/api/institution/members/${id}/opening-balances`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || "Failed to record opening balances")
-
-      setObRecorded(true)
-      setObSuccess("Opening balances recorded successfully")
-      setObSavingsBalance("")
-      setObLoanBalance("")
-      setObLoanPrincipal("")
-      setObLoanLastPaymentDate("")
-      setObLoanOriginalTenure("")
-
-      // Reload the data
-      const reloadRes = await fetch(`/api/institution/members/${id}/opening-balances`, { cache: "no-store" })
-      if (reloadRes.ok) {
-        const reloadData = await reloadRes.json()
-        setObSavingsAccounts(reloadData.savingsAccounts || [])
-        setObLoans(reloadData.loans || [])
-      }
-    } catch (err: any) {
-      setObError(err?.message || "Failed to record opening balances")
-    } finally {
-      setObSubmitting(false)
-    }
-  }
-
-  // Local fallback config if session is missing or stale
-  const [instConfig, setInstConfig] = useState<any | null>(null)
-  const hasSavings =
-    session?.institution?.config?.modules?.savings ?? instConfig?.modules?.savings
-
   // If session config is missing, hydrate from API and cache locally (best-effort)
   useEffect(() => {
     async function hydrateConfig() {
@@ -447,8 +289,7 @@ export default function UserEditPage({ params }: UserEditPageProps) {
           if (res.ok) {
             const data = await res.json()
             if (data?.config) {
-              setInstConfig(data.config)
-              // Attempt to cache in localStorage if a session exists
+              // Cache in localStorage so terminology/config is available next load.
               try {
                 updateInstitutionConfig(data.config)
               } catch {}
@@ -496,6 +337,9 @@ export default function UserEditPage({ params }: UserEditPageProps) {
   }
 
   const terminology = getTerminology()
+  // Without edit_member, the form is read-only: fields and KYC uploads are
+  // disabled and Save is blocked (the API enforces this too).
+  const canEdit = memberPermissions.editMember
 
   const handleInputChange = (field: string, value: string) => {
     setFormData((prev) => ({
@@ -505,6 +349,14 @@ export default function UserEditPage({ params }: UserEditPageProps) {
   }
 
   const handleDocUpload = async (docType: "passport_photo" | "national_id_front" | "national_id_back", file: File) => {
+    if (!memberPermissions.editMember) {
+      toast({
+        variant: "warning",
+        title: "Access denied",
+        description: `You do not have permission to edit ${terminology.singular.toLowerCase()} documents.`,
+      })
+      return
+    }
     try {
       setDocUploading((p) => ({ ...p, [docType]: true }))
       const name = `client-kyc/${id}/${docType}-${Date.now()}-${file.name}`
@@ -641,7 +493,7 @@ export default function UserEditPage({ params }: UserEditPageProps) {
         title: `${terminology.singular} updated`,
         description: `${formData.fullName.trim()} has been saved successfully.`,
       })
-      router.push(`/users/${id}`)
+      router.push(`/members/${id}`)
       router.refresh()
     } catch (err: any) {
       setError(err?.message || `Failed to update ${terminology.singular.toLowerCase()}`)
@@ -691,7 +543,6 @@ export default function UserEditPage({ params }: UserEditPageProps) {
     { id: "location", label: "Location & Work", icon: MapPin },
     { id: "nok", label: "Next of Kin", icon: Users },
     { id: "payout", label: "Payout Accounts", icon: CreditCard },
-    { id: "opening-balances", label: "Opening Balances", icon: BookOpen },
     { id: "status", label: "Status & Notes", icon: Shield },
   ]
 
@@ -784,7 +635,18 @@ export default function UserEditPage({ params }: UserEditPageProps) {
               </div>
             )}
 
+            {!canEdit && (
+              <div className="flex items-center gap-2 text-sm text-amber-800 bg-amber-50 border border-amber-200 px-4 py-3 rounded-lg">
+                <AlertCircle className="h-4 w-4 shrink-0" />
+                You have read-only access. Editing {terminology.singular.toLowerCase()} details requires the edit permission.
+              </div>
+            )}
+
             <form onSubmit={handleSubmit} className="space-y-6">
+              {/* Read-only when the user lacks edit_member: native inputs are
+                  disabled by the fieldset; custom controls receive disabled
+                  explicitly below. */}
+              <fieldset disabled={!canEdit} className="m-0 min-w-0 space-y-6 border-0 p-0">
               {/* Basic Information */}
               <Card id="personal" className="scroll-mt-24">
                 <CardHeader>
@@ -828,6 +690,7 @@ export default function UserEditPage({ params }: UserEditPageProps) {
                       <ReeveDatePicker
                         value={formData.dateOfBirth}
                         onChange={(value) => handleInputChange("dateOfBirth", value)}
+                        disabled={!canEdit}
                       />
                     </div>
                     <div className="space-y-2">
@@ -836,6 +699,7 @@ export default function UserEditPage({ params }: UserEditPageProps) {
                         value={formData.gender}
                         onChange={(value) => handleInputChange("gender", value)}
                         placeholder="Select gender"
+                        disabled={!canEdit}
                         options={[
                           { value: "Male", label: "Male" },
                           { value: "Female", label: "Female" },
@@ -849,6 +713,7 @@ export default function UserEditPage({ params }: UserEditPageProps) {
                         value={formData.maritalStatus}
                         onChange={(value) => handleInputChange("maritalStatus", value)}
                         placeholder="Select marital status"
+                        disabled={!canEdit}
                         options={[
                           { value: "Single", label: "Single" },
                           { value: "Married", label: "Married" },
@@ -881,6 +746,7 @@ export default function UserEditPage({ params }: UserEditPageProps) {
                     accept="image/*,application/pdf"
                     maxSize={5}
                     layout="inline"
+                    disabled={!canEdit}
                   />
 
                   <FileUpload
@@ -892,6 +758,7 @@ export default function UserEditPage({ params }: UserEditPageProps) {
                     accept="image/*,application/pdf"
                     maxSize={5}
                     layout="inline"
+                    disabled={!canEdit}
                   />
 
                   <FileUpload
@@ -903,6 +770,7 @@ export default function UserEditPage({ params }: UserEditPageProps) {
                     accept="image/*,application/pdf"
                     maxSize={5}
                     layout="inline"
+                    disabled={!canEdit}
                   />
                 </CardContent>
               </Card>
@@ -996,6 +864,7 @@ export default function UserEditPage({ params }: UserEditPageProps) {
                         value={formData.nextOfKinRelationship}
                         onChange={(value) => handleInputChange("nextOfKinRelationship", value)}
                         placeholder="Select relationship"
+                        disabled={!canEdit}
                         options={[
                           { value: "Spouse", label: "Spouse" },
                           { value: "Father", label: "Father" },
@@ -1049,6 +918,7 @@ export default function UserEditPage({ params }: UserEditPageProps) {
                           value={formData.mobileMoneyProvider}
                           onChange={(value) => handleInputChange("mobileMoneyProvider", value)}
                           placeholder="Select provider"
+                          disabled={!canEdit}
                           options={[
                             { value: "MTN Mobile Money", label: "MTN Mobile Money" },
                             { value: "Airtel Money", label: "Airtel Money" },
@@ -1081,6 +951,7 @@ export default function UserEditPage({ params }: UserEditPageProps) {
                           value={formData.bankName}
                           onChange={(value) => handleInputChange("bankName", value)}
                           placeholder="Select bank"
+                          disabled={!canEdit}
                           options={[
                             { value: "Stanbic Bank", label: "Stanbic Bank" },
                             { value: "Centenary Bank", label: "Centenary Bank" },
@@ -1124,275 +995,6 @@ export default function UserEditPage({ params }: UserEditPageProps) {
                 </CardContent>
               </Card>
 
-              {/* Opening Balances */}
-              <Card id="opening-balances" className="scroll-mt-24">
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <BookOpen className="h-5 w-5 text-primary" />
-                    Opening Balances
-                  </CardTitle>
-                  <CardDescription>
-                    Record existing savings and loan balances for members migrating from a previous system.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {obLoading ? (
-                    <div className="text-sm text-muted-foreground">Loading...</div>
-                  ) : (
-                    <>
-                      {obRecorded && (
-                        <div className="flex items-center gap-2 p-3 bg-green-50 border border-green-200 rounded-lg">
-                          <Check className="h-4 w-4 text-green-600" />
-                          <span className="text-sm font-medium text-green-700">Opening balances have been recorded for this {terminology.singular.toLowerCase()}</span>
-                        </div>
-                      )}
-
-                      {obSuccess && (
-                        <div className="text-sm text-green-700 bg-green-50 border border-green-200 p-2 rounded">{obSuccess}</div>
-                      )}
-                      {obError && (
-                        <div className="text-sm text-red-600 bg-red-50 border border-red-200 p-2 rounded">{obError}</div>
-                      )}
-
-                      {/* Current Balances Summary */}
-                      {(obSavingsAccounts.length > 0 || obLoans.length > 0) && (
-                        <div className="space-y-3">
-                          <h4 className="text-sm font-semibold text-gray-900">Current Balances</h4>
-                          <div className="grid gap-3 md:grid-cols-2">
-                            {obSavingsAccounts.map((acc: any) => (
-                              <div key={acc.id} className="flex items-center gap-3 p-3 bg-muted/30 rounded-lg">
-                                <PiggyBank className="h-5 w-5 text-green-600" />
-                                <div className="flex-1 min-w-0">
-                                  <div className="text-sm font-medium truncate">{acc.account_number}</div>
-                                  <div className="text-xs text-muted-foreground">{acc.account_type} Savings</div>
-                                </div>
-                                <div className="text-sm font-bold text-green-700">
-                                  {currency} {Number(acc.available_balance).toLocaleString()}
-                                </div>
-                              </div>
-                            ))}
-                            {obLoans.filter((l: any) => ["Active", "Disbursed"].includes(l.status)).map((loan: any) => (
-                              <div key={loan.id} className="flex items-center gap-3 p-3 bg-muted/30 rounded-lg">
-                                <Landmark className="h-5 w-5 text-orange-600" />
-                                <div className="flex-1 min-w-0">
-                                  <div className="text-sm font-medium truncate">{loan.application_id}</div>
-                                  <div className="text-xs text-muted-foreground">{loan.product_name || "Loan"}</div>
-                                </div>
-                                <div className="text-sm font-bold text-orange-700">
-                                  {currency} {Number(loan.outstanding_balance).toLocaleString()}
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Record Opening Balances Form */}
-                      <div className="border-t pt-4 space-y-4">
-                        <div className="flex items-center gap-2">
-                          <AlertCircle className="h-4 w-4 text-muted-foreground" />
-                          <span className="text-xs text-muted-foreground">
-                            {obRecorded
-                              ? "You can record additional opening balances if needed."
-                              : "Record the member's balances from their previous system."}
-                          </span>
-                        </div>
-
-                        {/* Savings Opening Balance */}
-                        <div className="space-y-3">
-                          <div className="flex items-center gap-2 pb-2 border-b">
-                            <PiggyBank className="h-4 w-4 text-green-600" />
-                            <h4 className="font-medium text-sm">Savings Opening Balance</h4>
-                          </div>
-                          {obSavingsAccounts.length === 0 ? (
-                            <div className="text-sm text-muted-foreground bg-yellow-50 border border-yellow-200 p-2 rounded">
-                              No savings account found. One will be created when the member was added.
-                            </div>
-                          ) : (
-                            <div className="grid gap-4 md:grid-cols-2">
-                              {obSavingsAccounts.length > 1 && (
-                                <div className="space-y-2">
-                                  <Label>Savings Account</Label>
-                                  <StyledSelect
-                                    value={obSavingsAccountId}
-                                    onChange={setObSavingsAccountId}
-                                    placeholder="Select account"
-                                    disabled={!memberPermissions.editOpeningSavings}
-                                    options={obSavingsAccounts.map((acc: any) => ({
-                                      value: acc.id,
-                                      label: `${acc.account_number} (${acc.account_type})`,
-                                    }))}
-                                  />
-                                </div>
-                              )}
-                              <div className="space-y-2">
-                                <Label htmlFor="obSavingsBalance">Opening Savings Balance ({currency})</Label>
-                                <StyledInput
-                                  id="obSavingsBalance"
-                                  type="number"
-                                  min={0}
-                                  value={obSavingsBalance}
-                                  disabled={!memberPermissions.editOpeningSavings}
-                                  onChange={(e) => setObSavingsBalance(e.target.value)}
-                                  placeholder="e.g., 500,000"
-                                />
-                              </div>
-                            </div>
-                          )}
-                        </div>
-
-                        {/* Loan Opening Balance */}
-                        <div className="space-y-3">
-                          <div className="flex items-center gap-2 pb-2 border-b">
-                            <Landmark className="h-4 w-4 text-orange-600" />
-                            <h4 className="font-medium text-sm">Loan Opening Balance</h4>
-                          </div>
-                          <p className="text-xs text-muted-foreground">
-                            Provide the original loan details to create a full loan lifecycle with repayment schedule.
-                          </p>
-                          <div className="grid gap-4 md:grid-cols-2">
-                            <div className="space-y-2">
-                              <Label>Loan Product <span className="text-red-500">*</span></Label>
-                              <StyledSelect
-                                value={obLoanProductId}
-                                onChange={setObLoanProductId}
-                                placeholder="Select loan product"
-                                disabled={!memberPermissions.editOpeningLoans}
-                                options={obLoanProducts.map((p: any) => ({
-                                  value: p.id,
-                                  label: `${p.product_name} (${p.interest_rate}%)`,
-                                }))}
-                              />
-                            </div>
-                            <div className="space-y-2">
-                              <Label htmlFor="obLoanPrincipal">Original Loan Amount ({currency}) <span className="text-red-500">*</span></Label>
-                              <StyledInput
-                                id="obLoanPrincipal"
-                                type="number"
-                                min={0}
-                                value={obLoanPrincipal}
-                                disabled={!memberPermissions.editOpeningLoans}
-                                onChange={(e) => setObLoanPrincipal(e.target.value)}
-                                placeholder="e.g., 2,000,000"
-                              />
-                              <p className="text-xs text-muted-foreground">The full principal amount that was originally disbursed</p>
-                            </div>
-                            <div className="space-y-2">
-                              <Label htmlFor="obLoanBalance">Outstanding Balance ({currency}) <span className="text-red-500">*</span></Label>
-                              <StyledInput
-                                id="obLoanBalance"
-                                type="number"
-                                min={0}
-                                value={obLoanBalance}
-                                disabled={!memberPermissions.editOpeningLoans}
-                                onChange={(e) => setObLoanBalance(e.target.value)}
-                                placeholder="e.g., 1,000,000"
-                              />
-                              <p className="text-xs text-muted-foreground">The amount still owed today</p>
-                            </div>
-                            <div className="space-y-2">
-                              <Label htmlFor="obLoanOriginalTenure">Original Tenure (months)</Label>
-                              <StyledInput
-                                id="obLoanOriginalTenure"
-                                type="number"
-                                min={1}
-                                value={obLoanOriginalTenure}
-                                disabled={!memberPermissions.editOpeningLoans}
-                                onChange={(e) => setObLoanOriginalTenure(e.target.value)}
-                                placeholder="e.g., 24"
-                              />
-                              <p className="text-xs text-muted-foreground">Total months the loan was originally issued for</p>
-                            </div>
-                            <div className="space-y-2">
-                              <Label htmlFor="obLoanTenure">Remaining Tenure (months) <span className="text-red-500">*</span></Label>
-                              <StyledInput
-                                id="obLoanTenure"
-                                type="number"
-                                min={1}
-                                value={obLoanTenure}
-                                disabled={!memberPermissions.editOpeningLoans}
-                                onChange={(e) => setObLoanTenure(e.target.value)}
-                                placeholder="e.g., 12"
-                              />
-                              <p className="text-xs text-muted-foreground">Months still remaining to be paid</p>
-                            </div>
-                            <div className="space-y-2">
-                              <Label htmlFor="obLoanLastPaymentDate">Last Payment Date</Label>
-                              <ReeveDatePicker
-                                value={obLoanLastPaymentDate}
-                                onChange={(v) => {
-                                  if (!memberPermissions.editOpeningLoans) return
-                                  setObLoanLastPaymentDate(v)
-                                }}
-                                placeholder="Select date"
-                              />
-                              <p className="text-xs text-muted-foreground">Date of the most recent payment in the previous system</p>
-                            </div>
-                          </div>
-
-                          {/* Loan calculation preview */}
-                          {Number(obLoanBalance) > 0 && Number(obLoanTenure) > 0 && obLoanProductId && (() => {
-                            const bal = Number(obLoanBalance)
-                            const rem = Number(obLoanTenure)
-                            const selectedProduct = obLoanProducts.find((p: any) => p.id === obLoanProductId)
-                            const rate = selectedProduct ? Number(selectedProduct.interest_rate) : 0
-                            const terms = calculateLoanTerms(
-                              bal,
-                              rate,
-                              rem,
-                              selectedProduct?.interest_calculation_method
-                            )
-                            const mp = terms.monthlyPayment
-                            const totalRepayment = terms.totalAmount
-                            const totalInterest = totalRepayment - bal
-                            const calcMethod = normalizeLoanMethod(selectedProduct?.interest_calculation_method)
-                              .replace("_", " ")
-                              .replace(/\b\w/g, (c) => c.toUpperCase())
-                            return (
-                              <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg space-y-1">
-                                <h5 className="text-xs font-semibold text-blue-800">Projected Repayment Schedule</h5>
-                                <div className="grid grid-cols-3 gap-2 text-xs text-blue-700">
-                                  <div>
-                                    <span className="block text-blue-500">Monthly Payment</span>
-                                    <span className="font-semibold">{currency} {Math.round(mp).toLocaleString()}</span>
-                                  </div>
-                                  <div>
-                                    <span className="block text-blue-500">Total Interest</span>
-                                    <span className="font-semibold">{currency} {Math.round(totalInterest).toLocaleString()}</span>
-                                  </div>
-                                  <div>
-                                    <span className="block text-blue-500">Total Repayment</span>
-                                    <span className="font-semibold">{currency} {Math.round(totalRepayment).toLocaleString()}</span>
-                                  </div>
-                                </div>
-                                <div className="text-xs text-blue-600 mt-1">
-                                  Method: <span className="font-semibold">{calcMethod}</span>
-                                </div>
-                              </div>
-                            )
-                          })()}
-                        </div>
-
-                        <Button
-                          type="button"
-                          onClick={handleOpeningBalanceSubmit}
-                          disabled={
-                            obSubmitting ||
-                            (!memberPermissions.editOpeningSavings && !memberPermissions.editOpeningLoans) ||
-                            ((memberPermissions.editOpeningSavings ? Number(obSavingsBalance) : 0) <= 0 &&
-                              (memberPermissions.editOpeningLoans ? Number(obLoanBalance) : 0) <= 0)
-                          }
-                          className="w-full sm:w-auto"
-                        >
-                          <BookOpen className="h-4 w-4 mr-2" />
-                          {obSubmitting ? "Recording..." : "Record Opening Balances"}
-                        </Button>
-                      </div>
-                    </>
-                  )}
-                </CardContent>
-              </Card>
-
               {/* Status & Management */}
               <Card id="status" className="scroll-mt-24">
                 <CardHeader>
@@ -1410,6 +1012,7 @@ export default function UserEditPage({ params }: UserEditPageProps) {
                         value={formData.status}
                         onChange={(value) => handleInputChange("status", value)}
                         placeholder="Select status"
+                        disabled={!canEdit}
                         options={[
                           { value: "Active", label: "Active" },
                           { value: "Inactive", label: "Inactive" },
@@ -1422,6 +1025,7 @@ export default function UserEditPage({ params }: UserEditPageProps) {
                       <ReeveDatePicker
                         value={formData.joinDate}
                         onChange={(value) => handleInputChange("joinDate", value)}
+                        disabled={!canEdit}
                       />
                     </div>
                   </div>
@@ -1437,6 +1041,7 @@ export default function UserEditPage({ params }: UserEditPageProps) {
                   </div>
                 </CardContent>
               </Card>
+              </fieldset>
 
               {/* Sticky Save Bar */}
               <div className="sticky bottom-0 z-10 -mx-1 px-1">
@@ -1446,7 +1051,7 @@ export default function UserEditPage({ params }: UserEditPageProps) {
                       Review all sections before saving changes.
                     </p>
                     <div className="flex items-center gap-3 ml-auto">
-                      <Link href={`/users/${id}`}>
+                      <Link href={`/members/${id}`}>
                         <Button variant="outline" type="button">
                           Cancel
                         </Button>

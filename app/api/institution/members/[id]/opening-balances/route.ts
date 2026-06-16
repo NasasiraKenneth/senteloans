@@ -8,6 +8,8 @@ import { auditLogger } from "@/lib/audit/audit-logger"
 import { resolveActorContext, hasPermission, assertNotSuperAdmin, SUPER_ADMIN_WRITE_BLOCKED } from "@/lib/api/rbac"
 import { assertBranchActive } from "@/lib/branches/branch-status"
 import { createTransaction } from "@/lib/transactions/create-transaction"
+import { applyDailyFinanceEntry } from "@/lib/finances/daily-finance"
+import { getBranchBankAccount, adjustBankAccountBalance, type BankAccountRow } from "@/lib/finances/bank-account"
 import { notifyOpeningBalance } from "@/lib/notifications/opening-balance-events"
 import { enqueueOpeningBalanceEmails } from "@/lib/email/opening-balance-emails"
 
@@ -29,6 +31,7 @@ type OpeningBalanceErrorCode =
   | "savings_account_not_found"
   | "loan_product_not_found"
   | "loan_creation_failed"
+  | "bank_account_insufficient_funds"
 
 /**
  * Thrown inside the write transaction so a single catch can ROLLBACK and map the
@@ -207,6 +210,35 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
     const savingsBalance = parseNum(body.savingsBalance)
     const savingsAccountId = typeof body.savingsAccountId === "string" ? body.savingsAccountId : null
+    const bankAccountId =
+      typeof body.bankAccountId === "string" && body.bankAccountId.trim()
+        ? body.bankAccountId.trim()
+        : null
+
+    // Preferred multi-account shape from the form: [{ accountId, balance }].
+    const rawSavingsEntries = Array.isArray(body.savingsEntries) ? body.savingsEntries : []
+    const parsedEntries = rawSavingsEntries
+      .map((raw) => {
+        const obj = (raw ?? {}) as Record<string, unknown>
+        const accountId =
+          typeof obj.accountId === "string" && obj.accountId.trim() ? obj.accountId.trim() : null
+        const balance = parseNum(obj.balance)
+        return { accountId, balance: balance ?? 0 }
+      })
+      .filter((e): e is { accountId: string; balance: number } => Boolean(e.accountId) && e.balance > 0)
+
+    // De-duplicate by account (last value wins) so a single account can't be written twice.
+    const dedupedEntries = Array.from(
+      new Map(parsedEntries.map((e) => [e.accountId, e])).values(),
+    )
+
+    // Normalised list the write path consumes. accountId may be null only for the
+    // legacy single-account fallback (resolves to the member's first account).
+    const savingsEntries: Array<{ accountId: string | null; balance: number }> = [...dedupedEntries]
+    if (savingsEntries.length === 0 && savingsBalance !== null && savingsBalance > 0) {
+      savingsEntries.push({ accountId: savingsAccountId, balance: savingsBalance })
+    }
+
     const loanOutstandingBalance = parseNum(body.loanOutstandingBalance)
     const loanProductId = typeof body.loanProductId === "string" ? body.loanProductId : null
     const loanTenureMonths = parseNum(body.loanTenureMonths)
@@ -215,7 +247,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const loanLastPaymentDate = typeof body.loanLastPaymentDate === "string" && body.loanLastPaymentDate.trim() ? body.loanLastPaymentDate.trim() : null
     const loanOriginalTenure = parseNum(body.loanOriginalTenure)
 
-    const hasSavings = savingsBalance !== null && Number.isFinite(savingsBalance) && savingsBalance > 0
+    const hasSavings = savingsEntries.length > 0
     const hasLoan = loanOutstandingBalance !== null && Number.isFinite(loanOutstandingBalance) && loanOutstandingBalance > 0
 
     if (!hasSavings && !hasLoan) {
@@ -275,62 +307,96 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       }
       const branchId = memberRow.branch_id as string
 
+      // Destination bank account for opening balances. Required: every opening
+      // balance must be bank-recorded. Savings are credited to this account; loan
+      // migrations net their reconstructed cash movement (repayments received
+      // minus original disbursement) against it. Both then roll into daily
+      // finances, mirroring the membership-fee settlement flow.
+      let bankAccount: BankAccountRow | null = null
+      if (hasSavings || hasLoan) {
+        if (!bankAccountId) return { error: "bank_account_required" as const }
+        bankAccount = await getBranchBankAccount(client, {
+          bankAccountId,
+          institutionId: actor.institution_id,
+          branchId,
+        })
+        if (!bankAccount) return { error: "bank_account_not_found" as const }
+      }
+      // Opening balances always settle into the bank channel.
+      const bankMode = "Bank Transfer"
+
       const txDate = new Date().toISOString()
       const results: { savingsUpdated?: boolean; loanCreated?: boolean; loanId?: string } = {}
-      let savingsAccountUsed: string | null = null
+      const savingsAccountsUpdated: string[] = []
+      let totalSavingsRecorded = 0
 
       try {
         await client.query("BEGIN")
 
-      // --- SAVINGS OPENING BALANCE ---
+      // --- SAVINGS OPENING BALANCE (one entry per account) ---
       if (hasSavings) {
-        let accountId = savingsAccountId
-        if (!accountId) {
-          const accRes = await client.query(
-            `SELECT id FROM savings_accounts WHERE member_id = $1 AND institution_id = $2 ORDER BY created_at LIMIT 1`,
-            [memberId, actor.institution_id]
+        for (const entry of savingsEntries) {
+          let accountId = entry.accountId
+          if (!accountId) {
+            const accRes = await client.query(
+              `SELECT id FROM savings_accounts WHERE member_id = $1 AND institution_id = $2 ORDER BY created_at LIMIT 1`,
+              [memberId, actor.institution_id]
+            )
+            accountId = accRes.rows[0]?.id ?? null
+          }
+
+          if (!accountId) {
+            throw new OpeningBalanceError("no_savings_account")
+          }
+
+          const accVerify = await client.query(
+            `SELECT id, available_balance FROM savings_accounts WHERE id = $1 AND member_id = $2 AND institution_id = $3`,
+            [accountId, memberId, actor.institution_id]
           )
-          accountId = accRes.rows[0]?.id
+          if (!accVerify.rows[0]) throw new OpeningBalanceError("savings_account_not_found")
+
+          const balanceBefore = Number(accVerify.rows[0].available_balance) || 0
+
+          await client.query(
+            `UPDATE savings_accounts
+             SET available_balance = $1, total_balance = $1, last_transaction_date = $2
+             WHERE id = $3`,
+            [entry.balance, txDate.slice(0, 10), accountId]
+          )
+
+          // Shared transaction writer: collision-safe number + branch_id + audit.
+          await createTransaction(client, {
+            institutionId: actor.institution_id,
+            branchId,
+            memberId,
+            accountId,
+            type: "Opening Balance",
+            amount: entry.balance,
+            mode: bankMode,
+            description: "Opening savings balance from previous system",
+            balanceBefore,
+            balanceAfter: entry.balance,
+            processedBy: actor.id,
+            transactionDate: txDate,
+            prefix: "OB-SAV",
+          })
+
+          savingsAccountsUpdated.push(accountId)
+          totalSavingsRecorded += entry.balance
         }
-
-        if (!accountId) {
-          throw new OpeningBalanceError("no_savings_account")
-        }
-
-        const accVerify = await client.query(
-          `SELECT id, available_balance FROM savings_accounts WHERE id = $1 AND member_id = $2 AND institution_id = $3`,
-          [accountId, memberId, actor.institution_id]
-        )
-        if (!accVerify.rows[0]) throw new OpeningBalanceError("savings_account_not_found")
-
-        const balanceBefore = Number(accVerify.rows[0].available_balance) || 0
-
-        await client.query(
-          `UPDATE savings_accounts
-           SET available_balance = $1, total_balance = $1, last_transaction_date = $2
-           WHERE id = $3`,
-          [savingsBalance, txDate.slice(0, 10), accountId]
-        )
-
-        // Shared transaction writer: collision-safe number + branch_id + audit.
-        await createTransaction(client, {
-          institutionId: actor.institution_id,
-          branchId,
-          memberId,
-          accountId,
-          type: "Opening Balance",
-          amount: savingsBalance!,
-          mode: "Cash",
-          description: "Opening savings balance from previous system",
-          balanceBefore,
-          balanceAfter: savingsBalance!,
-          processedBy: actor.id,
-          transactionDate: txDate,
-          prefix: "OB-SAV",
-        })
-
-        savingsAccountUsed = accountId
         results.savingsUpdated = true
+
+        // Credit the selected branch bank account with the recorded savings total.
+        if (bankAccount) {
+          const adj = await adjustBankAccountBalance(client, {
+            account: bankAccount,
+            amount: totalSavingsRecorded,
+            actor,
+          })
+          // Keep the in-memory balances fresh so a later loan adjustment audits
+          // against the correct "before" snapshot.
+          bankAccount = { ...bankAccount, available_balance: adj.availableBalance, total_amount: adj.totalAmount }
+        }
       }
 
       // --- LOAN OPENING BALANCE ---
@@ -457,7 +523,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
             loanId: loanRow.id,
             type: "Loan Repayment",
             amount: amountAlreadyPaid,
-            mode: "Cash",
+            mode: bankMode,
             description: "Migrated repayments from previous system",
             balanceBefore: totalPayable,
             balanceAfter: Number(loanOutstandingBalance),
@@ -467,8 +533,46 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
           })
         }
 
+        // Net cash effect of migrating this loan into the branch bank account:
+        //   repayments already received (amountAlreadyPaid) minus the original
+        //   disbursement (principalAmount).
+        // Positive  -> member has repaid more than was lent (interest), credit.
+        // Negative  -> principal still outstanding exceeds repayments, debit.
+        if (bankAccount) {
+          const loanCashImpact = round2(amountAlreadyPaid - principalAmount)
+          if (Math.abs(loanCashImpact) >= 0.01) {
+            // Pre-check overdraw: a net debit cannot take the bank account below
+            // zero (bank_accounts has a CHECK available_balance >= 0). Fail with
+            // a friendly code instead of letting the constraint raise a 500.
+            const currentAvailable = Number(bankAccount.available_balance ?? 0)
+            if (loanCashImpact < 0 && currentAvailable + loanCashImpact < 0) {
+              throw new OpeningBalanceError("bank_account_insufficient_funds")
+            }
+            const adj = await adjustBankAccountBalance(client, {
+              account: bankAccount,
+              amount: loanCashImpact,
+              actor,
+            })
+            bankAccount = { ...bankAccount, available_balance: adj.availableBalance, total_amount: adj.totalAmount }
+          }
+        }
+
         results.loanCreated = true
         results.loanId = loanRow.id
+      }
+
+      // Roll the net bank movement (savings credit and/or loan migration) into
+      // the branch's daily finance ledger for today. For bank-routed money the
+      // helper recomputes the live bank total from bank_accounts, so a single
+      // call after all bank adjustments keeps the running position accurate.
+      if (bankAccount) {
+        await applyDailyFinanceEntry(client, {
+          institutionId: actor.institution_id,
+          branchId,
+          amount: 0,
+          mode: bankMode,
+          actor,
+        })
       }
 
       await client.query(
@@ -492,7 +596,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         {},
         {
           action: "opening_balances",
-          savingsBalance: hasSavings ? savingsBalance : null,
+          savingsBalance: hasSavings ? totalSavingsRecorded : null,
+          savingsAccounts: hasSavings ? savingsAccountsUpdated : null,
+          bankAccountId: bankAccountId,
           loanPrincipalAmount: hasLoan ? (loanPrincipalAmount ?? loanOutstandingBalance) : null,
           loanOutstandingBalance: hasLoan ? loanOutstandingBalance : null,
           loanOriginalTenure: hasLoan ? (loanOriginalTenure ?? loanTenureMonths) : null,
@@ -531,7 +637,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
             email: memberRow.email ? String(memberRow.email) : "",
           },
           savings: results.savingsUpdated
-            ? { amount: Number(savingsBalance), accountId: savingsAccountUsed }
+            ? { amount: totalSavingsRecorded, accountId: savingsAccountsUpdated[0] ?? null }
             : null,
           loan:
             results.loanCreated && results.loanId

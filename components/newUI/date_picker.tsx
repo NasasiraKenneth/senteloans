@@ -23,12 +23,14 @@ interface ReeveDatePickerProps {
   value: string
   onChange: (value: string) => void
   placeholder?: string
+  disabled?: boolean
 }
 
 export default function ReeveDatePicker({
   value,
   onChange,
   placeholder = "Select date",
+  disabled = false,
 }: ReeveDatePickerProps) {
   const [open, setOpen] = useState(false)
   const parsed = parseDateOnly(value)
@@ -41,6 +43,7 @@ export default function ReeveDatePicker({
       key={value || "empty"}
       className="orange"
       value={parsed}
+      disabled={disabled}
       onOpenPickNewDate={false}
       onOpen={() => setOpen(true)}
       onClose={() => setOpen(false)}
@@ -56,9 +59,13 @@ export default function ReeveDatePicker({
       containerStyle={{ width: "100%" }}
       render={(_pickerValue, openCalendar) => (
         <div
-          onClick={openCalendar}
-          className={`flex items-center gap-2 w-full px-3 py-2.5 text-sm border rounded-md cursor-pointer transition-all duration-200 ${
-            open ? "ring-[1.5px] ring-[#f08c2b] border-transparent" : "border-gray-300 hover:border-gray-400"
+          onClick={disabled ? undefined : openCalendar}
+          className={`flex items-center gap-2 w-full px-3 py-2.5 text-sm border rounded-md transition-all duration-200 ${
+            disabled
+              ? "bg-muted/50 text-gray-500 cursor-not-allowed border-gray-200"
+              : open
+                ? "ring-[1.5px] ring-[#f08c2b] border-transparent cursor-pointer"
+                : "border-gray-300 hover:border-gray-400 cursor-pointer"
           }`}
         >
           <FiCalendar className="text-gray-400" />

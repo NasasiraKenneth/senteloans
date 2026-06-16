@@ -5,7 +5,6 @@ import { AnimatePresence, motion } from "framer-motion"
 import { AlertCircle, BookOpen, Check, ChevronDown, Landmark, PiggyBank } from "lucide-react"
 import StyledSelect from "@/components/newUI/styled_select"
 import ReeveDatePicker from "@/components/newUI/date_picker"
-import { formatCurrency } from "@/lib/format-currency"
 import { calculateLoanTerms, normalizeLoanMethod } from "@/lib/loans/calculations"
 
 export interface OpeningBalanceSavingsEntry {
@@ -83,6 +82,13 @@ export default function OpeningBalanceForm({
 
   const [error, setError] = useState<string | null>(null)
 
+  // Loans-only users see the loan section expanded immediately (no savings block to show).
+  useEffect(() => {
+    if (canEditLoans && !canEditSavings) {
+      setLoanSectionOpen(true)
+    }
+  }, [canEditLoans, canEditSavings])
+
   useEffect(() => {
     let cancelled = false
     async function load() {
@@ -128,7 +134,15 @@ export default function OpeningBalanceForm({
     }
   }, [memberId])
 
-  const fmt = (n: number) => formatCurrency(n, currency)
+  const submitLabel =
+    canEditSavings && canEditLoans
+      ? "Record Opening Balances"
+      : canEditSavings
+        ? "Record Savings Balance"
+        : "Record Loan Balance"
+
+  // Collapsible only when both sections are available; loans-only is always expanded.
+  const showLoanFields = canEditLoans && (canEditSavings ? loanSectionOpen : true)
 
   // Live repayment projection for the entered loan terms.
   const loanPreview = useMemo(() => {
@@ -172,11 +186,23 @@ export default function OpeningBalanceForm({
     const loanBal = canEditLoans ? Number(loanBalance) || 0 : 0
 
     if (savBal <= 0 && loanBal <= 0) {
-      setError("Enter at least one savings balance or a loan balance")
+      if (canEditSavings && canEditLoans) {
+        setError("Enter at least one savings balance or a loan balance")
+      } else if (canEditSavings) {
+        setError("Enter an opening savings balance")
+      } else {
+        setError("Enter an opening loan balance")
+      }
       return
     }
 
-    const payload: OpeningBalancePayload = {}
+    // Every opening balance (savings or loan) must be bank-recorded.
+    if (!bankAccountId) {
+      setError("Select a bank account to record the opening balance")
+      return
+    }
+
+    const payload: OpeningBalancePayload = { bankAccountId }
 
     if (savingsEntries.length > 0) {
       payload.savingsEntries = savingsEntries
@@ -185,7 +211,6 @@ export default function OpeningBalanceForm({
         payload.savingsBalance = savingsEntries[0].balance
         payload.savingsAccountId = savingsEntries[0].accountId
       }
-      if (bankAccountId) payload.bankAccountId = bankAccountId
     }
 
     if (loanBal > 0) {
@@ -235,7 +260,11 @@ export default function OpeningBalanceForm({
         <span className="text-xs text-gray-600">
           {recorded
             ? "Opening balances have already been recorded. You can record additional balances if needed."
-            : "Record the member's balances carried over from their previous system."}
+            : canEditSavings && canEditLoans
+              ? "Record the member's savings and/or loan balances carried over from their previous system."
+              : canEditSavings
+                ? "Record the member's savings balance carried over from their previous system."
+                : "Record the member's loan balance carried over from their previous system."}
         </span>
       </div>
 
@@ -303,44 +332,38 @@ export default function OpeningBalanceForm({
                   </div>
                 ))}
               </div>
-
-              <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700">Bank Account</label>
-                <StyledSelect
-                  value={bankAccountId}
-                  onChange={setBankAccountId}
-                  placeholder={bankAccounts.length ? "Select bank account" : "No branch bank accounts"}
-                  options={bankAccounts.map((ba) => ({
-                    value: ba.id,
-                    label: `${ba.bank_name} — ${ba.bank_account_number}`,
-                  }))}
-                />
-              </div>
             </div>
           )}
         </motion.div>
       )}
 
-      {/* Loan opening balance (collapsible) */}
+      {/* Loan opening balance — collapsible when savings is also shown; always open for loans-only */}
       {canEditLoans && (
         <div className="space-y-3">
-          <button
-            type="button"
-            onClick={() => setLoanSectionOpen((v) => !v)}
-            aria-expanded={loanSectionOpen}
-            className="flex w-full items-center justify-between gap-2 rounded-md border border-gray-200 bg-gray-50 px-3 py-2.5 text-left transition-colors hover:bg-gray-100"
-          >
-            <span className="flex items-center gap-2">
+          {canEditSavings ? (
+            <button
+              type="button"
+              onClick={() => setLoanSectionOpen((v) => !v)}
+              aria-expanded={loanSectionOpen}
+              className="flex w-full items-center justify-between gap-2 rounded-md border border-gray-200 bg-gray-50 px-3 py-2.5 text-left transition-colors hover:bg-gray-100"
+            >
+              <span className="flex items-center gap-2">
+                <Landmark className="h-4 w-4 text-orange-600" />
+                <span className="text-sm font-semibold text-gray-800">Loan Opening Balance</span>
+              </span>
+              <ChevronDown
+                className={`h-4 w-4 text-gray-500 transition-transform duration-200 ${loanSectionOpen ? "rotate-180" : ""}`}
+              />
+            </button>
+          ) : (
+            <div className="flex items-center gap-2 border-b border-gray-100 pb-2">
               <Landmark className="h-4 w-4 text-orange-600" />
-              <span className="text-sm font-semibold text-gray-800">Loan Opening Balance</span>
-            </span>
-            <ChevronDown
-              className={`h-4 w-4 text-gray-500 transition-transform duration-200 ${loanSectionOpen ? "rotate-180" : ""}`}
-            />
-          </button>
+              <h4 className="text-sm font-semibold text-gray-800">Loan Opening Balance</h4>
+            </div>
+          )}
 
           <AnimatePresence initial={false}>
-          {loanSectionOpen && (
+          {showLoanFields && (
           <motion.div
             key="ob-loan-section"
             initial={{ opacity: 0, height: 0 }}
@@ -482,6 +505,24 @@ export default function OpeningBalanceForm({
         </div>
       )}
 
+      {/* Bank account — required for any opening balance (savings or loan) */}
+      {((canEditSavings && savingsAccounts.length > 0) || canEditLoans) && (
+        <div>
+          <label className="mb-1 block text-sm font-medium text-gray-700">
+            Bank Account <span className="text-red-500">*</span>
+          </label>
+          <StyledSelect
+            value={bankAccountId}
+            onChange={setBankAccountId}
+            placeholder={bankAccounts.length ? "Select bank account" : "No branch bank accounts"}
+            options={bankAccounts.map((ba) => ({
+              value: ba.id,
+              label: `${ba.bank_name} — ${ba.bank_account_number}`,
+            }))}
+          />
+        </div>
+      )}
+
       {!canEditSavings && !canEditLoans && (
         <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 p-3">
           <Check className="h-4 w-4 text-gray-400" />
@@ -498,7 +539,7 @@ export default function OpeningBalanceForm({
           className="inline-flex h-9 items-center justify-center rounded-md bg-[#f08c2b] px-4 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
         >
           <BookOpen className="mr-2 h-4 w-4" />
-          {loading ? "Recording…" : "Record Opening Balances"}
+          {loading ? "Recording…" : submitLabel}
         </button>
       </div>
     </div>

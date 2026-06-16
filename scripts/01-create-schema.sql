@@ -154,6 +154,8 @@ CREATE TABLE IF NOT EXISTS email_settings (
     branch_id UUID NOT NULL
         REFERENCES branches(id) ON DELETE CASCADE,
     provider VARCHAR(255)  NOT NULL,
+    from_email VARCHAR(255),
+    reply_to_email VARCHAR(255),
     domain VARCHAR(255),
     api_key TEXT,
     smtp_host VARCHAR(255),

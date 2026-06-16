@@ -526,6 +526,7 @@ export default function UserProfilePage() {
   // member has the edit_shares permission.
   const showShares = Boolean(hasSharesFeature || (user?.numberOfShares && user.numberOfShares > 0))
   const canBuyShares = Boolean(hasSharesFeature && canEditShares)
+  const canRecordOpeningBalance = canEditOpeningSavings || canEditOpeningLoans
   const hasSavings = session?.institution?.config?.modules?.savings
 
   const initials = user.fullName
@@ -544,10 +545,12 @@ export default function UserProfilePage() {
                 <ArrowLeft className="h-4 w-4" />
                 Back to {clientTerm}s
               </Link>
-              <Button variant="outline" size="sm" onClick={() => setShowOpeningBalanceModal(true)}>
-                <BookOpen className="h-4 w-4 mr-2" />
-                Record Opening Balance
-              </Button>
+              {canRecordOpeningBalance && (
+                <Button variant="outline" size="sm" onClick={() => setShowOpeningBalanceModal(true)}>
+                  <BookOpen className="h-4 w-4 mr-2" />
+                  Record Opening Balance
+                </Button>
+              )}
             </div>
 
             {/* Profile Header */}
