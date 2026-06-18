@@ -5,6 +5,8 @@ export const EMAIL_QUEUE_NAME = "email"
 
 export type EmailJobName = "send"
 
+import type { EmailAttachmentSpec } from "@/lib/email/types"
+
 export type EmailJobData = {
   to: string
   subject: string
@@ -12,8 +14,10 @@ export type EmailJobData = {
   template: string
   kind?: "template" | "html"
   data?: Record<string, unknown>
+  /** PDFs to attach — resolved at send time (invoice PDF, transaction receipt, etc.) */
+  attachmentSpecs?: EmailAttachmentSpec[]
   /** optional context for audit/correlation */
-  context?: { institutionId?: string; actorId?: string }
+  context?: { institutionId?: string; branchId?: string; actorId?: string }
 }
 
 const DEFAULT_JOB_OPTIONS: JobsOptions = {

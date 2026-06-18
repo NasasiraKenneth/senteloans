@@ -149,6 +149,7 @@ INSERT INTO config (
     mobile_money,
     auto_invoices,
     currency,
+    currency_inwords,
     membership_fee,
     share_value,
     minimum_shares,
@@ -172,6 +173,7 @@ SELECT
     CASE WHEN i.name = 'SenteLoans Platform' THEN 'false' ELSE 'true' END AS mobile_money,
     'false' AS auto_invoices,
     'UGX' AS currency,
+    'Ugandan shillings only' AS currency_inwords,
     50000::numeric(18,2) AS membership_fee,
     CASE WHEN i.type IN ('SACCO', 'MFI') THEN 50000::numeric(18,2) ELSE 0::numeric(18,2) END AS share_value,
     CASE WHEN i.type IN ('SACCO', 'MFI') THEN 5 ELSE 0 END AS minimum_shares,
@@ -186,6 +188,23 @@ SELECT
     30 AS membership_overdue_period,
     0::numeric(18,2) AS membership_overdue_interest,
     'day' AS membership_overdue_interest_per
+FROM branches b
+JOIN institutions i ON i.id = b.institution_id
+WHERE b.branch_code IN ('PLAT-001', 'KCS-001', 'QCU-001', 'OMU-001')
+ON CONFLICT (branch_id) DO NOTHING;
+
+-- Inactive email delivery defaults (staff enables + configures in Settings).
+INSERT INTO email_settings (
+    institution_id,
+    branch_id,
+    provider,
+    is_active
+)
+SELECT
+    b.institution_id,
+    b.id,
+    'mailgun',
+    false
 FROM branches b
 JOIN institutions i ON i.id = b.institution_id
 WHERE b.branch_code IN ('PLAT-001', 'KCS-001', 'QCU-001', 'OMU-001')

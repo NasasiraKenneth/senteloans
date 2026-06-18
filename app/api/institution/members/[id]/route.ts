@@ -4,6 +4,9 @@ import { authOptions } from "@/lib/auth"
 import { runWithAuth } from "@/lib/db"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
 import { auditLogger } from "@/lib/audit/audit-logger"
+import { assertNotSuperAdmin, SUPER_ADMIN_WRITE_BLOCKED } from "@/lib/api/rbac"
+import { assertBranchActive } from "@/lib/branches/branch-status"
+import { syncMemberEmailPreferences } from "@/lib/email/seed-member-preferences"
 
 type ActorContext = {
   id: string
@@ -319,17 +322,32 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     const result = await runWithAuth(session.user.authUserId, async (client) => {
       const actor = await resolveActorContext(client, session!.user!.authUserId)
       if (!actor) return { error: "auth_context" as const }
+
+      const writeGuard = assertNotSuperAdmin(actor)
+      if (!writeGuard.ok) {
+        return { error: writeGuard.error, message: writeGuard.message }
+      }
+
       const allowed = await hasPermission(client, actor, "edit_member")
       if (!allowed) return { error: "missing_permission:edit_member" as const }
+      if (!actor.branch_id) return { error: "actor_branch_missing" as const }
 
       const targetRes = await client.query(
-        `SELECT id, institution_id, kyc_status FROM members WHERE id = $1`,
-        [memberId]
+        `SELECT id, institution_id, branch_id, kyc_status FROM members WHERE id = $1 AND institution_id = $2`,
+        [memberId, actor.institution_id]
       )
       const targetMember = targetRes.rows[0]
       if (!targetMember) return { error: "member_not_found" as const }
-      if (targetMember.institution_id !== actor.institution_id) {
-        return { error: "forbidden" as const }
+      if (targetMember.branch_id !== actor.branch_id) {
+        return { error: "cross_branch_operation_forbidden" as const }
+      }
+
+      const branchCheck = await assertBranchActive(client, targetMember.branch_id)
+      if (!branchCheck.ok) {
+        return {
+          error: branchCheck.error as "branch_not_found" | "branch_inactive",
+          branchStatus: branchCheck.error === "branch_inactive" ? branchCheck.status : undefined,
+        }
       }
 
       updates["modified_by"] = actor.id
@@ -347,6 +365,16 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         [memberId, actor.institution_id, ...vals]
       )
       if (updateRes.rowCount === 0) return { error: "not_updated" as const }
+
+      if ("email" in updates) {
+        await syncMemberEmailPreferences(client, {
+          memberId,
+          institutionId: targetMember.institution_id,
+          branchId: targetMember.branch_id,
+          emailEnabled: Boolean(updates["email"]),
+        })
+      }
+
       await auditLogger.logUpdate(
         "members",
         memberId,
@@ -362,16 +390,32 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     })
 
     if (result && "error" in result) {
-      const status = result.error === "forbidden" || result.error === "missing_permission:edit_member" ? 403 : result.error === "member_not_found" ? 404 : 401
+      const err = result.error
+      const status =
+        err === "member_not_found" ? 404 :
+        err === "actor_branch_missing" ? 400 :
+        err === SUPER_ADMIN_WRITE_BLOCKED ||
+        err === "missing_permission:edit_member" ||
+        err === "cross_branch_operation_forbidden" ||
+        err === "branch_not_found" ||
+        err === "branch_inactive" ? 403 :
+        err === "auth_context" ? 401 : 400
       apiLog("warn", "member.update.denied", {
         method: "PATCH",
         apiPath,
         status,
-        error: result.error,
+        error: err,
         memberId,
         authUserId: session.user.authUserId,
+        ...(("branchStatus" in result) ? { branchStatus: (result as { branchStatus?: string }).branchStatus } : {}),
       })
-      return NextResponse.json({ error: result.error }, { status })
+      const errorText =
+        "message" in result && result.message ? result.message : err
+      const payload: Record<string, unknown> = { error: errorText, code: err }
+      if ("branchStatus" in result && (result as { branchStatus?: string }).branchStatus) {
+        payload.branch_status = (result as { branchStatus?: string }).branchStatus
+      }
+      return NextResponse.json(payload, { status })
     }
     apiLog("info", "member.update.success", { method: "PATCH", apiPath, status: 200, memberId, authUserId: session.user.authUserId })
     return NextResponse.json(result)

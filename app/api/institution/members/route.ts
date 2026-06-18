@@ -8,7 +8,9 @@ import { assertBranchActive } from "@/lib/branches/branch-status"
 import { createInvoiceWithItems, type CreatedInvoice } from "@/lib/invoices/create-invoice"
 import { notifyMemberRegistration } from "@/lib/notifications/member-events"
 import { enqueueMemberRegistrationEmails } from "@/lib/email/member-emails"
+import { syncMemberEmailPreferences } from "@/lib/email/seed-member-preferences"
 import { insertWithPrefixedNumberRetry } from "@/lib/ids/insert-with-prefixed-number-retry"
+import { assertNotSuperAdmin, SUPER_ADMIN_WRITE_BLOCKED } from "@/lib/api/rbac"
 
 type MemberCreatePostCommit = {
   institutionName: string
@@ -365,11 +367,15 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "no_app_user" }, { status: 403 })
     }
 
-    let postCommit: MemberCreatePostCommit | null = null
-
     const result = await runWithAuth(session.user.authUserId, async (client) => {
       const actor = await resolveActorContext(client, session!.user!.authUserId)
       if (!actor) return { error: "no_app_user" as const }
+
+      const writeGuard = assertNotSuperAdmin(actor)
+      if (!writeGuard.ok) {
+        return { error: writeGuard.error, message: writeGuard.message }
+      }
+
       const allowed = await hasPermission(client, actor, "create_member")
       if (!allowed) return { error: "missing_permission:create_member" as const }
       if (!actor.branch_id) return { error: "actor_branch_missing" as const }
@@ -572,7 +578,6 @@ export async function POST(req: Request) {
             invoiceDue,
             invoiceType: "Auto",
             status: "sent",
-            inwords: `${currency} ${Number(membershipFee).toLocaleString()}`,
             items: [
               {
                 unit: "Year",
@@ -586,6 +591,14 @@ export async function POST(req: Request) {
           })
         }
 
+        // Email notification prefs: enabled when member has an email, disabled otherwise.
+        await syncMemberEmailPreferences(client, {
+          memberId: data.id,
+          institutionId: actor.institution_id,
+          branchId,
+          emailEnabled: Boolean(memberEmail),
+        })
+
         await client.query("COMMIT")
       } catch (txErr) {
         await client.query("ROLLBACK").catch(() => {})
@@ -596,35 +609,34 @@ export async function POST(req: Request) {
         throw txErr
       }
 
-      postCommit = {
-        institutionName: institution.name as string,
-        currency,
-        email: memberEmail,
-        fullName: String(body.fullName).trim(),
-        actorId: actor.id,
-        institutionId: actor.institution_id,
-        branchId,
-      }
-
       return {
         id: data.id,
         member_number: data.member_number,
         savings_account: savingsAccountData,
         invoice: createdInvoice,
+        postCommit: {
+          institutionName: institution.name as string,
+          currency,
+          email: memberEmail,
+          fullName: String(body.fullName).trim(),
+          actorId: actor.id,
+          institutionId: actor.institution_id,
+          branchId,
+        } satisfies MemberCreatePostCommit,
       }
     })
 
     if (result && "error" in result) {
       const status =
-        result.error === "branch_inactive" || result.error === "branch_not_found"
+        result.error === "branch_inactive" ||
+        result.error === "branch_not_found" ||
+        result.error === SUPER_ADMIN_WRITE_BLOCKED
           ? 403
           : result.error === "duplicate_national_id" ||
               result.error === "duplicate_member_number" ||
               result.error === "duplicate_savings_account_number"
             ? 409
-            : result.error === "create_failed_no_record"
-              ? 500
-              : 400
+            : 400
       apiLog(status >= 500 ? "error" : "warn", "members.create.failed", {
         method: "POST",
         apiPath,
@@ -633,7 +645,12 @@ export async function POST(req: Request) {
         authUserId: session.user.authUserId,
         ...(("branchStatus" in result) ? { branchStatus: (result as any).branchStatus } : {}),
       })
-      const payload: Record<string, unknown> = { error: result.error }
+      const errorText =
+        "message" in result && result.message ? result.message : result.error
+      const payload: Record<string, unknown> = {
+        error: errorText,
+        code: result.error,
+      }
       if ("branchStatus" in result && (result as any).branchStatus) {
         payload.branch_status = (result as any).branchStatus
       }
@@ -652,8 +669,7 @@ export async function POST(req: Request) {
 
     // Post-commit side-effects: notifications + emails. Best-effort — never
     // raise back to the client (member is already persisted at this point).
-    const ctx = postCommit
-    if (ctx) {
+    const ctx = result.postCommit
     try {
       // Acquire a fresh client so notifyMemberRegistration can fan out to
       // institution admins (the staff branch needs a client to query
@@ -715,6 +731,12 @@ export async function POST(req: Request) {
         },
         institutionName: ctx.institutionName,
         currency: ctx.currency,
+        savingsAccount: result.savings_account
+          ? {
+              account_number: result.savings_account.account_number,
+              account_type: result.savings_account.account_type,
+            }
+          : null,
         invoice: result.invoice
           ? {
               id: result.invoice.id,
@@ -723,7 +745,7 @@ export async function POST(req: Request) {
               invoice_due: result.invoice.invoice_due,
             }
           : null,
-        context: { institutionId: ctx.institutionId, actorId: ctx.actorId },
+        context: { institutionId: ctx.institutionId, branchId: ctx.branchId, actorId: ctx.actorId },
       })
       if (emailRes.errors.length > 0) {
         apiLog("warn", "members.create.email_enqueue_partial", {
@@ -742,7 +764,6 @@ export async function POST(req: Request) {
         memberId: result.id,
         error: (mailErr as Error)?.message || "enqueue_failed",
       })
-    }
     }
 
     apiLog("info", "members.create.success", {

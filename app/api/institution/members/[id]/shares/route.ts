@@ -7,6 +7,7 @@ import { auditLogger } from "@/lib/audit/audit-logger"
 import { resolveActorContext, hasPermission } from "@/lib/api/rbac"
 import { createTransaction } from "@/lib/transactions/create-transaction"
 import { assertBranchActive, type BranchStatus } from "@/lib/branches/branch-status"
+import { assertMemberActiveRow, type MemberStatus } from "@/lib/members/member-status"
 import { applyDailyFinanceEntry } from "@/lib/finances/daily-finance"
 import { getBranchBankAccount, adjustBankAccountBalance, type BankAccountRow } from "@/lib/finances/bank-account"
 import { createInvoiceWithItems } from "@/lib/invoices/create-invoice"
@@ -159,12 +160,20 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       if (!allowed) return { error: "missing_permission:edit_shares" as const }
 
       const memberRes = await client.query(
-        `SELECT id, institution_id, branch_id, full_name, member_number, email FROM members WHERE id = $1`,
+        `SELECT id, institution_id, branch_id, full_name, member_number, email, status FROM members WHERE id = $1`,
         [memberId]
       )
       const memberRow = memberRes.rows[0]
       if (!memberRow) return { error: "member_not_found" as const }
       if (memberRow.institution_id !== actor.institution_id) return { error: "forbidden" as const }
+
+      const memberCheck = assertMemberActiveRow(memberRow)
+      if (!memberCheck.ok) {
+        return {
+          error: memberCheck.error as "member_inactive",
+          memberStatus: memberCheck.status as MemberStatus,
+        }
+      }
 
       // Reusable branch gate: block share purchases against inactive branches.
       const branchCheck = await assertBranchActive(client, memberRow.branch_id)
@@ -327,6 +336,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
           branchId: memberRow.branch_id,
           memberId,
           accountId: fallbackAccountId,
+          bankAccountId: bankAccount?.id ?? null,
           type: txType,
           amount: purchaseValue,
           mode,
@@ -468,7 +478,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         result.error === "no_app_user" ||
         result.error === "missing_permission:edit_shares" ||
         result.error === "branch_inactive" ||
-        result.error === "branch_not_found"
+        result.error === "branch_not_found" ||
+        result.error === "member_inactive"
           ? 403
           : result.error === "member_not_found" || result.error === "institution_not_found"
             ? 404
@@ -489,6 +500,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       }
       if ("branchStatus" in result && (result as { branchStatus?: BranchStatus }).branchStatus) {
         payload.branch_status = (result as { branchStatus?: BranchStatus }).branchStatus
+      }
+      if ("memberStatus" in result && (result as { memberStatus?: MemberStatus }).memberStatus) {
+        payload.member_status = (result as { memberStatus?: MemberStatus }).memberStatus
       }
       return NextResponse.json(payload, { status })
     }
@@ -536,8 +550,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
           institutionName: ctx.institutionName,
           currency: ctx.currency,
           shares: ctx.shares,
+          transaction: ctx.transaction,
           invoice: ctx.invoice,
-          context: { institutionId: ctx.institutionId, actorId: ctx.actorId },
+          context: { institutionId: ctx.institutionId, branchId: ctx.branchId, actorId: ctx.actorId },
         })
         if (emailRes.errors.length > 0) {
           apiLog("warn", "member.shares.email_enqueue_partial", {

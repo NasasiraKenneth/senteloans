@@ -29,6 +29,12 @@ interface UserEditPageProps {
 const inputClass =
   "w-full px-3 py-2.5 text-sm rounded-md border transition-all duration-200 focus:ring-[1.5px] focus:ring-[#f08c2b] focus:border-transparent focus:outline-none border-gray-300 hover:border-gray-400"
 
+const KYC_DOC_LABELS: Record<"passport_photo" | "national_id_front" | "national_id_back", string> = {
+  passport_photo: "Passport photo",
+  national_id_front: "National ID (front)",
+  national_id_back: "National ID (back)",
+}
+
 type SelectOption = { value: string; label: string }
 const normalizeDateFromApi = (value: unknown): string => {
   if (!value) return ""
@@ -377,6 +383,23 @@ export default function UserEditPage({ params }: UserEditPageProps) {
       })
       if (!saveRes.ok) {
         const saveData = await saveRes.json().catch(() => ({}))
+        const code = String(saveData?.code || saveData?.error || "")
+        if (saveRes.status === 403 && code === "member_inactive") {
+          toast({
+            variant: "destructive",
+            title: "Member not active",
+            description: "This member is not active. Reactivate the member before uploading KYC documents.",
+          })
+          return
+        }
+        if (saveRes.status === 403 && code === "branch_inactive") {
+          toast({
+            variant: "destructive",
+            title: "Branch not active",
+            description: "This member's branch is not active. Reactivate the branch before uploading KYC documents.",
+          })
+          return
+        }
         throw new Error(saveData?.error || "Failed to save document URL to database")
       }
 
@@ -386,6 +409,12 @@ export default function UserEditPage({ params }: UserEditPageProps) {
         if (docType === "national_id_front") next.nationalIdFront = blobResult.url
         if (docType === "national_id_back") next.nationalIdBack = blobResult.url
         return next
+      })
+
+      toast({
+        variant: "success",
+        title: "Document uploaded",
+        description: `${KYC_DOC_LABELS[docType]} saved successfully. The member will be notified.`,
       })
     } catch (e: any) {
       console.error("[kyc-upload] error:", e)
@@ -470,8 +499,9 @@ export default function UserEditPage({ params }: UserEditPageProps) {
         body: JSON.stringify(payload),
       })
       if (!res.ok) {
-        const { error } = await res.json()
-        if (res.status === 403 && error === "missing_permission:edit_member") {
+        const data = await res.json().catch(() => ({} as Record<string, unknown>))
+        const code = String(data?.code || data?.error || "")
+        if (res.status === 403 && code === "missing_permission:edit_member") {
           toast({
             variant: "warning",
             title: "Access denied",
@@ -479,13 +509,61 @@ export default function UserEditPage({ params }: UserEditPageProps) {
           })
           return
         }
-        if (res.status === 400 && error === "invalid_phone_ug_format") {
+        if (res.status === 403 && code === "super_admin_write_blocked") {
+          toast({
+            variant: "warning",
+            title: "Read-only role",
+            description:
+              typeof data?.error === "string" && data.error !== "super_admin_write_blocked"
+                ? data.error
+                : "Super admins are not allowed to edit or modify data.",
+          })
+          return
+        }
+        if (res.status === 403 && code === "branch_inactive") {
+          const statusLabel =
+            typeof data?.branch_status === "string" ? data.branch_status.toLowerCase() : "inactive"
+          toast({
+            variant: "destructive",
+            title: "Branch not active",
+            description: `This member's branch is currently ${statusLabel}. Reactivate it from Settings → Branches before editing.`,
+          })
+          return
+        }
+        if (res.status === 403 && code === "branch_not_found") {
+          toast({
+            variant: "destructive",
+            title: "Branch unavailable",
+            description: "This member's branch could not be found. Contact your administrator.",
+          })
+          return
+        }
+        if (res.status === 403 && code === "cross_branch_operation_forbidden") {
+          toast({
+            variant: "warning",
+            title: "Wrong branch",
+            description: `You can only edit ${terminology.singular.toLowerCase()}s assigned to your branch.`,
+          })
+          return
+        }
+        if (res.status === 400 && code === "actor_branch_missing") {
+          toast({
+            variant: "destructive",
+            title: "Branch not assigned",
+            description: "Your account has no branch assigned. Contact your administrator.",
+          })
+          return
+        }
+        if (res.status === 400 && code === "invalid_phone_ug_format") {
           throw new Error("Phone number must start with +256 or 0 (Uganda format)")
         }
-        if (res.status === 400 && error === "invalid_email") {
+        if (res.status === 400 && code === "invalid_email") {
           throw new Error("Enter a valid email address")
         }
-        throw new Error(error || `Failed to update ${terminology.singular.toLowerCase()}`)
+        throw new Error(
+          (typeof data?.error === "string" ? data.error : "") ||
+            `Failed to update ${terminology.singular.toLowerCase()}`,
+        )
       }
 
       toast({

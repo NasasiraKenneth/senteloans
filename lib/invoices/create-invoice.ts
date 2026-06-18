@@ -1,7 +1,7 @@
 import type { PoolClient } from "pg"
 import { auditLogger } from "@/lib/audit/audit-logger"
 import { insertWithInvoiceNumberRetry } from "./invoice-number-retry"
-import { numberToWords } from "./utils"
+import { numberToWords, DEFAULT_CURRENCY_IN_WORDS } from "./utils"
 
 export type InvoiceStatus = "draft" | "sent" | "partially paid" | "fully paid" | "overdue" | "cancelled"
 
@@ -58,6 +58,18 @@ export interface CreatedInvoice {
 const round2 = (n: number): number =>
   Math.round((Number(n) + Number.EPSILON) * 100) / 100
 
+async function getBranchCurrencyInWords(
+  client: PoolClient,
+  branchId: string,
+): Promise<string> {
+  const res = await client.query<{ currency_inwords: string | null }>(
+    `SELECT currency_inwords FROM config WHERE branch_id = $1 LIMIT 1`,
+    [branchId],
+  )
+  const value = String(res.rows[0]?.currency_inwords || "").trim()
+  return value || DEFAULT_CURRENCY_IN_WORDS
+}
+
 /**
  * Insert an invoice + line items + audit log in one go on the provided client.
  *
@@ -111,12 +123,14 @@ export async function createInvoiceWithItems(
   const totalAmount = round2(subtotal + vat)
   const status = normalizeInvoiceStatus(input.status)
 
+  const currencyInWords = await getBranchCurrencyInWords(client, input.branchId)
+
   // Default the amount-in-words to the total when the caller doesn't supply one
   // so every invoice (shares, registration, etc.) carries a populated inwords.
   const inwords =
     typeof input.inwords === "string" && input.inwords.trim()
       ? input.inwords.trim()
-      : numberToWords(totalAmount)
+      : numberToWords(totalAmount, currencyInWords)
 
   // Insert with SAVEPOINT-based retry on invoice_number collisions
   // (mirrors how transactions handles transaction_number).

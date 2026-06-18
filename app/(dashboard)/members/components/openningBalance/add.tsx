@@ -45,6 +45,8 @@ function mapError(code: unknown): string {
       return "This member's branch is not active. Opening balances are disabled until it is reactivated.";
     case "branch_not_found":
       return "This member's branch could not be found.";
+    case "member_inactive":
+      return "This member is not active. Opening balances are disabled until the member is reactivated.";
     case "member_not_found":
       return "Member not found.";
     default:

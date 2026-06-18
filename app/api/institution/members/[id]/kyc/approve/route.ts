@@ -1,16 +1,31 @@
 import { NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
-import { runWithAuth } from "@/lib/db"
+import { runWithAuth, runWithoutAuth } from "@/lib/db"
 import { auditLogger } from "@/lib/audit/audit-logger"
-import { notificationService } from "@/lib/notifications/notification-service"
-import { NotificationTemplates } from "@/lib/notifications/notification-types"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
+import { assertMemberAndBranchActive } from "@/lib/members/member-status"
+import { notifyKycApproved } from "@/lib/notifications/kyc-events"
+import { enqueueKycApprovedEmail, type KycEmailContext } from "@/lib/email/kyc-emails"
 
 const COLUMN_MAP: Record<string, string> = {
   passport_photo: "passport_photo",
   national_id_front: "national_id_front",
   national_id_back: "national_id_back",
+}
+
+type KycApprovePostCommit = {
+  actorId: string
+  institutionId: string
+  branchId: string
+  institutionName: string
+  member: {
+    id: string
+    full_name: string
+    member_number: string
+    email: string
+  }
+  docType: string
 }
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -28,6 +43,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const body = (await req.json().catch(() => ({}))) as { pendingId?: string }
     const pendingId = (body?.pendingId || "").trim()
     if (!pendingId) return NextResponse.json({ error: "missing_pending_id" }, { status: 400 })
+
+    let postCommit: KycApprovePostCommit | null = null
 
     const result = await runWithAuth(session.user.authUserId, async (client) => {
       const appUserRes = await client.query(
@@ -50,14 +67,27 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       const appUser = appUserRes.rows[0]
       if (!appUser) return { error: "forbidden" as const }
 
-      const targetRes = await client.query(
-        `SELECT id, institution_id, passport_photo, national_id_front, national_id_back FROM members WHERE id = $1`,
+      const isSystemAdmin = (appUser as { app_role?: string }).app_role === "system_admin"
+
+      const gate = await assertMemberAndBranchActive(
+        client,
+        memberId,
+        isSystemAdmin ? undefined : appUser.institution_id,
+      )
+      if (!gate.ok) {
+        return {
+          error: gate.error,
+          memberStatus: gate.memberStatus,
+          branchStatus: gate.branchStatus,
+        }
+      }
+      const targetMember = await client.query(
+        `SELECT id, institution_id, branch_id, full_name, member_number, email, passport_photo, national_id_front, national_id_back FROM members WHERE id = $1`,
         [memberId]
       )
-      const targetMember = targetRes.rows[0]
-      if (!targetMember) return { error: "member_not_found" as const }
-      const isSystemAdmin = (appUser as { app_role?: string }).app_role === "system_admin"
-      if (!isSystemAdmin && targetMember.institution_id !== appUser.institution_id) return { error: "forbidden" as const }
+      const targetRow = targetMember.rows[0]
+      if (!targetRow) return { error: "member_not_found" as const }
+      if (!isSystemAdmin && targetRow.institution_id !== appUser.institution_id) return { error: "forbidden" as const }
 
       const pendingRes = await client.query(
         `SELECT id, institution_id, member_id, doc_type, url, status FROM member_kyc_docs WHERE id = $1`,
@@ -73,7 +103,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       const column = COLUMN_MAP[pending.doc_type as string]
       if (!column) return { error: "invalid_doc_type" as const }
 
-      const oldValues = { [column]: (targetMember as Record<string, unknown>)[column] }
+      const oldValues = { [column]: (targetRow as Record<string, unknown>)[column] }
 
       await client.query(
         `UPDATE members SET ${column} = $1 WHERE id = $2 AND institution_id = $3`,
@@ -101,27 +131,95 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         client
       )
 
-      const tpl = NotificationTemplates.kycApproved(pending.doc_type as string)
-      await notificationService.create({
+      const instRes = await client.query<{ name: string }>(
+        `SELECT name FROM institutions WHERE id = $1`,
+        [appUser.institution_id],
+      )
+      const institutionName = instRes.rows[0]?.name || ""
+
+      postCommit = {
+        actorId: appUser.id,
         institutionId: appUser.institution_id,
-        branchId: String(appUser.branch_id || ""),
-        recipientType: "member",
-        recipientId: memberId,
-        type: "kyc_approved",
-        title: tpl.title,
-        message: tpl.message,
-        actionUrl: tpl.actionUrl,
-        metadata: { doc_type: pending.doc_type },
-      }).catch((e) => console.error("Failed to create KYC approved notification:", e))
+        branchId: String(targetRow.branch_id || appUser.branch_id || ""),
+        institutionName,
+        member: {
+          id: String(targetRow.id),
+          full_name: String(targetRow.full_name || ""),
+          member_number: String(targetRow.member_number || ""),
+          email: targetRow.email ? String(targetRow.email) : "",
+        },
+        docType: String(pending.doc_type),
+      }
 
       return { ok: true, column, url: pending.url }
     })
 
     if (result && "error" in result) {
-      const status = result.error === "member_not_found" || result.error === "pending_not_found" ? 404 : 403
+      const status =
+        result.error === "member_not_found" || result.error === "pending_not_found" ? 404 :
+        result.error === "member_inactive" || result.error === "branch_inactive" || result.error === "branch_not_found" ? 403 :
+        403
       apiLog("warn", "member.kyc.approve.denied", { method: "POST", apiPath, status, error: result.error, memberId, authUserId: session.user.authUserId })
-      return NextResponse.json({ error: result.error }, { status })
+      const payload: Record<string, unknown> = { error: result.error, code: result.error }
+      if ("memberStatus" in result && result.memberStatus) payload.member_status = result.memberStatus
+      if ("branchStatus" in result && result.branchStatus) payload.branch_status = result.branchStatus
+      return NextResponse.json(payload, { status })
     }
+
+    const ctx = postCommit as KycApprovePostCommit | null
+    if (ctx) {
+      try {
+        const notifyRes = await runWithoutAuth((notifyClient) =>
+          notifyKycApproved({
+            client: notifyClient,
+            actor: { id: ctx.actorId, institution_id: ctx.institutionId, branch_id: ctx.branchId },
+            member: ctx.member,
+            docType: ctx.docType,
+          }),
+        )
+        apiLog(notifyRes.ok ? "info" : "warn",
+          notifyRes.ok ? "member.kyc.approve.notifications_dispatched" : "member.kyc.approve.notifications_partial",
+          {
+            method: "POST",
+            apiPath,
+            status: 200,
+            memberId,
+            memberNotifications: notifyRes.memberNotifications,
+            ...(notifyRes.errors.length ? { errors: notifyRes.errors } : {}),
+          },
+        )
+      } catch (notifyErr) {
+        apiLog("error", "member.kyc.approve.notifications_failed", {
+          method: "POST", apiPath, status: 200, memberId,
+          error: (notifyErr as Error)?.message || "notify_failed",
+        })
+      }
+
+      try {
+        const emailContext: KycEmailContext = {
+          institutionId: ctx.institutionId,
+          branchId: ctx.branchId,
+          actorId: ctx.actorId,
+        }
+        const emailRes = await enqueueKycApprovedEmail({
+          member: ctx.member,
+          institutionName: ctx.institutionName,
+          docType: ctx.docType,
+          context: emailContext,
+        })
+        if (emailRes.errors.length > 0) {
+          apiLog("warn", "member.kyc.approve.email_enqueue_partial", {
+            method: "POST", apiPath, status: 200, memberId, errors: emailRes.errors,
+          })
+        }
+      } catch (emailErr) {
+        apiLog("error", "member.kyc.approve.email_enqueue_failed", {
+          method: "POST", apiPath, status: 200, memberId,
+          error: (emailErr as Error)?.message || "email_failed",
+        })
+      }
+    }
+
     apiLog("info", "member.kyc.approve.success", { method: "POST", apiPath, status: 200, memberId, authUserId: session.user.authUserId })
     return NextResponse.json(result)
   } catch (e: unknown) {

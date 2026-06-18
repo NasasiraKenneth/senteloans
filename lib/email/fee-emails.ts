@@ -1,9 +1,5 @@
-import { enqueueEmail } from "@/queues/email.queue"
+import { enqueueMemberEmail } from "./enqueue-member-email"
 
-/**
- * Email templates the worker resolves for membership-fee events. Placeholder
- * contract until a real mail provider is wired in (mirrors share-emails).
- */
 export const FEE_EMAIL_TEMPLATES = {
   membershipFeePaid: "membership_fee.paid",
 } as const
@@ -21,13 +17,19 @@ export interface FeeEmailInvoice {
   fullySettled: boolean
 }
 
+export interface FeeEmailTransaction {
+  id: string
+  transaction_number: string
+}
+
 export interface MembershipFeeEmailInput {
   member: FeeEmailMember
   institutionName: string
   currency?: string
   fee: { amount: number; remaining: number }
+  transaction: FeeEmailTransaction
   invoice?: FeeEmailInvoice | null
-  context?: { institutionId?: string; actorId?: string }
+  context?: { institutionId?: string; branchId?: string; actorId?: string }
 }
 
 export interface EnqueuedEmailsResult {
@@ -37,9 +39,8 @@ export interface EnqueuedEmailsResult {
 }
 
 /**
- * Enqueue the membership-fee confirmation email. Skipped (without raising) when
- * the member has no email on record. Fire-and-forget: returns a summary, never
- * throws — a queue outage cannot break the payment HTTP response.
+ * Enqueue the membership-fee confirmation email with a receipt PDF attachment.
+ * Skipped (without raising) when the member has no email on record.
  */
 export async function enqueueMembershipFeeEmails(
   input: MembershipFeeEmailInput,
@@ -52,8 +53,9 @@ export async function enqueueMembershipFeeEmails(
     return result
   }
 
-  try {
-    await enqueueEmail({
+  await enqueueMemberEmail(
+    input.member.id,
+    {
       to: email,
       subject: input.invoice
         ? `Membership Fee Payment Received — Invoice ${input.invoice.invoice_number}`
@@ -69,13 +71,14 @@ export async function enqueueMembershipFeeEmails(
         currency: input.currency || "UGX",
         invoiceNumber: input.invoice?.invoice_number || null,
         invoiceFullySettled: input.invoice?.fullySettled ?? null,
+        transactionNumber: input.transaction.transaction_number,
       },
+      attachmentSpecs: [{ kind: "receipt", transactionId: input.transaction.id }],
       context: input.context,
-    })
-    result.enqueued.push("membership_fee")
-  } catch (e) {
-    result.errors.push(`membership_fee:${(e as Error)?.message || "enqueue_failed"}`)
-  }
+    },
+    "membership_fee",
+    result,
+  )
 
   return result
 }

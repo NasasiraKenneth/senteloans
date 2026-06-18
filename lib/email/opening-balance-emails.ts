@@ -1,4 +1,5 @@
-import { enqueueEmail } from "@/queues/email.queue"
+import { enqueueMemberEmail } from "./enqueue-member-email"
+import type { EmailJobData } from "@/queues/email.queue"
 
 /**
  * Email templates the worker resolves for opening-balance events. Placeholder
@@ -15,13 +16,32 @@ export interface OpeningBalanceEmailMember {
   email: string
 }
 
+export interface OpeningBalanceEmailSavingsAccount {
+  accountNumber: string
+  accountType: string
+  openingBalance: number
+}
+
+export interface OpeningBalanceEmailLoan {
+  applicationId: string
+  productName: string
+  principalAmount: number
+  amountPaid: number
+  outstanding: number
+}
+
+export type OpeningBalanceEmailContext = NonNullable<EmailJobData["context"]>
+
 export interface OpeningBalanceEmailInput {
   member: OpeningBalanceEmailMember
   institutionName: string
   currency?: string
-  savings?: { amount: number } | null
-  loan?: { outstanding: number } | null
-  context?: { institutionId?: string; actorId?: string }
+  savings?: {
+    amount: number
+    accounts: OpeningBalanceEmailSavingsAccount[]
+  } | null
+  loan?: OpeningBalanceEmailLoan | null
+  context?: OpeningBalanceEmailContext
 }
 
 export interface EnqueuedEmailsResult {
@@ -52,8 +72,9 @@ export async function enqueueOpeningBalanceEmails(
     return result
   }
 
-  try {
-    await enqueueEmail({
+  await enqueueMemberEmail(
+    input.member.id,
+    {
       to: email,
       subject: "Opening Balances Recorded",
       template: OPENING_BALANCE_EMAIL_TEMPLATES.recorded,
@@ -63,15 +84,30 @@ export async function enqueueOpeningBalanceEmails(
         memberNumber: input.member.member_number,
         institutionName: input.institutionName,
         currency: input.currency || "UGX",
-        savingsAmount: input.savings?.amount ?? null,
-        loanOutstanding: input.loan?.outstanding ?? null,
+        savingsAccounts: (input.savings?.accounts ?? []).map((account) => ({
+          accountNumber: account.accountNumber,
+          accountType: account.accountType,
+          openingBalance: account.openingBalance,
+        })),
+        loan: input.loan
+          ? {
+              applicationId: input.loan.applicationId,
+              productName: input.loan.productName,
+              principalAmount: input.loan.principalAmount,
+              amountPaid: input.loan.amountPaid,
+              outstanding: input.loan.outstanding,
+            }
+          : null,
       },
       context: input.context,
-    })
-    result.enqueued.push("opening_balance")
-  } catch (e) {
-    result.errors.push(`opening_balance:${(e as Error)?.message || "enqueue_failed"}`)
-  }
+    },
+    "opening_balance",
+    result,
+    {
+      openingBalanceHasSavings: Boolean(input.savings),
+      openingBalanceHasLoan: Boolean(input.loan),
+    },
+  )
 
   return result
 }

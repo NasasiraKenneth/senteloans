@@ -6,8 +6,13 @@ export const formatCurrency = (amount: number) => {
     }).format(amount)
 }
 
+export const DEFAULT_CURRENCY_IN_WORDS = "Ugandan shillings only"
+
 // Utility function to convert numbers to words
-export const numberToWords = (num: number): string => {
+export const numberToWords = (
+  num: number,
+  currencyInWords: string = DEFAULT_CURRENCY_IN_WORDS,
+): string => {
   const units = ['', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen', 'eighteen', 'nineteen'];
   const tens = ['', '', 'twenty', 'thirty', 'forty', 'fifty', 'sixty', 'seventy', 'eighty', 'ninety'];
   
@@ -44,8 +49,9 @@ export const numberToWords = (num: number): string => {
   };
 
   const shillings = Math.floor(num);
+  const suffix = String(currencyInWords || DEFAULT_CURRENCY_IN_WORDS).trim() || DEFAULT_CURRENCY_IN_WORDS;
 
-  const result = numToWord(shillings) + ' Ugandan shillings only';
+  const result = numToWord(shillings) + " " + suffix;
 
   return result.charAt(0).toUpperCase() + result.slice(1);
 };

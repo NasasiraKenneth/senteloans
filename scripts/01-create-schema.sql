@@ -164,7 +164,9 @@ CREATE TABLE IF NOT EXISTS email_settings (
     smtp_password TEXT,
     is_active BOOLEAN DEFAULT false,
     created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+
+    CONSTRAINT uk_email_settings_branch UNIQUE (branch_id)
 );
 
 -- 24-create-roles.sql
@@ -622,6 +624,7 @@ CREATE TABLE IF NOT EXISTS transactions (
     transferred_to_id UUID REFERENCES savings_accounts(id) ON DELETE RESTRICT,
     loan_id UUID REFERENCES loans(id) ON DELETE RESTRICT,
     sacco_loan_id UUID REFERENCES institution_loans(id) ON DELETE RESTRICT,
+    bank_account_id UUID REFERENCES bank_accounts(id) ON DELETE RESTRICT,
     transaction_number VARCHAR(50) NOT NULL,
     type transaction_type NOT NULL,
     amount DECIMAL(15,2) NOT NULL CHECK (amount > 0),
@@ -694,6 +697,7 @@ CREATE TABLE IF NOT EXISTS unclaimed_deposits (
     branch_id UUID NOT NULL REFERENCES branches(id) ON DELETE RESTRICT,
     member_id UUID REFERENCES members(id) ON DELETE RESTRICT,
     third_party_agent_id UUID REFERENCES third_party_agents(id) ON DELETE RESTRICT,
+    bank_account_id UUID REFERENCES bank_accounts(id) ON DELETE RESTRICT,
     transaction_id UUID REFERENCES transactions(id) ON DELETE RESTRICT,
     unclaimed_deposit_number VARCHAR(50),
     transaction_number VARCHAR(50),

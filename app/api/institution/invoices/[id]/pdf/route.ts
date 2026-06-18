@@ -3,7 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { runWithAuth } from "@/lib/db"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
-import { renderSingleInvoicePdfBuffer } from "./invoice-single-pdf"
+import { generateInvoicePdfBuffer } from "@/lib/invoices/generate-invoice-pdf-buffer"
 
 type ActorContext = {
   institution_id: string
@@ -74,105 +74,16 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       const isSuperAdmin = String(actor.role || "").trim().toLowerCase() === "super_admin"
       if (!isSuperAdmin && !actor.branch_id) return { error: "actor_branch_missing" as const }
 
-      const invoiceRes = await client.query(
-        `SELECT
-           i.id,
-           i.branch_id,
-           i.invoice_number,
-           i.invoice_date,
-           i.invoice_due,
-           i.subtotal,
-           i.vat,
-           i.total_amount,
-           i.inwords,
-           i.invoice_type,
-           i.status,
-           COALESCE(ins.name, '') AS sacco_name,
-           COALESCE(ins.logo, '') AS sacco_logo,
-           COALESCE(b.name, '') AS branch_name,
-           COALESCE(b.phone_number, '') AS branch_phone,
-           COALESCE(b.email, '') AS branch_email,
-           COALESCE(ins.website, '') AS website,
-           COALESCE(b.address, '') AS branch_address,
-           CASE
-             WHEN i.member_id IS NOT NULL THEN COALESCE(m.full_name, '')
-             ELSE COALESCE(c.name, '')
-           END AS recipient_name,
-           CASE
-             WHEN i.member_id IS NOT NULL THEN COALESCE(m.phone_number, '')
-             ELSE COALESCE(c.phone, '')
-           END AS recipient_phone,
-           CASE
-             WHEN i.member_id IS NOT NULL THEN COALESCE(NULLIF(trim(concat_ws(', ', m.village, m.district)), ''), '')
-             ELSE COALESCE(c.address, '')
-           END AS recipient_address
-         FROM senteloans_invoices i
-         LEFT JOIN senteloans_institutions ins ON ins.id = i.institution_id
-         LEFT JOIN senteloans_branches b ON b.id = i.branch_id
-         LEFT JOIN senteloans_members m ON m.id = i.member_id
-         LEFT JOIN senteloans_clients c ON c.id = i.client_id
-         WHERE i.id = $1
-           AND i.institution_id = $2
-           ${isSuperAdmin ? "" : "AND i.branch_id = $3"}
-         LIMIT 1`,
-        isSuperAdmin ? [id, actor.institution_id] : [id, actor.institution_id, actor.branch_id],
-      )
-      const invoice = invoiceRes.rows[0]
-      if (!invoice) return { error: "invoice_not_found" as const }
-
-      const itemsRes = await client.query(
-        `SELECT unit, description, quantity, unit_price, total_price
-         FROM senteloans_invoice_items
-         WHERE invoice_id = $1
-         ORDER BY id`,
-        [id],
-      )
-
-      const bankAccountsRes = await client.query(
-        `SELECT bank_name, bank_account_number
-         FROM senteloans_bank_accounts
-         WHERE institution_id = $1
-           AND branch_id = $2
-         ORDER BY created_at ASC`,
-        [actor.institution_id, String(invoice.branch_id || actor.branch_id || "")],
-      )
-
-      const buffer = await renderSingleInvoicePdfBuffer({
-        invoice_number: String(invoice.invoice_number || ""),
-        sacco_name: String(invoice.sacco_name || ""),
-        sacco_logo: String(invoice.sacco_logo || ""),
-        branch_name: String(invoice.branch_name || ""),
-        branch_phone: String(invoice.branch_phone || ""),
-        branch_email: String(invoice.branch_email || ""),
-        website: String(invoice.website || ""),
-        branch_address: String(invoice.branch_address || ""),
-        bank_accounts: bankAccountsRes.rows.map(
-          (r: Record<string, unknown>) =>
-            `${String(r.bank_name || "").trim()} - ${String(r.bank_account_number || "").trim()}`,
-        ).filter((v: string) => v !== "-" && v !== " - "),
-        recipient_name: String(invoice.recipient_name || ""),
-        recipient_phone: String(invoice.recipient_phone || ""),
-        recipient_address: String(invoice.recipient_address || ""),
-        status: String(invoice.status || ""),
-        invoice_type: String(invoice.invoice_type || ""),
-        invoice_date: invoice.invoice_date || null,
-        invoice_due: invoice.invoice_due || null,
-        subtotal: Number(invoice.subtotal || 0),
-        vat: Number(invoice.vat || 0),
-        total_amount: Number(invoice.total_amount || 0),
-        inwords: String(invoice.inwords || ""),
-        items: itemsRes.rows.map((r: Record<string, unknown>) => ({
-          description: String(r.description || ""),
-          unit: String(r.unit || ""),
-          quantity: Number(r.quantity || 0),
-          unit_price: Number(r.unit_price || 0),
-          total_price: Number(r.total_price || 0),
-        })),
+      const generated = await generateInvoicePdfBuffer(client, {
+        invoiceId: id,
+        institutionId: actor.institution_id,
+        branchId: isSuperAdmin ? null : actor.branch_id,
       })
+      if (!generated.ok) return { error: "invoice_not_found" as const }
 
       return {
-        invoiceNumber: String(invoice.invoice_number || "invoice"),
-        buffer,
+        invoiceNumber: generated.invoiceNumber,
+        buffer: generated.buffer,
       }
     })
 

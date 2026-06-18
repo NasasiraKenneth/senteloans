@@ -5,17 +5,26 @@ import {
   type EmailJobData,
   type EmailJobName,
 } from "../queues/email.queue"
+import { sendTransactionalEmail } from "../lib/email/sender"
 
 export function startEmailWorker() {
   const worker = new Worker<EmailJobData, unknown, EmailJobName>(
     EMAIL_QUEUE_NAME,
     async (job: Job<EmailJobData, unknown, EmailJobName>) => {
+      const result = await sendTransactionalEmail(job.data)
+      if (!result.ok && result.skipped) {
+        console.warn(
+          `[email.worker] skipped job=${job.id} to=${job.data.to} reason=${result.error}`,
+        )
+        return { skipped: true, reason: result.error }
+      }
+      if (!result.ok) {
+        throw new Error(result.error)
+      }
       console.log(
-        `[email.worker] job=${job.id} to=${job.data.to} subject="${job.data.subject}"`,
+        `[email.worker] sent job=${job.id} to=${job.data.to} provider=${result.provider}`,
       )
-      // TODO: wire to mail provider. Codebase already has Mailgun usage in
-      // `lib/send-contact-email.ts`; extract a shared sender and call it here.
-      return { ok: true }
+      return result
     },
     {
       connection: createConnection("email-worker"),

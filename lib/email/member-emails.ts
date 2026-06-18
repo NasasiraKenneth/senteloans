@@ -1,20 +1,12 @@
-import { enqueueEmail, type EmailJobData } from "@/queues/email.queue"
+import type { EmailJobData } from "@/queues/email.queue"
+import type { EmailContext } from "./types"
+import { enqueueMemberEmail } from "./enqueue-member-email"
 
-/**
- * Templates the email worker is expected to resolve. The worker currently logs
- * the job and returns ok — these are placeholders so we have a stable contract
- * once a real mail provider is wired in.
- */
 export const EMAIL_TEMPLATES = {
   memberWelcome: "member.welcome",
   memberKycRequired: "member.kyc_required",
   memberInvoice: "member.invoice",
 } as const
-
-export interface EmailContext {
-  institutionId?: string
-  actorId?: string
-}
 
 export interface MemberSummary {
   id: string
@@ -30,10 +22,16 @@ export interface InvoiceEmailSummary {
   invoice_due?: string | null
 }
 
+export interface SavingsAccountEmailSummary {
+  account_number: string
+  account_type: string
+}
+
 export interface MemberRegistrationEmailInput {
   member: MemberSummary
   institutionName: string
   currency?: string
+  savingsAccount?: SavingsAccountEmailSummary | null
   invoice?: InvoiceEmailSummary | null
   context?: EmailContext
 }
@@ -42,19 +40,6 @@ export interface EnqueuedEmailsResult {
   enqueued: string[]
   skipped: string[]
   errors: string[]
-}
-
-const enqueueSafely = async (
-  data: EmailJobData,
-  label: string,
-  out: EnqueuedEmailsResult,
-): Promise<void> => {
-  try {
-    await enqueueEmail(data)
-    out.enqueued.push(label)
-  } catch (e) {
-    out.errors.push(`${label}:${(e as Error)?.message || "enqueue_failed"}`)
-  }
 }
 
 /**
@@ -81,61 +66,56 @@ export async function enqueueMemberRegistrationEmails(
     return result
   }
 
-  await enqueueSafely(
-    {
-      to: email,
-      subject: `Welcome to ${input.institutionName}`,
-      template: EMAIL_TEMPLATES.memberWelcome,
-      kind: "template",
-      data: {
-        memberName: input.member.full_name,
-        memberNumber: input.member.member_number,
-        institutionName: input.institutionName,
-      },
-      context: input.context,
+  const memberId = input.member.id
+  const welcomeJob: EmailJobData = {
+    to: email,
+    subject: `Welcome to ${input.institutionName}`,
+    template: EMAIL_TEMPLATES.memberWelcome,
+    kind: "template",
+    data: {
+      memberName: input.member.full_name,
+      memberNumber: input.member.member_number,
+      institutionName: input.institutionName,
+      accountType: input.savingsAccount?.account_type || null,
+      accountNumber: input.savingsAccount?.account_number || null,
     },
-    "welcome",
-    result,
-  )
+    context: input.context,
+  }
+  await enqueueMemberEmail(memberId, welcomeJob, "welcome", result)
 
-  await enqueueSafely(
-    {
-      to: email,
-      subject: "Verify your KYC documents",
-      template: EMAIL_TEMPLATES.memberKycRequired,
-      kind: "template",
-      data: {
-        memberName: input.member.full_name,
-        memberNumber: input.member.member_number,
-        institutionName: input.institutionName,
-      },
-      context: input.context,
+  const kycJob: EmailJobData = {
+    to: email,
+    subject: "Verify your KYC documents",
+    template: EMAIL_TEMPLATES.memberKycRequired,
+    kind: "template",
+    data: {
+      memberName: input.member.full_name,
+      memberNumber: input.member.member_number,
+      institutionName: input.institutionName,
     },
-    "kyc",
-    result,
-  )
+    context: input.context,
+  }
+  await enqueueMemberEmail(memberId, kycJob, "kyc", result)
 
   if (input.invoice) {
-    await enqueueSafely(
-      {
-        to: email,
-        subject: `Membership Fee Invoice ${input.invoice.invoice_number}`,
-        template: EMAIL_TEMPLATES.memberInvoice,
-        kind: "template",
-        data: {
-          memberName: input.member.full_name,
-          memberNumber: input.member.member_number,
-          institutionName: input.institutionName,
-          invoiceNumber: input.invoice.invoice_number,
-          amount: input.invoice.total_amount,
-          currency: input.currency || "UGX",
-          dueDate: input.invoice.invoice_due || null,
-        },
-        context: input.context,
+    const invoiceJob: EmailJobData = {
+      to: email,
+      subject: `Membership Fee Invoice ${input.invoice.invoice_number}`,
+      template: EMAIL_TEMPLATES.memberInvoice,
+      kind: "template",
+      data: {
+        memberName: input.member.full_name,
+        memberNumber: input.member.member_number,
+        institutionName: input.institutionName,
+        invoiceNumber: input.invoice.invoice_number,
+        amount: input.invoice.total_amount,
+        currency: input.currency || "UGX",
+        dueDate: input.invoice.invoice_due || null,
       },
-      "invoice",
-      result,
-    )
+      attachmentSpecs: [{ kind: "invoice", invoiceId: input.invoice.id }],
+      context: input.context,
+    }
+    await enqueueMemberEmail(memberId, invoiceJob, "invoice", result)
   }
 
   return result

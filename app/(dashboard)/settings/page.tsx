@@ -37,12 +37,14 @@ import {
 } from "lucide-react"
 
 import { getSession, updateInstitutionConfig } from "@/lib/session"
+import { DEFAULT_CURRENCY_IN_WORDS } from "@/lib/invoices/utils"
 import { useToast } from "@/components/ui/toast"
 import { upload } from "@vercel/blob/client"
 
 interface InstitutionConfig {
   modules: { loans: boolean; shares: boolean; savings: boolean; mobile_money: boolean }
   currency: string
+  currencyInWords?: string
   shareValue?: number
   minimumShares?: number
   maximumShares?: number
@@ -111,6 +113,13 @@ type SettingsPermissions = {
   editRolePermissions: boolean
 }
 
+const CURRENCY_IN_WORDS_PRESETS: Record<string, string> = {
+  UGX: "Ugandan shillings only",
+  USD: "US dollars only",
+  KES: "Kenyan shillings only",
+  TZS: "Tanzanian shillings only",
+}
+
 export default function SettingsPage() {
   const { toast } = useToast()
   const [session, setSession] = useState<any>(null)
@@ -148,6 +157,38 @@ export default function SettingsPage() {
   const [institutionConfigDraftBackup, setInstitutionConfigDraftBackup] = useState<InstitutionConfig | null>(null)
   const generalLogoInputRef = useRef<HTMLInputElement | null>(null)
   const [isLogoUploading, setIsLogoUploading] = useState(false)
+  type EmailSettingsForm = {
+    provider: string
+    fromEmail: string
+    replyToEmail: string
+    domain: string
+    apiKey: string
+    smtpHost: string
+    smtpPort: string
+    smtpUsername: string
+    smtpPassword: string
+    isActive: boolean
+    hasApiKey: boolean
+    apiKeyMasked: string | null
+    hasSmtpPassword: boolean
+  }
+  const [emailSettings, setEmailSettings] = useState<EmailSettingsForm>({
+    provider: "mailgun",
+    fromEmail: "",
+    replyToEmail: "",
+    domain: "",
+    apiKey: "",
+    smtpHost: "",
+    smtpPort: "587",
+    smtpUsername: "",
+    smtpPassword: "",
+    isActive: false,
+    hasApiKey: false,
+    apiKeyMasked: null,
+    hasSmtpPassword: false,
+  })
+  const [isSavingEmailSettings, setIsSavingEmailSettings] = useState(false)
+  const [isSendingTestEmail, setIsSendingTestEmail] = useState(false)
   const memberInputClass =
     "h-10 rounded-md border-gray-300 text-sm transition-all duration-200 hover:border-gray-400 focus-visible:ring-[1.5px] focus-visible:ring-[#f08c2b] focus-visible:border-transparent"
   const memberSelectClass =
@@ -158,12 +199,13 @@ export default function SettingsPage() {
     setSession(sessionData)
     ;(async () => {
       try {
-        const [instRes, orgRes, staffRes, branchRes, settingsPermRes] = await Promise.all([
+        const [instRes, orgRes, staffRes, branchRes, settingsPermRes, emailSettingsRes] = await Promise.all([
           fetch("/api/institution/settings", { cache: "no-store" }),
           fetch("/api/institution/organization", { cache: "no-store" }),
           fetch("/api/institution/staff?limit=200", { cache: "no-store" }),
           fetch("/api/institution/branch", { cache: "no-store" }),
           fetch("/api/institution/settings/permissions", { cache: "no-store" }),
+          fetch("/api/institution/email-settings", { cache: "no-store" }),
         ])
         if (instRes.ok) {
           const inst = await instRes.json()
@@ -209,6 +251,27 @@ export default function SettingsPage() {
             editBranchInfo: !!permsData?.permissions?.editBranchInfo,
             editRolePermissions: !!permsData?.permissions?.editRolePermissions,
           })
+        }
+        if (emailSettingsRes.ok) {
+          const emailData = await emailSettingsRes.json().catch(() => ({}))
+          const s = emailData?.settings
+          if (s) {
+            setEmailSettings({
+              provider: String(s.provider || "mailgun"),
+              fromEmail: String(s.fromEmail || ""),
+              replyToEmail: String(s.replyToEmail || ""),
+              domain: String(s.domain || ""),
+              apiKey: "",
+              smtpHost: String(s.smtpHost || ""),
+              smtpPort: s.smtpPort != null ? String(s.smtpPort) : "587",
+              smtpUsername: String(s.smtpUsername || ""),
+              smtpPassword: "",
+              isActive: Boolean(s.isActive),
+              hasApiKey: Boolean(s.hasApiKey),
+              apiKeyMasked: s.apiKeyMasked ? String(s.apiKeyMasked) : null,
+              hasSmtpPassword: Boolean(s.hasSmtpPassword),
+            })
+          }
         }
       } catch (_) {
         // swallow
@@ -317,6 +380,19 @@ export default function SettingsPage() {
       toast({ title: "Validation", description: "Maximum number of parallel loans must be at least 1.", variant: "warning" })
       return false
     }
+    const currencyInWords = String(config.currencyInWords || "").trim()
+    if (!currencyInWords) {
+      toast({
+        title: "Validation",
+        description: `Currency in words is required (e.g. "${DEFAULT_CURRENCY_IN_WORDS}").`,
+        variant: "warning",
+      })
+      return false
+    }
+    if (currencyInWords.length > 250) {
+      toast({ title: "Validation", description: "Currency in words must be 250 characters or fewer.", variant: "warning" })
+      return false
+    }
 
     setIsSavingInstitution(true)
     try {
@@ -326,7 +402,11 @@ export default function SettingsPage() {
         body: JSON.stringify({ config }),
       })
       if (!a.ok) {
-        const { error } = await a.json()
+        const body = await a.json().catch(() => ({} as Record<string, unknown>))
+        const error = String(body?.error || "")
+        if (error === "currency_inwords_invalid") {
+          throw new Error("Currency in words is required and must be 250 characters or fewer.")
+        }
         throw new Error(error || "Failed to save institution settings")
       }
       const updated = await a.json()
@@ -343,6 +423,110 @@ export default function SettingsPage() {
       return false
     } finally {
       setIsSavingInstitution(false)
+    }
+  }
+
+  const handleSaveEmailSettings = async () => {
+    if (!emailSettings.fromEmail.trim() && emailSettings.isActive) {
+      toast({ title: "Validation", description: "From email is required when email delivery is active.", variant: "warning" })
+      return
+    }
+    if (emailSettings.provider === "mailgun" && !emailSettings.domain.trim() && emailSettings.isActive) {
+      toast({ title: "Validation", description: "Mailgun domain is required when email delivery is active.", variant: "warning" })
+      return
+    }
+    if (
+      emailSettings.provider === "mailgun" &&
+      !emailSettings.hasApiKey &&
+      !emailSettings.apiKey.trim() &&
+      emailSettings.isActive
+    ) {
+      toast({ title: "Validation", description: "API key is required when email delivery is active.", variant: "warning" })
+      return
+    }
+    if (emailSettings.provider === "smtp" && !emailSettings.smtpHost.trim() && emailSettings.isActive) {
+      toast({ title: "Validation", description: "SMTP host is required when email delivery is active.", variant: "warning" })
+      return
+    }
+    if (emailSettings.provider === "smtp" && !emailSettings.smtpPort.trim() && emailSettings.isActive) {
+      toast({ title: "Validation", description: "SMTP port is required when email delivery is active.", variant: "warning" })
+      return
+    }
+
+    setIsSavingEmailSettings(true)
+    try {
+      const res = await fetch("/api/institution/email-settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          provider: emailSettings.provider,
+          fromEmail: emailSettings.fromEmail.trim() || null,
+          replyToEmail: emailSettings.replyToEmail.trim() || null,
+          domain: emailSettings.domain.trim() || null,
+          apiKey: emailSettings.apiKey.trim() || null,
+          smtpHost: emailSettings.smtpHost.trim() || null,
+          smtpPort: emailSettings.smtpPort.trim() ? Number(emailSettings.smtpPort) : null,
+          smtpUsername: emailSettings.smtpUsername.trim() || null,
+          smtpPassword: emailSettings.smtpPassword.trim() || null,
+          isActive: emailSettings.isActive,
+        }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        throw new Error(String(data?.error || "Failed to save email settings"))
+      }
+      const s = data?.settings
+      if (s) {
+        setEmailSettings((prev) => ({
+          ...prev,
+          provider: String(s.provider || prev.provider),
+          fromEmail: String(s.fromEmail || ""),
+          replyToEmail: String(s.replyToEmail || ""),
+          domain: String(s.domain || ""),
+          apiKey: "",
+          smtpHost: String(s.smtpHost || ""),
+          smtpPort: s.smtpPort != null ? String(s.smtpPort) : prev.smtpPort,
+          smtpUsername: String(s.smtpUsername || ""),
+          smtpPassword: "",
+          isActive: Boolean(s.isActive),
+          hasApiKey: Boolean(s.hasApiKey),
+          apiKeyMasked: s.apiKeyMasked ? String(s.apiKeyMasked) : null,
+          hasSmtpPassword: Boolean(s.hasSmtpPassword),
+        }))
+      }
+      toast({ title: "Saved", description: "Email delivery settings updated.", variant: "success" })
+    } catch (e: unknown) {
+      toast({
+        title: "Error",
+        description: e instanceof Error ? e.message : "Failed to save email settings",
+        variant: "destructive",
+      })
+    } finally {
+      setIsSavingEmailSettings(false)
+    }
+  }
+
+  const handleSendTestEmail = async () => {
+    setIsSendingTestEmail(true)
+    try {
+      const res = await fetch("/api/institution/email-settings/test", { method: "POST" })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        throw new Error(String(data?.error || "Failed to queue test email"))
+      }
+      toast({
+        title: "Test email queued",
+        description: `A test message was queued for ${String(data?.to || "your staff email")}. Ensure workers are running.`,
+        variant: "success",
+      })
+    } catch (e: unknown) {
+      toast({
+        title: "Error",
+        description: e instanceof Error ? e.message : "Failed to send test email",
+        variant: "destructive",
+      })
+    } finally {
+      setIsSendingTestEmail(false)
     }
   }
 
@@ -1107,7 +1291,27 @@ export default function SettingsPage() {
                           </div>
                           <div className="space-y-2 md:col-span-2">
                             <Label htmlFor="currency">Preferred Currency</Label>
-                            <Select disabled={!canEditInstitutionWorkspace("general")} value={config.currency} onValueChange={(value) => setConfigField("currency", value)}>
+                            <Select
+                              disabled={!canEditInstitutionWorkspace("general")}
+                              value={config.currency}
+                              onValueChange={(value) => {
+                                setConfig((prev) => {
+                                  if (!prev) return prev
+                                  const preset = CURRENCY_IN_WORDS_PRESETS[value]
+                                  const currentInWords = String(prev.currencyInWords || "").trim()
+                                  const previousPreset = CURRENCY_IN_WORDS_PRESETS[prev.currency]
+                                  const shouldApplyPreset =
+                                    !currentInWords ||
+                                    currentInWords === previousPreset ||
+                                    currentInWords === DEFAULT_CURRENCY_IN_WORDS
+                                  return {
+                                    ...prev,
+                                    currency: value,
+                                    ...(preset && shouldApplyPreset ? { currencyInWords: preset } : {}),
+                                  }
+                                })
+                              }}
+                            >
                               <SelectTrigger id="currency" className={memberSelectClass}>
                                 <SelectValue />
                               </SelectTrigger>
@@ -1118,6 +1322,180 @@ export default function SettingsPage() {
                                 <SelectItem value="TZS">Tanzanian Shilling (TZS)</SelectItem>
                               </SelectContent>
                             </Select>
+                          </div>
+                          <div className="space-y-2 md:col-span-2">
+                            <Label htmlFor="currencyInWords">Currency in Words</Label>
+                            <Input
+                              id="currencyInWords"
+                              value={config.currencyInWords || ""}
+                              onChange={(e) => setConfigField("currencyInWords", e.target.value)}
+                              disabled={!canEditInstitutionWorkspace("general")}
+                              placeholder={DEFAULT_CURRENCY_IN_WORDS}
+                              maxLength={250}
+                              className={memberInputClass}
+                            />
+                            <p className="text-xs text-muted-foreground">
+                              Suffix used on invoices after the amount, e.g. &quot;Five thousand {config.currencyInWords || DEFAULT_CURRENCY_IN_WORDS}&quot;.
+                            </p>
+                          </div>
+                          <div className="md:col-span-2 pt-1">
+                            <Separator className="my-3" />
+                          </div>
+                          <div className="md:col-span-2 space-y-3 rounded-lg border border-[#111111]/10 bg-[#111111]/[0.02] p-4">
+                            <div className="flex items-center gap-2 text-sm font-semibold text-[#1f1f1f]">
+                              <Mail className="h-4 w-4 text-[#f08c2b]" />
+                              Email delivery
+                            </div>
+                            <p className="text-xs text-muted-foreground">
+                              Sends member emails (welcome, fees, shares, opening balances). Requires Redis workers (`npm run workers`).
+                            </p>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              <div className="space-y-2">
+                                <Label htmlFor="emailProvider">Provider</Label>
+                                <Select
+                                  value={emailSettings.provider}
+                                  onValueChange={(v) => setEmailSettings((p) => ({ ...p, provider: v }))}
+                                  disabled={!canEditInstitutionWorkspace("general")}
+                                >
+                                  <SelectTrigger id="emailProvider" className={memberSelectClass}>
+                                    <SelectValue placeholder="Select provider" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="mailgun">Mailgun</SelectItem>
+                                    <SelectItem value="smtp">SMTP</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                              <div className="space-y-2">
+                                <Label htmlFor="emailFrom">From email</Label>
+                                <Input
+                                  id="emailFrom"
+                                  type="email"
+                                  value={emailSettings.fromEmail}
+                                  onChange={(e) => setEmailSettings((p) => ({ ...p, fromEmail: e.target.value }))}
+                                  disabled={!canEditInstitutionWorkspace("general")}
+                                  placeholder="noreply@yourdomain.com"
+                                  className={memberInputClass}
+                                />
+                              </div>
+                              <div className="space-y-2">
+                                <Label htmlFor="emailReplyTo">Reply-to email</Label>
+                                <Input
+                                  id="emailReplyTo"
+                                  type="email"
+                                  value={emailSettings.replyToEmail}
+                                  onChange={(e) => setEmailSettings((p) => ({ ...p, replyToEmail: e.target.value }))}
+                                  disabled={!canEditInstitutionWorkspace("general")}
+                                  placeholder="support@yourdomain.com"
+                                  className={memberInputClass}
+                                />
+                              </div>
+                              {emailSettings.provider === "mailgun" ? (
+                                <>
+                                  <div className="space-y-2">
+                                    <Label htmlFor="emailDomain">Mailgun domain</Label>
+                                    <Input
+                                      id="emailDomain"
+                                      value={emailSettings.domain}
+                                      onChange={(e) => setEmailSettings((p) => ({ ...p, domain: e.target.value }))}
+                                      disabled={!canEditInstitutionWorkspace("general")}
+                                      placeholder="mg.yourdomain.com"
+                                      className={memberInputClass}
+                                    />
+                                  </div>
+                                  <div className="space-y-2">
+                                    <Label htmlFor="emailApiKey">API key</Label>
+                                    <Input
+                                      id="emailApiKey"
+                                      type="password"
+                                      value={emailSettings.apiKey}
+                                      onChange={(e) => setEmailSettings((p) => ({ ...p, apiKey: e.target.value }))}
+                                      disabled={!canEditInstitutionWorkspace("general")}
+                                      placeholder={emailSettings.hasApiKey ? `Saved (${emailSettings.apiKeyMasked || "••••"}) — leave blank to keep` : "key-xxxxxxxx"}
+                                      className={memberInputClass}
+                                    />
+                                  </div>
+                                </>
+                              ) : (
+                                <>
+                                  <div className="space-y-2">
+                                    <Label htmlFor="smtpHost">SMTP host</Label>
+                                    <Input
+                                      id="smtpHost"
+                                      value={emailSettings.smtpHost}
+                                      onChange={(e) => setEmailSettings((p) => ({ ...p, smtpHost: e.target.value }))}
+                                      disabled={!canEditInstitutionWorkspace("general")}
+                                      placeholder="smtp.example.com"
+                                      className={memberInputClass}
+                                    />
+                                  </div>
+                                  <div className="space-y-2">
+                                    <Label htmlFor="smtpPort">SMTP port</Label>
+                                    <Input
+                                      id="smtpPort"
+                                      type="number"
+                                      value={emailSettings.smtpPort}
+                                      onChange={(e) => setEmailSettings((p) => ({ ...p, smtpPort: e.target.value }))}
+                                      disabled={!canEditInstitutionWorkspace("general")}
+                                      placeholder="587"
+                                      className={memberInputClass}
+                                    />
+                                  </div>
+                                  <div className="space-y-2">
+                                    <Label htmlFor="smtpUsername">SMTP username</Label>
+                                    <Input
+                                      id="smtpUsername"
+                                      value={emailSettings.smtpUsername}
+                                      onChange={(e) => setEmailSettings((p) => ({ ...p, smtpUsername: e.target.value }))}
+                                      disabled={!canEditInstitutionWorkspace("general")}
+                                      placeholder="optional"
+                                      className={memberInputClass}
+                                    />
+                                  </div>
+                                  <div className="space-y-2">
+                                    <Label htmlFor="smtpPassword">SMTP password</Label>
+                                    <Input
+                                      id="smtpPassword"
+                                      type="password"
+                                      value={emailSettings.smtpPassword}
+                                      onChange={(e) => setEmailSettings((p) => ({ ...p, smtpPassword: e.target.value }))}
+                                      disabled={!canEditInstitutionWorkspace("general")}
+                                      placeholder={emailSettings.hasSmtpPassword ? "Saved — leave blank to keep" : "optional"}
+                                      className={memberInputClass}
+                                    />
+                                  </div>
+                                </>
+                              )}
+                            </div>
+                            <label className="flex items-center gap-2 text-sm">
+                              <input
+                                type="checkbox"
+                                checked={emailSettings.isActive}
+                                disabled={!canEditInstitutionWorkspace("general")}
+                                onChange={(e) => setEmailSettings((p) => ({ ...p, isActive: e.target.checked }))}
+                              />
+                              Enable email delivery for this branch
+                            </label>
+                            <div className="flex flex-wrap gap-2">
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                disabled={!canEditInstitutionWorkspace("general") || isSavingEmailSettings}
+                                onClick={() => void handleSaveEmailSettings()}
+                              >
+                                {isSavingEmailSettings ? "Saving..." : "Save email settings"}
+                              </Button>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="secondary"
+                                disabled={!canEditInstitutionWorkspace("general") || isSendingTestEmail}
+                                onClick={() => void handleSendTestEmail()}
+                              >
+                                {isSendingTestEmail ? "Queuing..." : "Send test email"}
+                              </Button>
+                            </div>
                           </div>
                           {org && (
                           <>

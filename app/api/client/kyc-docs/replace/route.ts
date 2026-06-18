@@ -3,14 +3,28 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { runWithAuth } from "@/lib/db"
 import { auditLogger } from "@/lib/audit/audit-logger"
-import { notificationService } from "@/lib/notifications/notification-service"
-import { NotificationTemplates } from "@/lib/notifications/notification-types"
-import { getInstitutionAdminRecipients } from "@/lib/notifications/admin-recipients"
+import { notifyKycSubmitted } from "@/lib/notifications/kyc-events"
+import { enqueueKycSubmittedEmail, type KycEmailContext } from "@/lib/email/kyc-emails"
+import { apiLog, getApiPath } from "@/lib/api/api-log"
 
 const DOC_TYPES = ["passport_photo", "national_id_front", "national_id_back"] as const
 type DocType = (typeof DOC_TYPES)[number]
 
+type KycSubmitPostCommit = {
+  institutionId: string
+  branchId: string
+  institutionName: string
+  member: {
+    id: string
+    full_name: string
+    member_number: string
+    email: string
+  }
+  docType: string
+}
+
 export async function POST(req: Request) {
+  const apiPath = getApiPath(req)
   try {
     const session = await getServerSession(authOptions)
     if (!session?.user?.authUserId) return NextResponse.json({ error: "unauthorized" }, { status: 401 })
@@ -22,24 +36,26 @@ export async function POST(req: Request) {
     if (!docType || !DOC_TYPES.includes(docType)) return NextResponse.json({ error: "invalid_doc_type" }, { status: 400 })
     if (!url) return NextResponse.json({ error: "url_required" }, { status: 400 })
 
+    let postCommit: KycSubmitPostCommit | null = null
+
     const result = await runWithAuth(session.user.authUserId, async (client) => {
       const clientRes = await client.query(
-        `SELECT id, institution_id, branch_id FROM clients WHERE supabase_user_id = $1`,
+        `SELECT id, institution_id, branch_id, full_name, member_number, email FROM members WHERE supabase_user_id = $1`,
         [session!.user!.authUserId]
       )
       const row = clientRes.rows[0]
       if (!row) return null
 
       const insertRes = await client.query(
-        `INSERT INTO client_kyc_docs (institution_id, client_id, doc_type, url, status) VALUES ($1, $2, $3, $4, 'pending_review') RETURNING id, created_at`,
-        [row.institution_id, row.id, docType, url]
+        `INSERT INTO member_kyc_docs (institution_id, branch_id, member_id, doc_type, url, status) VALUES ($1, $2, $3, $4, $5, 'pending_review') RETURNING id, created_at`,
+        [row.institution_id, row.branch_id, row.id, docType, url]
       )
       const inserted = insertRes.rows[0]
       if (!inserted) return null
 
-      const insertPayload = { institution_id: row.institution_id, client_id: row.id, doc_type: docType, url, status: "pending_review" }
+      const insertPayload = { institution_id: row.institution_id, branch_id: row.branch_id, member_id: row.id, doc_type: docType, url, status: "pending_review" }
       await auditLogger.logInsert(
-        "client_kyc_docs",
+        "member_kyc_docs",
         inserted.id,
         insertPayload,
         row.institution_id,
@@ -48,51 +64,67 @@ export async function POST(req: Request) {
         client
       )
 
-      const clientInfoRes = await client.query(`SELECT full_name FROM clients WHERE id = $1`, [row.id])
-      const clientInfo = clientInfoRes.rows[0] as { full_name: string } | undefined
-      const admins = await getInstitutionAdminRecipients(client, row.institution_id, {
-        roles: ["institution_admin", "manager", "loan_officer"],
+      await notifyKycSubmitted({
+        client,
+        institutionId: row.institution_id,
+        branchId: String(row.branch_id || ""),
+        member: {
+          id: row.id,
+          full_name: String(row.full_name || ""),
+          member_number: row.member_number ? String(row.member_number) : "",
+        },
+        docType,
       })
-      if (admins.length > 0 && clientInfo) {
-        const tpl = NotificationTemplates.pendingKycReview(clientInfo.full_name, docType, row.id)
-        await notificationService.createBulk(
-          admins.map((a) => ({
-            institutionId: row.institution_id,
-            branchId: String(a.branch_id || row.branch_id || ""),
-            recipientType: "institution_user" as const,
-            recipientId: a.id,
-            type: "pending_kyc_review" as const,
-            title: tpl.title,
-            message: tpl.message,
-            actionUrl: tpl.actionUrl,
-            metadata: { member_id: row.id, member_name: clientInfo.full_name, doc_type: docType },
-          })),
-          client
-        )
-      }
 
-      const submittedTpl = NotificationTemplates.kycSubmitted(docType)
-      await notificationService
-        .create(
-          {
-            institutionId: row.institution_id,
-            branchId: String(row.branch_id || ""),
-            recipientType: "member",
-            recipientId: row.id,
-            type: "kyc_submitted",
-            title: submittedTpl.title,
-            message: submittedTpl.message,
-            actionUrl: submittedTpl.actionUrl,
-            metadata: { doc_type: docType },
-          },
-          client
-        )
-        .catch((e) => console.error("Failed to create kyc_submitted notification:", e))
+      const instRes = await client.query<{ name: string }>(
+        `SELECT name FROM institutions WHERE id = $1`,
+        [row.institution_id],
+      )
+
+      postCommit = {
+        institutionId: row.institution_id,
+        branchId: String(row.branch_id || ""),
+        institutionName: instRes.rows[0]?.name || "",
+        member: {
+          id: String(row.id),
+          full_name: String(row.full_name || ""),
+          member_number: row.member_number ? String(row.member_number) : "",
+          email: row.email ? String(row.email) : "",
+        },
+        docType,
+      }
 
       return { ok: true, pendingId: inserted.id }
     })
 
     if (!result) return NextResponse.json({ error: "client_not_found" }, { status: 404 })
+
+    const ctx = postCommit as KycSubmitPostCommit | null
+    if (ctx) {
+      try {
+        const emailContext: KycEmailContext = {
+          institutionId: ctx.institutionId,
+          branchId: ctx.branchId,
+        }
+        const emailRes = await enqueueKycSubmittedEmail({
+          member: ctx.member,
+          institutionName: ctx.institutionName,
+          docType: ctx.docType,
+          context: emailContext,
+        })
+        if (emailRes.errors.length > 0) {
+          apiLog("warn", "client.kyc.replace.email_enqueue_partial", {
+            method: "POST", apiPath, status: 200, memberId: ctx.member.id, errors: emailRes.errors,
+          })
+        }
+      } catch (emailErr) {
+        apiLog("error", "client.kyc.replace.email_enqueue_failed", {
+          method: "POST", apiPath, status: 200, memberId: ctx.member.id,
+          error: (emailErr as Error)?.message || "email_failed",
+        })
+      }
+    }
+
     return NextResponse.json(result)
   } catch (e: unknown) {
     const err = e as Error

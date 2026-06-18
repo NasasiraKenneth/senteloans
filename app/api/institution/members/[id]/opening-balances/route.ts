@@ -7,11 +7,28 @@ import { apiLog, getApiPath } from "@/lib/api/api-log"
 import { auditLogger } from "@/lib/audit/audit-logger"
 import { resolveActorContext, hasPermission, assertNotSuperAdmin, SUPER_ADMIN_WRITE_BLOCKED } from "@/lib/api/rbac"
 import { assertBranchActive } from "@/lib/branches/branch-status"
+import { assertMemberActive } from "@/lib/members/member-status"
 import { createTransaction } from "@/lib/transactions/create-transaction"
 import { applyDailyFinanceEntry } from "@/lib/finances/daily-finance"
 import { getBranchBankAccount, adjustBankAccountBalance, type BankAccountRow } from "@/lib/finances/bank-account"
 import { notifyOpeningBalance } from "@/lib/notifications/opening-balance-events"
-import { enqueueOpeningBalanceEmails } from "@/lib/email/opening-balance-emails"
+import { enqueueOpeningBalanceEmails, type OpeningBalanceEmailContext } from "@/lib/email/opening-balance-emails"
+
+type OpeningBalanceSavingsAccountRecorded = {
+  accountId: string
+  accountNumber: string
+  accountType: string
+  openingBalance: number
+}
+
+type OpeningBalanceLoanRecorded = {
+  loanId: string
+  applicationId: string
+  productName: string
+  principalAmount: number
+  amountPaid: number
+  outstanding: number
+}
 
 type OpeningBalancePostCommit = {
   actorId: string
@@ -20,8 +37,12 @@ type OpeningBalancePostCommit = {
   institutionName: string
   currency: string
   member: { id: string; full_name: string; member_number: string; email: string }
-  savings: { amount: number; accountId: string | null } | null
-  loan: { outstanding: number; loanId: string } | null
+  savings: {
+    amount: number
+    accountId: string | null
+    accounts: OpeningBalanceSavingsAccountRecorded[]
+  } | null
+  loan: OpeningBalanceLoanRecorded | null
 }
 
 const round2 = (value: number): number => Math.round((value + Number.EPSILON) * 100) / 100
@@ -290,12 +311,14 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         if (!allowedLoans) return { error: "missing_permission:edit_opening_loans" as const }
       }
 
-      const memberRes = await client.query(
-        `SELECT id, institution_id, branch_id, member_number, full_name, email FROM members WHERE id = $1 AND institution_id = $2`,
-        [memberId, actor.institution_id]
-      )
-      const memberRow = memberRes.rows[0]
-      if (!memberRow) return { error: "member_not_found" as const }
+      const memberCheck = await assertMemberActive(client, memberId, actor.institution_id)
+      if (!memberCheck.ok) {
+        return {
+          error: memberCheck.error as "member_not_found" | "member_inactive",
+          memberStatus: memberCheck.error === "member_inactive" ? memberCheck.status : undefined,
+        }
+      }
+      const memberRow = memberCheck.member
 
       // Reusable branch gate: block opening-balance writes against inactive branches.
       const branchCheck = await assertBranchActive(client, memberRow.branch_id)
@@ -328,7 +351,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       const txDate = new Date().toISOString()
       const results: { savingsUpdated?: boolean; loanCreated?: boolean; loanId?: string } = {}
       const savingsAccountsUpdated: string[] = []
+      const savingsAccountsRecorded: OpeningBalanceSavingsAccountRecorded[] = []
       let totalSavingsRecorded = 0
+      let loanRecorded: OpeningBalanceLoanRecorded | null = null
 
       try {
         await client.query("BEGIN")
@@ -350,12 +375,15 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
           }
 
           const accVerify = await client.query(
-            `SELECT id, available_balance FROM savings_accounts WHERE id = $1 AND member_id = $2 AND institution_id = $3`,
+            `SELECT id, available_balance, account_number, account_type
+             FROM savings_accounts
+             WHERE id = $1 AND member_id = $2 AND institution_id = $3`,
             [accountId, memberId, actor.institution_id]
           )
-          if (!accVerify.rows[0]) throw new OpeningBalanceError("savings_account_not_found")
+          const accRow = accVerify.rows[0]
+          if (!accRow) throw new OpeningBalanceError("savings_account_not_found")
 
-          const balanceBefore = Number(accVerify.rows[0].available_balance) || 0
+          const balanceBefore = Number(accRow.available_balance) || 0
 
           await client.query(
             `UPDATE savings_accounts
@@ -382,6 +410,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
           })
 
           savingsAccountsUpdated.push(accountId)
+          savingsAccountsRecorded.push({
+            accountId: String(accountId),
+            accountNumber: String(accRow.account_number || ""),
+            accountType: String(accRow.account_type || ""),
+            openingBalance: entry.balance,
+          })
           totalSavingsRecorded += entry.balance
         }
         results.savingsUpdated = true
@@ -559,6 +593,14 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
         results.loanCreated = true
         results.loanId = loanRow.id
+        loanRecorded = {
+          loanId: String(loanRow.id),
+          applicationId,
+          productName: String(product.product_name || ""),
+          principalAmount,
+          amountPaid: amountAlreadyPaid,
+          outstanding: Number(loanOutstandingBalance),
+        }
       }
 
       // Roll the net bank movement (savings credit and/or loan migration) into
@@ -637,12 +679,13 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
             email: memberRow.email ? String(memberRow.email) : "",
           },
           savings: results.savingsUpdated
-            ? { amount: totalSavingsRecorded, accountId: savingsAccountsUpdated[0] ?? null }
+            ? {
+                amount: totalSavingsRecorded,
+                accountId: savingsAccountsUpdated[0] ?? null,
+                accounts: savingsAccountsRecorded,
+              }
             : null,
-          loan:
-            results.loanCreated && results.loanId
-              ? { outstanding: Number(loanOutstandingBalance), loanId: results.loanId }
-              : null,
+          loan: loanRecorded,
         }
 
         await client.query("COMMIT")
@@ -659,12 +702,17 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     if (result && "error" in result) {
       const status =
         result.error === "member_not_found" || result.error === "savings_account_not_found" || result.error === "loan_product_not_found" || result.error === "branch_not_found" ? 404 :
-        result.error === "missing_permission:edit_opening_savings" || result.error === "missing_permission:edit_opening_loans" || result.error === SUPER_ADMIN_WRITE_BLOCKED ? 403 :
+        result.error === "missing_permission:edit_opening_savings" || result.error === "missing_permission:edit_opening_loans" || result.error === SUPER_ADMIN_WRITE_BLOCKED || result.error === "branch_inactive" || result.error === "member_inactive" ? 403 :
         400
       // Prefer the human-readable message (e.g. super-admin block) so the client toast is friendly.
       const errorText = "message" in result && result.message ? result.message : result.error
       return NextResponse.json(
-        { error: errorText, code: result.error, ...("branchStatus" in result && result.branchStatus ? { branchStatus: result.branchStatus } : {}) },
+        {
+          error: errorText,
+          code: result.error,
+          ...("branchStatus" in result && result.branchStatus ? { branchStatus: result.branchStatus } : {}),
+          ...("memberStatus" in result && result.memberStatus ? { member_status: result.memberStatus } : {}),
+        },
         { status }
       )
     }
@@ -706,13 +754,20 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       }
 
       try {
+        const emailContext: OpeningBalanceEmailContext = {
+          institutionId: ctx.institutionId,
+          branchId: ctx.branchId,
+          actorId: ctx.actorId,
+        }
         const emailRes = await enqueueOpeningBalanceEmails({
           member: ctx.member,
           institutionName: ctx.institutionName,
           currency: ctx.currency,
-          savings: ctx.savings ? { amount: ctx.savings.amount } : null,
-          loan: ctx.loan ? { outstanding: ctx.loan.outstanding } : null,
-          context: { institutionId: ctx.institutionId, actorId: ctx.actorId },
+          savings: ctx.savings
+            ? { amount: ctx.savings.amount, accounts: ctx.savings.accounts }
+            : null,
+          loan: ctx.loan,
+          context: emailContext,
         })
         if (emailRes.errors.length > 0) {
           apiLog("warn", "member.opening_balances.email_enqueue_partial", {

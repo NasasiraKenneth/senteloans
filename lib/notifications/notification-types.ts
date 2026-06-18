@@ -149,6 +149,12 @@ export const NotificationTemplates = {
     actionUrl: '/client-portal/profile?tab=kyc',
   }),
 
+  kycUploaded: (docType: string) => ({
+    title: 'KYC Document Submitted',
+    message: `Your ${formatDocType(docType)} has been submitted successfully.`,
+    actionUrl: '/client-portal/profile?tab=kyc',
+  }),
+
   kycApproved: (docType: string) => ({
     title: 'KYC Document Approved',
     message: `Your ${formatDocType(docType)} has been verified successfully.`,
@@ -181,10 +187,10 @@ export const NotificationTemplates = {
     actionUrl: `/loans/${loanId}`,
   }),
 
-  pendingKycReview: (clientName: string, docType: string, clientId: string) => ({
+  pendingKycReview: (clientName: string, docType: string, memberId: string) => ({
     title: 'KYC Document Pending Review',
     message: `${clientName} has submitted ${formatDocType(docType)} for verification.`,
-    actionUrl: `/users/${clientId}`,
+    actionUrl: `/members/${memberId}`,
   }),
 
   loanOverdueAlert: (clientName: string, amount: number, days: number, loanId: string) => ({

@@ -97,6 +97,7 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({
   const [members, setMembers] = useState<Member[]>([]);
   const [loadingClients, setLoadingClients] = useState(false);
   const [invoicePeriodDays, setInvoicePeriodDays] = useState<number>(30);
+  const [currencyInWords, setCurrencyInWords] = useState("Ugandan shillings only");
 
   const [formData, setFormData] = useState<InvoiceFormData>({
     clientId: null,
@@ -169,6 +170,8 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({
           const body = await settingsRes.json();
           const days = Number(body?.config?.invoicePeriodDays || 30);
           setInvoicePeriodDays(days > 0 ? days : 30);
+          const inWords = String(body?.config?.currencyInWords || "").trim();
+          if (inWords) setCurrencyInWords(inWords);
         }
 
         // If editing an existing invoice/proforma, merge initial values
@@ -214,9 +217,9 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({
       subTotal,
       vat,
       totalAmount,
-      amountInWords: totalAmount > 0 ? numberToWords(totalAmount) : "",
+      amountInWords: totalAmount > 0 ? numberToWords(totalAmount, currencyInWords) : "",
     }));
-  }, [formData.items, formData.vatInclusive]);
+  }, [formData.items, formData.vatInclusive, currencyInWords]);
 
   const parseLocalDateFromYMD = (value: string | null): Date | undefined => {
     if (!value) return undefined;

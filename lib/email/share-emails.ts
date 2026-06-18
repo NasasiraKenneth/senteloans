@@ -1,9 +1,6 @@
-import { enqueueEmail } from "@/queues/email.queue"
+import { enqueueMemberEmail } from "./enqueue-member-email"
+import type { EmailAttachmentSpec } from "./types"
 
-/**
- * Email templates the worker resolves for share-purchase events. Placeholder
- * contract until a real mail provider is wired in (mirrors member-emails).
- */
 export const SHARE_EMAIL_TEMPLATES = {
   sharesPurchased: "shares.purchased",
 } as const
@@ -21,13 +18,19 @@ export interface ShareEmailInvoice {
   total_amount: number
 }
 
+export interface ShareEmailTransaction {
+  id: string
+  transaction_number: string
+}
+
 export interface SharePurchaseEmailInput {
   member: ShareEmailMember
   institutionName: string
   currency?: string
   shares: { numberOfShares: number; totalValue: number }
+  transaction: ShareEmailTransaction
   invoice?: ShareEmailInvoice | null
-  context?: { institutionId?: string; actorId?: string }
+  context?: { institutionId?: string; branchId?: string; actorId?: string }
 }
 
 export interface EnqueuedEmailsResult {
@@ -37,9 +40,8 @@ export interface EnqueuedEmailsResult {
 }
 
 /**
- * Enqueue the share-purchase confirmation email. Skipped (without raising) when
- * the member has no email on record. Fire-and-forget: returns a summary, never
- * throws — a queue outage cannot break the purchase HTTP response.
+ * Enqueue the share-purchase confirmation email with invoice + receipt PDFs.
+ * Skipped (without raising) when the member has no email on record.
  */
 export async function enqueueSharePurchaseEmails(
   input: SharePurchaseEmailInput,
@@ -52,8 +54,15 @@ export async function enqueueSharePurchaseEmails(
     return result
   }
 
-  try {
-    await enqueueEmail({
+  const attachmentSpecs: EmailAttachmentSpec[] = []
+  if (input.invoice?.id) {
+    attachmentSpecs.push({ kind: "invoice", invoiceId: input.invoice.id })
+  }
+  attachmentSpecs.push({ kind: "receipt", transactionId: input.transaction.id })
+
+  await enqueueMemberEmail(
+    input.member.id,
+    {
       to: email,
       subject: input.invoice
         ? `Shares Purchase Confirmation — Invoice ${input.invoice.invoice_number}`
@@ -68,13 +77,14 @@ export async function enqueueSharePurchaseEmails(
         amount: input.shares.totalValue,
         currency: input.currency || "UGX",
         invoiceNumber: input.invoice?.invoice_number || null,
+        transactionNumber: input.transaction.transaction_number,
       },
+      attachmentSpecs,
       context: input.context,
-    })
-    result.enqueued.push("shares_purchase")
-  } catch (e) {
-    result.errors.push(`shares_purchase:${(e as Error)?.message || "enqueue_failed"}`)
-  }
+    },
+    "shares_purchase",
+    result,
+  )
 
   return result
 }

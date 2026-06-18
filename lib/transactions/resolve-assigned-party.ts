@@ -36,7 +36,7 @@ export async function resolveTransactionAssignedParty(
   }
 
   if (thirdPartyAgentId) {
-    const res = await client.query(`SELECT name FROM clients WHERE id = $1::uuid LIMIT 1`, [thirdPartyAgentId])
+    const res = await client.query(`SELECT name FROM third_party_agents WHERE id = $1::uuid LIMIT 1`, [thirdPartyAgentId])
     const row = res.rows[0]
     return {
       assigned_to: row?.name != null ? String(row.name).trim() : "",

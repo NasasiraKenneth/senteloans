@@ -30,6 +30,8 @@ export interface CreateTransactionParams {
   transferredToId?: string | null
   loanId?: string | null
   saccoLoanId?: string | null
+  /** Branch bank account credited for bank-routed payment modes. */
+  bankAccountId?: string | null
 
   // Optional detail columns
   description?: string | null
@@ -55,12 +57,12 @@ export interface CreatedTransaction {
 
 const INSERT_COLUMNS =
   "institution_id, branch_id, member_id, third_party_agent_id, staff_id, account_id, " +
-  "transferred_to_id, loan_id, sacco_loan_id, transaction_number, type, amount, mode, " +
+  "transferred_to_id, loan_id, sacco_loan_id, bank_account_id, transaction_number, type, amount, mode, " +
   "description, reference_number, balance_before, balance_after, charges, processed_by, " +
   "transaction_date, status"
 
 const INSERT_SQL = `INSERT INTO transactions (${INSERT_COLUMNS})
-  VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
+  VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
   RETURNING id`
 
 /**
@@ -90,6 +92,7 @@ export async function createTransaction(
     transferredToId = null,
     loanId = null,
     saccoLoanId = null,
+    bankAccountId = null,
     description = null,
     referenceNumber = null,
     balanceBefore = null,
@@ -114,6 +117,7 @@ export async function createTransaction(
     transferredToId,
     loanId,
     saccoLoanId,
+    bankAccountId,
     txNumber,
     type,
     amount,
@@ -158,6 +162,7 @@ export async function createTransaction(
         transferred_to_id: transferredToId,
         loan_id: loanId,
         sacco_loan_id: saccoLoanId,
+        bank_account_id: bankAccountId,
         transaction_number: finalNumber,
         type,
         amount,

@@ -42,6 +42,8 @@ function mapError(code: unknown, currency: string, remaining?: unknown): string 
       return "This member's branch is not active. Fee payments are disabled until the branch is reactivated."
     case "branch_not_found":
       return "This member's branch could not be found."
+    case "member_inactive":
+      return "This member is not active. Fee payments are disabled until the member is reactivated."
     case "member_not_found":
       return "Member not found."
     case "cross_tenant_forbidden":

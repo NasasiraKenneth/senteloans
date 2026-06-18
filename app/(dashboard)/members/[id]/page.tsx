@@ -543,7 +543,7 @@ export default function UserProfilePage() {
             <div className="flex items-center justify-between gap-3">
               <Link href="/members" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors">
                 <ArrowLeft className="h-4 w-4" />
-                Back to {clientTerm}s
+                Back to Members
               </Link>
               {canRecordOpeningBalance && (
                 <Button variant="outline" size="sm" onClick={() => setShowOpeningBalanceModal(true)}>

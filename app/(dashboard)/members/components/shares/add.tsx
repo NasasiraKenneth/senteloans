@@ -32,6 +32,8 @@ function mapError(code: unknown): string {
       return "This member's branch is not active. Share purchases are disabled until the branch is reactivated."
     case "branch_not_found":
       return "This member's branch could not be found."
+    case "member_inactive":
+      return "This member is not active. Share purchases are disabled until the member is reactivated."
     case "missing_permission:edit_shares":
       return "You do not have permission to record share purchases."
     case "invalid_number_of_shares":

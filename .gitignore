@@ -31,5 +31,9 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
+# temp PDFs (email attachments, etc.)
+/tmp/pdfs/*
+!/tmp/pdfs/.gitkeep
+
 # cookies and session files
 *cookies*.txt

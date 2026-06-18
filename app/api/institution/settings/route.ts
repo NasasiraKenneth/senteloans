@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { runWithAuth } from "@/lib/db"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
+import { DEFAULT_CURRENCY_IN_WORDS } from "@/lib/invoices/utils"
 
 const readNumber = (obj: Record<string, unknown>, ...keys: string[]): number | undefined => {
   for (const key of keys) {
@@ -148,6 +149,7 @@ export async function GET(req: Request) {
           mobile_money: toFlag(cfg.mobile_money, false),
         },
         currency: readString(cfg, "currency") || "UGX",
+        currencyInWords: readString(cfg, "currency_inwords") || "Ugandan shillings only",
         shareValue: readNumber(cfg, "share_value") ?? 0,
         minimumShares: readNumber(cfg, "minimum_shares") ?? 0,
         maximumShares: readNumber(cfg, "maximum_shares"),
@@ -191,6 +193,7 @@ export async function PUT(req: Request) {
       config?: {
         modules?: { loans?: boolean; shares?: boolean; savings?: boolean; mobile_money?: boolean }
         currency?: string
+        currencyInWords?: string
         shareValue?: number
         minimumShares?: number
         maximumShares?: number
@@ -285,6 +288,14 @@ export async function PUT(req: Request) {
       if (!Number.isFinite(membershipOverduePeriod) || membershipOverduePeriod < 1) throw new Error("membership_late_penalty_period_invalid")
       if (!Number.isFinite(savingsOverduePeriod) || savingsOverduePeriod < 1) throw new Error("savings_overdue_period_invalid")
 
+      const currencyInWords =
+        payload.currencyInWords !== undefined
+          ? String(payload.currencyInWords).trim()
+          : readString(current, "currency_inwords") || DEFAULT_CURRENCY_IN_WORDS
+      if (!currencyInWords || currencyInWords.length > 250) {
+        throw new Error("currency_inwords_invalid")
+      }
+
       const params = [
         profile.branch_id,
         loans,
@@ -293,6 +304,7 @@ export async function PUT(req: Request) {
         mobileMoney,
         autoInvoices,
         String(payload.currency || current.currency || "UGX"),
+        currencyInWords.slice(0, 250),
         membershipFee,
         shareValue,
         minimumShares,
@@ -312,19 +324,19 @@ export async function PUT(req: Request) {
 
       await client.query(
         `INSERT INTO config (
-           branch_id, loans, shares, savings, mobile_money, auto_invoices, currency,
+           branch_id, loans, shares, savings, mobile_money, auto_invoices, currency, currency_inwords,
            membership_fee, share_value, minimum_shares, maximum_shares, maximum_parallel_loans,
            loan_overdue_period, loan_overdue_interest, loan_overdue_interest_per,
            loan_default_period, invoice_overdue_period, savings_overdue_period,
            membership_overdue_period, membership_overdue_interest, membership_overdue_interest_per,
            modified_by, updated_at
          ) VALUES (
-           $1,$2,$3,$4,$5,$6,$7,
-           $8,$9,$10,$11,$12,
-           $13,$14,$15,
-           $16,$17,$18,
-           $19,$20,$21,
-           $22,NOW()
+           $1,$2,$3,$4,$5,$6,$7,$8,
+           $9,$10,$11,$12,$13,
+           $14,$15,$16,
+           $17,$18,$19,
+           $20,$21,$22,
+           $23,NOW()
          )
          ON CONFLICT (branch_id) DO UPDATE SET
            loans = EXCLUDED.loans,
@@ -333,6 +345,7 @@ export async function PUT(req: Request) {
            mobile_money = EXCLUDED.mobile_money,
            auto_invoices = EXCLUDED.auto_invoices,
            currency = EXCLUDED.currency,
+           currency_inwords = EXCLUDED.currency_inwords,
            membership_fee = EXCLUDED.membership_fee,
            share_value = EXCLUDED.share_value,
            minimum_shares = EXCLUDED.minimum_shares,
@@ -384,6 +397,7 @@ export async function PUT(req: Request) {
           mobile_money: toFlag(s2.mobile_money, false),
         },
         currency: readString(s2, "currency") || "UGX",
+        currencyInWords: readString(s2, "currency_inwords") || "Ugandan shillings only",
         shareValue: readNumber(s2, "share_value") ?? 0,
         minimumShares: readNumber(s2, "minimum_shares") ?? 0,
         maximumShares: readNumber(s2, "maximum_shares"),
@@ -412,7 +426,8 @@ export async function PUT(req: Request) {
       err.message === "maximum_parallel_loans_invalid" ||
       err.message === "loan_late_penalty_period_invalid" ||
       err.message === "membership_late_penalty_period_invalid" ||
-      err.message === "savings_overdue_period_invalid"
+      err.message === "savings_overdue_period_invalid" ||
+      err.message === "currency_inwords_invalid"
     )
       apiLog("warn", "institution.settings.invalid", { method: "PUT", apiPath, status: 400, error: err.message })
     if (
@@ -422,7 +437,8 @@ export async function PUT(req: Request) {
       err.message === "maximum_parallel_loans_invalid" ||
       err.message === "loan_late_penalty_period_invalid" ||
       err.message === "membership_late_penalty_period_invalid" ||
-      err.message === "savings_overdue_period_invalid"
+      err.message === "savings_overdue_period_invalid" ||
+      err.message === "currency_inwords_invalid"
     )
       return NextResponse.json({ error: err.message }, { status: 400 })
     apiLog("error", "institution.settings.error", { method: "PUT", apiPath, status: 500, error: err?.message || "Unexpected error" })

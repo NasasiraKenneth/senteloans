@@ -6,6 +6,7 @@ import { apiLog, getApiPath } from "@/lib/api/api-log"
 import { auditLogger } from "@/lib/audit/audit-logger"
 import { resolveActorContext, hasPermission } from "@/lib/api/rbac"
 import { assertBranchActive, type BranchStatus } from "@/lib/branches/branch-status"
+import { assertMemberActiveRow, type MemberStatus } from "@/lib/members/member-status"
 import { createTransaction } from "@/lib/transactions/create-transaction"
 import { applyDailyFinanceEntry } from "@/lib/finances/daily-finance"
 import { getBranchBankAccount, adjustBankAccountBalance, type BankAccountRow } from "@/lib/finances/bank-account"
@@ -196,6 +197,14 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         return { error: "cross_tenant_forbidden" as const }
       }
 
+      const memberCheck = assertMemberActiveRow(memberRow)
+      if (!memberCheck.ok) {
+        return {
+          error: memberCheck.error as "member_inactive",
+          memberStatus: memberCheck.status as MemberStatus,
+        }
+      }
+
       // Reusable branch gate: block fee payments against inactive branches.
       const branchCheck = await assertBranchActive(client, memberRow.branch_id)
       if (!branchCheck.ok) {
@@ -256,6 +265,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
           institutionId: actor.institution_id,
           branchId: memberRow.branch_id,
           memberId,
+          bankAccountId: bankAccount?.id ?? null,
           type: "Fee Payment",
           amount,
           mode,
@@ -424,7 +434,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         result.error === "cross_tenant_forbidden" ||
         result.error === "missing_permission:edit_membership_fee" ||
         result.error === "branch_inactive" ||
-        result.error === "branch_not_found"
+        result.error === "branch_not_found" ||
+        result.error === "member_inactive"
           ? 403
           : result.error === "member_not_found"
             ? 404
@@ -433,6 +444,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       if ("remaining" in result) body.remaining = (result as any).remaining
       if ("branchStatus" in result && (result as { branchStatus?: BranchStatus }).branchStatus) {
         body.branch_status = (result as { branchStatus?: BranchStatus }).branchStatus
+      }
+      if ("memberStatus" in result && (result as { memberStatus?: MemberStatus }).memberStatus) {
+        body.member_status = (result as { memberStatus?: MemberStatus }).memberStatus
       }
       return NextResponse.json(body, { status })
     }
@@ -480,6 +494,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
           institutionName: ctx.institutionName,
           currency: ctx.currency,
           fee: ctx.fee,
+          transaction: ctx.transaction,
           invoice: ctx.invoice
             ? {
                 id: ctx.invoice.id,
@@ -487,7 +502,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
                 fullySettled: ctx.invoice.fullySettled,
               }
             : null,
-          context: { institutionId: ctx.institutionId, actorId: ctx.actorId },
+          context: { institutionId: ctx.institutionId, branchId: ctx.branchId, actorId: ctx.actorId },
         })
         if (emailRes.errors.length > 0) {
           apiLog("warn", "member.membership_fee.email_enqueue_partial", {

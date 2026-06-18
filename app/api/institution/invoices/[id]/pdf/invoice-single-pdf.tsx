@@ -347,15 +347,18 @@ export async function renderSingleInvoicePdfBuffer(invoice: SingleInvoicePdfData
   const qrDataUrl = await QRCode.toDataURL(qrPayload, { width: 70, margin: 1 })
   const bankDetails = invoice.bank_accounts.length > 0 ? invoice.bank_accounts : ["—"]
   const logoSrc = String(invoice.sacco_logo || "").trim()
+  const showLogo = logoSrc.length > 0 && logoSrc !== "false" && logoSrc !== "null"
 
   const doc = (
     <Document>
       <Page size="A4" style={styles.page}>
         <View style={styles.headerRow}>
           <View style={styles.brandLeft}>
-            <View style={styles.logoWrap}>
-              <Image src={logoSrc} style={styles.logoImage} />
-            </View>
+            {showLogo ? (
+              <View style={styles.logoWrap}>
+                <Image src={logoSrc} style={styles.logoImage} />
+              </View>
+            ) : null}
             <View>
               <Text style={styles.companyName}>{invoice.sacco_name || "SACCO"}</Text>
               <Text style={styles.companySlogan}>{invoice.branch_name || "Branch"}</Text>
@@ -511,9 +514,11 @@ export async function renderSingleInvoicePdfBuffer(invoice: SingleInvoicePdfData
           </View>
         </View>
 
-        <View style={styles.watermarkWrap} fixed>
-          <Image src={logoSrc} style={styles.watermarkImage} />
-        </View>
+        {showLogo ? (
+          <View style={styles.watermarkWrap} fixed>
+            <Image src={logoSrc} style={styles.watermarkImage} />
+          </View>
+        ) : null}
 
         <View style={styles.footerWrap} fixed>
           <View style={styles.footerPattern}>

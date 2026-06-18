@@ -252,6 +252,20 @@ export function MemberRegistrationForm({ onClose }: MemberRegistrationFormProps)
       body: JSON.stringify(buildCreatePayload()),
     })
     const data = await res.json().catch(() => ({}))
+    if (
+      res.status === 403 &&
+      (data?.code === "super_admin_write_blocked" || data?.error === "super_admin_write_blocked")
+    ) {
+      toast({
+        variant: "warning",
+        title: "Read-only role",
+        description:
+          typeof data?.error === "string" && data.error !== "super_admin_write_blocked"
+            ? data.error
+            : "Super admins are not allowed to edit or modify data.",
+      })
+      return null
+    }
     if (res.status === 403 && data?.error === "missing_permission:create_member") {
       toast({
         variant: "warning",
