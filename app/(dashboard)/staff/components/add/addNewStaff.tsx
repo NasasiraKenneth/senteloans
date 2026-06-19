@@ -25,6 +25,9 @@ export default function AddNewStaff({ isOpen, onClose, onSuccess }: AddNewStaffP
       })
       const body = await res.json()
       if (!res.ok) {
+        if (res.status === 403 && body?.code === "super_admin_write_blocked") {
+          throw new Error(body.error || "Super admins cannot create staff members")
+        }
         if (res.status === 403 && body?.error === "missing_permission:create_user") {
           throw new Error("missing_permission:create_user")
         }

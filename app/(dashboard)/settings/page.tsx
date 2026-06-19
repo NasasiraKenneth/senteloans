@@ -39,6 +39,7 @@ import {
 import { getSession, updateInstitutionConfig } from "@/lib/session"
 import { DEFAULT_CURRENCY_IN_WORDS } from "@/lib/invoices/utils"
 import { useToast } from "@/components/ui/toast"
+import { useStaffSession } from "@/components/staff-session-provider"
 import { upload } from "@vercel/blob/client"
 
 interface InstitutionConfig {
@@ -122,6 +123,7 @@ const CURRENCY_IN_WORDS_PRESETS: Record<string, string> = {
 
 export default function SettingsPage() {
   const { toast } = useToast()
+  const { refresh: refreshStaffSession } = useStaffSession()
   const [session, setSession] = useState<any>(null)
   const [institution, setInstitution] = useState<{ id: string; name: string; type: string } | null>(null)
   const [config, setConfig] = useState<InstitutionConfig | null>(null)
@@ -921,6 +923,7 @@ export default function SettingsPage() {
         return cloneOrg(next)
       })
       toast({ title: "Saved", description: "Institution profile updated.", variant: "success" })
+      void refreshStaffSession()
       return true
     } catch (e: any) {
       toast({ title: "Error", description: e?.message || "Failed to save institution profile", variant: "destructive" })

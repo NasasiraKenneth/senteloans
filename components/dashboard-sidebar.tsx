@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react"
 import { usePathname } from "next/navigation"
 import Link from "next/link"
-import Image from "next/image"
+import { InstitutionLogo } from "@/components/institution-logo"
 import {
   BarChart3,
   Users,
@@ -25,10 +25,10 @@ import {
   ReceiptText,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { getSession, setSession as persistSession } from "@/lib/session"
+import { clearSession } from "@/lib/session"
 import { signOut } from "next-auth/react"
 import { useRouter } from "next/navigation"
-import { clearSession } from "@/lib/session"
+import { useStaffSession } from "@/components/staff-session-provider"
 
 interface NavItem {
   name: string
@@ -45,82 +45,9 @@ interface NavSection {
 export function DashboardSidebar() {
   const [collapsed, setCollapsed] = useState(false)
   const [expandedMenus, setExpandedMenus] = useState<string[]>([])
-  const [session, setSession] = useState<any>(null)
+  const { session } = useStaffSession()
   const pathname = usePathname()
   const router = useRouter()
-
-  useEffect(() => {
-    let cancelled = false
-    const hydrateSession = async () => {
-      const localSession = getSession()
-      if (!cancelled && localSession) setSession(localSession)
-
-      try {
-        const authRes = await fetch("/api/auth/session", { cache: "no-store" })
-        if (!authRes.ok) return
-        const auth = await authRes.json()
-        const user = auth?.user
-        if (!user?.authUserId || user?.type !== "staff") return
-
-        const merged: any = {
-          ...(localSession || {}),
-          userId: user.userId || localSession?.userId || "",
-          email: user.email || localSession?.email || "",
-          name: user.name || localSession?.name || "",
-          role: user.role || localSession?.role || "",
-          institutionId: user.institutionId || localSession?.institutionId || "",
-          institution: localSession?.institution,
-        }
-
-        const needsInstitution =
-          !merged?.institution?.name ||
-          !merged?.institution?.type ||
-          !merged?.institution?.config
-
-        if (needsInstitution) {
-          const instRes = await fetch("/api/institution/settings", { cache: "no-store" })
-          if (instRes.ok) {
-            const inst = await instRes.json()
-            merged.institutionId = merged.institutionId || inst?.id || ""
-            merged.institution = {
-              id: inst?.id || merged?.institution?.id || "",
-              name: inst?.name || merged?.institution?.name || "",
-              type: inst?.type || merged?.institution?.type || "",
-              config: inst?.config || merged?.institution?.config || {},
-            }
-          }
-        }
-
-        // Ensure institution name/type are present even when settings endpoint can't provide them.
-        if (!merged?.institution?.name || !merged?.institution?.type) {
-          const orgRes = await fetch("/api/institution/organization", { cache: "no-store" })
-          if (orgRes.ok) {
-            const org = await orgRes.json()
-            merged.institutionId = merged.institutionId || org?.id || ""
-            merged.institution = {
-              id: merged?.institution?.id || org?.id || "",
-              name: merged?.institution?.name || org?.name || "",
-              type: merged?.institution?.type || org?.type || "",
-              config: merged?.institution?.config || {},
-            }
-          }
-        }
-
-        if (!cancelled) {
-          setSession(merged)
-          persistSession(merged)
-        }
-      } catch {
-        // ignore hydration failures and keep local fallback
-      }
-    }
-
-    hydrateSession()
-
-    return () => {
-      cancelled = true
-    }
-  }, [])
 
   useEffect(() => {
 
@@ -229,6 +156,7 @@ export function DashboardSidebar() {
   }
 
   const sections = getSections()
+  const institutionName = session?.institution?.name || "Sente Loan"
 
   const isActive = (href: string) => {
     if (href === "/dashboard") return pathname === "/dashboard"
@@ -286,21 +214,12 @@ export function DashboardSidebar() {
             </button>
 
             <Link href="/dashboard">
-              <div
-                className="flex h-11 w-11 items-center justify-center rounded-2xl border border-[#f08c2b]/15"
-                style={{
-                  background: "linear-gradient(135deg, rgba(240,140,43,0.15) 0%, rgba(240,140,43,0.05) 100%)",
-                  boxShadow: "0 4px 12px rgba(240,140,43,0.08)",
-                }}
-              >
-                <Image
-                  src="https://res.cloudinary.com/hatari/image/upload/v1756391632/sente-loans/logos/sente-loans-symbol-logo_jyteeu.png"
-                  alt="Sente Loan"
-                  width={24}
-                  height={24}
-                  className="h-6 w-6"
-                />
-              </div>
+              <InstitutionLogo
+                name={institutionName}
+                logo={session?.institution?.logo}
+                className="h-11 w-11 rounded-2xl border border-[#f08c2b]/15 shadow-[0_4px_12px_rgba(240,140,43,0.08)]"
+                initialsClassName="text-sm"
+              />
             </Link>
           </div>
         ) : (
@@ -314,24 +233,15 @@ export function DashboardSidebar() {
             </button>
 
             <Link href="/dashboard" className="flex flex-col items-center">
-              <div
-                className="flex h-14 w-14 items-center justify-center rounded-2xl border border-[#f08c2b]/15"
-                style={{
-                  background: "linear-gradient(135deg, rgba(240,140,43,0.15) 0%, rgba(240,140,43,0.05) 100%)",
-                  boxShadow: "0 4px 16px rgba(240,140,43,0.1)",
-                }}
-              >
-                <Image
-                  src="https://res.cloudinary.com/hatari/image/upload/v1756391632/sente-loans/logos/sente-loans-symbol-logo_jyteeu.png"
-                  alt="Sente Loan"
-                  width={32}
-                  height={32}
-                  className="h-8 w-8"
-                />
-              </div>
+              <InstitutionLogo
+                name={institutionName}
+                logo={session?.institution?.logo}
+                className="h-14 w-14 rounded-2xl border border-[#f08c2b]/15 shadow-[0_4px_16px_rgba(240,140,43,0.1)]"
+                initialsClassName="text-base"
+              />
               <div className="mt-4 w-full text-center">
                 <div className="text-wrap text-[15px] font-bold tracking-tight text-white">
-                  {session?.institution?.name || "Sente Loan"}
+                  {institutionName}
                 </div>
                 {session?.institution?.type && (
                   <div className="mt-1.5 inline-flex items-center rounded-full border border-[#f08c2b]/15 bg-[#f08c2b]/8 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-[#f08c2b]/80">

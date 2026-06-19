@@ -3,8 +3,8 @@
 import { LogOut, Settings, ChevronDown, ChevronRight, Home } from "lucide-react"
 import { usePathname } from "next/navigation"
 import Link from "next/link"
-import Image from "next/image"
 import { NotificationBell } from "@/components/notification-bell"
+import { InstitutionLogo } from "@/components/institution-logo"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -15,8 +15,8 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { useRouter } from "next/navigation"
 import { signOut } from "next-auth/react"
-import { getSession, clearSession, setSession as persistSession } from "@/lib/session"
-import { useEffect, useState } from "react"
+import { clearSession } from "@/lib/session"
+import { useStaffSession } from "@/components/staff-session-provider"
 
 function getInitials(name: string): string {
   if (!name) return "U"
@@ -25,71 +25,10 @@ function getInitials(name: string): string {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
 }
 
-function getGreeting(): string {
-  const hour = new Date().getHours()
-  if (hour < 12) return "Good morning"
-  if (hour < 17) return "Good afternoon"
-  return "Good evening"
-}
 
 export function DashboardHeader() {
   const router = useRouter()
-  const [session, setSession] = useState<any>(null)
-
-  useEffect(() => {
-    setSession(getSession())
-  }, [])
-
-  useEffect(() => {
-    const s = getSession()
-    if (s?.institution?.name && s?.institution?.type) return
-    ;(async () => {
-      try {
-        const res = await fetch("/api/institution/organization", { cache: "no-store" })
-        if (!res.ok) return
-        const org = await res.json()
-        const updated = {
-          ...(s || {}),
-          institutionId: s?.institutionId || org?.id || s?.institution?.id,
-          institution: {
-            id: s?.institution?.id || org?.id || s?.institutionId || "",
-            name: org?.name || s?.institution?.name || "",
-            type: org?.type || s?.institution?.type || "",
-            config: s?.institution?.config,
-          },
-        }
-        persistSession(updated as any)
-        setSession((prev: any) => ({ ...prev, ...updated }))
-      } catch {
-        // ignore
-      }
-    })()
-  }, [])
-
-  useEffect(() => {
-    const s = getSession()
-    if (s && s?.name && s?.email) return
-    ;(async () => {
-      try {
-        const res = await fetch("/api/institution/profile", { cache: "no-store" })
-        if (!res.ok) return
-        const prof = await res.json()
-        const updated = {
-          ...(s || {}),
-          userId: s?.userId || "",
-          email: prof.email || s?.email || "",
-          name: prof.name || s?.name || "",
-          role: s?.role || prof.role || "",
-          institutionId: s?.institutionId,
-          institution: s?.institution,
-        }
-        persistSession(updated as any)
-        setSession(updated as any)
-      } catch {
-        // ignore
-      }
-    })()
-  }, [])
+  const { session } = useStaffSession()
 
   const handleLogout = async () => {
     try {
@@ -104,7 +43,7 @@ export function DashboardHeader() {
   }
 
   const pathname = usePathname()
-  const firstName = session?.name?.split(" ")[0] || ""
+  const institutionName = session?.institution?.name || "Sente Loan"
   const initials = getInitials(session?.name || "")
   const roleName = session?.role
     ? session.role.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())
@@ -154,22 +93,14 @@ export function DashboardHeader() {
         <nav className="flex items-center gap-1.5 min-w-0">
           {/* Logo + Institution Name */}
           <div className="flex items-center gap-2 shrink-0 mr-1">
-            <div
-              className="flex h-7 w-7 items-center justify-center rounded-lg border border-[#f08c2b]/15"
-              style={{
-                background: "linear-gradient(135deg, rgba(240,140,43,0.12) 0%, rgba(240,140,43,0.04) 100%)",
-              }}
-            >
-              <Image
-                src="https://res.cloudinary.com/hatari/image/upload/v1756391632/sente-loans/logos/sente-loans-symbol-logo_jyteeu.png"
-                alt="Logo"
-                width={16}
-                height={16}
-                className="h-4 w-4"
-              />
-            </div>
+            <InstitutionLogo
+              name={institutionName}
+              logo={session?.institution?.logo}
+              className="h-7 w-7 rounded-lg border border-[#f08c2b]/15"
+              initialsClassName="text-[10px]"
+            />
             <span className="hidden text-[13px] font-semibold text-foreground md:block">
-              {session?.institution?.name || "Sente Loan"}
+              {institutionName}
             </span>
           </div>
 

@@ -15,7 +15,7 @@ export interface UserFormData {
   username: string;
   password?: string;
   confirmPassword?: string;
-  roles: string[];
+  roleId: string;
 }
 
 interface UserFormProps {
@@ -270,15 +270,10 @@ const RolesStep = ({control, errors, roleOptions, roleOptionsLoading}: any) => (
           <div className="text-sm text-red-600 py-2">No roles available in role catalog</div>
         ) : (
           <Controller
-            name="roles"
+            name="roleId"
             control={control}
-            rules={{
-              validate: (value: string[] | undefined) =>
-                Array.isArray(value) && value.length > 0 ? true : "A role is required",
-            }}
-            render={({ field: { value = [], onChange } }) => {
-              const selectedRole = value[0] || ""
-              return (
+            rules={{ required: "A role is required" }}
+            render={({ field: { value = "", onChange } }) => (
                 <div className="grid grid-cols-2 gap-2 max-h-56 overflow-y-auto pr-1">
                   {roleOptions.map((role: RoleOption) => (
                     <label
@@ -288,19 +283,18 @@ const RolesStep = ({control, errors, roleOptions, roleOptionsLoading}: any) => (
                       <input
                         type="radio"
                         name="staff-role"
-                        checked={selectedRole === role.value}
-                        onChange={() => onChange([role.value])}
+                        checked={value === role.value}
+                        onChange={() => onChange(role.value)}
                         className="text-[#f08c2b] accent-[#f08c2b] focus:ring-[#f08c2b]"
                       />
                       <span className="text-sm text-gray-700">{role.label}</span>
                     </label>
                   ))}
                 </div>
-              )
-            }}
+            )}
           />
         )}
-        {errors.roles && <p className="mt-1 text-xs text-red-500">{errors.roles.message}</p>}
+        {errors.roleId && <p className="mt-1 text-xs text-red-500">{errors.roleId.message}</p>}
       </div>
     </div>
 );
@@ -404,7 +398,7 @@ const UserForm: React.FC<UserFormProps> = ({
       username: '',
       password: '',
       confirmPassword: '',
-      roles: [],
+      roleId: '',
       ...initialValues,
     },
     mode: 'onTouched',
@@ -439,7 +433,7 @@ const UserForm: React.FC<UserFormProps> = ({
   const getStepFields = (step: number): (keyof UserFormData)[] => {
     switch (step) {
       case 0: return ['firstName', 'lastName', 'email', 'phoneNumber', 'status', 'joinDate'];
-      case 1: return ['roles'];
+      case 1: return ['roleId'];
       case 2: return ['username', 'password', 'confirmPassword'];
       default: return [];
     }

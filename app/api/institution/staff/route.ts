@@ -7,76 +7,21 @@ import { AUTH_USER_TYPE_INSTITUTION_STAFF } from "@/lib/auth-users"
 import * as crypto from "crypto"
 import { auditLogger } from "@/lib/audit/audit-logger"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
-
-type ActorContext = {
-  id: string
-  institution_id: string
-  branch_id: string | null
-  role_id: string | null
-  role: string | null
-}
-
-const VALID_STATUSES = ["Active", "Inactive", "Suspended"]
-
-async function resolveActorContext(client: any, authUserId: string): Promise<ActorContext | null> {
-  const actorRes = await client.query(
-    `SELECT
-       u.id,
-       u.institution_id,
-       u.branch_id,
-       u.role_id,
-       CASE
-         WHEN r.name = 'System Admin' THEN 'system_admin'
-         WHEN r.name = 'Super Admin' THEN 'super_admin'
-         WHEN r.name = 'Admin' THEN 'institution_admin'
-         WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
-         ELSE NULL
-       END AS role
-     FROM users u
-     LEFT JOIN roles r ON r.id = u.role_id
-     WHERE u.auth_id = $1
-     LIMIT 1`,
-    [authUserId]
-  )
-  return actorRes.rows[0] || null
-}
-
-async function hasPermission(client: any, actor: ActorContext, permission: string): Promise<boolean> {
-  const role = String(actor.role || "").trim().toLowerCase()
-  if (role === "super_admin") return true
-  if (!actor.role_id || !actor.branch_id) return false
-
-  const permRes = await client.query(
-    `SELECT 1
-     FROM role_permissions rp
-     JOIN permissions p ON p.id = rp.permission_id
-     WHERE rp.role_id = $1
-       AND rp.branch_id = $2
-       AND p.name = $3
-     LIMIT 1`,
-    [actor.role_id, actor.branch_id, permission]
-  )
-  return permRes.rowCount > 0
-}
-
-async function resolveRoleById(client: any, roleId: string): Promise<{ id: string; app_role: string } | null> {
-  const roleRes = await client.query(
-    `SELECT
-       r.id,
-       CASE
-         WHEN r.name = 'System Admin' THEN 'system_admin'
-         WHEN r.name = 'Super Admin' THEN 'super_admin'
-         WHEN r.name = 'Admin' THEN 'institution_admin'
-         WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
-         ELSE NULL
-       END AS app_role
-     FROM roles r
-     WHERE r.id = $1
-     LIMIT 1`,
-    [roleId]
-  )
-  return roleRes.rows[0] || null
-}
+import {
+  assertNotSuperAdmin,
+  hasPermission,
+  isSuperAdmin,
+  resolveActorContext,
+  SUPER_ADMIN_WRITE_BLOCKED,
+  SUPER_ADMIN_WRITE_BLOCKED_MESSAGE,
+} from "@/lib/api/rbac"
+import {
+  canAssignRole,
+  parseJoinedAt,
+  parseStaffRoleId,
+  resolveRoleById,
+  VALID_STAFF_STATUSES,
+} from "@/lib/api/staff-roles"
 
 export async function GET(req: Request) {
   const apiPath = getApiPath(req)
@@ -101,21 +46,20 @@ export async function GET(req: Request) {
     const result = await runWithAuth(
       session.user.authUserId,
       async (client) => {
-        const actor = await resolveActorContext(client, session.user.authUserId as string)
+        const actor = await resolveActorContext(client, session.user.authUserId as string, {
+          activeOnly: false,
+        })
         if (!actor?.institution_id) return { error: "no_app_user_profile" as const }
         const allowed = await hasPermission(client, actor, "view_users")
         if (!allowed) return { error: "missing_permission:view_users" as const }
-        const actorRole = String(actor.role || "").trim().toLowerCase()
-        if (actorRole !== "super_admin" && !actor.branch_id) return { error: "actor_branch_missing" as const }
+        if (!isSuperAdmin(actor) && !actor.branch_id) return { error: "actor_branch_missing" as const }
 
         let where = "u.institution_id = $1"
-        // Exclude system admins; list institution staff only
         where += " AND app_role.app_role != 'system_admin'"
         const params: unknown[] = [actor.institution_id]
         let idx = 2
 
-        // Branch-scoped for non-super-admin; super_admin can view all institution branches.
-        if (actorRole !== "super_admin") {
+        if (!isSuperAdmin(actor)) {
           where += ` AND u.branch_id = $${idx}`
           params.push(actor.branch_id)
           idx++
@@ -136,7 +80,7 @@ export async function GET(req: Request) {
           params.push(status)
           idx++
         }
-        if (selectedBranchIds.length > 0 && actorRole === "super_admin") {
+        if (selectedBranchIds.length > 0 && isSuperAdmin(actor)) {
           where += ` AND u.branch_id = ANY($${idx}::uuid[])`
           params.push(selectedBranchIds)
           idx++
@@ -220,31 +164,34 @@ export async function POST(req: Request) {
     const username = String(body.username || "").trim().toLowerCase()
     const password = String(body.password || "").trim()
     const status = String(body.status || "Active").trim()
-    const roles: string[] = Array.isArray(body.roles) ? body.roles : []
+    const joinDate = String(body.joinDate || "").trim()
+    const selectedRoleId = parseStaffRoleId(body)
 
-    // Validation
     if (!firstName) return NextResponse.json({ error: "First name is required" }, { status: 400 })
     if (!lastName) return NextResponse.json({ error: "Last name is required" }, { status: 400 })
     if (!email) return NextResponse.json({ error: "Email is required" }, { status: 400 })
     if (!username) return NextResponse.json({ error: "Username is required" }, { status: 400 })
     if (!password || password.length < 8) return NextResponse.json({ error: "Password must be at least 8 characters" }, { status: 400 })
-    if (roles.length === 0) return NextResponse.json({ error: "At least one role is required" }, { status: 400 })
-
-    // Use the first role as the primary role (DB column is single enum)
-    const selectedRoleId = roles[0]
-    if (!VALID_STATUSES.includes(status))
+    if (!selectedRoleId) return NextResponse.json({ error: "A role is required" }, { status: 400 })
+    if (!VALID_STAFF_STATUSES.includes(status as (typeof VALID_STAFF_STATUSES)[number]))
       return NextResponse.json({ error: `Invalid status: ${status}` }, { status: 400 })
 
     const fullName = `${firstName} ${lastName}`
+    const joinedAt = parseJoinedAt(joinDate)
 
     const result = await runWithAuth(session.user.authUserId, async (client) => {
-      const actor = await resolveActorContext(client, session.user.authUserId as string)
+      const actor = await resolveActorContext(client, session.user.authUserId as string, {
+        activeOnly: false,
+      })
       if (!actor) return { error: "user_not_linked" as const }
+      const writeGuard = assertNotSuperAdmin(actor)
+      if (!writeGuard.ok) {
+        return { error: SUPER_ADMIN_WRITE_BLOCKED, message: SUPER_ADMIN_WRITE_BLOCKED_MESSAGE }
+      }
       if (!actor.branch_id) return { error: "actor_branch_missing" as const }
       const allowed = await hasPermission(client, actor, "create_user")
       if (!allowed) return { error: "missing_permission:create_user" as const }
 
-      // Check email uniqueness
       const emailCheck = await client.query(
         `SELECT id FROM users WHERE email = $1`,
         [email]
@@ -252,7 +199,6 @@ export async function POST(req: Request) {
       if (emailCheck.rows.length > 0)
         return { error: "email_already_exists" as const }
 
-      // Check username uniqueness in app_auth_users
       const usernameCheck = await client.query(
         `SELECT id FROM app_auth_users WHERE username = $1 OR email = $2`,
         [username, email]
@@ -260,7 +206,6 @@ export async function POST(req: Request) {
       if (usernameCheck.rows.length > 0)
         return { error: "username_or_auth_email_already_exists" as const }
 
-      // 1. Create app_auth_users record
       const passwordHash = await hash(password, 10)
       const authId = crypto.randomUUID()
       await client.query(
@@ -269,18 +214,13 @@ export async function POST(req: Request) {
         [authId, AUTH_USER_TYPE_INSTITUTION_STAFF, username, email, passwordHash]
       )
 
-      // 2. Resolve role_id from normalized role name
       const roleRow = await resolveRoleById(client, selectedRoleId)
       if (!roleRow?.id) return { error: "role_not_found" as const }
       if (roleRow.app_role === "system_admin") return { error: "invalid_role_for_institution_staff" as const }
-      if (actor.role !== "super_admin" && roleRow.app_role === "super_admin") {
-        return { error: "insufficient_role_scope_for_assignment" as const }
-      }
-      if (actor.role !== "super_admin" && actor.role !== "institution_admin" && roleRow.app_role === "institution_admin") {
+      if (!canAssignRole(actor.role, roleRow.app_role)) {
         return { error: "insufficient_role_scope_for_assignment" as const }
       }
 
-      // 3. Create users record
       const userId = crypto.randomUUID()
       await client.query(
         `INSERT INTO users (
@@ -297,15 +237,14 @@ export async function POST(req: Request) {
           fullName,
           phoneNumber || null,
           status,
-          null,
+          joinedAt,
         ]
       )
 
-      // 4. Audit log
       await auditLogger.logInsert(
         "users",
         userId,
-        { email, full_name: fullName, role: roleRow.app_role, status, role_id: roleRow.id },
+        { email, full_name: fullName, role: roleRow.app_role, status, role_id: roleRow.id, joined_at: joinedAt },
         actor.institution_id,
         actor.id,
         undefined,
@@ -321,7 +260,7 @@ export async function POST(req: Request) {
           phone_number: phoneNumber || null,
           role: roleRow.app_role,
           status,
-          joined_at: null,
+          joined_at: joinedAt,
           created_at: new Date().toISOString(),
         },
       }
@@ -329,6 +268,7 @@ export async function POST(req: Request) {
 
     if (result && "error" in result) {
       const statusCode =
+        result.error === SUPER_ADMIN_WRITE_BLOCKED ? 403 :
         result.error === "email_already_exists" ? 409 :
         result.error === "username_or_auth_email_already_exists" ? 409 :
         result.error === "role_not_found" ? 400 :
@@ -338,6 +278,7 @@ export async function POST(req: Request) {
         result.error === "actor_branch_missing" ? 400 :
         result.error === "user_not_linked" ? 400 : 500
       const message =
+        "message" in result && result.message ? result.message :
         result.error === "email_already_exists" ? "A staff member with this email already exists" :
         result.error === "username_or_auth_email_already_exists" ? "Username or email is already taken" :
         result.error === "role_not_found" ? "Selected role is not available in role catalog" :
@@ -346,7 +287,7 @@ export async function POST(req: Request) {
         result.error === "missing_permission:create_user" ? "missing_permission:create_user" :
         result.error === "actor_branch_missing" ? "Current staff user has no branch configured" :
         result.error
-      return NextResponse.json({ error: message }, { status: statusCode })
+      return NextResponse.json({ error: message, code: result.error }, { status: statusCode })
     }
 
     return NextResponse.json(result, { status: 201 })

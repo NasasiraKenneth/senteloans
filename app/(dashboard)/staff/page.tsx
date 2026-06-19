@@ -8,7 +8,7 @@ import { Plus, Eye, Edit, Mail, Phone, ShieldCheck, Clock, Calendar } from "luci
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import Tooltip from "@mui/material/Tooltip"
-import { getSession } from "@/lib/session"
+import { useStaffSession } from "@/components/staff-session-provider"
 import DataTable from "@/components/datatables/DataTable"
 import { DataTableColumn } from "@/components/datatables/DataTable"
 import { FilterField } from "@/components/datatables/TableFilter"
@@ -75,9 +75,9 @@ function timeAgo(iso: string | null): string {
 export default function StaffPage() {
   const router = useRouter()
   const { toast } = useToast()
+  useStaffSession()
   const [staff, setStaff] = useState<StaffMember[]>([])
   const [roleOptions, setRoleOptions] = useState<Array<{ value: string; label: string }>>([])
-  const [session, setSession] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [staffPermissions, setStaffPermissions] = useState({
@@ -191,8 +191,6 @@ export default function StaffPage() {
   }
 
   useEffect(() => {
-    const sessionData = getSession()
-    setSession(sessionData)
     loadStaffPermissions()
     loadRoleOptions()
     loadStaff()
@@ -206,6 +204,10 @@ export default function StaffPage() {
     setActiveFilters(normalized)
     loadStaff(normalized)
   }, [])
+
+  const handleView = (row: StaffMember) => {
+    router.push(`/staff/${row.id}`)
+  }
 
   const handleEdit = (row: StaffMember) => {
     setEditStaffId(row.id)
@@ -309,9 +311,16 @@ export default function StaffPage() {
   // Table actions configuration
   const actions = [
     {
+      label: "View",
+      onClick: handleView,
+      variant: "secondary" as const,
+      icon: <Eye className="h-4 w-4" />,
+      disabled: !staffPermissions.viewUsers,
+    },
+    {
       label: "Edit",
       onClick: handleEdit,
-      variant: "primary",
+      variant: "primary" as const,
       icon: <Edit className="h-4 w-4" />,
       disabled: !staffPermissions.editUser,
     },

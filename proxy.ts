@@ -1,22 +1,12 @@
 import { NextResponse, type NextRequest } from "next/server"
 import { getToken } from "next-auth/jwt"
+import { isInstitutionProtectedPath } from "@/lib/institution-protected-routes"
 
 const ADMIN_PREFIX = "/admin"
 const ADMIN_LOGIN = "/admin-login"
 const INSTITUTION_LOGIN = "/login"
 const CLIENT_PREFIX = "/client-portal"
 const CLIENT_LOGIN = "/client-login"
-const INSTITUTION_PROTECTED_PREFIXES = [
-  "/dashboard",
-  "/settings",
-  "/users",
-  "/loans",
-  "/transactions",
-  "/savings",
-  "/reports",
-  "/finances",
-  "/expenses",
-]
 
 function isAdminRoute(pathname: string) {
   if (!pathname.startsWith(ADMIN_PREFIX)) return false
@@ -26,7 +16,7 @@ function isAdminRoute(pathname: string) {
 
 function isInstitutionProtectedRoute(pathname: string) {
   if (pathname === INSTITUTION_LOGIN || pathname.startsWith(`${INSTITUTION_LOGIN}/`)) return false
-  return INSTITUTION_PROTECTED_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`))
+  return isInstitutionProtectedPath(pathname)
 }
 
 function isClientProtectedRoute(pathname: string) {
@@ -91,11 +81,19 @@ export const config = {
     "/admin-login",
     "/login",
     "/dashboard",
-    "/settings",
+    "/settings/:path*",
     "/users/:path*",
+    "/members/:path*",
+    "/staff/:path*",
+    "/clients/:path*",
     "/loans/:path*",
-    "/transactions/:path*",
+    "/loan-products/:path*",
+    "/sacco-loans/:path*",
     "/savings/:path*",
+    "/investments/:path*",
+    "/investment-reports/:path*",
+    "/transactions/:path*",
+    "/invoices/:path*",
     "/reports/:path*",
     "/finances/:path*",
     "/expenses/:path*",

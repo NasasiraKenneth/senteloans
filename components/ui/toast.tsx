@@ -1,6 +1,8 @@
 "use client"
 
 import React, { createContext, useCallback, useContext, useMemo, useRef, useState } from "react"
+import { Moon, Sun, Sunrise } from "lucide-react"
+import type { GreetingPeriod } from "@/lib/greeting"
 
 type ToastVariant = "default" | "success" | "destructive" | "warning"
 
@@ -9,6 +11,7 @@ export type ToastMessage = {
   title?: string
   description?: string
   variant?: ToastVariant
+  icon?: GreetingPeriod
   duration?: number
   exiting?: boolean
 }
@@ -102,6 +105,39 @@ function DefaultIcon() {
   )
 }
 
+function GreetingIcon({ period }: { period: GreetingPeriod }) {
+  const styles: Record<GreetingPeriod, { className: string; Icon: typeof Sunrise }> = {
+    morning: {
+      className: "bg-gradient-to-br from-amber-400 to-orange-500 shadow-[0_0_12px_rgba(251,191,36,0.45)]",
+      Icon: Sunrise,
+    },
+    afternoon: {
+      className: "bg-gradient-to-br from-[#f08c2b] to-[#d97b1e] shadow-[0_0_12px_rgba(240,140,43,0.45)]",
+      Icon: Sun,
+    },
+    evening: {
+      className: "bg-gradient-to-br from-indigo-500 to-violet-600 shadow-[0_0_12px_rgba(99,102,241,0.45)]",
+      Icon: Moon,
+    },
+  }
+  const { className, Icon } = styles[period]
+  return (
+    <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${className}`}>
+      <Icon className="h-4 w-4 text-white" strokeWidth={2.25} />
+    </div>
+  )
+}
+
+function ToastLeadingIcon({ toast }: { toast: ToastMessage }) {
+  if (toast.icon === "morning" || toast.icon === "afternoon" || toast.icon === "evening") {
+    return <GreetingIcon period={toast.icon} />
+  }
+  if (toast.variant === "success") return <SuccessIcon />
+  if (toast.variant === "destructive") return <ErrorIcon />
+  if (toast.variant === "warning") return <WarningIcon />
+  return <DefaultIcon />
+}
+
 function ProgressBar({ duration, variant }: { duration: number; variant?: ToastVariant }) {
   const colorClass =
     variant === "success" ? "bg-emerald-500" :
@@ -172,11 +208,7 @@ export function Toaster({
                   .join(" ")}
               >
                 <div className="flex items-start gap-3">
-                  {/* Icon */}
-                  {isSuccess ? <SuccessIcon /> :
-                   isError ? <ErrorIcon /> :
-                   isWarning ? <WarningIcon /> :
-                   <DefaultIcon />}
+                  <ToastLeadingIcon toast={t} />
 
                   {/* Content */}
                   <div className="flex-1 min-w-0 pt-0.5">

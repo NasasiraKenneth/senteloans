@@ -11,6 +11,7 @@ import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useToast } from "@/components/ui/toast"
 import { LOGIN_ERROR_MESSAGES, LOGIN_SUCCESS_MESSAGES, resolveSignInErrorMessage } from "@/lib/auth-login-messages"
+import { showPostLoginGreetingToast } from "@/lib/greeting"
 
 export default function AdminLoginPage() {
   const [email, setEmail] = useState("")
@@ -56,6 +57,7 @@ export default function AdminLoginPage() {
         throw new Error("Not authorized for admin portal")
       }
       showLoginSuccess()
+      showPostLoginGreetingToast(toast, session?.user?.name)
       router.push("/admin")
       router.refresh()
     } catch (err: any) {

@@ -55,7 +55,7 @@ export default function EditStaff({ isOpen, staffId, onClose, onSuccess }: EditS
           status: s.status || "Active",
           joinDate: s.joined_at ? s.joined_at.slice(0, 10) : "",
           username: s.username || "",
-          roles: s.role_id ? [s.role_id] : [],
+          roleId: s.role_id || "",
           password: "",
           confirmPassword: "",
         })
@@ -102,6 +102,9 @@ export default function EditStaff({ isOpen, staffId, onClose, onSuccess }: EditS
       })
       const body = await res.json()
       if (!res.ok) {
+        if (res.status === 403 && body?.code === "super_admin_write_blocked") {
+          throw new Error(body.error || "Super admins cannot update staff members")
+        }
         if (res.status === 403 && body?.error === "missing_permission:edit_user") {
           throw new Error("missing_permission:edit_user")
         }

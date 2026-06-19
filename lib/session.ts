@@ -8,6 +8,7 @@ export interface SessionData {
     id: string
     name: string
     type: string
+    logo?: string | null
     config: any
   }
 }

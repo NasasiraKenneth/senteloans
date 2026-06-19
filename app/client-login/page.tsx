@@ -13,6 +13,7 @@ import { useRouter, useSearchParams } from "next/navigation"
 import { ArrowLeft, Smartphone, Shield, Clock } from "lucide-react"
 import { useToast } from "@/components/ui/toast"
 import { LOGIN_ERROR_MESSAGES, LOGIN_SUCCESS_MESSAGES, resolveSignInErrorMessage } from "@/lib/auth-login-messages"
+import { showPostLoginGreetingToast } from "@/lib/greeting"
 // TODO: Add phone login via OTP
 
 export default function ClientLoginPage() {
@@ -94,6 +95,7 @@ function ClientLoginForm() {
         redirect = "/client-portal"
       }
       showLoginSuccess()
+      showPostLoginGreetingToast(toast, session?.user?.name)
       router.push(redirect)
       router.refresh()
     } catch (err: any) {

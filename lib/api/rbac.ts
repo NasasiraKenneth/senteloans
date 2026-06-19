@@ -60,7 +60,12 @@ export async function requireStaffSession(): Promise<
   return { ok: true, authUserId: String(session.user.authUserId) }
 }
 
-export async function resolveActorContext(client: PoolClient, authUserId: string): Promise<ActorContext | null> {
+export async function resolveActorContext(
+  client: PoolClient,
+  authUserId: string,
+  options?: { activeOnly?: boolean },
+): Promise<ActorContext | null> {
+  const activeOnly = options?.activeOnly !== false
   const actorRes = await client.query(
     `SELECT
        u.id,
@@ -77,7 +82,7 @@ export async function resolveActorContext(client: PoolClient, authUserId: string
      FROM users u
      LEFT JOIN roles r ON r.id = u.role_id
      WHERE u.auth_id = $1
-       AND u.status = 'Active'
+       ${activeOnly ? "AND u.status = 'Active'" : ""}
      LIMIT 1`,
     [authUserId],
   )

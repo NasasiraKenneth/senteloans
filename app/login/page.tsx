@@ -10,6 +10,9 @@ import { useRouter, useSearchParams } from "next/navigation"
 import { Eye, EyeOff, Lock, ArrowLeft, Loader2 } from "lucide-react"
 import { useToast } from "@/components/ui/toast"
 import { LOGIN_ERROR_MESSAGES, LOGIN_SUCCESS_MESSAGES, resolveSignInErrorMessage } from "@/lib/auth-login-messages"
+import { isAllowedInstitutionRedirect } from "@/lib/institution-protected-routes"
+import { showPostLoginGreetingToast } from "@/lib/greeting"
+import { seedStaffSessionFromAuthUser } from "@/lib/staff-session-hydration"
 
 export default function LoginPage() {
   return (
@@ -88,20 +91,13 @@ function LoginForm() {
         showLoginError(LOGIN_ERROR_MESSAGES.useClientLogin)
         return
       }
-      const allowedPrefixes = [
-        "/dashboard",
-        "/settings",
-        "/users",
-        "/loans",
-        "/transactions",
-        "/savings",
-        "/reports",
-      ]
+      seedStaffSessionFromAuthUser(session.user)
       let target = redirectTo
-      if (typeof target !== "string" || !allowedPrefixes.some((p) => target === p || target.startsWith(`${p}/`))) {
+      if (typeof target !== "string" || !isAllowedInstitutionRedirect(target)) {
         target = "/dashboard"
       }
       showLoginSuccess()
+      showPostLoginGreetingToast(toast, session?.user?.name)
       router.push(target)
       router.refresh()
     } catch (err: any) {
