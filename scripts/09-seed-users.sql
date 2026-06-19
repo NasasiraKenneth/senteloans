@@ -222,7 +222,7 @@ BEGIN
 
     -- Platform super admin
     INSERT INTO users (
-        id, supabase_user_id, institution_id, branch_id, role_id, email, full_name, phone_number, status
+        id, auth_id, institution_id, branch_id, role_id, email, full_name, phone_number, status
     ) VALUES (
         uuid_generate_v4(), NULL::uuid, platform_id, platform_branch_id, role_super_admin_id,
         'admin@senteloans.com', 'SenteLoans System Admin', '+256000000000', 'Active'
@@ -231,7 +231,7 @@ BEGIN
 
     -- Institution admins
     INSERT INTO users (
-        id, supabase_user_id, institution_id, branch_id, role_id, email, full_name, phone_number, status
+        id, auth_id, institution_id, branch_id, role_id, email, full_name, phone_number, status
     ) VALUES
     (
         uuid_generate_v4(), NULL::uuid, kampala_sacco_id, kampala_sacco_branch_id, role_admin_id,
@@ -249,7 +249,7 @@ BEGIN
 
     -- Institution users
     INSERT INTO users (
-        id, supabase_user_id, institution_id, branch_id, role_id, email, full_name, phone_number, status
+        id, auth_id, institution_id, branch_id, role_id, email, full_name, phone_number, status
     ) VALUES
     (
         uuid_generate_v4(), NULL::uuid, kampala_sacco_id, kampala_sacco_branch_id, role_loan_officer_id,
@@ -279,7 +279,7 @@ BEGIN
 
     -- Manager user
     INSERT INTO users (
-        id, supabase_user_id, institution_id, branch_id, role_id, email, full_name, phone_number, status
+        id, auth_id, institution_id, branch_id, role_id, email, full_name, phone_number, status
     ) VALUES
     (
         uuid_generate_v4(), NULL::uuid, quick_cash_id, quick_cash_branch_id, role_manager_id,

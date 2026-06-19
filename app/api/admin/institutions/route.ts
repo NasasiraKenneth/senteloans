@@ -14,7 +14,7 @@ export async function POST(req: Request) {
     const type = uiType === "sacco" ? "SACCO" : uiType === "mfi" ? "MFI" : uiType === "money-lender" ? "Money Lender" : (body.type as string)
     const result = await runWithoutAuth(async (client) => {
       const res = await client.query(
-        `INSERT INTO senteloans_institutions (name, type, address, phone_number, email, website, registration_number, license_number, logo, status)
+        `INSERT INTO institutions (name, type, address, phone_number, email, website, registration_number, license_number, logo, status)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id`,
         [
           body.name,

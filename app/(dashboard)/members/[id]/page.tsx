@@ -108,7 +108,7 @@ export default function UserProfilePage() {
             id: string
             member_number: string
             full_name: string
-            supabase_user_id?: string | null
+            auth_id?: string | null
             date_of_birth: string
             gender: string
             marital_status: string
@@ -153,7 +153,7 @@ export default function UserProfilePage() {
           id: member.id,
           clientNumber: member.member_number,
           fullName: member.full_name,
-          supabaseUserId: member.supabase_user_id || null,
+          supabaseUserId: member.auth_id || null,
           dateOfBirth: member.date_of_birth,
           gender: member.gender,
           maritalStatus: member.marital_status,
@@ -365,13 +365,13 @@ export default function UserProfilePage() {
       const data = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(data?.error || "Failed to enable client login")
       setGeneratedPassword(password)
-      // Refresh client to reflect supabase_user_id linkage
+      // Refresh client to reflect auth_id linkage
       try {
         const res2 = await fetch(`/api/institution/members/${encodeURIComponent(user.id)}`, { cache: "no-store" })
         if (res2.ok) {
           const payload = await res2.json()
           const c = payload?.member
-          if (c) setUser((prev: any) => ({ ...prev, supabaseUserId: c.supabase_user_id || prev?.supabaseUserId || null }))
+          if (c) setUser((prev: any) => ({ ...prev, supabaseUserId: c.auth_id || prev?.supabaseUserId || null }))
         }
       } catch { /* ignore */ }
     } catch (e: any) {

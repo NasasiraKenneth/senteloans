@@ -136,7 +136,7 @@ function createMockClient(options?: { hasCreatePermission?: boolean; membershipF
         return { rows: [], rowCount: 0 }
       }
 
-      if (s.includes("from users u") && s.includes("supabase_user_id")) {
+      if (s.includes("from users u") && s.includes("auth_id")) {
         return { rows: [actor] }
       }
 

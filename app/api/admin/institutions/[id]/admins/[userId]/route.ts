@@ -23,23 +23,23 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     }
 
     await runWithoutAuth(async (client) => {
-      const adminRoleRes = await client.query(`SELECT id FROM senteloans_roles WHERE name = 'Admin' LIMIT 1`)
+      const adminRoleRes = await client.query(`SELECT id FROM roles WHERE name = 'Admin' LIMIT 1`)
       const adminRoleId = adminRoleRes.rows[0]?.id
       if (!adminRoleId) throw new Error("Admin role is not seeded")
 
       if (Object.keys(update).length > 0) {
         const setClause = Object.keys(update).map((k, i) => `${k} = $${i + 4}`).join(", ")
         await client.query(
-          `UPDATE senteloans_users SET ${setClause} WHERE id = $1 AND institution_id = $2 AND role_id = $3`,
+          `UPDATE users SET ${setClause} WHERE id = $1 AND institution_id = $2 AND role_id = $3`,
           [userId, institutionId, adminRoleId, ...Object.values(update)]
         )
       }
       if (newPassword && newPassword.length >= 8) {
         const appUserRes = await client.query(
-          `SELECT supabase_user_id FROM senteloans_users WHERE id = $1 AND institution_id = $2 AND role_id = $3`,
+          `SELECT auth_id FROM users WHERE id = $1 AND institution_id = $2 AND role_id = $3`,
           [userId, institutionId, adminRoleId]
         )
-        const authUserId = appUserRes.rows[0]?.supabase_user_id
+        const authUserId = appUserRes.rows[0]?.auth_id
         if (authUserId) {
           const password_hash = await hash(newPassword, 10)
           await client.query(`UPDATE app_auth_users SET password_hash = $1, updated_at = NOW() WHERE id = $2`, [password_hash, authUserId])
@@ -62,22 +62,22 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
     if (session.user.role !== "system_admin") return NextResponse.json({ error: "Forbidden" }, { status: 403 })
 
     await runWithoutAuth(async (client) => {
-      const adminRoleRes = await client.query(`SELECT id FROM senteloans_roles WHERE name = 'Admin' LIMIT 1`)
+      const adminRoleRes = await client.query(`SELECT id FROM roles WHERE name = 'Admin' LIMIT 1`)
       const adminRoleId = adminRoleRes.rows[0]?.id
       if (!adminRoleId) throw new Error("Admin role is not seeded")
 
       const appUserRes = await client.query(
-        `SELECT id, supabase_user_id FROM senteloans_users WHERE id = $1 AND institution_id = $2 AND role_id = $3`,
+        `SELECT id, auth_id FROM users WHERE id = $1 AND institution_id = $2 AND role_id = $3`,
         [userId, institutionId, adminRoleId]
       )
       const appUser = appUserRes.rows[0]
       if (!appUser) {
         throw new Error("User not found")
       }
-      await client.query(`UPDATE senteloans_audit_logs SET user_id = NULL WHERE user_id = $1`, [userId])
-      await client.query(`DELETE FROM senteloans_users WHERE id = $1 AND institution_id = $2`, [userId, institutionId])
-      if (appUser.supabase_user_id) {
-        await client.query(`DELETE FROM app_auth_users WHERE id = $1`, [appUser.supabase_user_id])
+      await client.query(`UPDATE audit_logs SET user_id = NULL WHERE user_id = $1`, [userId])
+      await client.query(`DELETE FROM users WHERE id = $1 AND institution_id = $2`, [userId, institutionId])
+      if (appUser.auth_id) {
+        await client.query(`DELETE FROM app_auth_users WHERE id = $1`, [appUser.auth_id])
       }
     })
 

@@ -10,7 +10,7 @@ export async function GET() {
 
     const result = await runWithAuth(session.user.authUserId, async (client) => {
       const clientRes = await client.query(
-        `SELECT institution_id FROM clients WHERE supabase_user_id = $1`,
+        `SELECT institution_id FROM members WHERE auth_id = $1`,
         [session!.user!.authUserId]
       )
       const row = clientRes.rows[0]

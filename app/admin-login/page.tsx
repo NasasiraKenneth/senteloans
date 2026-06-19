@@ -9,18 +9,35 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
+import { useToast } from "@/components/ui/toast"
+import { LOGIN_ERROR_MESSAGES, LOGIN_SUCCESS_MESSAGES, resolveSignInErrorMessage } from "@/lib/auth-login-messages"
 
 export default function AdminLoginPage() {
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [isLoading, setIsLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
   const router = useRouter()
+  const { toast } = useToast()
+
+  const showLoginError = (message: string) => {
+    toast({
+      variant: "destructive",
+      title: "Sign in failed",
+      description: message,
+    })
+  }
+
+  const showLoginSuccess = () => {
+    toast({
+      variant: "success",
+      title: "Signed in",
+      description: LOGIN_SUCCESS_MESSAGES.admin,
+    })
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsLoading(true)
-    setError(null)
     try {
       const result = await signIn("credentials", {
         email: email.trim().toLowerCase(),
@@ -28,17 +45,21 @@ export default function AdminLoginPage() {
         redirect: false,
       })
       if (result?.error) {
-        throw new Error("Invalid email or password")
+        throw new Error(resolveSignInErrorMessage(result.error))
+      }
+      if (!result?.ok) {
+        throw new Error(LOGIN_ERROR_MESSAGES.signInFailed)
       }
       const sessionRes = await fetch("/api/auth/session")
       const session = sessionRes.ok ? await sessionRes.json() : null
       if (session?.user?.role !== "system_admin") {
         throw new Error("Not authorized for admin portal")
       }
+      showLoginSuccess()
       router.push("/admin")
       router.refresh()
     } catch (err: any) {
-      setError(err.message || "Login failed")
+      showLoginError(err?.message || LOGIN_ERROR_MESSAGES.signInFailed)
     } finally {
       setIsLoading(false)
     }
@@ -112,12 +133,6 @@ export default function AdminLoginPage() {
                 {isLoading ? "Signing in..." : "Sign In to Admin Portal"}
               </Button>
             </form>
-
-            {error && (
-              <div className="mt-4 p-3 rounded-md bg-red-50 text-red-600 text-sm border border-red-200">
-                {error}
-              </div>
-            )}
 
             <div className="mt-6 p-4 bg-muted/50 rounded-lg">
               <p className="text-sm text-muted-foreground">Use your System Admin credentials to access the portal.</p>

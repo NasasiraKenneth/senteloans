@@ -11,7 +11,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     if (session.user.role !== "system_admin") return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     const result = await runWithoutAuth(async (client) => {
       const res = await client.query(
-        `SELECT id, name, type, status, registration_number, license_number, address, phone_number, email, website, logo, established_date, created_at, updated_at FROM senteloans_institutions WHERE id = $1`,
+        `SELECT id, name, type, status, registration_number, license_number, address, phone_number, email, website, logo, established_date, created_at, updated_at FROM institutions WHERE id = $1`,
         [id]
       )
       return res.rows[0] || null
@@ -51,7 +51,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       const keys = Object.keys(update)
       const setClause = keys.map((k, i) => `${k} = $${i + 2}`).join(", ")
       const vals = Object.values(update)
-      await client.query(`UPDATE senteloans_institutions SET ${setClause} WHERE id = $1`, [id, ...vals])
+      await client.query(`UPDATE institutions SET ${setClause} WHERE id = $1`, [id, ...vals])
     })
 
     return NextResponse.json({ ok: true })

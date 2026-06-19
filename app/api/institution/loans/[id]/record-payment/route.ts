@@ -58,7 +58,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
           END AS role
          FROM users u
          LEFT JOIN roles r ON r.id = u.role_id
-         WHERE u.supabase_user_id = $1 AND u.status = 'Active'`,
+         WHERE u.auth_id = $1 AND u.status = 'Active'`,
         [session!.user!.authUserId]
       )
       return res.rows[0] ?? null

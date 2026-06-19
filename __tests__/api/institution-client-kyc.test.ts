@@ -157,7 +157,7 @@ describe('GET /api/institution/clients/[id]/kyc/pending', () => {
     it('should return 404 if client not found', async () => {
       const mockUser = { id: 'user-123', email: 'admin@institution.com' }
       const mockAppUser = testFactories.user({
-        supabase_user_id: 'user-123',
+        auth_id: 'user-123',
         institution_id: 'inst-123',
       })
 
@@ -169,7 +169,7 @@ describe('GET /api/institution/clients/[id]/kyc/pending', () => {
       let callCount = 0
       mockServiceClient.from.mockImplementation((table: string) => {
         callCount++
-        if (callCount === 1 && table === 'senteloans_users') {
+        if (callCount === 1 && table === 'users') {
           return {
             select: jest.fn().mockReturnThis(),
             eq: jest.fn().mockReturnThis(),
@@ -203,7 +203,7 @@ describe('GET /api/institution/clients/[id]/kyc/pending', () => {
     it('should return 403 if client belongs to different institution', async () => {
       const mockUser = { id: 'user-123', email: 'admin@institution.com' }
       const mockAppUser = testFactories.user({
-        supabase_user_id: 'user-123',
+        auth_id: 'user-123',
         institution_id: 'inst-123',
         role: 'institution_admin',
       })
@@ -216,7 +216,7 @@ describe('GET /api/institution/clients/[id]/kyc/pending', () => {
       let callCount = 0
       mockServiceClient.from.mockImplementation((table: string) => {
         callCount++
-        if (callCount === 1 && table === 'senteloans_users') {
+        if (callCount === 1 && table === 'users') {
           return {
             select: jest.fn().mockReturnThis(),
             eq: jest.fn().mockReturnThis(),
@@ -251,7 +251,7 @@ describe('GET /api/institution/clients/[id]/kyc/pending', () => {
   describe('Successful Fetch', () => {
     const mockUser = { id: 'user-123', email: 'admin@institution.com' }
     const mockAppUser = testFactories.user({
-      supabase_user_id: 'user-123',
+      auth_id: 'user-123',
       institution_id: 'inst-123',
     })
 
@@ -269,7 +269,7 @@ describe('GET /api/institution/clients/[id]/kyc/pending', () => {
       let callCount = 0
       mockServiceClient.from.mockImplementation((table: string) => {
         callCount++
-        if (callCount === 1 && table === 'senteloans_users') {
+        if (callCount === 1 && table === 'users') {
           return {
             select: jest.fn().mockReturnThis(),
             eq: jest.fn().mockReturnThis(),
@@ -375,7 +375,7 @@ describe('POST /api/institution/clients/[id]/kyc/approve', () => {
     it('should return 400 if document is not pending', async () => {
       const mockUser = { id: 'user-123', email: 'admin@institution.com' }
       const mockAppUser = testFactories.user({
-        supabase_user_id: 'user-123',
+        auth_id: 'user-123',
         institution_id: 'inst-123',
       })
 
@@ -387,7 +387,7 @@ describe('POST /api/institution/clients/[id]/kyc/approve', () => {
       let callCount = 0
       mockServiceClient.from.mockImplementation((table: string) => {
         callCount++
-        if (callCount === 1 && table === 'senteloans_users') {
+        if (callCount === 1 && table === 'users') {
           return {
             select: jest.fn().mockReturnThis(),
             eq: jest.fn().mockReturnThis(),
@@ -437,7 +437,7 @@ describe('POST /api/institution/clients/[id]/kyc/approve', () => {
   describe('Successful Approval', () => {
     const mockUser = { id: 'user-123', email: 'admin@institution.com' }
     const mockAppUser = testFactories.user({
-      supabase_user_id: 'user-123',
+      auth_id: 'user-123',
       institution_id: 'inst-123',
     })
 
@@ -450,7 +450,7 @@ describe('POST /api/institution/clients/[id]/kyc/approve', () => {
       let callCount = 0
       mockServiceClient.from.mockImplementation((table: string) => {
         callCount++
-        if (callCount === 1 && table === 'senteloans_users') {
+        if (callCount === 1 && table === 'users') {
           return {
             select: jest.fn().mockReturnThis(),
             eq: jest.fn().mockReturnThis(),
@@ -584,7 +584,7 @@ describe('POST /api/institution/clients/[id]/kyc/reject', () => {
     it('should return 400 if document is not pending', async () => {
       const mockUser = { id: 'user-123', email: 'admin@institution.com' }
       const mockAppUser = testFactories.user({
-        supabase_user_id: 'user-123',
+        auth_id: 'user-123',
         institution_id: 'inst-123',
       })
 
@@ -596,7 +596,7 @@ describe('POST /api/institution/clients/[id]/kyc/reject', () => {
       let callCount = 0
       mockServiceClient.from.mockImplementation((table: string) => {
         callCount++
-        if (callCount === 1 && table === 'senteloans_users') {
+        if (callCount === 1 && table === 'users') {
           return {
             select: jest.fn().mockReturnThis(),
             eq: jest.fn().mockReturnThis(),
@@ -646,7 +646,7 @@ describe('POST /api/institution/clients/[id]/kyc/reject', () => {
   describe('Successful Rejection', () => {
     const mockUser = { id: 'user-123', email: 'admin@institution.com' }
     const mockAppUser = testFactories.user({
-      supabase_user_id: 'user-123',
+      auth_id: 'user-123',
       institution_id: 'inst-123',
     })
 
@@ -659,7 +659,7 @@ describe('POST /api/institution/clients/[id]/kyc/reject', () => {
       let callCount = 0
       mockServiceClient.from.mockImplementation((table: string) => {
         callCount++
-        if (callCount === 1 && table === 'senteloans_users') {
+        if (callCount === 1 && table === 'users') {
           return {
             select: jest.fn().mockReturnThis(),
             eq: jest.fn().mockReturnThis(),

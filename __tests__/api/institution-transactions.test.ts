@@ -283,7 +283,7 @@ describe('GET /api/institution/transactions/[id]', () => {
             }),
           }
         }
-        if (callCount === 4 && table === 'senteloans_users') {
+        if (callCount === 4 && table === 'users') {
           return {
             select: jest.fn().mockReturnThis(),
             eq: jest.fn().mockReturnThis(),
@@ -510,7 +510,7 @@ describe('POST /api/institution/transactions', () => {
       let callCount = 0
       mockSupabase.from.mockImplementation((table: string) => {
         callCount++
-        if (callCount === 1 && table === 'senteloans_users') {
+        if (callCount === 1 && table === 'users') {
           return {
             select: jest.fn().mockReturnThis(),
             eq: jest.fn().mockReturnThis(),
@@ -575,7 +575,7 @@ describe('POST /api/institution/transactions', () => {
       let callCount = 0
       mockSupabase.from.mockImplementation((table: string) => {
         callCount++
-        if (callCount === 1 && table === 'senteloans_users') {
+        if (callCount === 1 && table === 'users') {
           return {
             select: jest.fn().mockReturnThis(),
             eq: jest.fn().mockReturnThis(),
@@ -644,7 +644,7 @@ describe('POST /api/institution/transactions', () => {
       let callCount = 0
       mockSupabase.from.mockImplementation((table: string) => {
         callCount++
-        if (callCount === 1 && table === 'senteloans_users') {
+        if (callCount === 1 && table === 'users') {
           return {
             select: jest.fn().mockReturnThis(),
             eq: jest.fn().mockReturnThis(),
@@ -737,7 +737,7 @@ describe('POST /api/institution/transactions', () => {
       let callCount = 0
       mockSupabase.from.mockImplementation((table: string) => {
         callCount++
-        if (callCount === 1 && table === 'senteloans_users') {
+        if (callCount === 1 && table === 'users') {
           return {
             select: jest.fn().mockReturnThis(),
             eq: jest.fn().mockReturnThis(),

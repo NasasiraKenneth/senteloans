@@ -25,7 +25,7 @@ BEGIN
       EXISTS (
         SELECT 1 FROM members c
         WHERE c.id = member_id
-          AND c.supabase_user_id = auth.uid()
+          AND c.auth_id = auth.uid()
           AND c.institution_id = institution_id
       )
     );

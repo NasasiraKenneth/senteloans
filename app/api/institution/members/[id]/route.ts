@@ -32,7 +32,7 @@ async function resolveActorContext(client: any, authUserId: string): Promise<Act
        END AS role
      FROM users u
      LEFT JOIN roles r ON r.id = u.role_id
-     WHERE u.supabase_user_id = $1
+     WHERE u.auth_id = $1
      LIMIT 1`,
     [authUserId]
   )
@@ -83,7 +83,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       if (!allowed) return { error: "missing_permission:view_members" as const }
 
       const memberRes = await client.query(
-        `SELECT c.id, c.institution_id, c.branch_id, c.member_number, c.full_name, c.supabase_user_id, c.date_of_birth::text AS date_of_birth, c.gender, c.marital_status, c.member_type, c.phone_number, c.email, c.national_id, c.district, c.village, c.occupation, c.monthly_income, c.monthly_savings, c.notes, c.next_of_kin_name, c.next_of_kin_relationship, c.next_of_kin_phone, c.passport_photo, c.national_id_front, c.national_id_back, c.mobile_money_provider, c.mobile_money_number, c.bank_name, c.bank_account_number, c.bank_account_name, c.bank_branch, c.kyc_status, c.status, c.join_date::text AS join_date, c.created_by, c.modified_by, c.kyc_approved_by, c.kyc_approved_at, c.created_at, c.updated_at,
+        `SELECT c.id, c.institution_id, c.branch_id, c.member_number, c.full_name, c.auth_id, c.date_of_birth::text AS date_of_birth, c.gender, c.marital_status, c.member_type, c.phone_number, c.email, c.national_id, c.district, c.village, c.occupation, c.monthly_income, c.monthly_savings, c.notes, c.next_of_kin_name, c.next_of_kin_relationship, c.next_of_kin_phone, c.passport_photo, c.national_id_front, c.national_id_back, c.mobile_money_provider, c.mobile_money_number, c.bank_name, c.bank_account_number, c.bank_account_name, c.bank_branch, c.kyc_status, c.status, c.join_date::text AS join_date, c.created_by, c.modified_by, c.kyc_approved_by, c.kyc_approved_at, c.created_at, c.updated_at,
                 cb.full_name AS created_by_name, mb.full_name AS modified_by_name, kb.full_name AS kyc_approved_by_name,
                 COALESCE((SELECT SUM(mf.amount_paid) FROM membership_fees mf WHERE mf.member_id = c.id), 0)::numeric AS membership_fee_paid
          FROM members c
@@ -124,7 +124,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
           id: memberRow.id,
           member_number: memberRow.member_number,
           full_name: memberRow.full_name,
-          supabase_user_id: memberRow.supabase_user_id,
+          auth_id: memberRow.auth_id,
           date_of_birth: memberRow.date_of_birth,
           gender: memberRow.gender,
           marital_status: memberRow.marital_status,

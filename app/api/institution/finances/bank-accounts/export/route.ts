@@ -53,7 +53,7 @@ export async function GET(req: Request) {
       if (isSuperAdmin(actor)) {
         const branchRes = await client.query(
           `SELECT id, name
-           FROM senteloans_branches
+           FROM branches
            WHERE institution_id = $1
            ORDER BY name ASC`,
           [actor.institution_id],
@@ -65,7 +65,7 @@ export async function GET(req: Request) {
             : allBranches
       } else {
         const branchRes = await client.query(
-          `SELECT id, name FROM senteloans_branches WHERE id = $1 LIMIT 1`,
+          `SELECT id, name FROM branches WHERE id = $1 LIMIT 1`,
           [actor.branch_id],
         )
         branchScopes = branchRes.rows.length > 0 ? [branchRes.rows[0] as BranchScope] : []

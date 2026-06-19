@@ -10,11 +10,11 @@ export async function GET() {
 
     const result = await runWithAuth(session.user.authUserId, async (client) => {
       const clientRes = await client.query(
-        `SELECT id, institution_id, client_number, full_name, phone_number, email, kyc_status, status,
+        `SELECT id, institution_id, member_number, full_name, phone_number, email, kyc_status, status,
                 passport_photo, join_date, date_of_birth, gender, marital_status, monthly_income, village, district,
                 occupation, next_of_kin_name, next_of_kin_relationship, next_of_kin_phone,
                 mobile_money_provider, mobile_money_number, bank_name, bank_account_number, bank_account_name, bank_branch
-         FROM clients WHERE supabase_user_id = $1`,
+         FROM members WHERE auth_id = $1`,
         [session!.user!.authUserId]
       )
       const row = clientRes.rows[0]
@@ -36,7 +36,7 @@ export async function GET() {
       client: {
         id: c.id,
         institutionId: c.institution_id,
-        clientNumber: c.client_number,
+        clientNumber: c.member_number,
         fullName: c.full_name,
         phone: c.phone_number,
         email: c.email,

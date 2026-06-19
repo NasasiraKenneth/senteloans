@@ -14,14 +14,14 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 
     const result = await runWithAuth(session.user.authUserId, async (client) => {
       const clientRes = await client.query(
-        `SELECT id, institution_id FROM clients WHERE supabase_user_id = $1`,
+        `SELECT id, institution_id FROM members WHERE auth_id = $1`,
         [session!.user!.authUserId]
       )
       const row = clientRes.rows[0]
       if (!row) return null
 
       const loanRes = await client.query(
-        `SELECT id, application_id, client_id, loan_product_id, principal_amount, interest_rate, tenure_months, outstanding_balance, status, purpose, application_date, approval_date, disbursement_date, maturity_date, next_payment_date, overdue_days, created_by FROM loans WHERE id = $1 AND client_id = $2`,
+        `SELECT id, application_id, member_id, loan_product_id, principal_amount, interest_rate, tenure_months, outstanding_balance, status, purpose, application_date, approved_at, disbursement_date, maturity_date, next_payment_date, overdue_days, created_by FROM loans WHERE id = $1 AND member_id = $2`,
         [id, row.id]
       )
       const loan = loanRes.rows[0]
@@ -65,7 +65,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
           status: String(loan.status || "Applied"),
           purpose: (loan.purpose as string) || "",
           applicationDate: loan.application_date,
-          approvalDate: loan.approval_date,
+          approvalDate: loan.approved_at,
           disbursementDate: loan.disbursement_date,
           maturityDate: loan.maturity_date,
           nextPaymentDate: loan.next_payment_date,

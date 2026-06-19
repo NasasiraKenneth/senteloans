@@ -44,7 +44,7 @@ describe('GET /api/admin/institutions/[id]/admins', () => {
     it('should return 403 if user is not system admin', async () => {
       const mockUser = { id: 'user-123', email: 'admin@institution.com' }
       const mockSystemUser = testFactories.user({
-        supabase_user_id: 'user-123',
+        auth_id: 'user-123',
         role: 'institution_admin',
       })
 
@@ -75,7 +75,7 @@ describe('GET /api/admin/institutions/[id]/admins', () => {
   describe('Successful Fetch', () => {
     const mockUser = { id: 'user-123', email: 'admin@senteloans.com' }
     const mockSystemUser = testFactories.user({
-      supabase_user_id: 'user-123',
+      auth_id: 'user-123',
       role: 'system_admin',
     })
     const mockAdmins = [
@@ -92,7 +92,7 @@ describe('GET /api/admin/institutions/[id]/admins', () => {
       let callCount = 0
       mockServiceClient.from.mockImplementation((table: string) => {
         callCount++
-        if (callCount === 1 && table === 'senteloans_users') {
+        if (callCount === 1 && table === 'users') {
           return {
             select: jest.fn().mockReturnThis(),
             eq: jest.fn().mockReturnThis(),
@@ -102,7 +102,7 @@ describe('GET /api/admin/institutions/[id]/admins', () => {
             }),
           }
         }
-        if (callCount === 2 && table === 'senteloans_users') {
+        if (callCount === 2 && table === 'users') {
           return {
             select: jest.fn().mockReturnThis(),
             eq: jest.fn().mockReturnThis(),
@@ -208,7 +208,7 @@ describe('POST /api/admin/institutions/[id]/admins', () => {
     it('should return 403 if user is not system admin', async () => {
       const mockUser = { id: 'user-123', email: 'admin@institution.com' }
       const mockSystemUser = testFactories.user({
-        supabase_user_id: 'user-123',
+        auth_id: 'user-123',
         role: 'institution_admin',
       })
 
@@ -244,7 +244,7 @@ describe('POST /api/admin/institutions/[id]/admins', () => {
   describe('Successful Creation', () => {
     const mockUser = { id: 'user-123', email: 'admin@senteloans.com' }
     const mockSystemUser = testFactories.user({
-      supabase_user_id: 'user-123',
+      auth_id: 'user-123',
       role: 'system_admin',
     })
 
@@ -266,7 +266,7 @@ describe('POST /api/admin/institutions/[id]/admins', () => {
       let callCount = 0
       mockServiceClient.from.mockImplementation((table: string) => {
         callCount++
-        if (callCount === 1 && table === 'senteloans_users') {
+        if (callCount === 1 && table === 'users') {
           return {
             select: jest.fn().mockReturnThis(),
             eq: jest.fn().mockReturnThis(),
@@ -276,7 +276,7 @@ describe('POST /api/admin/institutions/[id]/admins', () => {
             }),
           }
         }
-        if (callCount === 2 && table === 'senteloans_users') {
+        if (callCount === 2 && table === 'users') {
           return {
             insert: jest.fn().mockResolvedValue({
               error: null,
@@ -387,7 +387,7 @@ describe('PATCH /api/admin/institutions/[id]/admins/[userId]', () => {
     it('should return 403 if user is not system admin', async () => {
       const mockUser = { id: 'user-123', email: 'admin@institution.com' }
       const mockSystemUser = testFactories.user({
-        supabase_user_id: 'user-123',
+        auth_id: 'user-123',
         role: 'institution_admin',
       })
 
@@ -423,7 +423,7 @@ describe('PATCH /api/admin/institutions/[id]/admins/[userId]', () => {
   describe('Successful Update', () => {
     const mockUser = { id: 'user-123', email: 'admin@senteloans.com' }
     const mockSystemUser = testFactories.user({
-      supabase_user_id: 'user-123',
+      auth_id: 'user-123',
       role: 'system_admin',
     })
 
@@ -436,7 +436,7 @@ describe('PATCH /api/admin/institutions/[id]/admins/[userId]', () => {
       let callCount = 0
       mockServiceClient.from.mockImplementation((table: string) => {
         callCount++
-        if (callCount === 1 && table === 'senteloans_users') {
+        if (callCount === 1 && table === 'users') {
           return {
             select: jest.fn().mockReturnThis(),
             eq: jest.fn().mockReturnThis(),
@@ -446,7 +446,7 @@ describe('PATCH /api/admin/institutions/[id]/admins/[userId]', () => {
             }),
           }
         }
-        if (callCount === 2 && table === 'senteloans_users') {
+        if (callCount === 2 && table === 'users') {
           const mockQuery: any = {}
           mockQuery.update = jest.fn().mockReturnValue(mockQuery)
           mockQuery.eq = jest.fn().mockResolvedValue({
@@ -540,7 +540,7 @@ describe('DELETE /api/admin/institutions/[id]/admins/[userId]', () => {
     it('should return 403 if user is not system admin', async () => {
       const mockUser = { id: 'user-123', email: 'admin@institution.com' }
       const mockSystemUser = testFactories.user({
-        supabase_user_id: 'user-123',
+        auth_id: 'user-123',
         role: 'institution_admin',
       })
 
@@ -574,7 +574,7 @@ describe('DELETE /api/admin/institutions/[id]/admins/[userId]', () => {
   describe('Successful Deletion', () => {
     const mockUser = { id: 'user-123', email: 'admin@senteloans.com' }
     const mockSystemUser = testFactories.user({
-      supabase_user_id: 'user-123',
+      auth_id: 'user-123',
       role: 'system_admin',
     })
 
@@ -593,7 +593,7 @@ describe('DELETE /api/admin/institutions/[id]/admins/[userId]', () => {
       let callCount = 0
       mockServiceClient.from.mockImplementation((table: string) => {
         callCount++
-        if (callCount === 1 && table === 'senteloans_users') {
+        if (callCount === 1 && table === 'users') {
           return {
             select: jest.fn().mockReturnThis(),
             eq: jest.fn().mockReturnThis(),
@@ -603,17 +603,17 @@ describe('DELETE /api/admin/institutions/[id]/admins/[userId]', () => {
             }),
           }
         }
-        if (callCount === 2 && table === 'senteloans_users') {
+        if (callCount === 2 && table === 'users') {
           return {
             select: jest.fn().mockReturnThis(),
             eq: jest.fn().mockReturnThis(),
             single: jest.fn().mockResolvedValue({
-              data: { id: 'user-1', supabase_user_id: 'auth-user-1' },
+              data: { id: 'user-1', auth_id: 'auth-user-1' },
               error: null,
             }),
           }
         }
-        if (callCount === 3 && table === 'senteloans_users') {
+        if (callCount === 3 && table === 'users') {
           const mockQuery: any = {}
           mockQuery.delete = jest.fn().mockReturnValue(mockQuery)
           mockQuery.eq = jest.fn().mockResolvedValue({
@@ -644,7 +644,7 @@ describe('DELETE /api/admin/institutions/[id]/admins/[userId]', () => {
       let callCount = 0
       mockServiceClient.from.mockImplementation((table: string) => {
         callCount++
-        if (callCount === 1 && table === 'senteloans_users') {
+        if (callCount === 1 && table === 'users') {
           return {
             select: jest.fn().mockReturnThis(),
             eq: jest.fn().mockReturnThis(),
@@ -654,7 +654,7 @@ describe('DELETE /api/admin/institutions/[id]/admins/[userId]', () => {
             }),
           }
         }
-        if (callCount === 2 && table === 'senteloans_users') {
+        if (callCount === 2 && table === 'users') {
           return {
             select: jest.fn().mockReturnThis(),
             eq: jest.fn().mockReturnThis(),

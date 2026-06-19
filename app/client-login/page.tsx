@@ -11,6 +11,8 @@ import { Label } from "@/components/ui/label"
 import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
 import { ArrowLeft, Smartphone, Shield, Clock } from "lucide-react"
+import { useToast } from "@/components/ui/toast"
+import { LOGIN_ERROR_MESSAGES, LOGIN_SUCCESS_MESSAGES, resolveSignInErrorMessage } from "@/lib/auth-login-messages"
 // TODO: Add phone login via OTP
 
 export default function ClientLoginPage() {
@@ -25,30 +27,44 @@ function ClientLoginForm() {
   const [phoneOrEmail, setPhoneOrEmail] = useState("")
   const [password, setPassword] = useState("")
   const [isLoading, setIsLoading] = useState(false)
-  const [error, setError] = useState("")
   const router = useRouter()
   const searchParams = useSearchParams()
+  const { toast } = useToast()
+
+  const showLoginError = (message: string) => {
+    toast({
+      variant: "destructive",
+      title: "Sign in failed",
+      description: message,
+    })
+  }
+
+  const showLoginSuccess = () => {
+    toast({
+      variant: "success",
+      title: "Signed in",
+      description: LOGIN_SUCCESS_MESSAGES.client,
+    })
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsLoading(true)
-    setError("")
-    // v1: Email-only sign in (phone OTP later)
     const trimmed = phoneOrEmail.trim()
     const isEmail = /@/.test(trimmed)
     if (!trimmed || !isEmail) {
-      setError("Please enter a valid email address (phone OTP coming soon)")
+      showLoginError("Please enter a valid email address (phone OTP coming soon)")
       setIsLoading(false)
       return
     }
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
     if (!emailRegex.test(trimmed)) {
-      setError("Please enter a valid email address")
+      showLoginError("Please enter a valid email address")
       setIsLoading(false)
       return
     }
     if (typeof password !== "string" || password.length < 6) {
-      setError("Password must be at least 6 characters")
+      showLoginError("Password must be at least 6 characters")
       setIsLoading(false)
       return
     }
@@ -57,18 +73,19 @@ function ClientLoginForm() {
       const result = await signIn("credentials", {
         email: trimmed.toLowerCase(),
         password,
+        loginContext: "client",
         redirect: false,
       })
       if (result?.error) {
-        throw new Error(result.error === "CredentialsSignin" ? "Invalid email or password" : result.error)
+        throw new Error(resolveSignInErrorMessage(result.error))
       }
       if (!result?.ok) {
-        throw new Error("Failed to sign in")
+        throw new Error(LOGIN_ERROR_MESSAGES.signInFailed)
       }
       const sessionRes = await fetch("/api/auth/session")
       const session = sessionRes.ok ? await sessionRes.json() : null
       if (session?.user?.type !== "client") {
-        setError("Use the staff login for institution access.")
+        showLoginError(LOGIN_ERROR_MESSAGES.useStaffLogin)
         setIsLoading(false)
         return
       }
@@ -76,10 +93,11 @@ function ClientLoginForm() {
       if (typeof redirect !== "string" || !redirect.startsWith("/client-portal")) {
         redirect = "/client-portal"
       }
+      showLoginSuccess()
       router.push(redirect)
       router.refresh()
     } catch (err: any) {
-      setError(err?.message || "Login failed")
+      showLoginError(err?.message || LOGIN_ERROR_MESSAGES.signInFailed)
     } finally {
       setIsLoading(false)
     }
@@ -133,12 +151,6 @@ function ClientLoginForm() {
                   className="form-input"
                 />
               </div>
-
-              {error && (
-                <div className="text-sm text-destructive bg-destructive/10 p-3 rounded-lg border border-destructive/20">
-                  {error}
-                </div>
-              )}
 
               <Button type="submit" className="w-full h-12" disabled={isLoading}>
                 {isLoading ? "Signing in..." : "Sign In"}

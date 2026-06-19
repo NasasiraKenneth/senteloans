@@ -100,7 +100,7 @@ describe('GET /api/institution/notifications', () => {
       ]
 
       mockServiceClient.from.mockImplementation((table: string) => {
-        if (table === 'senteloans_users') {
+        if (table === 'users') {
           return {
             select: jest.fn().mockReturnThis(),
             eq: jest.fn().mockReturnThis(),
@@ -156,7 +156,7 @@ describe('GET /api/institution/notifications', () => {
       ]
 
       mockServiceClient.from.mockImplementation((table: string) => {
-        if (table === 'senteloans_users') {
+        if (table === 'users') {
           return {
             select: jest.fn().mockReturnThis(),
             eq: jest.fn().mockReturnThis(),
@@ -200,7 +200,7 @@ describe('GET /api/institution/notifications', () => {
       let callCount = 0
       mockServiceClient.from.mockImplementation((table: string) => {
         callCount++
-        if (callCount === 1 && table === 'senteloans_users') {
+        if (callCount === 1 && table === 'users') {
           return {
             select: jest.fn().mockReturnThis(),
             eq: jest.fn().mockReturnThis(),
@@ -256,7 +256,7 @@ describe('GET /api/institution/notifications', () => {
       let callCount = 0
       mockServiceClient.from.mockImplementation((table: string) => {
         callCount++
-        if (callCount === 1 && table === 'senteloans_users') {
+        if (callCount === 1 && table === 'users') {
           return {
             select: jest.fn().mockReturnThis(),
             eq: jest.fn().mockReturnThis(),
@@ -380,7 +380,7 @@ describe('PATCH /api/institution/notifications/[id]', () => {
       let callCount = 0
       mockServiceClient.from.mockImplementation((table: string) => {
         callCount++
-        if (callCount === 1 && table === 'senteloans_users') {
+        if (callCount === 1 && table === 'users') {
           return {
             select: jest.fn().mockReturnThis(),
             eq: jest.fn().mockReturnThis(),
@@ -427,7 +427,7 @@ describe('PATCH /api/institution/notifications/[id]', () => {
 
       let updateCalled = false
       mockServiceClient.from.mockImplementation((table: string) => {
-        if (table === 'senteloans_users') {
+        if (table === 'users') {
           return {
             select: jest.fn().mockReturnThis(),
             eq: jest.fn().mockReturnThis(),

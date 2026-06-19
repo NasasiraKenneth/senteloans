@@ -65,7 +65,7 @@ async function resolveActorContext(client: any, authUserId: string): Promise<Act
        END AS role
      FROM users u
      LEFT JOIN roles r ON r.id = u.role_id
-     WHERE u.supabase_user_id = $1
+     WHERE u.auth_id = $1
      LIMIT 1`,
     [authUserId],
   )
@@ -107,7 +107,7 @@ export async function GET(req: Request) {
         `SELECT u.id AS user_id, u.branch_id, i.id, i.name, i.type, i.logo
          FROM users u
          JOIN institutions i ON i.id = u.institution_id
-         WHERE u.supabase_user_id = $1
+         WHERE u.auth_id = $1
          LIMIT 1`,
         [session!.user!.authUserId],
       )
@@ -229,7 +229,7 @@ export async function PUT(req: Request) {
         `SELECT u.id AS user_id, u.branch_id, i.id AS institution_id, i.type
          FROM users u
          JOIN institutions i ON i.id = u.institution_id
-         WHERE u.supabase_user_id = $1
+         WHERE u.auth_id = $1
          LIMIT 1`,
         [session!.user!.authUserId],
       )

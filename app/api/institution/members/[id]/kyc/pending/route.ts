@@ -30,7 +30,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
           END AS app_role
          FROM users u
          LEFT JOIN roles r ON r.id = u.role_id
-         WHERE u.supabase_user_id = $1`,
+         WHERE u.auth_id = $1`,
         [session!.user!.authUserId]
       )
       const appUser = appUserRes.rows[0]

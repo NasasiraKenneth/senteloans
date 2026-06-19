@@ -13,7 +13,7 @@ export async function GET() {
       const res = await client.query(
         `SELECT id, email, full_name, phone_number, role, institution_id
          FROM users
-         WHERE supabase_user_id = $1`,
+         WHERE auth_id = $1`,
         [session!.user!.authUserId]
       )
       return res.rows[0]
@@ -57,7 +57,7 @@ export async function PUT(req: Request) {
     values.push(session.user.authUserId)
     await runWithAuth(session.user.authUserId, async (client) => {
       await client.query(
-        `UPDATE users SET ${updates.join(", ")} WHERE supabase_user_id = $${i}`,
+        `UPDATE users SET ${updates.join(", ")} WHERE auth_id = $${i}`,
         values
       )
     })

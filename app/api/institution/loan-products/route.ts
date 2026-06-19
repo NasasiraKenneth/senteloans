@@ -29,7 +29,7 @@ async function resolveActorContext(client: any, authUserId: string): Promise<Act
        END AS role
      FROM users u
      LEFT JOIN roles r ON r.id = u.role_id
-     WHERE u.supabase_user_id = $1
+     WHERE u.auth_id = $1
      LIMIT 1`,
     [authUserId]
   )
@@ -265,7 +265,7 @@ export async function POST(req: Request) {
         `SELECT u.institution_id, i.name AS institution_name
          FROM users u
          JOIN institutions i ON i.id = u.institution_id
-         WHERE u.supabase_user_id = $1`,
+         WHERE u.auth_id = $1`,
         [session!.user!.authUserId]
       )
       const institutionId = instRes.rows[0]?.institution_id

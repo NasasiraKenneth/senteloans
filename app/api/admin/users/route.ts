@@ -5,7 +5,7 @@ import { runWithoutAuth } from "@/lib/db"
 
 /**
  * GET /api/admin/users
- * Returns all staff users (senteloans_users) with institution name, for system admin.
+ * Returns all staff users (users) with institution name, for system admin.
  */
 export async function GET() {
   try {
@@ -15,10 +15,19 @@ export async function GET() {
 
     const rows = await runWithoutAuth(async (client) => {
       const res = await client.query(
-        `SELECT u.id, u.full_name, u.email, u.phone_number, u.role, u.status, u.created_at, i.name AS institution_name, i.id AS institution_id
-         FROM senteloans_users u
-         JOIN senteloans_institutions i ON i.id = u.institution_id
-         ORDER BY i.name, u.role, u.full_name`
+        `SELECT u.id, u.full_name, u.email, u.phone_number, u.status, u.created_at,
+                CASE
+                  WHEN r.name = 'System Admin' THEN 'system_admin'
+                  WHEN r.name = 'Super Admin' THEN 'super_admin'
+                  WHEN r.name = 'Admin' THEN 'institution_admin'
+                  WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
+                  ELSE NULL
+                END AS role,
+                i.name AS institution_name, i.id AS institution_id
+         FROM users u
+         JOIN institutions i ON i.id = u.institution_id
+         LEFT JOIN roles r ON r.id = u.role_id
+         ORDER BY i.name, role, u.full_name`
       )
       return res.rows
     })

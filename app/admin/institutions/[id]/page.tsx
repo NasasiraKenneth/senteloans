@@ -22,7 +22,7 @@ export default async function InstitutionDetailPage({ params }: InstitutionDetai
 
   const institution = await runWithoutAuth(async (client) => {
     const res = await client.query(
-      "SELECT id, name, type, status, registration_number, license_number, address, phone_number, email, website, established_date, settings, created_at, updated_at FROM senteloans_institutions WHERE id = $1",
+      "SELECT id, name, type, status, registration_number, license_number, address, phone_number, email, website, established_date, settings, created_at, updated_at FROM institutions WHERE id = $1",
       [id]
     )
     return res.rows[0] ?? null

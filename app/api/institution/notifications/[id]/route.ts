@@ -17,7 +17,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
     const result = await runWithAuth(session.user.authUserId, async (client) => {
       const userRes = await client.query(
-        `SELECT id, institution_id FROM users WHERE supabase_user_id = $1`,
+        `SELECT id, institution_id FROM users WHERE auth_id = $1`,
         [session!.user!.authUserId]
       )
       const instUser = userRes.rows[0]

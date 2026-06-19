@@ -32,7 +32,7 @@ async function resolveActorContext(client: any, authUserId: string): Promise<Act
        END AS role
      FROM users u
      LEFT JOIN roles r ON r.id = u.role_id
-     WHERE u.supabase_user_id = $1
+     WHERE u.auth_id = $1
      LIMIT 1`,
     [authUserId]
   )
@@ -132,7 +132,7 @@ export async function GET(
                 a.username
          FROM users u
          LEFT JOIN roles r ON r.id = u.role_id
-         LEFT JOIN app_auth_users a ON a.id = u.supabase_user_id
+         LEFT JOIN app_auth_users a ON a.id = u.auth_id
          WHERE u.id = $1 AND u.institution_id = $2${whereBranchClause}`,
         queryParams
       )
@@ -222,7 +222,7 @@ export async function PUT(
         `SELECT
            u.id,
            u.email,
-           u.supabase_user_id,
+           u.auth_id,
            u.full_name,
            CASE
              WHEN r.name = 'System Admin' THEN 'system_admin'
@@ -251,10 +251,10 @@ export async function PUT(
       }
 
       // Check username uniqueness in app_auth_users (exclude self)
-      if (existing.supabase_user_id) {
+      if (existing.auth_id) {
         const usernameCheck = await client.query(
           `SELECT id FROM app_auth_users WHERE (username = $1 OR email = $2) AND id != $3`,
-          [username, email, existing.supabase_user_id]
+          [username, email, existing.auth_id]
         )
         if (usernameCheck.rows.length > 0) return { error: "username_or_auth_email_already_exists" as const }
       }
@@ -287,17 +287,17 @@ export async function PUT(
       )
 
       // 2. Update app_auth_users (email, username, and optionally password)
-      if (existing.supabase_user_id) {
+      if (existing.auth_id) {
         if (password && password.length >= 8) {
           const passwordHash = await hash(password, 10)
           await client.query(
             `UPDATE app_auth_users SET email = $1, username = $2, password_hash = $3, updated_at = NOW() WHERE id = $4`,
-            [email, username, passwordHash, existing.supabase_user_id]
+            [email, username, passwordHash, existing.auth_id]
           )
         } else {
           await client.query(
             `UPDATE app_auth_users SET email = $1, username = $2, updated_at = NOW() WHERE id = $3`,
-            [email, username, existing.supabase_user_id]
+            [email, username, existing.auth_id]
           )
         }
       }

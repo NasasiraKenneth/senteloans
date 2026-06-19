@@ -70,7 +70,7 @@ describe('GET /api/institution/clients/[id]', () => {
   describe('Successful Fetch', () => {
     const mockUser = { id: 'user-123', email: 'admin@institution.com' }
     const mockAppUser = testFactories.user({
-      supabase_user_id: 'user-123',
+      auth_id: 'user-123',
       institution_id: 'inst-123',
     })
     const mockClient = testFactories.client({
@@ -89,7 +89,7 @@ describe('GET /api/institution/clients/[id]', () => {
       let callCount = 0
       mockServiceClient.from.mockImplementation((table: string) => {
         callCount++
-        if (callCount === 1 && table === 'senteloans_users') {
+        if (callCount === 1 && table === 'users') {
           return {
             select: jest.fn().mockReturnThis(),
             eq: jest.fn().mockReturnThis(),
@@ -144,7 +144,7 @@ describe('GET /api/institution/clients/[id]', () => {
       let callCount = 0
       mockServiceClient.from.mockImplementation((table: string) => {
         callCount++
-        if (callCount === 1 && table === 'senteloans_users') {
+        if (callCount === 1 && table === 'users') {
           return {
             select: jest.fn().mockReturnThis(),
             eq: jest.fn().mockReturnThis(),
@@ -211,7 +211,7 @@ describe('PATCH /api/institution/clients/[id]', () => {
   describe('Authentication & Authorization', () => {
     const mockUser = { id: 'user-123', email: 'admin@institution.com' }
     const mockAppUser = testFactories.user({
-      supabase_user_id: 'user-123',
+      auth_id: 'user-123',
       institution_id: 'inst-123',
     })
 
@@ -224,7 +224,7 @@ describe('PATCH /api/institution/clients/[id]', () => {
       let callCount = 0
       mockServiceClient.from.mockImplementation((table: string) => {
         callCount++
-        if (callCount === 1 && table === 'senteloans_users') {
+        if (callCount === 1 && table === 'users') {
           return {
             select: jest.fn().mockReturnThis(),
             eq: jest.fn().mockReturnThis(),
@@ -264,7 +264,7 @@ describe('PATCH /api/institution/clients/[id]', () => {
   describe('Successful Update', () => {
     const mockUser = { id: 'user-123', email: 'admin@institution.com' }
     const mockAppUser = testFactories.user({
-      supabase_user_id: 'user-123',
+      auth_id: 'user-123',
       institution_id: 'inst-123',
     })
 
@@ -277,7 +277,7 @@ describe('PATCH /api/institution/clients/[id]', () => {
       let callCount = 0
       mockServiceClient.from.mockImplementation((table: string) => {
         callCount++
-        if (callCount === 1 && table === 'senteloans_users') {
+        if (callCount === 1 && table === 'users') {
           return {
             select: jest.fn().mockReturnThis(),
             eq: jest.fn().mockReturnThis(),
@@ -337,7 +337,7 @@ describe('PATCH /api/institution/clients/[id]', () => {
       let callCount = 0
       mockServiceClient.from.mockImplementation((table: string) => {
         callCount++
-        if (callCount === 1 && table === 'senteloans_users') {
+        if (callCount === 1 && table === 'users') {
           return {
             select: jest.fn().mockReturnThis(),
             eq: jest.fn().mockReturnThis(),
@@ -475,7 +475,7 @@ describe('POST /api/institution/clients/[id]/auth', () => {
       let callCount = 0
       mockSupabase.from.mockImplementation((table: string) => {
         callCount++
-        if (callCount === 1 && table === 'senteloans_users') {
+        if (callCount === 1 && table === 'users') {
           return {
             select: jest.fn().mockReturnThis(),
             eq: jest.fn().mockReturnThis(),
@@ -490,7 +490,7 @@ describe('POST /api/institution/clients/[id]/auth', () => {
             select: jest.fn().mockReturnThis(),
             eq: jest.fn().mockReturnThis(),
             maybeSingle: jest.fn().mockResolvedValue({
-              data: { id: 'client-1', institution_id: 'different-inst', supabase_user_id: null },
+              data: { id: 'client-1', institution_id: 'different-inst', auth_id: null },
               error: null,
             }),
           }
@@ -533,7 +533,7 @@ describe('POST /api/institution/clients/[id]/auth', () => {
       let callCount = 0
       mockSupabase.from.mockImplementation((table: string) => {
         callCount++
-        if (callCount === 1 && table === 'senteloans_users') {
+        if (callCount === 1 && table === 'users') {
           return {
             select: jest.fn().mockReturnThis(),
             eq: jest.fn().mockReturnThis(),
@@ -548,7 +548,7 @@ describe('POST /api/institution/clients/[id]/auth', () => {
             select: jest.fn().mockReturnThis(),
             eq: jest.fn().mockReturnThis(),
             maybeSingle: jest.fn().mockResolvedValue({
-              data: { id: 'client-1', institution_id: 'inst-123', supabase_user_id: null },
+              data: { id: 'client-1', institution_id: 'inst-123', auth_id: null },
               error: null,
             }),
           }
@@ -603,7 +603,7 @@ describe('POST /api/institution/clients/[id]/auth', () => {
       let callCount = 0
       mockSupabase.from.mockImplementation((table: string) => {
         callCount++
-        if (callCount === 1 && table === 'senteloans_users') {
+        if (callCount === 1 && table === 'users') {
           return {
             select: jest.fn().mockReturnThis(),
             eq: jest.fn().mockReturnThis(),
@@ -618,7 +618,7 @@ describe('POST /api/institution/clients/[id]/auth', () => {
             select: jest.fn().mockReturnThis(),
             eq: jest.fn().mockReturnThis(),
             maybeSingle: jest.fn().mockResolvedValue({
-              data: { id: 'client-1', institution_id: 'inst-123', supabase_user_id: 'existing-auth-id' },
+              data: { id: 'client-1', institution_id: 'inst-123', auth_id: 'existing-auth-id' },
               error: null,
             }),
           }

@@ -33,7 +33,7 @@ function isClientProtectedRoute(pathname: string) {
   return pathname === CLIENT_PREFIX || pathname.startsWith(`${CLIENT_PREFIX}/`)
 }
 
-export async function middleware(req: NextRequest) {
+export async function proxy(req: NextRequest) {
   const { pathname, search } = req.nextUrl
 
   const isAdmin = isAdminRoute(pathname)

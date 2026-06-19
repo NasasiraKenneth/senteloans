@@ -15,7 +15,7 @@ SET search_path = public
 AS $$
   SELECT u.institution_id
   FROM users u
-  WHERE u.supabase_user_id = auth.uid()
+  WHERE u.auth_id = auth.uid()
   LIMIT 1
 $$;
 
@@ -36,12 +36,12 @@ AS $$
   END
   FROM users u
   LEFT JOIN roles r ON r.id = u.role_id
-  WHERE u.supabase_user_id = auth.uid()
+  WHERE u.auth_id = auth.uid()
   LIMIT 1
 $$;
 
 -- Ensure supporting index for auth helper lookups
-CREATE INDEX IF NOT EXISTS idx_users_supabase_user_id ON users(supabase_user_id);
+CREATE INDEX IF NOT EXISTS idx_users_auth_id ON users(auth_id);
 
 -- Ensure RLS is enabled on members
 ALTER TABLE members ENABLE ROW LEVEL SECURITY;

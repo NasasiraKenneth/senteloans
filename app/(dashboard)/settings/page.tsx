@@ -72,7 +72,7 @@ interface InstitutionOrg {
   logo: string
 }
 
-/** Current staff branch (`senteloans_branches`): name, address, phone, email, established_date */
+/** Current staff branch (`branches`): name, address, phone, email, established_date */
 interface BranchProfile {
   id: string
   name: string

@@ -8,6 +8,8 @@ import Link from "next/link"
 import Image from "next/image"
 import { useRouter, useSearchParams } from "next/navigation"
 import { Eye, EyeOff, Lock, ArrowLeft, Loader2 } from "lucide-react"
+import { useToast } from "@/components/ui/toast"
+import { LOGIN_ERROR_MESSAGES, LOGIN_SUCCESS_MESSAGES, resolveSignInErrorMessage } from "@/lib/auth-login-messages"
 
 export default function LoginPage() {
   return (
@@ -28,26 +30,41 @@ function LoginForm() {
   const [password, setPassword] = useState("")
   const [showPassword, setShowPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
-  const [error, setError] = useState("")
   const [focused, setFocused] = useState<string | null>(null)
   const router = useRouter()
   const searchParams = useSearchParams()
   const redirectTo = searchParams.get("redirect") || "/dashboard"
+  const { toast } = useToast()
+
+  const showLoginError = (message: string) => {
+    toast({
+      variant: "destructive",
+      title: "Sign in failed",
+      description: message,
+    })
+  }
+
+  const showLoginSuccess = () => {
+    toast({
+      variant: "success",
+      title: "Signed in",
+      description: LOGIN_SUCCESS_MESSAGES.institution,
+    })
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    setError("")
     if (!email.trim()) {
-      setError("Email is required")
+      showLoginError("Email is required")
       return
     }
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
     if (!emailRegex.test(email)) {
-      setError("Enter a valid email address")
+      showLoginError("Enter a valid email address")
       return
     }
     if (!password || password.length < 6) {
-      setError("Password must be at least 6 characters")
+      showLoginError("Password must be at least 6 characters")
       return
     }
 
@@ -56,19 +73,19 @@ function LoginForm() {
       const result = await signIn("credentials", {
         email: email.trim().toLowerCase(),
         password,
+        loginContext: "institution",
         redirect: false,
       })
       if (result?.error) {
-        throw new Error(result.error === "CredentialsSignin" ? "Invalid email or password" : result.error)
+        throw new Error(resolveSignInErrorMessage(result.error))
       }
       if (!result?.ok) {
-        throw new Error("Failed to sign in")
+        throw new Error(LOGIN_ERROR_MESSAGES.signInFailed)
       }
       const sessionRes = await fetch("/api/auth/session")
       const session = sessionRes.ok ? await sessionRes.json() : null
       if (session?.user?.type === "client") {
-        router.push("/client-portal")
-        router.refresh()
+        showLoginError(LOGIN_ERROR_MESSAGES.useClientLogin)
         return
       }
       const allowedPrefixes = [
@@ -84,10 +101,11 @@ function LoginForm() {
       if (typeof target !== "string" || !allowedPrefixes.some((p) => target === p || target.startsWith(`${p}/`))) {
         target = "/dashboard"
       }
+      showLoginSuccess()
       router.push(target)
       router.refresh()
     } catch (err: any) {
-      setError(err?.message || "Failed to sign in")
+      showLoginError(err?.message || LOGIN_ERROR_MESSAGES.signInFailed)
     } finally {
       setIsLoading(false)
     }
@@ -231,10 +249,7 @@ function LoginForm() {
                 type="email"
                 placeholder="you@institution.com"
                 value={email}
-                onChange={(e) => {
-                  setEmail(e.target.value)
-                  if (error) setError("")
-                }}
+                onChange={(e) => setEmail(e.target.value)}
                 onFocus={() => setFocused("email")}
                 onBlur={() => setFocused(null)}
                 autoComplete="email"
@@ -262,10 +277,7 @@ function LoginForm() {
                   type={showPassword ? "text" : "password"}
                   placeholder="Enter your password"
                   value={password}
-                  onChange={(e) => {
-                    setPassword(e.target.value)
-                    if (error) setError("")
-                  }}
+                  onChange={(e) => setPassword(e.target.value)}
                   onFocus={() => setFocused("password")}
                   onBlur={() => setFocused(null)}
                   autoComplete="current-password"
@@ -294,24 +306,6 @@ function LoginForm() {
                 </button>
               </div>
             </div>
-
-            {/* Error */}
-            {error && (
-              <div className="flex items-center gap-2.5 rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3">
-                <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-red-500/20">
-                  <svg className="h-3 w-3 text-red-400" viewBox="0 0 12 12" fill="none">
-                    <path
-                      d="M6 4v2.5M6 8.5h.005M11 6a5 5 0 11-10 0 5 5 0 0110 0z"
-                      stroke="currentColor"
-                      strokeWidth="1.5"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
-                </div>
-                <span className="text-[13px] font-medium text-red-400">{error}</span>
-              </div>
-            )}
 
             {/* Submit */}
             <button

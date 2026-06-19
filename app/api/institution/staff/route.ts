@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { runWithAuth } from "@/lib/db"
 import { hash } from "bcryptjs"
+import { AUTH_USER_TYPE_INSTITUTION_STAFF } from "@/lib/auth-users"
 import * as crypto from "crypto"
 import { auditLogger } from "@/lib/audit/audit-logger"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
@@ -33,7 +34,7 @@ async function resolveActorContext(client: any, authUserId: string): Promise<Act
        END AS role
      FROM users u
      LEFT JOIN roles r ON r.id = u.role_id
-     WHERE u.supabase_user_id = $1
+     WHERE u.auth_id = $1
      LIMIT 1`,
     [authUserId]
   )
@@ -263,9 +264,9 @@ export async function POST(req: Request) {
       const passwordHash = await hash(password, 10)
       const authId = crypto.randomUUID()
       await client.query(
-        `INSERT INTO app_auth_users (id, email, password_hash, username)
-         VALUES ($1, $2, $3, $4)`,
-        [authId, email, passwordHash, username]
+        `INSERT INTO app_auth_users (id, user_type, username, email, password_hash)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [authId, AUTH_USER_TYPE_INSTITUTION_STAFF, username, email, passwordHash]
       )
 
       // 2. Resolve role_id from normalized role name
@@ -283,7 +284,7 @@ export async function POST(req: Request) {
       const userId = crypto.randomUUID()
       await client.query(
         `INSERT INTO users (
-          id, supabase_user_id, institution_id, branch_id, role_id, email, full_name, phone_number,
+          id, auth_id, institution_id, branch_id, role_id, email, full_name, phone_number,
           status, joined_at
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
         [

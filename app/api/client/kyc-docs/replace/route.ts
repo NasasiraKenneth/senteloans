@@ -40,7 +40,7 @@ export async function POST(req: Request) {
 
     const result = await runWithAuth(session.user.authUserId, async (client) => {
       const clientRes = await client.query(
-        `SELECT id, institution_id, branch_id, full_name, member_number, email FROM members WHERE supabase_user_id = $1`,
+        `SELECT id, institution_id, branch_id, full_name, member_number, email FROM members WHERE auth_id = $1`,
         [session!.user!.authUserId]
       )
       const row = clientRes.rows[0]

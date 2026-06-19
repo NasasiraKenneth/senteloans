@@ -27,7 +27,7 @@ CREATE OR REPLACE FUNCTION app.current_institution_id()
 RETURNS UUID AS $$
   SELECT u.institution_id
   FROM users u
-  WHERE u.supabase_user_id = auth.uid()
+  WHERE u.auth_id = auth.uid()
   LIMIT 1
 $$ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public;
 
@@ -36,7 +36,7 @@ CREATE OR REPLACE FUNCTION app.current_branch_id()
 RETURNS UUID AS $$
   SELECT u.branch_id
   FROM users u
-  WHERE u.supabase_user_id = auth.uid()
+  WHERE u.auth_id = auth.uid()
   LIMIT 1
 $$ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public;
 
@@ -56,12 +56,12 @@ RETURNS TEXT AS $$
   END
   FROM users u
   LEFT JOIN roles r ON r.id = u.role_id
-  WHERE u.supabase_user_id = auth.uid()
+  WHERE u.auth_id = auth.uid()
   LIMIT 1
 $$ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public;
 
 -- Helpful index for the helpers above
-CREATE INDEX IF NOT EXISTS idx_users_supabase_user_id ON users(supabase_user_id);
+CREATE INDEX IF NOT EXISTS idx_users_auth_id ON users(auth_id);
 
 -- Create function to get current user's institution ID
 -- Fix get_current_institution_id() to delegate to auth-based helper and fallback to direct mapping
@@ -83,7 +83,7 @@ AS $$
     (
       SELECT u.institution_id
       FROM public.users u
-      WHERE u.supabase_user_id = auth.uid()
+      WHERE u.auth_id = auth.uid()
       LIMIT 1
     )
   )
@@ -100,7 +100,7 @@ AS $$
     (
       SELECT u.branch_id
       FROM public.users u
-      WHERE u.supabase_user_id = auth.uid()
+      WHERE u.auth_id = auth.uid()
       LIMIT 1
     )
   )
@@ -125,7 +125,7 @@ AS $$
       END
       FROM public.users u
       LEFT JOIN public.roles r ON r.id = u.role_id
-      WHERE u.supabase_user_id = auth.uid()
+      WHERE u.auth_id = auth.uid()
       LIMIT 1
     )
   )
@@ -144,7 +144,7 @@ SET search_path = public
 AS $$
   SELECT u.id
   FROM public.users u
-  WHERE u.supabase_user_id = auth.uid()
+  WHERE u.auth_id = auth.uid()
   LIMIT 1
 $$;
 
@@ -208,7 +208,7 @@ CREATE POLICY institutions_member_self_access ON institutions
       SELECT 1
       FROM members c
       WHERE c.institution_id = institutions.id
-        AND c.supabase_user_id = auth.uid()
+        AND c.auth_id = auth.uid()
     )
   );
 
@@ -229,7 +229,7 @@ CREATE POLICY users_access_policy ON users
     FOR ALL
     USING (
         -- Self-access by Supabase auth UID (prevents recursion)
-        supabase_user_id = auth.uid()
+        auth_id = auth.uid()
         OR can_access_row(institution_id, branch_id)
     );
 
@@ -278,10 +278,10 @@ DROP POLICY IF EXISTS member_profile_self_update ON members;
 CREATE POLICY member_profile_self_update ON members
   FOR UPDATE
   USING (
-    supabase_user_id = auth.uid()
+    auth_id = auth.uid()
   )
   WITH CHECK (
-    supabase_user_id = auth.uid()
+    auth_id = auth.uid()
   );
 
 DROP POLICY IF EXISTS members_delete_same_institution ON members;
@@ -300,7 +300,7 @@ CREATE POLICY member_kyc_docs_select_self ON member_kyc_docs
     EXISTS (
       SELECT 1 FROM members c
       WHERE c.id = member_id
-        AND c.supabase_user_id = auth.uid()
+        AND c.auth_id = auth.uid()
         AND c.institution_id = institution_id
     )
   );
@@ -313,7 +313,7 @@ CREATE POLICY member_kyc_docs_insert_self ON member_kyc_docs
     EXISTS (
       SELECT 1 FROM members c
       WHERE c.id = member_id
-        AND c.supabase_user_id = auth.uid()
+        AND c.auth_id = auth.uid()
         AND c.institution_id = institution_id
     )
   );
@@ -381,7 +381,7 @@ CREATE POLICY member_loan_products_self_access_policy ON loan_products
     EXISTS (
       SELECT 1
       FROM members c
-      WHERE c.supabase_user_id = auth.uid()
+      WHERE c.auth_id = auth.uid()
         AND c.institution_id = loan_products.institution_id
     )
   );
@@ -484,7 +484,7 @@ DROP POLICY IF EXISTS members_self_access_policy ON members;
 CREATE POLICY members_self_access_policy ON members
   FOR SELECT
   USING (
-    supabase_user_id = auth.uid()
+    auth_id = auth.uid()
   );
 
 DROP POLICY IF EXISTS member_loans_self_access_policy ON loans;
@@ -495,7 +495,7 @@ CREATE POLICY member_loans_self_access_policy ON loans
       SELECT 1
       FROM members c
       WHERE c.id = member_id
-        AND c.supabase_user_id = auth.uid()
+        AND c.auth_id = auth.uid()
         AND c.institution_id = institution_id
     )
   );
@@ -508,7 +508,7 @@ CREATE POLICY member_accounts_self_access_policy ON savings_accounts
       SELECT 1
       FROM members c
       WHERE c.id = member_id
-        AND c.supabase_user_id = auth.uid()
+        AND c.auth_id = auth.uid()
         AND c.institution_id = institution_id
     )
   );
@@ -521,7 +521,7 @@ CREATE POLICY member_transactions_self_access_policy ON transactions
       SELECT 1
       FROM members c
       WHERE c.id = member_id
-        AND c.supabase_user_id = auth.uid()
+        AND c.auth_id = auth.uid()
         AND c.institution_id = institution_id
     )
   );
@@ -535,7 +535,7 @@ CREATE POLICY member_shares_self_access_policy ON member_shares
       SELECT 1
       FROM members c
       WHERE c.id = member_id
-        AND c.supabase_user_id = auth.uid()
+        AND c.auth_id = auth.uid()
     )
   );
 
@@ -549,7 +549,7 @@ CREATE POLICY member_loan_repayments_self_access_policy ON loan_repayments
       FROM loans l
       JOIN members c ON c.id = l.member_id AND c.institution_id = l.institution_id
       WHERE l.id = loan_id
-        AND c.supabase_user_id = auth.uid()
+        AND c.auth_id = auth.uid()
     )
   );
 
@@ -594,7 +594,7 @@ CREATE POLICY notifications_member_select ON notifications
     AND EXISTS (
       SELECT 1 FROM members c
       WHERE c.id = recipient_id
-        AND c.supabase_user_id = auth.uid()
+        AND c.auth_id = auth.uid()
         AND c.institution_id = institution_id
     )
   );
@@ -608,7 +608,7 @@ CREATE POLICY notifications_user_select ON notifications
     AND EXISTS (
       SELECT 1 FROM users u
       WHERE u.id = recipient_id
-        AND u.supabase_user_id = auth.uid()
+        AND u.auth_id = auth.uid()
         AND u.institution_id = institution_id
     )
   );
@@ -622,7 +622,7 @@ CREATE POLICY notifications_member_update ON notifications
     AND EXISTS (
       SELECT 1 FROM members c
       WHERE c.id = recipient_id
-        AND c.supabase_user_id = auth.uid()
+        AND c.auth_id = auth.uid()
         AND c.institution_id = institution_id
     )
   )
@@ -631,7 +631,7 @@ CREATE POLICY notifications_member_update ON notifications
     AND EXISTS (
       SELECT 1 FROM members c
       WHERE c.id = recipient_id
-        AND c.supabase_user_id = auth.uid()
+        AND c.auth_id = auth.uid()
         AND c.institution_id = institution_id
     )
   );
@@ -645,7 +645,7 @@ CREATE POLICY notifications_user_update ON notifications
     AND EXISTS (
       SELECT 1 FROM users u
       WHERE u.id = recipient_id
-        AND u.supabase_user_id = auth.uid()
+        AND u.auth_id = auth.uid()
         AND u.institution_id = institution_id
     )
   )
@@ -654,7 +654,7 @@ CREATE POLICY notifications_user_update ON notifications
     AND EXISTS (
       SELECT 1 FROM users u
       WHERE u.id = recipient_id
-        AND u.supabase_user_id = auth.uid()
+        AND u.auth_id = auth.uid()
         AND u.institution_id = institution_id
     )
   );
@@ -675,7 +675,7 @@ CREATE POLICY notification_prefs_member_select ON notification_preferences
     AND EXISTS (
       SELECT 1 FROM members c
       WHERE c.id = user_id
-        AND c.supabase_user_id = auth.uid()
+        AND c.auth_id = auth.uid()
         AND c.institution_id = institution_id
     )
   );
@@ -688,7 +688,7 @@ CREATE POLICY notification_prefs_member_insert ON notification_preferences
     AND EXISTS (
       SELECT 1 FROM members c
       WHERE c.id = user_id
-        AND c.supabase_user_id = auth.uid()
+        AND c.auth_id = auth.uid()
         AND c.institution_id = institution_id
     )
   );
@@ -701,7 +701,7 @@ CREATE POLICY notification_prefs_member_update ON notification_preferences
     AND EXISTS (
       SELECT 1 FROM members c
       WHERE c.id = user_id
-        AND c.supabase_user_id = auth.uid()
+        AND c.auth_id = auth.uid()
         AND c.institution_id = institution_id
     )
   )
@@ -710,7 +710,7 @@ CREATE POLICY notification_prefs_member_update ON notification_preferences
     AND EXISTS (
       SELECT 1 FROM members c
       WHERE c.id = user_id
-        AND c.supabase_user_id = auth.uid()
+        AND c.auth_id = auth.uid()
         AND c.institution_id = institution_id
     )
   );
@@ -724,7 +724,7 @@ CREATE POLICY notification_prefs_user_select ON notification_preferences
     AND EXISTS (
       SELECT 1 FROM users u
       WHERE u.id = user_id
-        AND u.supabase_user_id = auth.uid()
+        AND u.auth_id = auth.uid()
         AND u.institution_id = institution_id
     )
   );
@@ -737,7 +737,7 @@ CREATE POLICY notification_prefs_user_insert ON notification_preferences
     AND EXISTS (
       SELECT 1 FROM users u
       WHERE u.id = user_id
-        AND u.supabase_user_id = auth.uid()
+        AND u.auth_id = auth.uid()
         AND u.institution_id = institution_id
     )
   );
@@ -750,7 +750,7 @@ CREATE POLICY notification_prefs_user_update ON notification_preferences
     AND EXISTS (
       SELECT 1 FROM users u
       WHERE u.id = user_id
-        AND u.supabase_user_id = auth.uid()
+        AND u.auth_id = auth.uid()
         AND u.institution_id = institution_id
     )
   )
@@ -759,7 +759,7 @@ CREATE POLICY notification_prefs_user_update ON notification_preferences
     AND EXISTS (
       SELECT 1 FROM users u
       WHERE u.id = user_id
-        AND u.supabase_user_id = auth.uid()
+        AND u.auth_id = auth.uid()
         AND u.institution_id = institution_id
     )
   );

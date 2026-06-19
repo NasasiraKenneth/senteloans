@@ -37,7 +37,7 @@ export async function GET(req: Request) {
            END AS actor_role
          FROM users u
          LEFT JOIN roles r ON r.id = u.role_id
-         WHERE u.supabase_user_id = $1
+         WHERE u.auth_id = $1
          LIMIT 1`,
         [session.user.authUserId]
       )

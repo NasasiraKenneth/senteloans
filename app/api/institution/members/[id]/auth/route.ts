@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth"
 import { runWithAuth } from "@/lib/db"
 import { hash } from "bcryptjs"
 import * as crypto from "crypto"
+import { AUTH_USER_TYPE_MEMBER, getUniqueUsername } from "@/lib/auth-users"
 import { auditLogger } from "@/lib/audit/audit-logger"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
 
@@ -44,13 +45,13 @@ export async function POST(
 
     const result = await runWithAuth(session.user.authUserId, async (client) => {
       const actorRes = await client.query(
-        `SELECT id, institution_id FROM users WHERE supabase_user_id = $1`,
+        `SELECT id, institution_id FROM users WHERE auth_id = $1`,
         [session!.user!.authUserId]
       )
       const actor = actorRes.rows[0]
       if (!actor) return { error: "user_not_linked" as const }
       const memberRes = await client.query(
-        `SELECT id, institution_id, supabase_user_id FROM members WHERE id = $1`,
+        `SELECT id, institution_id, auth_id FROM members WHERE id = $1`,
         [id]
       )
       const memberRow = memberRes.rows[0]
@@ -59,15 +60,15 @@ export async function POST(
 
       const passwordHash = await hash(password, 10)
 
-      if (memberRow.supabase_user_id) {
+      if (memberRow.auth_id) {
         await client.query(
           `UPDATE app_auth_users SET password_hash = $1, updated_at = NOW() WHERE id = $2`,
-          [passwordHash, memberRow.supabase_user_id]
+          [passwordHash, memberRow.auth_id]
         )
         await auditLogger.logUpdate(
           "members",
           memberRow.id,
-          { supabase_user_id: memberRow.supabase_user_id },
+          { auth_id: memberRow.auth_id },
           { login_enabled: true, password_reset: true },
           actor.institution_id,
           actor.id,
@@ -78,21 +79,22 @@ export async function POST(
       }
 
       const authId = crypto.randomUUID()
+      const username = await getUniqueUsername(client, email)
       await client.query(
-        `INSERT INTO app_auth_users (id, email, password_hash) VALUES ($1, $2, $3)
+        `INSERT INTO app_auth_users (id, user_type, username, email, password_hash) VALUES ($1, $2, $3, $4, $5)
          ON CONFLICT (email) DO UPDATE SET password_hash = EXCLUDED.password_hash, updated_at = NOW()`,
-        [authId, email, passwordHash]
+        [authId, AUTH_USER_TYPE_MEMBER, username, email, passwordHash]
       )
       const existingRes = await client.query(`SELECT id FROM app_auth_users WHERE email = $1`, [email])
       const linkId = existingRes.rows[0]?.id ?? authId
       await client.query(
-        `UPDATE members SET supabase_user_id = $1 WHERE id = $2`,
+        `UPDATE members SET auth_id = $1 WHERE id = $2`,
         [linkId, memberRow.id]
       )
       await auditLogger.logInsert(
         "members",
         memberRow.id,
-        { supabase_user_id: linkId, login_enabled: true },
+        { auth_id: linkId, login_enabled: true },
         actor.institution_id,
         actor.id,
         undefined,

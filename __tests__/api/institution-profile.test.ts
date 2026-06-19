@@ -59,7 +59,7 @@ describe('GET /api/institution/profile', () => {
   describe('Successful Fetch', () => {
     const mockUser = { id: 'user-123', email: 'admin@institution.com' }
     const mockAppUser = testFactories.user({
-      supabase_user_id: 'user-123',
+      auth_id: 'user-123',
       role: 'institution_admin',
       full_name: 'John Admin',
       phone_number: '+256700000000',

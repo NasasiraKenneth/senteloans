@@ -10,13 +10,13 @@ export async function GET() {
 
     const result = await runWithAuth(session.user.authUserId, async (client) => {
       const clientRes = await client.query(
-        `SELECT id FROM clients WHERE supabase_user_id = $1`,
+        `SELECT id FROM members WHERE auth_id = $1`,
         [session!.user!.authUserId]
       )
       const row = clientRes.rows[0]
       if (!row) return null
       const sharesRes = await client.query(
-        `SELECT id, number_of_shares, share_value, total_value, purchase_date FROM client_shares WHERE client_id = $1 ORDER BY purchase_date DESC`,
+        `SELECT id, number_of_shares, share_value, total_value, purchase_date FROM member_shares WHERE member_id = $1 ORDER BY purchase_date DESC`,
         [row.id]
       )
       return sharesRes.rows

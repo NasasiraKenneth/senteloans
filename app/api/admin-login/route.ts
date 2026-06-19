@@ -33,9 +33,9 @@ export async function POST(req: Request) {
              WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
              ELSE NULL
            END AS role
-         FROM senteloans_users u
-         LEFT JOIN senteloans_roles r ON r.id = u.role_id
-         WHERE u.supabase_user_id = $1 AND u.status = 'Active'`,
+         FROM users u
+         LEFT JOIN roles r ON r.id = u.role_id
+         WHERE u.auth_id = $1 AND u.status = 'Active'`,
         [authRow.id]
       )
       const systemUser = userRes.rows[0]

@@ -15,7 +15,7 @@ export async function GET() {
 
     const institutions = await runWithoutAuth(async (client) => {
       const res = await client.query(
-        "SELECT id, name, type, status, email, phone_number, created_at FROM senteloans_institutions ORDER BY created_at DESC"
+        "SELECT id, name, type, status, email, phone_number, created_at FROM institutions ORDER BY created_at DESC"
       )
       return res.rows
     })

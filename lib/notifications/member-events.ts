@@ -5,7 +5,7 @@ import type { CreateNotificationInput } from "./notification-types"
 import { getInstitutionAdminRecipients } from "./admin-recipients"
 
 export interface MemberRegistrationActor {
-  /** senteloans_users.id of the staff member that performed the registration. */
+  /** users.id of the staff member that performed the registration. */
   id: string
   institution_id: string
   branch_id: string

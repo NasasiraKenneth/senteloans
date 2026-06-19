@@ -203,7 +203,7 @@ export async function GET(req: Request) {
       if (actorRole === "super_admin") {
         const branchRes = await client.query(
           `SELECT id, name
-           FROM senteloans_branches
+           FROM branches
            WHERE institution_id = $1
            ORDER BY name ASC`,
           [actor.institution_id],
@@ -212,7 +212,7 @@ export async function GET(req: Request) {
         branchScopes =
           selectedBranchIds.length > 0 ? allBranches.filter((b) => selectedBranchIds.includes(b.id)) : allBranches
       } else {
-        const branchRes = await client.query(`SELECT id, name FROM senteloans_branches WHERE id = $1 LIMIT 1`, [
+        const branchRes = await client.query(`SELECT id, name FROM branches WHERE id = $1 LIMIT 1`, [
           actor.branch_id,
         ])
         branchScopes = branchRes.rows.length > 0 ? [branchRes.rows[0] as BranchScope] : []
@@ -256,7 +256,7 @@ export async function GET(req: Request) {
            FROM senteloans_investment_reports r
            INNER JOIN senteloans_investments i ON i.id = r.investment_id
            LEFT JOIN senteloans_clients c ON c.id = i.provider_id
-           LEFT JOIN senteloans_users u ON u.id = r.created_by
+           LEFT JOIN users u ON u.id = r.created_by
            WHERE ${where}
            ORDER BY r.created_at DESC`,
           queryParams,

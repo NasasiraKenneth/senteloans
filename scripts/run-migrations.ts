@@ -14,6 +14,7 @@ config({ path: path.join(__dirname, "..", ".env.local") })
 import { Pool } from "pg"
 import * as fs from "fs"
 import { hash } from "bcryptjs"
+import { AUTH_USER_TYPE_INSTITUTION_STAFF, AUTH_USER_TYPE_MEMBER, getUniqueUsername } from "../lib/auth-users"
 
 const MIGRATIONS_DIR = path.join(__dirname)
 const DEFAULT_SEED_PASSWORD = process.env.SEED_DEFAULT_PASSWORD || "changeme"
@@ -31,29 +32,31 @@ async function seedAuthUsers(pool: Pool) {
     const staffRes = await client.query<{ id: string; email: string }>(
       `SELECT id, email
        FROM users
-       WHERE supabase_user_id IS NULL
+       WHERE auth_id IS NULL
          AND email IS NOT NULL
          AND email <> ''`
     )
 
     for (const row of staffRes.rows) {
+      const email = row.email.trim().toLowerCase()
+      const username = await getUniqueUsername(client, email)
       await client.query(
-        `INSERT INTO app_auth_users (email, password_hash)
-         VALUES ($1, $2)
+        `INSERT INTO app_auth_users (user_type, username, email, password_hash)
+         VALUES ($1, $2, $3, $4)
          ON CONFLICT (email) DO NOTHING`,
-        [row.email.trim().toLowerCase(), passwordHash]
+        [AUTH_USER_TYPE_INSTITUTION_STAFF, username, email, passwordHash]
       )
 
       const authRes = await client.query<{ id: string }>(
         `SELECT id FROM app_auth_users WHERE email = $1`,
-        [row.email.trim().toLowerCase()]
+        [email]
       )
       const authId = authRes.rows[0]?.id
       if (!authId) continue
 
       await client.query(
         `UPDATE users
-         SET supabase_user_id = $1
+         SET auth_id = $1
          WHERE id = $2`,
         [authId, row.id]
       )
@@ -63,29 +66,31 @@ async function seedAuthUsers(pool: Pool) {
     const memberRes = await client.query<{ id: string; email: string }>(
       `SELECT id, email
        FROM members
-       WHERE supabase_user_id IS NULL
+       WHERE auth_id IS NULL
          AND email IS NOT NULL
          AND email <> ''`
     )
 
     for (const row of memberRes.rows) {
+      const email = row.email.trim().toLowerCase()
+      const username = await getUniqueUsername(client, email)
       await client.query(
-        `INSERT INTO app_auth_users (email, password_hash)
-         VALUES ($1, $2)
+        `INSERT INTO app_auth_users (user_type, username, email, password_hash)
+         VALUES ($1, $2, $3, $4)
          ON CONFLICT (email) DO NOTHING`,
-        [row.email.trim().toLowerCase(), passwordHash]
+        [AUTH_USER_TYPE_MEMBER, username, email, passwordHash]
       )
 
       const authRes = await client.query<{ id: string }>(
         `SELECT id FROM app_auth_users WHERE email = $1`,
-        [row.email.trim().toLowerCase()]
+        [email]
       )
       const authId = authRes.rows[0]?.id
       if (!authId) continue
 
       await client.query(
         `UPDATE members
-         SET supabase_user_id = $1
+         SET auth_id = $1
          WHERE id = $2`,
         [authId, row.id]
       )

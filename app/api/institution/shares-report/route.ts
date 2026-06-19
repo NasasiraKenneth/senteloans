@@ -21,7 +21,7 @@ export async function GET() {
                 COALESCE(SUM(s.total_value), 0) AS total_share_value
          FROM clients c
          LEFT JOIN client_shares s ON s.client_id = c.id
-         WHERE c.institution_id = (SELECT institution_id FROM users WHERE supabase_user_id = $1)
+         WHERE c.institution_id = (SELECT institution_id FROM users WHERE auth_id = $1)
            AND c.status = 'Active'
          GROUP BY c.id, c.full_name, c.client_number, c.phone_number
          ORDER BY total_share_value DESC NULLS LAST, c.full_name`,

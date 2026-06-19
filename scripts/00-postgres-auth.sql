@@ -6,6 +6,8 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 -- Auth users table (replaces Supabase auth.users for app-backed auth)
 CREATE TABLE IF NOT EXISTS public.app_auth_users (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_type VARCHAR(155) NOT NULL,
+    username VARCHAR(155) UNIQUE NOT NULL,
     email VARCHAR(255) UNIQUE NOT NULL,
     password_hash TEXT NOT NULL,
     created_at TIMESTAMPTZ DEFAULT NOW(),
@@ -26,4 +28,6 @@ AS $$
   SELECT NULLIF(trim(current_setting('app.current_user_id', true)), '')::uuid;
 $$;
 
-COMMENT ON TABLE public.app_auth_users IS 'App-backed auth users (replaces Supabase auth.users). Link via users.supabase_user_id / members.supabase_user_id';
+COMMENT ON TABLE public.app_auth_users IS 'App-backed auth users (replaces Supabase auth.users). Link via users.auth_id / members.auth_id';
+
+CREATE INDEX IF NOT EXISTS idx_app_auth_users_username ON public.app_auth_users(username);

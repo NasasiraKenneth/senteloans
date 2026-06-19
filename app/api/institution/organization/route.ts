@@ -27,7 +27,7 @@ async function resolveActorContext(client: any, authUserId: string): Promise<Act
        END AS role
      FROM users u
      LEFT JOIN roles r ON r.id = u.role_id
-     WHERE u.supabase_user_id = $1
+     WHERE u.auth_id = $1
      LIMIT 1`,
     [authUserId],
   )
@@ -63,7 +63,7 @@ export async function GET() {
                 i.license_number, i.registration_number, i.website, i.logo
          FROM users u
          JOIN institutions i ON i.id = u.institution_id
-         WHERE u.supabase_user_id = $1`,
+         WHERE u.auth_id = $1`,
         [session!.user!.authUserId]
       )
       return userRes.rows[0]
@@ -144,7 +144,7 @@ export async function PUT(req: Request) {
       if (!canEdit) return { error: "missing_permission:edit_institution_info" as const }
 
       const meRes = await client.query(
-        `SELECT institution_id FROM users WHERE supabase_user_id = $1`,
+        `SELECT institution_id FROM users WHERE auth_id = $1`,
         [session!.user!.authUserId]
       )
       const me = meRes.rows[0]

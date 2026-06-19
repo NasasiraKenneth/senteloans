@@ -70,7 +70,7 @@ describe('PUT /api/institution/loans/[id]', () => {
             }),
           }
         }
-        if (callCount === 2 && table === 'senteloans_users') {
+        if (callCount === 2 && table === 'users') {
           return {
             select: jest.fn().mockReturnThis(),
             eq: jest.fn().mockReturnThis(),
@@ -124,7 +124,7 @@ describe('PUT /api/institution/loans/[id]', () => {
             }),
           }
         }
-        if (callCount === 2 && table === 'senteloans_users') {
+        if (callCount === 2 && table === 'users') {
           return {
             select: jest.fn().mockReturnThis(),
             eq: jest.fn().mockReturnThis(),
@@ -200,7 +200,7 @@ describe('PUT /api/institution/loans/[id]', () => {
             }),
           }
         }
-        if (callCount === 2 && table === 'senteloans_users') {
+        if (callCount === 2 && table === 'users') {
           return {
             select: jest.fn().mockReturnThis(),
             eq: jest.fn().mockReturnThis(),
@@ -250,7 +250,7 @@ describe('PUT /api/institution/loans/[id]', () => {
             }),
           }
         }
-        if (callCount === 2 && table === 'senteloans_users') {
+        if (callCount === 2 && table === 'users') {
           return {
             select: jest.fn().mockReturnThis(),
             eq: jest.fn().mockReturnThis(),
@@ -336,7 +336,7 @@ describe('PUT /api/institution/loans/[id]', () => {
             }),
           }
         }
-        if (callCount === 2 && table === 'senteloans_users') {
+        if (callCount === 2 && table === 'users') {
           return {
             select: jest.fn().mockReturnThis(),
             eq: jest.fn().mockReturnThis(),

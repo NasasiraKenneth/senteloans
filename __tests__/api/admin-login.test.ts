@@ -116,7 +116,7 @@ describe('POST /api/admin-login', () => {
   })
 
   describe('Authorization', () => {
-    it('should return 403 if user is not found in senteloans_users table', async () => {
+    it('should return 403 if user is not found in users table', async () => {
       const mockUser = { id: 'user-123', email: 'admin@senteloans.com' }
       
       mockSupabase.auth.signInWithPassword.mockResolvedValue({
@@ -155,7 +155,7 @@ describe('POST /api/admin-login', () => {
     it('should return 403 if user role is not system_admin', async () => {
       const mockUser = { id: 'user-123', email: 'admin@institution.com' }
       const mockSystemUser = testFactories.user({
-        supabase_user_id: 'user-123',
+        auth_id: 'user-123',
         role: 'institution_admin',
       })
 
@@ -197,7 +197,7 @@ describe('POST /api/admin-login', () => {
     it('should return 200 and ok:true for valid system admin credentials', async () => {
       const mockUser = { id: 'user-123', email: 'admin@senteloans.com' }
       const mockSystemUser = testFactories.user({
-        supabase_user_id: 'user-123',
+        auth_id: 'user-123',
         role: 'system_admin',
       })
 
@@ -234,7 +234,7 @@ describe('POST /api/admin-login', () => {
         email: 'admin@senteloans.com',
         password: 'correctpassword',
       })
-      expect(mockSupabase.from).toHaveBeenCalledWith('senteloans_users')
+      expect(mockSupabase.from).toHaveBeenCalledWith('users')
       expect(mockSupabase.auth.signOut).not.toHaveBeenCalled()
     })
   })

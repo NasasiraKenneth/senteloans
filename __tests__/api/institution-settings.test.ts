@@ -51,7 +51,7 @@ describe('GET /api/institution/settings', () => {
       let callCount = 0
       mockServiceClient.from.mockImplementation((table: string) => {
         callCount++
-        if (callCount === 1 && table === 'senteloans_users') {
+        if (callCount === 1 && table === 'users') {
           return {
             select: jest.fn().mockReturnThis(),
             eq: jest.fn().mockReturnThis(),
@@ -75,7 +75,7 @@ describe('GET /api/institution/settings', () => {
   describe('Successful Fetch', () => {
     const mockUser = { id: 'user-123', email: 'admin@institution.com' }
     const mockAppUser = testFactories.user({
-      supabase_user_id: 'user-123',
+      auth_id: 'user-123',
       institution_id: 'inst-123',
     })
     const mockInstitution = testFactories.institution({
@@ -105,7 +105,7 @@ describe('GET /api/institution/settings', () => {
       let callCount = 0
       mockServiceClient.from.mockImplementation((table: string) => {
         callCount++
-        if (callCount === 1 && table === 'senteloans_users') {
+        if (callCount === 1 && table === 'users') {
           return {
             select: jest.fn().mockReturnThis(),
             eq: jest.fn().mockReturnThis(),
@@ -115,7 +115,7 @@ describe('GET /api/institution/settings', () => {
             }),
           }
         }
-        if (callCount === 2 && table === 'senteloans_institutions') {
+        if (callCount === 2 && table === 'institutions') {
           return {
             select: jest.fn().mockReturnThis(),
             eq: jest.fn().mockReturnThis(),
@@ -149,7 +149,7 @@ describe('GET /api/institution/settings', () => {
       let callCount = 0
       mockServiceClient.from.mockImplementation((table: string) => {
         callCount++
-        if (callCount === 1 && table === 'senteloans_users') {
+        if (callCount === 1 && table === 'users') {
           return {
             select: jest.fn().mockReturnThis(),
             eq: jest.fn().mockReturnThis(),
@@ -159,7 +159,7 @@ describe('GET /api/institution/settings', () => {
             }),
           }
         }
-        if (callCount === 2 && table === 'senteloans_institutions') {
+        if (callCount === 2 && table === 'institutions') {
           return {
             select: jest.fn().mockReturnThis(),
             eq: jest.fn().mockReturnThis(),
@@ -220,7 +220,7 @@ describe('PUT /api/institution/settings', () => {
   describe('Validation', () => {
     const mockUser = { id: 'user-123', email: 'admin@institution.com' }
     const mockAppUser = testFactories.user({
-      supabase_user_id: 'user-123',
+      auth_id: 'user-123',
       institution_id: 'inst-123',
     })
     const mockInstitution = testFactories.institution({
@@ -241,7 +241,7 @@ describe('PUT /api/institution/settings', () => {
       let callCount = 0
       mockServiceClient.from.mockImplementation((table: string) => {
         callCount++
-        if (callCount === 1 && table === 'senteloans_users') {
+        if (callCount === 1 && table === 'users') {
           return {
             select: jest.fn().mockReturnThis(),
             eq: jest.fn().mockReturnThis(),
@@ -251,7 +251,7 @@ describe('PUT /api/institution/settings', () => {
             }),
           }
         }
-        if (callCount === 2 && table === 'senteloans_institutions') {
+        if (callCount === 2 && table === 'institutions') {
           return {
             select: jest.fn().mockReturnThis(),
             eq: jest.fn().mockReturnThis(),
@@ -291,7 +291,7 @@ describe('PUT /api/institution/settings', () => {
       let callCount = 0
       mockServiceClient.from.mockImplementation((table: string) => {
         callCount++
-        if (callCount === 1 && table === 'senteloans_users') {
+        if (callCount === 1 && table === 'users') {
           return {
             select: jest.fn().mockReturnThis(),
             eq: jest.fn().mockReturnThis(),
@@ -301,7 +301,7 @@ describe('PUT /api/institution/settings', () => {
             }),
           }
         }
-        if (callCount === 2 && table === 'senteloans_institutions') {
+        if (callCount === 2 && table === 'institutions') {
           return {
             select: jest.fn().mockReturnThis(),
             eq: jest.fn().mockReturnThis(),
@@ -338,7 +338,7 @@ describe('PUT /api/institution/settings', () => {
   describe('Successful Update', () => {
     const mockUser = { id: 'user-123', email: 'admin@institution.com' }
     const mockAppUser = testFactories.user({
-      supabase_user_id: 'user-123',
+      auth_id: 'user-123',
       institution_id: 'inst-123',
     })
     const mockInstitution = testFactories.institution({
@@ -367,7 +367,7 @@ describe('PUT /api/institution/settings', () => {
       let callCount = 0
       mockServiceClient.from.mockImplementation((table: string) => {
         callCount++
-        if (callCount === 1 && table === 'senteloans_users') {
+        if (callCount === 1 && table === 'users') {
           return {
             select: jest.fn().mockReturnThis(),
             eq: jest.fn().mockReturnThis(),
@@ -377,7 +377,7 @@ describe('PUT /api/institution/settings', () => {
             }),
           }
         }
-        if (callCount === 2 && table === 'senteloans_institutions') {
+        if (callCount === 2 && table === 'institutions') {
           return {
             select: jest.fn().mockReturnThis(),
             eq: jest.fn().mockReturnThis(),
@@ -387,7 +387,7 @@ describe('PUT /api/institution/settings', () => {
             }),
           }
         }
-        if (callCount === 3 && table === 'senteloans_institutions') {
+        if (callCount === 3 && table === 'institutions') {
           return {
             select: jest.fn().mockReturnThis(),
             eq: jest.fn().mockReturnThis(),
@@ -653,7 +653,7 @@ describe('PUT /api/institution/organization', () => {
       let callCount = 0
       mockServiceClient.from.mockImplementation((table: string) => {
         callCount++
-        if (callCount === 1 && table === 'senteloans_users') {
+        if (callCount === 1 && table === 'users') {
           return {
             select: jest.fn().mockReturnThis(),
             eq: jest.fn().mockReturnThis(),
@@ -663,7 +663,7 @@ describe('PUT /api/institution/organization', () => {
             }),
           }
         }
-        if (callCount === 2 && table === 'senteloans_institutions') {
+        if (callCount === 2 && table === 'institutions') {
           return {
             select: jest.fn().mockReturnThis(),
             eq: jest.fn().mockReturnThis(),

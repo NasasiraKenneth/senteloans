@@ -15,7 +15,7 @@ interface AdminRow {
   phone_number: string | null
   status: string
   role: string
-  supabase_user_id: string | null
+  auth_id: string | null
   created_at: string
 }
 

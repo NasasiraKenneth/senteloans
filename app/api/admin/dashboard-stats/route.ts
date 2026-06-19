@@ -16,14 +16,14 @@ export async function GET() {
     const stats = await runWithoutAuth(async (client) => {
       // status_type for institutions: Active, Inactive, Suspended, Closed (no Pending)
       const [instRes, recentRes, usersRes, suspendedRes, saccoRes, mlRes, mfiRes, activeRes] = await Promise.all([
-        client.query("SELECT COUNT(*)::int AS c FROM senteloans_institutions"),
-        client.query("SELECT id, name, type, status, created_at FROM senteloans_institutions ORDER BY created_at DESC LIMIT 3"),
-        client.query("SELECT COUNT(*)::int AS c FROM senteloans_users"),
-        client.query("SELECT id FROM senteloans_institutions WHERE status = 'Suspended'"),
-        client.query("SELECT COUNT(*)::int AS c FROM senteloans_institutions WHERE type = 'SACCO'"),
-        client.query("SELECT COUNT(*)::int AS c FROM senteloans_institutions WHERE type = 'Money Lender'"),
-        client.query("SELECT COUNT(*)::int AS c FROM senteloans_institutions WHERE type = 'MFI'"),
-        client.query("SELECT COUNT(*)::int AS c FROM senteloans_institutions WHERE status = 'Active'"),
+        client.query("SELECT COUNT(*)::int AS c FROM institutions"),
+        client.query("SELECT id, name, type, status, created_at FROM institutions ORDER BY created_at DESC LIMIT 3"),
+        client.query("SELECT COUNT(*)::int AS c FROM users"),
+        client.query("SELECT id FROM institutions WHERE status = 'Suspended'"),
+        client.query("SELECT COUNT(*)::int AS c FROM institutions WHERE type = 'SACCO'"),
+        client.query("SELECT COUNT(*)::int AS c FROM institutions WHERE type = 'Money Lender'"),
+        client.query("SELECT COUNT(*)::int AS c FROM institutions WHERE type = 'MFI'"),
+        client.query("SELECT COUNT(*)::int AS c FROM institutions WHERE status = 'Active'"),
       ])
       return {
         institutionsCount: instRes.rows[0]?.c ?? 0,

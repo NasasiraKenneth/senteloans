@@ -15,7 +15,7 @@ export async function GET() {
 
     const result = await runWithAuth(session.user.authUserId, async (client) => {
       const clientRes = await client.query(
-        `SELECT id, institution_id FROM clients WHERE supabase_user_id = $1`,
+        `SELECT id, institution_id FROM members WHERE auth_id = $1`,
         [session!.user!.authUserId]
       )
       const row = clientRes.rows[0]
@@ -23,7 +23,7 @@ export async function GET() {
 
       const loansRes = await client.query(
         `SELECT id, application_id, principal_amount, interest_rate, tenure_months, outstanding_balance, status, next_payment_date, loan_product_id, application_date
-         FROM loans WHERE client_id = $1 AND institution_id = $2 ORDER BY application_date DESC`,
+         FROM loans WHERE member_id = $1 AND institution_id = $2 ORDER BY application_date DESC`,
         [row.id, row.institution_id]
       )
       const productIds = [...new Set(loansRes.rows.map((l: Record<string, unknown>) => l.loan_product_id).filter(Boolean))]
@@ -80,7 +80,7 @@ export async function POST(req: Request) {
 
     const result = await runWithAuth(session.user.authUserId, async (client) => {
       const clientRes = await client.query(
-        `SELECT id, institution_id, branch_id, full_name, status, kyc_status FROM clients WHERE supabase_user_id = $1`,
+        `SELECT id, institution_id, branch_id, full_name, status, kyc_status FROM members WHERE auth_id = $1`,
         [session!.user!.authUserId]
       )
       const clientRow = clientRes.rows[0]
@@ -113,7 +113,7 @@ export async function POST(req: Request) {
       if (institutionType === "SACCO") {
         if (guarantorIds.length === 0) return { error: "At least one guarantor is required for SACCO loans" as const }
         const guarRes = await client.query(
-          `SELECT id, status, kyc_status FROM clients WHERE id = ANY($1::uuid[]) AND institution_id = $2`,
+          `SELECT id, status, kyc_status FROM members WHERE id = ANY($1::uuid[]) AND institution_id = $2`,
           [guarantorIds, clientRow.institution_id]
         )
         if (guarRes.rows.length !== guarantorIds.length) return { error: "Invalid guarantor selection" as const }
@@ -138,7 +138,8 @@ export async function POST(req: Request) {
 
       const loanInsert = {
         institution_id: clientRow.institution_id,
-        client_id: clientRow.id,
+        branch_id: clientRow.branch_id,
+        member_id: clientRow.id,
         loan_product_id: product.id,
         application_id: applicationId,
         principal_amount: principal,
@@ -155,12 +156,13 @@ export async function POST(req: Request) {
       }
 
       const loanRes = await client.query(
-        `INSERT INTO loans (institution_id, client_id, loan_product_id, application_id, principal_amount, interest_rate, tenure_months, purpose, monthly_payment, total_amount, outstanding_balance, collateral_description, application_date, status)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'Applied')
+        `INSERT INTO loans (institution_id, branch_id, member_id, loan_product_id, application_id, principal_amount, interest_rate, tenure_months, purpose, monthly_payment, total_amount, outstanding_balance, collateral_description, application_date, status)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'Applied')
          RETURNING id, application_id`,
         [
           loanInsert.institution_id,
-          loanInsert.client_id,
+          loanInsert.branch_id,
+          loanInsert.member_id,
           loanInsert.loan_product_id,
           loanInsert.application_id,
           loanInsert.principal_amount,
@@ -180,7 +182,7 @@ export async function POST(req: Request) {
         const guaranteedAmount = Math.round((principal / guarantorIds.length) * 100) / 100
         for (const gid of guarantorIds) {
           await client.query(
-            `INSERT INTO loan_guarantors (loan_id, guarantor_client_id, guaranteed_amount, status) VALUES ($1, $2, $3, 'Active')`,
+            `INSERT INTO loan_guarantors (loan_id, guarantor_member_id, guaranteed_amount, status) VALUES ($1, $2, $3, 'Active')`,
             [loan.id, gid, guaranteedAmount]
           )
         }

@@ -4,10 +4,11 @@
 
 import type { NextAuthOptions } from "next-auth"
 import CredentialsProvider from "next-auth/providers/credentials"
-import { compare } from "bcryptjs"
-import { runWithoutAuth } from "./db"
+import { AuthLoginError, authenticateCredentials } from "./auth-credentials"
+import type { LoginContext } from "./auth-login-messages"
 
 export interface AppSessionUser {
+  id: string
   authUserId: string
   email: string
   name: string
@@ -23,6 +24,7 @@ declare module "next-auth" {
   interface Session {
     user: AppSessionUser
   }
+  interface User extends AppSessionUser {}
 }
 
 declare module "next-auth/jwt" {
@@ -33,83 +35,34 @@ export const authOptions: NextAuthOptions = {
   providers: [
     CredentialsProvider({
       name: "credentials",
-      credentials: { email: { label: "Email" }, password: { label: "Password" } },
+      credentials: {
+        email: { label: "Email" },
+        password: { label: "Password" },
+        loginContext: { label: "Login Context", type: "text" },
+      },
       async authorize(credentials) {
         const email = credentials?.email?.trim().toLowerCase()
         const password = credentials?.password
         if (!email || !password) return null
 
-        const user = await runWithoutAuth(async (client) => {
-          const authRes = await client.query<{ id: string; password_hash: string }>(
-            `SELECT id, password_hash FROM app_auth_users WHERE email = $1`,
-            [email]
-          )
-          const row = authRes.rows[0]
-          if (!row || !(await compare(password, row.password_hash))) return null
+        const rawContext = credentials?.loginContext
+        const loginContext: LoginContext | undefined =
+          rawContext === "institution" || rawContext === "client" ? rawContext : undefined
 
-          const authUserId = row.id
-
-          const staffRes = await client.query<{ id: string; full_name: string; role: string; institution_id: string }>(
-            `SELECT
-               u.id,
-               u.full_name,
-               u.institution_id,
-               CASE
-                  WHEN r.name = 'System Admin' THEN 'system_admin'
-                  WHEN r.name = 'Super Admin' THEN 'super_admin'
-                 WHEN r.name = 'Admin' THEN 'institution_admin'
-                 WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
-                 ELSE NULL
-               END AS role
-             FROM users u
-             LEFT JOIN roles r ON r.id = u.role_id
-             WHERE u.supabase_user_id = $1 AND u.status = 'Active'`,
-            [authUserId]
-          )
-          const staff = staffRes.rows[0]
-          if (staff) {
-            return {
-              id: authUserId,
-              authUserId,
-              email,
-              name: staff.full_name,
-              role: staff.role,
-              type: "staff" as const,
-              institutionId: staff.institution_id,
-              userId: staff.id,
-            }
-          }
-
-          const clientRes = await client.query<{ id: string; full_name: string }>(
-            `SELECT id, full_name FROM members WHERE supabase_user_id = $1 AND status = 'Active'`,
-            [authUserId]
-          )
-          const clientRow = clientRes.rows[0]
-          if (clientRow) {
-            return {
-              id: authUserId,
-              authUserId,
-              email,
-              name: clientRow.full_name,
-              role: "client",
-              type: "client" as const,
-              memberId: clientRow.id,
-              clientId: clientRow.id,
-            }
-          }
-
+        try {
+          return await authenticateCredentials(email, password, loginContext)
+        } catch (err) {
+          if (err instanceof AuthLoginError) throw err
           return null
-        })
-
-        return user
+        }
       },
     }),
   ],
-  session: { strategy: "jwt", maxAge: 30 * 24 * 60 * 60 },
+  session: { strategy: "jwt", maxAge: 24 * 60 * 60 },
   callbacks: {
     async jwt({ token, user }) {
       if (user) {
-        token.authUserId = user.authUserId
+        token.authUserId = user.authUserId ?? user.id
         token.email = user.email
         token.name = user.name
         token.role = user.role

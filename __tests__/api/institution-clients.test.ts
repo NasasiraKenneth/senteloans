@@ -125,7 +125,7 @@ describe('GET /api/institution/clients', () => {
 
   describe('Successful Queries', () => {
     const mockUser = { id: 'user-123', email: 'admin@institution.com' }
-    const mockAppUser = testFactories.user({ supabase_user_id: 'user-123' })
+    const mockAppUser = testFactories.user({ auth_id: 'user-123' })
     const mockClients = [
       testFactories.client({ id: 'client-1', full_name: 'John Doe' }),
       testFactories.client({ id: 'client-2', full_name: 'Jane Smith' }),
@@ -141,7 +141,7 @@ describe('GET /api/institution/clients', () => {
     it('should return list of clients for authenticated institution user', async () => {
       let callCount = 0
       mockServiceClient.from.mockImplementation((table: string) => {
-        if (table === 'senteloans_users') {
+        if (table === 'users') {
           return {
             select: jest.fn().mockReturnThis(),
             eq: jest.fn().mockReturnThis(),
@@ -190,7 +190,7 @@ describe('GET /api/institution/clients', () => {
       })
       
       mockServiceClient.from.mockImplementation((table: string) => {
-        if (table === 'senteloans_users') {
+        if (table === 'users') {
           return {
             select: jest.fn().mockReturnThis(),
             eq: jest.fn().mockReturnThis(),
@@ -237,7 +237,7 @@ describe('GET /api/institution/clients', () => {
       })
       
       mockServiceClient.from.mockImplementation((table: string) => {
-        if (table === 'senteloans_users') {
+        if (table === 'users') {
           return {
             select: jest.fn().mockReturnThis(),
             eq: jest.fn().mockReturnThis(),
@@ -283,7 +283,7 @@ describe('GET /api/institution/clients', () => {
       })
       
       mockServiceClient.from.mockImplementation((table: string) => {
-        if (table === 'senteloans_users') {
+        if (table === 'users') {
           return {
             select: jest.fn().mockReturnThis(),
             eq: jest.fn().mockReturnThis(),
@@ -318,7 +318,7 @@ describe('GET /api/institution/clients', () => {
 
     it('should respect pagination limit', async () => {
       mockServiceClient.from.mockImplementation((table: string) => {
-        if (table === 'senteloans_users') {
+        if (table === 'users') {
           return {
             select: jest.fn().mockReturnThis(),
             eq: jest.fn().mockReturnThis(),
@@ -475,7 +475,7 @@ describe('POST /api/institution/clients', () => {
     }
 
     const mockUser = { id: 'user-123' }
-    const mockAppUser = testFactories.user({ supabase_user_id: 'user-123' })
+    const mockAppUser = testFactories.user({ auth_id: 'user-123' })
     const mockInstitution = testFactories.institution({ type: 'SACCO' })
 
     it('should create client without savings account for Money Lender', async () => {
@@ -485,7 +485,7 @@ describe('POST /api/institution/clients', () => {
       })
 
       mockServiceClient.from.mockImplementation((table: string) => {
-        if (table === 'senteloans_users') {
+        if (table === 'users') {
           return {
             select: jest.fn().mockReturnThis(),
             eq: jest.fn().mockReturnThis(),
@@ -495,7 +495,7 @@ describe('POST /api/institution/clients', () => {
             }),
           }
         }
-        if (table === 'senteloans_institutions') {
+        if (table === 'institutions') {
           return {
             select: jest.fn().mockReturnThis(),
             eq: jest.fn().mockReturnThis(),
@@ -543,7 +543,7 @@ describe('POST /api/institution/clients', () => {
       })
 
       mockServiceClient.from.mockImplementation((table: string) => {
-        if (table === 'senteloans_users') {
+        if (table === 'users') {
           return {
             select: jest.fn().mockReturnThis(),
             eq: jest.fn().mockReturnThis(),
@@ -553,7 +553,7 @@ describe('POST /api/institution/clients', () => {
             }),
           }
         }
-        if (table === 'senteloans_institutions') {
+        if (table === 'institutions') {
           return {
             select: jest.fn().mockReturnThis(),
             eq: jest.fn().mockReturnThis(),
@@ -617,7 +617,7 @@ describe('POST /api/institution/clients', () => {
       })
 
       mockServiceClient.from.mockImplementation((table: string) => {
-        if (table === 'senteloans_users') {
+        if (table === 'users') {
           return {
             select: jest.fn().mockReturnThis(),
             eq: jest.fn().mockReturnThis(),
@@ -627,7 +627,7 @@ describe('POST /api/institution/clients', () => {
             }),
           }
         }
-        if (table === 'senteloans_institutions') {
+        if (table === 'institutions') {
           return {
             select: jest.fn().mockReturnThis(),
             eq: jest.fn().mockReturnThis(),

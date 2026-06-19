@@ -205,12 +205,11 @@ CREATE TABLE IF NOT EXISTS role_permissions (
 -- 4. USERS TABLE (Authentication & Authorization)
 CREATE TABLE IF NOT EXISTS users (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    supabase_user_id UUID UNIQUE REFERENCES app_auth_users(id) ON DELETE SET NULL,
+    auth_id UUID UNIQUE REFERENCES app_auth_users(id) ON DELETE SET NULL,
     institution_id UUID NOT NULL REFERENCES institutions(id) ON DELETE RESTRICT,
     branch_id UUID NOT NULL REFERENCES branches(id) ON DELETE RESTRICT,
     role_id UUID NOT NULL REFERENCES roles(id) ON DELETE RESTRICT,
     email VARCHAR(255) UNIQUE NOT NULL,
-    password_hash VARCHAR(255) NOT NULL DEFAULT 'temp_hash',
     full_name VARCHAR(255) NOT NULL,
     phone_number VARCHAR(20),
     status status_type DEFAULT 'Active',
@@ -309,7 +308,7 @@ CREATE TABLE IF NOT EXISTS members (
     member_type member_type NOT NULL,
     phone_number VARCHAR(20) NOT NULL,
     email VARCHAR(255),
-    supabase_user_id UUID UNIQUE REFERENCES app_auth_users(id) ON DELETE SET NULL,
+    auth_id UUID UNIQUE REFERENCES app_auth_users(id) ON DELETE SET NULL,
     national_id VARCHAR(50) NOT NULL,
     district VARCHAR(100),
     village VARCHAR(100),
