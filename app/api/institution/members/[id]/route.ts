@@ -4,58 +4,15 @@ import { authOptions } from "@/lib/auth"
 import { runWithAuth } from "@/lib/db"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
 import { auditLogger } from "@/lib/audit/audit-logger"
-import { assertNotSuperAdmin, SUPER_ADMIN_WRITE_BLOCKED } from "@/lib/api/rbac"
+import {
+  assertNotSuperAdmin,
+  hasPermission,
+  resolveActorContext,
+  SUPER_ADMIN_WRITE_BLOCKED,
+} from "@/lib/api/rbac"
 import { assertBranchActive } from "@/lib/branches/branch-status"
 import { syncMemberEmailPreferences } from "@/lib/email/seed-member-preferences"
-
-type ActorContext = {
-  id: string
-  institution_id: string
-  branch_id: string | null
-  role_id: string | null
-  role: string | null
-}
-
-async function resolveActorContext(client: any, authUserId: string): Promise<ActorContext | null> {
-  const actorRes = await client.query(
-    `SELECT
-       u.id,
-       u.institution_id,
-       u.branch_id,
-       u.role_id,
-       CASE
-         WHEN r.name = 'System Admin' THEN 'system_admin'
-         WHEN r.name = 'Super Admin' THEN 'super_admin'
-         WHEN r.name = 'Admin' THEN 'institution_admin'
-         WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
-         ELSE NULL
-       END AS role
-     FROM users u
-     LEFT JOIN roles r ON r.id = u.role_id
-     WHERE u.auth_id = $1
-     LIMIT 1`,
-    [authUserId]
-  )
-  return actorRes.rows[0] || null
-}
-
-async function hasPermission(client: any, actor: ActorContext, permission: string): Promise<boolean> {
-  const role = String(actor.role || "").trim().toLowerCase()
-  if (role === "super_admin") return true
-  if (!actor.role_id || !actor.branch_id) return false
-
-  const permRes = await client.query(
-    `SELECT 1
-     FROM role_permissions rp
-     JOIN permissions p ON p.id = rp.permission_id
-     WHERE rp.role_id = $1
-       AND rp.branch_id = $2
-       AND p.name = $3
-     LIMIT 1`,
-    [actor.role_id, actor.branch_id, permission]
-  )
-  return permRes.rowCount > 0
-}
+import { fetchMemberKycFlatUrls } from "@/lib/members/kyc-docs"
 
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const apiPath = getApiPath(req)
@@ -83,7 +40,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       if (!allowed) return { error: "missing_permission:view_members" as const }
 
       const memberRes = await client.query(
-        `SELECT c.id, c.institution_id, c.branch_id, c.member_number, c.full_name, c.auth_id, c.date_of_birth::text AS date_of_birth, c.gender, c.marital_status, c.member_type, c.phone_number, c.email, c.national_id, c.district, c.village, c.occupation, c.monthly_income, c.monthly_savings, c.notes, c.next_of_kin_name, c.next_of_kin_relationship, c.next_of_kin_phone, c.passport_photo, c.national_id_front, c.national_id_back, c.mobile_money_provider, c.mobile_money_number, c.bank_name, c.bank_account_number, c.bank_account_name, c.bank_branch, c.kyc_status, c.status, c.join_date::text AS join_date, c.created_by, c.modified_by, c.kyc_approved_by, c.kyc_approved_at, c.created_at, c.updated_at,
+        `SELECT c.id, c.institution_id, c.branch_id, c.member_number, c.full_name, c.auth_id, c.date_of_birth::text AS date_of_birth, c.gender, c.marital_status, c.member_type, c.phone_number, c.email, c.national_id, c.district, c.village, c.occupation, c.monthly_income, c.monthly_savings, c.notes, c.next_of_kin_name, c.next_of_kin_relationship, c.next_of_kin_phone, c.mobile_money_provider, c.mobile_money_number, c.bank_name, c.bank_account_number, c.bank_account_name, c.bank_branch, c.kyc_status, c.status, c.join_date::text AS join_date, c.created_by, c.modified_by, c.kyc_approved_by, c.kyc_approved_at, c.created_at, c.updated_at,
                 cb.full_name AS created_by_name, mb.full_name AS modified_by_name, kb.full_name AS kyc_approved_by_name,
                 COALESCE((SELECT SUM(mf.amount_paid) FROM membership_fees mf WHERE mf.member_id = c.id), 0)::numeric AS membership_fee_paid
          FROM members c
@@ -96,6 +53,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
 
       const memberRow = memberRes.rows[0]
       if (!memberRow) return null
+
+      const kycUrls = await fetchMemberKycFlatUrls(client, memberId)
 
       // Configured fee comes from the member's branch (not the actor's branch — super-admin compatibility).
       const cfgRes = await client.query(
@@ -141,9 +100,9 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
           next_of_kin_name: memberRow.next_of_kin_name,
           next_of_kin_relationship: memberRow.next_of_kin_relationship,
           next_of_kin_phone: memberRow.next_of_kin_phone,
-          passport_photo: memberRow.passport_photo,
-          national_id_front: memberRow.national_id_front,
-          national_id_back: memberRow.national_id_back,
+          passport_photo: kycUrls.passport_photo,
+          national_id_front: kycUrls.national_id_front,
+          national_id_back: kycUrls.national_id_back,
           kyc_status: memberRow.kyc_status,
           status: memberRow.status,
           join_date: memberRow.join_date,

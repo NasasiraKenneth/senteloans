@@ -6,9 +6,13 @@ import { auditLogger } from "@/lib/audit/audit-logger"
 import { notifyKycSubmitted } from "@/lib/notifications/kyc-events"
 import { enqueueKycSubmittedEmail, type KycEmailContext } from "@/lib/email/kyc-emails"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
-
-const DOC_TYPES = ["passport_photo", "national_id_front", "national_id_back"] as const
-type DocType = (typeof DOC_TYPES)[number]
+import {
+  buildLegacyClientKycDocs,
+  isLegacyKycField,
+  type LegacyKycField,
+  type MemberKycDocRow,
+  upsertKycDocField,
+} from "@/lib/members/kyc-docs"
 
 type KycSubmitPostCommit = {
   institutionId: string
@@ -31,31 +35,21 @@ export async function GET() {
 
     const result = await runWithAuth(session.user.authUserId, async (client) => {
       const clientRes = await client.query(
-        `SELECT id, institution_id, kyc_status, passport_photo, national_id_front, national_id_back, updated_at FROM members WHERE auth_id = $1`,
+        `SELECT id, institution_id, kyc_status FROM members WHERE auth_id = $1`,
         [session!.user!.authUserId]
       )
       const row = clientRes.rows[0]
       if (!row) return null
 
-      const docsRes = await client.query(
-        `SELECT id, doc_type, url, status, rejection_reason, created_at, reviewed_at FROM member_kyc_docs WHERE member_id = $1 ORDER BY created_at DESC`,
+      const docsRes = await client.query<MemberKycDocRow>(
+        `SELECT id, doc_type, passport_photo, document_front, document_back, status, rejection_reason, created_at, reviewed_at
+         FROM member_kyc_docs
+         WHERE member_id = $1
+         ORDER BY created_at DESC`,
         [row.id]
       )
-      const kycDocs = docsRes.rows
 
-      const result: Record<DocType, { current_verified: { url: string; verified_at: string } | null; pending: { id: string; url: string; submitted_at: string } | null; last_rejection: { reason: string | null; date: string } | null }> = {
-        passport_photo: { current_verified: row.passport_photo ? { url: row.passport_photo, verified_at: row.updated_at } : null, pending: null, last_rejection: null },
-        national_id_front: { current_verified: row.national_id_front ? { url: row.national_id_front, verified_at: row.updated_at } : null, pending: null, last_rejection: null },
-        national_id_back: { current_verified: row.national_id_back ? { url: row.national_id_back, verified_at: row.updated_at } : null, pending: null, last_rejection: null },
-      }
-      for (const t of DOC_TYPES) {
-        const byType = kycDocs.filter((d: { doc_type: string }) => d.doc_type === t)
-        const pending = byType.find((d: { status: string }) => d.status === "pending_review")
-        const lastRejected = byType.find((d: { status: string }) => d.status === "rejected")
-        if (pending) result[t].pending = { id: pending.id, url: pending.url, submitted_at: pending.created_at }
-        if (lastRejected) result[t].last_rejection = { reason: lastRejected.rejection_reason, date: lastRejected.reviewed_at || lastRejected.created_at }
-      }
-      return { ok: true, kycStatus: row.kyc_status, docs: result }
+      return { ok: true, kycStatus: row.kyc_status, docs: buildLegacyClientKycDocs(docsRes.rows) }
     })
 
     if (!result) return NextResponse.json({ error: "client_not_found" }, { status: 404 })
@@ -74,9 +68,9 @@ export async function POST(req: Request) {
     if (session.user.type !== "client" || !session.user.clientId) return NextResponse.json({ error: "client_only" }, { status: 403 })
 
     const payload = (await req.json().catch(() => ({}))) as { docType?: string; url?: string }
-    const docType = payload.docType as DocType | undefined
+    const docType = payload.docType
     const url = typeof payload.url === "string" ? payload.url.trim() : ""
-    if (!docType || !DOC_TYPES.includes(docType)) return NextResponse.json({ error: "invalid_doc_type" }, { status: 400 })
+    if (!docType || !isLegacyKycField(docType)) return NextResponse.json({ error: "invalid_doc_type" }, { status: 400 })
     if (!url) return NextResponse.json({ error: "url_required" }, { status: 400 })
 
     let postCommit: KycSubmitPostCommit | null = null
@@ -89,17 +83,25 @@ export async function POST(req: Request) {
       const row = clientRes.rows[0]
       if (!row) return null
 
-      const insertRes = await client.query(
-        `INSERT INTO member_kyc_docs (institution_id, branch_id, member_id, doc_type, url, status) VALUES ($1, $2, $3, $4, $5, 'pending_review') RETURNING id, created_at`,
-        [row.institution_id, row.branch_id, row.id, docType, url]
-      )
-      const inserted = insertRes.rows[0]
-      if (!inserted) return null
+      const saved = await upsertKycDocField(client, {
+        memberId: row.id,
+        institutionId: row.institution_id,
+        branchId: String(row.branch_id || ""),
+        field: docType as LegacyKycField,
+        url,
+        status: "pending_review",
+      })
 
-      const insertPayload = { institution_id: row.institution_id, branch_id: row.branch_id, member_id: row.id, doc_type: docType, url, status: "pending_review" }
+      const insertPayload = {
+        institution_id: row.institution_id,
+        branch_id: row.branch_id,
+        member_id: row.id,
+        doc_type: saved.docType,
+        status: "pending_review",
+      }
       await auditLogger.logInsert(
         "member_kyc_docs",
-        inserted.id,
+        saved.docId,
         insertPayload,
         row.institution_id,
         undefined,
@@ -137,7 +139,7 @@ export async function POST(req: Request) {
         docType,
       }
 
-      return { ok: true, pendingId: inserted.id }
+      return { ok: true, pendingId: saved.docId }
     })
 
     if (!result) return NextResponse.json({ error: "client_not_found" }, { status: 404 })

@@ -89,6 +89,7 @@ export default function UserProfilePage() {
   const [canEditMembershipFee, setCanEditMembershipFee] = useState(false)
   const [canEditOpeningSavings, setCanEditOpeningSavings] = useState(false)
   const [canEditOpeningLoans, setCanEditOpeningLoans] = useState(false)
+  const [canEditKyc, setCanEditKyc] = useState(false)
 
   useEffect(() => {
     const sessionData = getSession()
@@ -219,6 +220,7 @@ export default function UserProfilePage() {
             editMembershipFee?: boolean
             editOpeningSavings?: boolean
             editOpeningLoans?: boolean
+            editKyc?: boolean
           }
         }
         if (cancelled) return
@@ -226,6 +228,7 @@ export default function UserProfilePage() {
         setCanEditMembershipFee(Boolean(data.permissions?.editMembershipFee))
         setCanEditOpeningSavings(Boolean(data.permissions?.editOpeningSavings))
         setCanEditOpeningLoans(Boolean(data.permissions?.editOpeningLoans))
+        setCanEditKyc(Boolean(data.permissions?.editKyc))
       } catch {
         // Best-effort; buttons stay hidden if this fails.
       }
@@ -313,11 +316,17 @@ export default function UserProfilePage() {
     return () => { cancelled = true }
   }, [user?.id])
 
-  // Fetch pending KYC docs for this client
+  // Fetch pending KYC docs for reviewers with edit_kyc permission
   useEffect(() => {
     let cancelled = false
     async function loadKyc() {
-      if (!userId) return
+      if (!userId || !canEditKyc) {
+        if (!cancelled) {
+          setKycPending([])
+          setKycLoading(false)
+        }
+        return
+      }
       setKycLoading(true)
       try {
         const res = await fetch(`/api/institution/members/${encodeURIComponent(userId)}/kyc/pending`, { cache: "no-store" })
@@ -332,7 +341,7 @@ export default function UserProfilePage() {
     }
     loadKyc()
     return () => { cancelled = true }
-  }, [userId])
+  }, [userId, canEditKyc])
 
   function generatePassword(len = 16) {
     const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789@#$%&" // avoid ambiguous chars
@@ -393,7 +402,7 @@ export default function UserProfilePage() {
   }
 
   async function handleApproveKyc(pendingId: string) {
-    if (!userId) return
+    if (!userId || !canEditKyc) return
     try {
       setActionBusy(true)
       const res = await fetch(`/api/institution/members/${userId}/kyc/approve`, {
@@ -427,7 +436,7 @@ export default function UserProfilePage() {
   }
 
   async function handleRejectKyc(pendingId: string) {
-    if (!userId) return
+    if (!userId || !canEditKyc) return
     const reason = rejectReason.trim()
     if (!reason) {
       alert("Rejection reason is required")
@@ -726,7 +735,7 @@ export default function UserProfilePage() {
                   { key: "overview", label: "Overview", icon: TrendingUp },
                   { key: "personal", label: "Personal", icon: User },
                   { key: "financial", label: "Financial", icon: DollarSign },
-                  { key: "documents", label: "Documents", icon: FileText, badge: kycPending.length || undefined },
+                  { key: "documents", label: "Documents", icon: FileText, badge: canEditKyc ? (kycPending.length || undefined) : undefined },
                 ] as Array<{ key: typeof activeTab; label: string; icon: typeof TrendingUp; badge?: number }>).map((t) => (
                   <button
                     key={t.key}
@@ -1234,12 +1243,14 @@ export default function UserProfilePage() {
                       <p className="text-xs text-muted-foreground">{clientTerm} identification documents</p>
                     </div>
                   </div>
-                  <Link href={`/members/${user.id}/edit#kyc`}>
-                    <Button variant="outline" size="sm">
-                      <Plus className="h-4 w-4 mr-2" />
-                      Verify Documents
-                    </Button>
-                  </Link>
+                  {canEditKyc && (
+                    <Link href={`/members/${user.id}/edit#kyc`}>
+                      <Button variant="outline" size="sm">
+                        <Plus className="h-4 w-4 mr-2" />
+                        Verify Documents
+                      </Button>
+                    </Link>
+                  )}
                 </div>
 
                 <div className="grid grid-cols-1 items-start gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -1250,7 +1261,7 @@ export default function UserProfilePage() {
               </motion.div>
 
             {/* KYC Documents Review */}
-            {kycPending.length > 0 && (
+            {canEditKyc && kycPending.length > 0 && (
               <motion.div variants={staggerItem} className="space-y-4 rounded-xl border border-border bg-card p-5">
                 <div className="flex items-center justify-between gap-3">
                   <div className="flex items-center gap-2.5">

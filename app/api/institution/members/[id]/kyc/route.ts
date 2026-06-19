@@ -6,8 +6,13 @@ import { apiLog, getApiPath } from "@/lib/api/api-log"
 import { assertMemberAndBranchActive } from "@/lib/members/member-status"
 import { notifyKycUploaded } from "@/lib/notifications/kyc-events"
 import { enqueueKycUploadedEmail, type KycEmailContext } from "@/lib/email/kyc-emails"
-
-const ALLOWED = new Set(["passport_photo", "national_id_front", "national_id_back"])
+import {
+  assertNotSuperAdmin,
+  hasPermission,
+  resolveActorContext,
+  SUPER_ADMIN_WRITE_BLOCKED,
+} from "@/lib/api/rbac"
+import { isLegacyKycField, upsertKycDocField } from "@/lib/members/kyc-docs"
 
 type KycStaffUploadPostCommit = {
   actorId: string
@@ -28,9 +33,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   try {
     const { id: memberId } = await params
     const body = (await req.json()) as { docType?: string; url?: string }
-    if (!body?.docType || !body?.url || !ALLOWED.has(body.docType)) {
+    if (!body?.docType || !body?.url || !isLegacyKycField(body.docType)) {
       return NextResponse.json({ error: "Invalid payload" }, { status: 400 })
     }
+    const legacyField = body.docType
+    const uploadUrl = body.url
 
     const session = await getServerSession(authOptions)
     if (!session?.user?.authUserId) {
@@ -41,19 +48,22 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       apiLog("warn", "member.kyc.upload.denied", { method: "POST", apiPath, status: 403, error: "forbidden" })
       return NextResponse.json({ error: "forbidden" }, { status: 403 })
     }
-    const column = body.docType
 
     let postCommit: KycStaffUploadPostCommit | null = null
 
     const result = await runWithAuth(session.user.authUserId, async (client) => {
-      const appUserRes = await client.query(
-        `SELECT id, institution_id, branch_id FROM users WHERE auth_id = $1`,
-        [session!.user!.authUserId]
-      )
-      const appUser = appUserRes.rows[0]
-      if (!appUser) return { error: "forbidden" as const }
+      const actor = await resolveActorContext(client, session!.user!.authUserId)
+      if (!actor) return { error: "forbidden" as const }
 
-      const gate = await assertMemberAndBranchActive(client, memberId, appUser.institution_id)
+      const writeGuard = assertNotSuperAdmin(actor)
+      if (!writeGuard.ok) {
+        return { error: writeGuard.error, message: writeGuard.message }
+      }
+
+      const allowed = await hasPermission(client, actor, "edit_kyc")
+      if (!allowed) return { error: "missing_permission:edit_kyc" as const }
+
+      const gate = await assertMemberAndBranchActive(client, memberId, actor.institution_id)
       if (!gate.ok) {
         return {
           error: gate.error,
@@ -64,26 +74,30 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
       const memberRes = await client.query(
         `SELECT id, branch_id, full_name, member_number, email FROM members WHERE id = $1 AND institution_id = $2`,
-        [memberId, appUser.institution_id],
+        [memberId, actor.institution_id],
       )
       const memberRow = memberRes.rows[0]
       if (!memberRow) return { error: "member_not_found" as const }
 
-      await client.query(`UPDATE members SET ${column} = $1 WHERE id = $2 AND institution_id = $3`, [
-        body.url,
+      const saved = await upsertKycDocField(client, {
         memberId,
-        appUser.institution_id,
-      ])
+        institutionId: actor.institution_id,
+        branchId: String(memberRow.branch_id || actor.branch_id || ""),
+        field: legacyField,
+        url: uploadUrl,
+        status: "verified",
+        reviewedBy: actor.id,
+      })
 
       const instRes = await client.query<{ name: string }>(
         `SELECT name FROM institutions WHERE id = $1`,
-        [appUser.institution_id],
+        [actor.institution_id],
       )
 
       postCommit = {
-        actorId: appUser.id,
-        institutionId: appUser.institution_id,
-        branchId: String(memberRow.branch_id || appUser.branch_id || ""),
+        actorId: actor.id,
+        institutionId: actor.institution_id,
+        branchId: String(memberRow.branch_id || actor.branch_id || ""),
         institutionName: instRes.rows[0]?.name || "",
         member: {
           id: String(memberRow.id),
@@ -91,15 +105,16 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
           member_number: String(memberRow.member_number || ""),
           email: memberRow.email ? String(memberRow.email) : "",
         },
-        docType: column,
+        docType: saved.legacyField,
       }
 
-      return { ok: true }
+      return { ok: true, docId: saved.docId }
     })
 
     if (result && "error" in result) {
       const status =
         result.error === "member_not_found" ? 404 :
+        result.error === SUPER_ADMIN_WRITE_BLOCKED || result.error === "missing_permission:edit_kyc" ? 403 :
         result.error === "member_inactive" || result.error === "branch_inactive" || result.error === "branch_not_found" || result.error === "forbidden"
           ? 403
           : 403

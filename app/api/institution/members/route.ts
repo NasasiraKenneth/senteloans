@@ -10,7 +10,12 @@ import { notifyMemberRegistration } from "@/lib/notifications/member-events"
 import { enqueueMemberRegistrationEmails } from "@/lib/email/member-emails"
 import { syncMemberEmailPreferences } from "@/lib/email/seed-member-preferences"
 import { insertWithPrefixedNumberRetry } from "@/lib/ids/insert-with-prefixed-number-retry"
-import { assertNotSuperAdmin, SUPER_ADMIN_WRITE_BLOCKED } from "@/lib/api/rbac"
+import {
+  assertNotSuperAdmin,
+  hasPermission,
+  resolveActorContext,
+  SUPER_ADMIN_WRITE_BLOCKED,
+} from "@/lib/api/rbac"
 
 type MemberCreatePostCommit = {
   institutionName: string
@@ -78,55 +83,6 @@ const mapMemberDuplicateError = (
     return "duplicate_savings_account_number"
   }
   return null
-}
-
-type ActorContext = {
-  id: string
-  institution_id: string
-  branch_id: string | null
-  role_id: string | null
-  role: string | null
-}
-
-async function resolveActorContext(client: any, authUserId: string): Promise<ActorContext | null> {
-  const actorRes = await client.query(
-    `SELECT
-       u.id,
-       u.institution_id,
-       u.branch_id,
-       u.role_id,
-       CASE
-         WHEN r.name = 'System Admin' THEN 'system_admin'
-         WHEN r.name = 'Super Admin' THEN 'super_admin'
-         WHEN r.name = 'Admin' THEN 'institution_admin'
-         WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
-         ELSE NULL
-       END AS role
-     FROM users u
-     LEFT JOIN roles r ON r.id = u.role_id
-     WHERE u.auth_id = $1
-     LIMIT 1`,
-    [authUserId]
-  )
-  return actorRes.rows[0] || null
-}
-
-async function hasPermission(client: any, actor: ActorContext, permission: string): Promise<boolean> {
-  const role = String(actor.role || "").trim().toLowerCase()
-  if (role === "super_admin") return true
-  if (!actor.role_id || !actor.branch_id) return false
-
-  const permRes = await client.query(
-    `SELECT 1
-     FROM role_permissions rp
-     JOIN permissions p ON p.id = rp.permission_id
-     WHERE rp.role_id = $1
-       AND rp.branch_id = $2
-       AND p.name = $3
-     LIMIT 1`,
-    [actor.role_id, actor.branch_id, permission]
-  )
-  return permRes.rowCount > 0
 }
 
 export async function GET(req: Request) {

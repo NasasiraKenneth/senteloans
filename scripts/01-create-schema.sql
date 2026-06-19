@@ -326,9 +326,6 @@ CREATE TABLE IF NOT EXISTS members (
     next_of_kin_name VARCHAR(255),
     next_of_kin_relationship VARCHAR(100),
     next_of_kin_phone VARCHAR(20),
-    passport_photo VARCHAR(500),
-    national_id_front VARCHAR(500),
-    national_id_back VARCHAR(500),
     kyc_status kyc_status_type DEFAULT 'Pending',
     status status_type DEFAULT 'Active',
     join_date DATE NOT NULL,
@@ -808,8 +805,10 @@ CREATE TABLE IF NOT EXISTS member_kyc_docs (
     institution_id UUID NOT NULL REFERENCES institutions(id) ON DELETE RESTRICT,
     branch_id UUID NOT NULL REFERENCES branches(id) ON DELETE RESTRICT,
     member_id UUID NOT NULL REFERENCES members(id) ON DELETE RESTRICT,
-    doc_type TEXT NOT NULL CHECK (doc_type IN ('passport_photo','national_id_front','national_id_back')),
-    url TEXT NOT NULL,
+    doc_type TEXT NOT NULL CHECK (doc_type IN ('national_id','passport','driving_license')),
+    passport_photo TEXT,
+    document_front TEXT,
+    document_back TEXT,
     status TEXT NOT NULL DEFAULT 'pending_review' CHECK (status IN ('pending_review','verified','rejected','superseded')),
     rejection_reason TEXT,
     reviewed_by UUID REFERENCES users(id) ON DELETE SET NULL,
@@ -1198,6 +1197,6 @@ COMMENT ON TABLE savings_accounts IS 'Savings account records (not for Money Len
 COMMENT ON TABLE transactions IS 'All financial transaction records';
 COMMENT ON TABLE loan_repayments IS 'Loan repayment schedule and tracking';
 COMMENT ON TABLE audit_logs IS 'System audit trail for all operations';
-COMMENT ON TABLE member_kyc_docs IS 'Member KYC document uploads and verification tracking';
+COMMENT ON TABLE member_kyc_docs IS 'Member KYC document uploads and verification tracking. One row per doc_type (national_id, passport, driving_license) with URLs in passport_photo / document_front / document_back.';
 COMMENT ON TABLE notifications IS 'In-app notifications for members and institution users';
 COMMENT ON TABLE notification_preferences IS 'User notification channel preferences';

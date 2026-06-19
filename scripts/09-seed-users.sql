@@ -51,6 +51,7 @@ VALUES
   ('edit_opening_savings', 'members'),
   ('edit_opening_loans', 'members'),
   ('edit_shares', 'members'),
+  ('edit_kyc', 'members'),
   ('create_member', 'members'),
   ('create_third_party_agent', 'third_party_agents'),
   ('edit_third_party_agent', 'third_party_agents'),
@@ -128,6 +129,7 @@ WITH role_permission_map(role_name, permission_name) AS (
     -- Loan Officer
     ('Loan Officer', 'view_users'),
     ('Loan Officer', 'view_members'),
+    ('Loan Officer', 'edit_kyc'),
     ('Loan Officer', 'view_third_party_agents'),
     ('Loan Officer', 'view_savings'),
     ('Loan Officer', 'view_account'),
@@ -144,6 +146,7 @@ WITH role_permission_map(role_name, permission_name) AS (
     ('Manager', 'view_members'),
     ('Manager', 'create_member'),
     ('Manager', 'edit_member'),
+    ('Manager', 'edit_kyc'),
     ('Manager', 'edit_membership_fee'),
     ('Manager', 'edit_opening_savings'),
     ('Manager', 'edit_opening_loans'),

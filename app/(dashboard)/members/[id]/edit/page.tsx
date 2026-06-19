@@ -161,6 +161,7 @@ export default function UserEditPage({ params }: UserEditPageProps) {
   const [currency, setCurrency] = useState("UGX")
   const [memberPermissions, setMemberPermissions] = useState({
     editMember: false,
+    editKyc: false,
   })
   const { toast } = useToast()
 
@@ -253,14 +254,17 @@ export default function UserEditPage({ params }: UserEditPageProps) {
         const data = (await res.json()) as {
           permissions?: {
             editMember?: boolean
+            editKyc?: boolean
           }
         }
         setMemberPermissions({
           editMember: !!data.permissions?.editMember,
+          editKyc: !!data.permissions?.editKyc,
         })
       } catch {
         setMemberPermissions({
           editMember: false,
+          editKyc: false,
         })
       }
     }
@@ -346,6 +350,7 @@ export default function UserEditPage({ params }: UserEditPageProps) {
   // Without edit_member, the form is read-only: fields and KYC uploads are
   // disabled and Save is blocked (the API enforces this too).
   const canEdit = memberPermissions.editMember
+  const canEditKyc = memberPermissions.editKyc
 
   const handleInputChange = (field: string, value: string) => {
     setFormData((prev) => ({
@@ -355,11 +360,11 @@ export default function UserEditPage({ params }: UserEditPageProps) {
   }
 
   const handleDocUpload = async (docType: "passport_photo" | "national_id_front" | "national_id_back", file: File) => {
-    if (!memberPermissions.editMember) {
+    if (!memberPermissions.editKyc) {
       toast({
         variant: "warning",
         title: "Access denied",
-        description: `You do not have permission to edit ${terminology.singular.toLowerCase()} documents.`,
+        description: "You do not have permission to upload KYC documents.",
       })
       return
     }
@@ -397,6 +402,14 @@ export default function UserEditPage({ params }: UserEditPageProps) {
             variant: "destructive",
             title: "Branch not active",
             description: "This member's branch is not active. Reactivate the branch before uploading KYC documents.",
+          })
+          return
+        }
+        if (saveRes.status === 403 && (code === "missing_permission:edit_kyc" || saveData?.error === "missing_permission:edit_kyc")) {
+          toast({
+            variant: "warning",
+            title: "Access denied",
+            description: "You do not have permission to upload KYC documents.",
           })
           return
         }
@@ -803,6 +816,7 @@ export default function UserEditPage({ params }: UserEditPageProps) {
                   </div>
                 </CardContent>
               </Card>
+              </fieldset>
 
               <Card id="kyc" className="scroll-mt-24">
                 <CardHeader>
@@ -815,6 +829,12 @@ export default function UserEditPage({ params }: UserEditPageProps) {
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-6">
+                  {!canEditKyc && (
+                    <div className="flex items-center gap-2 text-sm text-amber-800 bg-amber-50 border border-amber-200 px-4 py-3 rounded-lg">
+                      <AlertCircle className="h-4 w-4 shrink-0" />
+                      You have read-only access to KYC documents. Uploading requires the edit KYC permission.
+                    </div>
+                  )}
                   <FileUpload
                     label="Passport Photo"
                     description="Upload a clear passport-style photo (JPG, PNG, or PDF)"
@@ -824,7 +844,7 @@ export default function UserEditPage({ params }: UserEditPageProps) {
                     accept="image/*,application/pdf"
                     maxSize={5}
                     layout="inline"
-                    disabled={!canEdit}
+                    disabled={!canEditKyc}
                   />
 
                   <FileUpload
@@ -836,7 +856,7 @@ export default function UserEditPage({ params }: UserEditPageProps) {
                     accept="image/*,application/pdf"
                     maxSize={5}
                     layout="inline"
-                    disabled={!canEdit}
+                    disabled={!canEditKyc}
                   />
 
                   <FileUpload
@@ -848,11 +868,12 @@ export default function UserEditPage({ params }: UserEditPageProps) {
                     accept="image/*,application/pdf"
                     maxSize={5}
                     layout="inline"
-                    disabled={!canEdit}
+                    disabled={!canEditKyc}
                   />
                 </CardContent>
               </Card>
 
+              <fieldset disabled={!canEdit} className="m-0 min-w-0 space-y-6 border-0 p-0">
               {/* Location & Occupation */}
               <Card id="location" className="scroll-mt-24">
                 <CardHeader>

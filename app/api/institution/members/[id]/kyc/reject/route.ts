@@ -7,6 +7,13 @@ import { apiLog, getApiPath } from "@/lib/api/api-log"
 import { assertMemberAndBranchActive } from "@/lib/members/member-status"
 import { notifyKycRejected } from "@/lib/notifications/kyc-events"
 import { enqueueKycRejectedEmail, type KycEmailContext } from "@/lib/email/kyc-emails"
+import {
+  assertNotSuperAdmin,
+  hasPermission,
+  normalizeRole,
+  resolveActorContext,
+  SUPER_ADMIN_WRITE_BLOCKED,
+} from "@/lib/api/rbac"
 
 type KycRejectPostCommit = {
   actorId: string
@@ -43,32 +50,23 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     let postCommit: KycRejectPostCommit | null = null
 
     const result = await runWithAuth(session.user.authUserId, async (client) => {
-      const appUserRes = await client.query(
-        `SELECT
-           u.id,
-           u.institution_id,
-           u.branch_id,
-          CASE
-            WHEN r.name = 'System Admin' THEN 'system_admin'
-            WHEN r.name = 'Super Admin' THEN 'super_admin'
-            WHEN r.name = 'Admin' THEN 'institution_admin'
-            WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
-            ELSE NULL
-          END AS app_role
-         FROM users u
-         LEFT JOIN roles r ON r.id = u.role_id
-         WHERE u.auth_id = $1`,
-        [session!.user!.authUserId]
-      )
-      const appUser = appUserRes.rows[0]
-      if (!appUser) return { error: "forbidden" as const }
+      const actor = await resolveActorContext(client, session!.user!.authUserId)
+      if (!actor) return { error: "forbidden" as const }
 
-      const isSystemAdmin = (appUser as { app_role?: string }).app_role === "system_admin"
+      const writeGuard = assertNotSuperAdmin(actor)
+      if (!writeGuard.ok) {
+        return { error: writeGuard.error, message: writeGuard.message }
+      }
+
+      const allowed = await hasPermission(client, actor, "edit_kyc")
+      if (!allowed) return { error: "missing_permission:edit_kyc" as const }
+
+      const isSystemAdmin = normalizeRole(actor.role) === "system_admin"
 
       const gate = await assertMemberAndBranchActive(
         client,
         memberId,
-        isSystemAdmin ? undefined : appUser.institution_id,
+        isSystemAdmin ? undefined : actor.institution_id,
       )
       if (!gate.ok) {
         return {
@@ -84,15 +82,16 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       )
       const targetMember = targetRes.rows[0]
       if (!targetMember) return { error: "member_not_found" as const }
-      if (!isSystemAdmin && targetMember.institution_id !== appUser.institution_id) return { error: "forbidden" as const }
+      if (!isSystemAdmin && targetMember.institution_id !== actor.institution_id) return { error: "forbidden" as const }
 
       const pendingRes = await client.query(
-        `SELECT id, institution_id, member_id, doc_type, url, status, rejection_reason FROM member_kyc_docs WHERE id = $1`,
+        `SELECT id, institution_id, member_id, doc_type, passport_photo, document_front, document_back, status, rejection_reason
+         FROM member_kyc_docs WHERE id = $1`,
         [pendingId]
       )
       const pending = pendingRes.rows[0]
       if (!pending) return { error: "pending_not_found" as const }
-      if (pending.member_id !== memberId || (!isSystemAdmin && pending.institution_id !== appUser.institution_id)) {
+      if (pending.member_id !== memberId || (!isSystemAdmin && pending.institution_id !== actor.institution_id)) {
         return { error: "forbidden" as const }
       }
       if (pending.status !== "pending_review") return { error: "not_pending" as const }
@@ -101,7 +100,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
       await client.query(
         `UPDATE member_kyc_docs SET status = 'rejected', rejection_reason = $1, reviewed_by = $2, reviewed_at = $3 WHERE id = $4`,
-        [reason || null, appUser.id, new Date().toISOString(), pendingId]
+        [reason || null, actor.id, new Date().toISOString(), pendingId]
       )
 
       await auditLogger.logUpdate(
@@ -109,22 +108,22 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         pendingId,
         oldValues,
         { status: "rejected", rejection_reason: reason || null },
-        appUser.institution_id,
-        appUser.id,
-        { branch_id: String(appUser.branch_id || "") },
+        actor.institution_id,
+        actor.id,
+        { branch_id: String(actor.branch_id || "") },
         client
       )
 
       const instRes = await client.query<{ name: string }>(
         `SELECT name FROM institutions WHERE id = $1`,
-        [appUser.institution_id],
+        [actor.institution_id],
       )
       const institutionName = instRes.rows[0]?.name || ""
 
       postCommit = {
-        actorId: appUser.id,
-        institutionId: appUser.institution_id,
-        branchId: String(targetMember.branch_id || appUser.branch_id || ""),
+        actorId: actor.id,
+        institutionId: actor.institution_id,
+        branchId: String(targetMember.branch_id || actor.branch_id || ""),
         institutionName,
         member: {
           id: String(targetMember.id),
@@ -142,6 +141,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     if (result && "error" in result) {
       const status =
         result.error === "member_not_found" || result.error === "pending_not_found" ? 404 :
+        result.error === SUPER_ADMIN_WRITE_BLOCKED || result.error === "missing_permission:edit_kyc" ? 403 :
         result.error === "member_inactive" || result.error === "branch_inactive" || result.error === "branch_not_found" ? 403 :
         403
       apiLog("warn", "member.kyc.reject.denied", { method: "POST", apiPath, status, error: result.error, memberId, authUserId: session.user.authUserId })
