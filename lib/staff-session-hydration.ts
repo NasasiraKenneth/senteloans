@@ -1,14 +1,20 @@
-import { getSession, setSession, type SessionData } from "@/lib/session"
+import {
+  getSession,
+  mergeSessionFromAuthUser,
+  patchSession,
+  setSession,
+  type SessionData,
+} from "@/lib/session"
 import { isUsableInstitutionLogo } from "@/lib/institution-brand"
 
 type AuthSessionUser = {
   userId?: string
+  authUserId?: string
   email?: string
   name?: string
   role?: string
   institutionId?: string
   type?: string
-  authUserId?: string
 }
 
 function normalizeLogo(logo: unknown): string | null {
@@ -17,17 +23,15 @@ function normalizeLogo(logo: unknown): string | null {
 
 /** Write staff fields from NextAuth immediately after login (before navigation). */
 export function seedStaffSessionFromAuthUser(user: AuthSessionUser): SessionData {
-  const existing = getSession()
-  const merged: SessionData = {
-    userId: user.userId || existing?.userId || "",
-    email: user.email || existing?.email || "",
-    name: user.name || existing?.name || "",
-    role: user.role || existing?.role || "",
-    institutionId: user.institutionId || existing?.institutionId,
-    institution: existing?.institution,
-  }
-  setSession(merged)
-  return merged
+  return mergeSessionFromAuthUser({
+    ...(user.userId ? { userId: user.userId } : {}),
+    ...(user.authUserId ? { authUserId: user.authUserId } : {}),
+    ...(user.email ? { email: user.email } : {}),
+    ...(user.name ? { name: user.name } : {}),
+    ...(user.role ? { role: user.role } : {}),
+    ...(user.institutionId ? { institutionId: user.institutionId } : {}),
+    ...(user.type === "staff" || user.type === "client" ? { type: user.type } : {}),
+  })
 }
 
 /** Merge NextAuth staff session + institution APIs into localStorage. */
@@ -50,9 +54,11 @@ export async function hydrateStaffSession(): Promise<SessionData | null> {
         role: "",
       }),
       userId: user.userId || localSession?.userId || "",
+      authUserId: user.authUserId || localSession?.authUserId,
       email: user.email || localSession?.email || "",
       name: user.name || localSession?.name || "",
       role: user.role || localSession?.role || "",
+      type: "staff",
       institutionId: user.institutionId || localSession?.institutionId,
       institution: localSession?.institution,
     }
@@ -67,23 +73,20 @@ export async function hydrateStaffSession(): Promise<SessionData | null> {
         name: org?.name || merged.institution?.name || "",
         type: org?.type || merged.institution?.type || "",
         logo: normalizeLogo(org?.logo),
-        config: merged.institution?.config || {},
+        config: merged.institution?.config,
       }
     }
 
-    const needsConfig = !merged.institution?.config
-    if (needsConfig) {
-      const instRes = await fetch("/api/institution/settings", { cache: "no-store" })
-      if (instRes.ok) {
-        const inst = await instRes.json()
-        merged.institutionId = merged.institutionId || inst?.id || ""
-        merged.institution = {
-          id: inst?.id || merged.institution?.id || "",
-          name: inst?.name || merged.institution?.name || "",
-          type: inst?.type || merged.institution?.type || "",
-          logo: normalizeLogo(inst?.logo) ?? merged.institution?.logo ?? null,
-          config: inst?.config || merged.institution?.config || {},
-        }
+    const instRes = await fetch("/api/institution/settings", { cache: "no-store" })
+    if (instRes.ok) {
+      const inst = await instRes.json()
+      merged.institutionId = merged.institutionId || inst?.id || ""
+      merged.institution = {
+        id: inst?.id || merged.institution?.id || "",
+        name: inst?.name || merged.institution?.name || "",
+        type: inst?.type || merged.institution?.type || "",
+        logo: normalizeLogo(inst?.logo) ?? merged.institution?.logo ?? null,
+        config: inst?.config || merged.institution?.config,
       }
     }
 
@@ -102,4 +105,19 @@ export async function hydrateStaffSession(): Promise<SessionData | null> {
   } catch {
     return localSession
   }
+}
+
+/** Update only institution branding in localStorage (e.g. after settings save). */
+export function patchStaffInstitutionBranding(
+  branding: Partial<{ name: string; type: string; logo: string | null }>,
+): SessionData | null {
+  const current = getSession()
+  if (!current?.institution) return null
+  return patchSession({
+    institution: {
+      ...current.institution,
+      ...branding,
+      logo: branding.logo !== undefined ? normalizeLogo(branding.logo) : current.institution.logo,
+    },
+  })
 }

@@ -8,7 +8,6 @@ import { Plus, Eye, Edit, Mail, Phone, MapPin, ShieldCheck, Clock, Calendar } fr
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import Tooltip from "@mui/material/Tooltip"
-import { getSession } from "@/lib/session"
 import DataTable from "@/components/datatables/DataTable"
 import { DataTableColumn } from "@/components/datatables/DataTable"
 import { FilterField } from "@/components/datatables/TableFilter"
@@ -73,7 +72,6 @@ export default function UsersPage() {
   const router = useRouter()
   const { toast } = useToast()
   const [users, setUsers] = useState<UiMember[]>([])
-  const [session, setSession] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [membershipFee, setMembershipFee] = useState(0)
   const [page, setPage] = useState(0)
@@ -210,8 +208,6 @@ export default function UsersPage() {
   }
 
   useEffect(() => {
-    const sessionData = getSession()
-    setSession(sessionData)
     loadMemberPermissions()
     loadMembers()
   }, [])

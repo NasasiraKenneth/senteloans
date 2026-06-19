@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import { ArrowLeft, Camera, Upload, CheckCircle, Clock, AlertCircle, FileText, Image, X } from "lucide-react"
 import Link from "next/link"
+import { ClientPortalPageHeader } from "@/components/client-portal-page-header"
 import { useRouter } from "next/navigation"
 import { getSession } from "@/lib/session"
 
@@ -174,23 +175,14 @@ export default function KYCPage() {
   const completedRequired = requiredDocs.filter((doc) => doc.status === "verified").length
 
   return (
-    <div className="min-h-screen bg-background">
-      {/* Header */}
-      <div className="bg-primary text-primary-foreground p-4">
-        <div className="flex items-center space-x-3">
-          <Link href="/client-portal/profile">
-            <Button size="sm" variant="ghost" className="text-primary-foreground">
-              <ArrowLeft className="h-4 w-4" />
-            </Button>
-          </Link>
-          <div>
-            <h1 className="text-lg font-semibold">KYC Verification</h1>
-            <p className="text-sm opacity-90">Complete your identity verification</p>
-          </div>
-        </div>
-      </div>
+    <div className="space-y-6">
+      <ClientPortalPageHeader
+        title="KYC Verification"
+        description="Complete your identity verification"
+        backHref="/client-portal/profile"
+        backLabel="Back to profile"
+      />
 
-      <div className="p-4 space-y-6">
         {/* Progress Card */}
         <Card>
           <CardHeader>
@@ -350,7 +342,6 @@ export default function KYCPage() {
             </ul>
           </CardContent>
         </Card>
-      </div>
     </div>
   )
 }

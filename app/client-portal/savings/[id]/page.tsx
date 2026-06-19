@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react"
 import { useParams } from "next/navigation"
 import Link from "next/link"
+import { useClientModuleGuard } from "@/hooks/use-client-module-guard"
+import { useClientSession } from "@/components/client-session-provider"
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -11,12 +13,15 @@ import { History, ArrowDownRight, ArrowUpRight, Download, ArrowLeft } from "luci
 export default function ClientSavingsDetailPage() {
   const params = useParams()
   const id = params.id as string
+  const { formatMoney } = useClientSession()
+  const { enabled, isLoading: guardLoading } = useClientModuleGuard("savings")
   const [isLoading, setIsLoading] = useState(true)
   const [account, setAccount] = useState<any>(null)
   const [transactions, setTransactions] = useState<any[]>([])
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
+    if (!enabled || guardLoading) return
     let cancelled = false
     const load = async () => {
       setIsLoading(true)
@@ -36,9 +41,9 @@ export default function ClientSavingsDetailPage() {
     }
     if (id) load()
     return () => { cancelled = true }
-  }, [id])
+  }, [id, enabled, guardLoading])
 
-  if (isLoading) {
+  if (isLoading || guardLoading || !enabled) {
     return <div className="min-h-[50vh] flex items-center justify-center text-muted-foreground">Loading...</div>
   }
 
@@ -87,11 +92,11 @@ export default function ClientSavingsDetailPage() {
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
               <div className="text-sm text-muted-foreground">Available Balance</div>
-              <div className="text-2xl font-semibold text-primary">UGX {(Number(account.available_balance||0)/1000).toFixed(0)}K</div>
+              <div className="text-2xl font-semibold text-primary">{formatMoney(Number(account.available_balance || 0))}</div>
             </div>
             <div>
               <div className="text-sm text-muted-foreground">Total Balance</div>
-              <div className="text-xl font-semibold">UGX {(Number(account.total_balance||0)/1000).toFixed(0)}K</div>
+              <div className="text-xl font-semibold">{formatMoney(Number(account.total_balance || 0))}</div>
             </div>
             <div>
               <div className="text-sm text-muted-foreground">Status</div>
@@ -121,9 +126,10 @@ export default function ClientSavingsDetailPage() {
                 </div>
                 <div className="text-right">
                   <div className={`text-sm font-semibold ${String(t.type).toLowerCase().includes("deposit") ? "text-green-600" : "text-red-600"}`}>
-                    {String(t.type).toLowerCase().includes("deposit") ? "+" : "-"}UGX {(Number(t.amount||0)/1000).toFixed(0)}K
+                    {String(t.type).toLowerCase().includes("deposit") ? "+" : "-"}
+                    {formatMoney(Number(t.amount || 0))}
                   </div>
-                  <div className="text-xs text-muted-foreground">Bal: UGX {(Number(t.balance||0)/1000).toFixed(0)}K</div>
+                  <div className="text-xs text-muted-foreground">Bal: {formatMoney(Number(t.balance || 0))}</div>
                 </div>
               </div>
             ))}

@@ -1,280 +1,141 @@
 "use client"
 
 import type React from "react"
-import { useState, useEffect } from "react"
-import { useRouter, usePathname } from "next/navigation"
+import { useEffect, useState } from "react"
 import { signOut } from "next-auth/react"
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { useRouter, usePathname } from "next/navigation"
 import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
-import { NotificationBell } from "@/components/notification-bell"
-import Link from "next/link"
-import { User, CreditCard, PiggyBank, LogOut, Menu, X, Home, PieChart, History } from "lucide-react"
+import { X } from "lucide-react"
+import { ClientSessionProvider, useClientSession } from "@/components/client-session-provider"
+import { ClientPortalSidebar } from "@/components/client-portal-sidebar"
+import { ClientPortalHeader } from "@/components/client-portal-header"
+import { ClientPortalMobileNav } from "@/components/client-portal-mobile-nav"
+import { ClientPortalLoading } from "@/components/client-portal-loading"
+import {
+  buildClientPortalNavSections,
+  flattenClientPortalNavItems,
+  getActiveClientPortalNavItem,
+} from "@/lib/client-portal-nav"
 
 export default function ClientPortalLayout({
   children,
 }: {
   children: React.ReactNode
 }) {
-  type InstitutionUI = { id: string; name: string; type: string; status: string; config: any }
-  type ClientUI = { id: string; fullName: string; status: string }
-  const [session, setSession] = useState<{ institution: InstitutionUI } | null>(null)
-  const [currentClient, setCurrentClient] = useState<ClientUI | null>(null)
+  return (
+    <ClientSessionProvider>
+      <ClientPortalShell>{children}</ClientPortalShell>
+    </ClientSessionProvider>
+  )
+}
+
+function ClientPortalShell({ children }: { children: React.ReactNode }) {
+  const { data, isLoading, authFailed, clientTerminology } = useClientSession()
   const [sidebarOpen, setSidebarOpen] = useState(false)
-  const [isLoading, setIsLoading] = useState(true)
   const router = useRouter()
   const pathname = usePathname()
 
-  useEffect(() => {
-    let cancelled = false
-    const load = async () => {
-      try {
-        const res = await fetch("/api/client/me", { cache: "no-store" })
-        if (!res.ok) {
-          router.push(`/client-login?redirect=${encodeURIComponent(pathname || "/client-portal")}`)
-          return
-        }
-        const data = await res.json()
-        if (cancelled) return
-        setSession({ institution: data.institution as InstitutionUI })
-        setCurrentClient({ id: data.client.id, fullName: data.client.fullName, status: data.client.status } as ClientUI)
-      } finally {
-        if (!cancelled) setIsLoading(false)
-      }
-    }
-    load()
-    return () => {
-      cancelled = true
-    }
-  }, [router, pathname])
-
   const handleLogout = async () => {
-    await signOut({ callbackUrl: "/client-login" })
+    await signOut({ redirect: false })
+    router.replace("/client-login")
     router.refresh()
   }
 
+  useEffect(() => {
+    if (!data) return
+    const modules = data.institution.config?.modules
+    if (pathname.startsWith("/client-portal/savings") && !modules?.savings) {
+      router.replace("/client-portal")
+    }
+    if (pathname.startsWith("/client-portal/shares") && !modules?.shares) {
+      router.replace("/client-portal")
+    }
+  }, [pathname, data, router])
+
+  useEffect(() => {
+    if (!sidebarOpen) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setSidebarOpen(false)
+    }
+    document.body.style.overflow = "hidden"
+    window.addEventListener("keydown", onKey)
+    return () => {
+      document.body.style.overflow = ""
+      window.removeEventListener("keydown", onKey)
+    }
+  }, [sidebarOpen])
+
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
-          <p className="text-muted-foreground">Loading your account...</p>
-        </div>
-      </div>
+      <ClientPortalLoading
+        institutionName={data?.institution?.name}
+        institutionLogo={data?.institution?.logo}
+      />
     )
   }
 
-  if (!session || !currentClient) {
-    return null
+  if (!data) {
+    return (
+      <ClientPortalLoading
+        message={authFailed ? "Redirecting to sign in..." : "Loading your account"}
+      />
+    )
   }
 
-  const institution = session.institution
-  const clientTerminology = institution?.config?.clientTerminology || "Member"
-  const hasSavings = institution?.config?.modules?.savings
-  const hasShares = institution?.config?.modules?.shares
-
-  const navigationItems = [
-    {
-      name: "Overview",
-      href: "/client-portal",
-      icon: Home,
-      active: pathname === "/client-portal",
-    },
-    {
-      name: "Loans",
-      href: "/client-portal/loans",
-      icon: CreditCard,
-      active:
-        pathname.startsWith("/client-portal/loans") ||
-        pathname.startsWith("/client-portal/apply-loan") ||
-        pathname.startsWith("/client-portal/loan-details"),
-    },
-    {
-      name: "Transactions",
-      href: "/client-portal/transactions",
-      icon: History,
-      active: pathname.startsWith("/client-portal/transactions"),
-    },
-    ...(hasSavings
-      ? [
-          {
-            name: "Savings",
-            href: "/client-portal/savings",
-            icon: PiggyBank,
-            active: pathname.startsWith("/client-portal/savings"),
-          },
-        ]
-      : []),
-    ...(hasShares
-      ? [
-          {
-            name: "Shares",
-            href: "/client-portal/shares",
-            icon: PieChart,
-            active: pathname.startsWith("/client-portal/shares"),
-          },
-        ]
-      : []),
-    {
-      name: "Profile",
-      href: "/client-portal/profile",
-      icon: User,
-      active: pathname.startsWith("/client-portal/profile"),
-    },
-  ]
+  const { client: currentClient, institution } = data
+  const navigationSections = buildClientPortalNavSections({
+    pathname,
+    hasSavings: institution.config?.modules?.savings,
+    hasShares: institution.config?.modules?.shares,
+  })
+  const navigationItems = flattenClientPortalNavItems(navigationSections)
+  const activePage = getActiveClientPortalNavItem(navigationSections)
 
   return (
-    <div className="min-h-screen bg-background">
-      {/* Mobile Header */}
-      <div className="lg:hidden mobile-header">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-3">
+    <div className="client-portal-theme min-h-screen bg-background">
+      <aside className="fixed inset-y-0 left-0 z-30 hidden w-[272px] border-r border-border lg:block">
+        <ClientPortalSidebar
+          institution={institution}
+          clientTerminology={clientTerminology}
+          navigationSections={navigationSections}
+        />
+      </aside>
+
+      {sidebarOpen ? (
+        <div className="fixed inset-0 z-50 lg:hidden">
+          <div className="absolute inset-0 bg-black/40" onClick={() => setSidebarOpen(false)} aria-hidden />
+          <div className="absolute inset-y-0 left-0 w-72 max-w-[85vw] bg-card shadow-xl">
             <Button
-              size="sm"
+              size="icon"
               variant="ghost"
-              onClick={() => setSidebarOpen(!sidebarOpen)}
-              className="text-primary-foreground"
+              onClick={() => setSidebarOpen(false)}
+              className="absolute right-2 top-2 z-10 h-8 w-8"
             >
-              {sidebarOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+              <X className="h-4 w-4" />
             </Button>
-            <div>
-              <h1 className="text-base font-semibold text-primary-foreground">{currentClient?.fullName}</h1>
-              <p className="text-xs text-primary-foreground/80">{institution?.name}</p>
-            </div>
-          </div>
-          <div className="flex items-center space-x-2">
-            <div className="text-primary-foreground">
-              <NotificationBell apiEndpoint="/api/client/notifications" />
-            </div>
-            <Button size="sm" variant="ghost" onClick={handleLogout} className="text-primary-foreground">
-              <LogOut className="h-4 w-4" />
-            </Button>
+            <ClientPortalSidebar
+              institution={institution}
+              clientTerminology={clientTerminology}
+              navigationSections={navigationSections}
+              onNavigate={() => setSidebarOpen(false)}
+            />
           </div>
         </div>
-      </div>
+      ) : null}
 
-      <div className="flex">
-        {/* Desktop Sidebar */}
-        <div className="hidden lg:flex lg:w-64 lg:flex-col lg:fixed lg:inset-y-0">
-          <div className="flex flex-col flex-grow bg-white border-r border-gray-200">
-            <div className="flex flex-col px-6 py-6 border-b border-gray-200">
-              <div className="flex items-center mb-4">
-                <Avatar className="h-10 w-10 mr-3">
-                  <AvatarFallback className="bg-primary text-primary-foreground font-semibold">
-                    {currentClient?.fullName
-                      .split(" ")
-                      .map((n: string) => n[0])
-                      .join("")}
-                  </AvatarFallback>
-                </Avatar>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-gray-900 truncate">{currentClient?.fullName}</p>
-                  <p className="text-xs text-gray-500 truncate">{institution?.name}</p>
-                  <Badge variant={currentClient.status === "Active" ? "default" : "secondary"} className="mt-1">
-                    {currentClient.status}
-                  </Badge>
-                </div>
-              </div>
-              <div className="flex items-center justify-end">
-                <NotificationBell apiEndpoint="/api/client/notifications" />
-              </div>
-            </div>
+      <div className="flex min-h-screen flex-col lg:pl-[272px]">
+        <ClientPortalHeader
+          client={currentClient}
+          institution={institution}
+          pageTitle={activePage?.name ?? "Portal"}
+          onLogout={handleLogout}
+        />
 
-            <nav className="flex-1 px-4 py-6 space-y-2">
-              {navigationItems.map((item) => {
-                const Icon = item.icon
-                return (
-                  <Link
-                    key={item.name}
-                    href={item.href}
-                    className={`flex items-center px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
-                      item.active
-                        ? "bg-primary text-primary-foreground"
-                        : "text-gray-700 hover:bg-gray-100 hover:text-gray-900"
-                    }`}
-                  >
-                    <Icon className="h-5 w-5 mr-3" />
-                    {item.name}
-                  </Link>
-                )
-              })}
-            </nav>
+        <main className="flex-1 pb-[calc(4rem+env(safe-area-inset-bottom))] lg:pb-8">
+          <div className="w-full px-4 py-6 sm:px-6 lg:px-8">{children}</div>
+        </main>
 
-            <div className="px-4 py-4 border-t border-gray-200">
-              <Button
-                variant="ghost"
-                onClick={handleLogout}
-                className="w-full justify-start text-gray-700 hover:bg-gray-100"
-              >
-                <LogOut className="h-5 w-5 mr-3" />
-                Sign Out
-              </Button>
-            </div>
-          </div>
-        </div>
-
-        {/* Mobile Sidebar Overlay */}
-        {sidebarOpen && (
-          <div className="lg:hidden fixed inset-0 z-50 flex">
-            <div className="fixed inset-0 bg-black bg-opacity-25" onClick={() => setSidebarOpen(false)} />
-            <div className="relative flex flex-col w-64 bg-white border-r border-gray-200">
-              <div className="flex items-center px-6 py-6 border-b border-gray-200">
-                <Avatar className="h-10 w-10 mr-3">
-                  <AvatarFallback className="bg-primary text-primary-foreground font-semibold">
-                    {currentClient?.fullName
-                      .split(" ")
-                      .map((n: string | undefined) => n?.[0] ?? '')
-                      .join("")}
-                  </AvatarFallback>
-                </Avatar>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-gray-900 truncate">{currentClient?.fullName}</p>
-                  <p className="text-xs text-gray-500 truncate">{institution?.name}</p>
-                  <Badge variant={currentClient.status === "Active" ? "default" : "secondary"} className="mt-1">
-                    {currentClient.status}
-                  </Badge>
-                </div>
-              </div>
-
-              <nav className="flex-1 px-4 py-6 space-y-2">
-                {navigationItems.map((item) => {
-                  const Icon = item.icon
-                  return (
-                    <Link
-                      key={item.name}
-                      href={item.href}
-                      onClick={() => setSidebarOpen(false)}
-                      className={`flex items-center px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
-                        item.active
-                          ? "bg-primary text-primary-foreground"
-                          : "text-gray-700 hover:bg-gray-100 hover:text-gray-900"
-                      }`}
-                    >
-                      <Icon className="h-5 w-5 mr-3" />
-                      {item.name}
-                    </Link>
-                  )
-                })}
-              </nav>
-
-              <div className="px-4 py-4 border-t border-gray-200">
-                <Button
-                  variant="ghost"
-                  onClick={handleLogout}
-                  className="w-full justify-start text-gray-700 hover:bg-gray-100"
-                >
-                  <LogOut className="h-5 w-5 mr-3" />
-                  Sign Out
-                </Button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Main Content */}
-        <div className="flex-1 lg:ml-64">
-          <main className="p-4 lg:p-6">{children}</main>
-        </div>
+        <ClientPortalMobileNav items={navigationItems} onOpenMenu={() => setSidebarOpen(true)} />
       </div>
     </div>
   )

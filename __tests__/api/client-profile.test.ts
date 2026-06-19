@@ -76,7 +76,16 @@ describe("GET /api/client/me", () => {
     expect(body.client.clientNumber).toBe("MEM-001")
     expect(body.institution.id).toBe(INSTITUTION_ID)
     expect(body.institution.name).toBe("Test SACCO")
-    expect(body.institution.config).toEqual({})
+    expect(body.institution.config).toEqual({
+      modules: {
+        loans: true,
+        shares: true,
+        savings: true,
+        mobile_money: true,
+      },
+      currency: "UGX",
+      clientTerminology: "Member",
+    })
   })
 })
 

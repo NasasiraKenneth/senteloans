@@ -58,6 +58,7 @@ export type PgQueryResult = { rows: Record<string, unknown>[]; rowCount?: number
 export type PgMockOptions = {
   member?: Record<string, unknown> | null
   institution?: Record<string, unknown> | null
+  config?: Record<string, unknown> | null
   onQuery?: (sql: string, params?: unknown[]) => PgQueryResult | undefined
 }
 
@@ -70,6 +71,13 @@ export function createPgMock(options: PgMockOptions = {}) {
     type: "SACCO",
     logo: null,
     status: "Active",
+  }
+  const config = options.config ?? {
+    loans: true,
+    shares: true,
+    savings: true,
+    mobile_money: true,
+    currency: "UGX",
   }
 
   return {
@@ -85,6 +93,14 @@ export function createPgMock(options: PgMockOptions = {}) {
 
       if (s.includes("from institutions where id")) {
         return { rows: institution ? [institution] : [] }
+      }
+
+      if (s.includes("from config") && s.includes("branch_id")) {
+        return { rows: config ? [config] : [] }
+      }
+
+      if (s.includes("from member_kyc_docs")) {
+        return { rows: [] }
       }
 
       if (s.includes("update members set")) {

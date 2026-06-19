@@ -13,7 +13,9 @@ import { ArrowLeft, CheckCircle, Calculator, Loader2 } from "lucide-react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { GuarantorSearch } from "@/components/guarantor-search"
+import { ClientPortalPageHeader } from "@/components/client-portal-page-header"
 import { useToast } from "@/hooks/use-toast"
+import { useClientSession } from "@/components/client-session-provider"
 
 interface LoanProduct {
   id: string
@@ -34,7 +36,8 @@ interface Guarantor {
 }
 
 export default function ApplyLoanPage() {
-  const [session, setSession] = useState<any>(null)
+  const { data, isLoading: isSessionLoading } = useClientSession()
+  const session = data ? { institution: data.institution, client: data.client } : null
   const [currentStep, setCurrentStep] = useState(1)
   const [selectedProduct, setSelectedProduct] = useState<LoanProduct | null>(null)
   const [loanProducts, setLoanProducts] = useState<LoanProduct[]>([])
@@ -53,26 +56,8 @@ export default function ApplyLoanPage() {
   const { toast } = useToast()
 
   useEffect(() => {
-    // Fetch client session from API
-    const fetchSession = async () => {
-      try {
-        const res = await fetch("/api/client/me")
-        if (res.ok) {
-          const data = await res.json()
-          setSession({
-            institution: data.institution,
-            client: data.client,
-          })
-        }
-      } catch (error) {
-        console.error("Failed to fetch session:", error)
-      }
-    }
-
-    fetchSession()
-    // Fetch loan products
     fetchLoanProducts()
-  }, [router])
+  }, [])
 
   const fetchLoanProducts = async () => {
     try {
@@ -101,8 +86,12 @@ export default function ApplyLoanPage() {
     }
   }
 
-  if (!session) {
-    return null
+  if (isSessionLoading || !session) {
+    return (
+      <div className="flex items-center justify-center py-16">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    )
   }
 
   const institution = session.institution
@@ -224,23 +213,13 @@ export default function ApplyLoanPage() {
   const loanDetails = calculateLoanDetails()
 
   return (
-    <div className="min-h-screen bg-background">
-      {/* Header */}
-      <div className="bg-primary text-primary-foreground p-4">
-        <div className="flex items-center space-x-3">
-          <Link href="/client-portal">
-            <Button size="sm" variant="ghost" className="text-primary-foreground">
-              <ArrowLeft className="h-4 w-4" />
-            </Button>
-          </Link>
-          <div>
-            <h1 className="text-lg font-semibold">Apply for Loan</h1>
-            <p className="text-sm opacity-90">Quick and secure loan application</p>
-          </div>
-        </div>
-      </div>
+    <div className="space-y-6">
+      <ClientPortalPageHeader
+        title="Apply for Loan"
+        description="Quick and secure loan application"
+        backHref="/client-portal"
+      />
 
-      <div className="p-4 space-y-6">
         {/* Progress Indicator */}
         <Card>
           <CardContent className="pt-4">
@@ -588,7 +567,6 @@ export default function ApplyLoanPage() {
             </div>
           </div>
         )}
-      </div>
     </div>
   )
 }

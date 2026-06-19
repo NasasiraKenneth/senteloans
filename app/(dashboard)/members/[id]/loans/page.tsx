@@ -4,13 +4,14 @@ import { useState, useEffect } from "react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 
-import { getSession } from "@/lib/session"
+import { useStaffSession } from "@/components/staff-session-provider"
 import { ArrowLeft, CreditCard, DollarSign, TrendingUp, AlertCircle, CheckCircle, Clock } from "lucide-react"
 import Link from "next/link"
 
 export default function UserLoansPage() {
   const params = useParams()
   const userId = params.id as string
+  const { session } = useStaffSession()
   const [user, setUser] = useState<{ id: string; fullName: string; clientNumber: string } | null>(null)
   const [loans, setLoans] = useState<
     Array<{
@@ -24,11 +25,9 @@ export default function UserLoansPage() {
       status: string
     }>
   >([])
-  const [session, setSession] = useState<any>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    setSession(getSession())
     Promise.all([
       fetch(`/api/institution/members/${userId}`).then((r) => r.json()),
       fetch(`/api/institution/loans?member_id=${userId}&pageSize=100`).then((r) => r.json()),

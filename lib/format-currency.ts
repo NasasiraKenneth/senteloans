@@ -1,4 +1,4 @@
-import { getSession } from "@/lib/session"
+import { getInstitutionCurrency } from "@/lib/session"
 
 const DEFAULT_CURRENCY = "UGX"
 
@@ -8,9 +8,7 @@ const DEFAULT_CURRENCY = "UGX"
  * Falls back to UGX when unavailable (e.g. on the server or pre-login).
  */
 export function getBranchCurrency(): string {
-  const session = getSession()
-  const code = session?.institution?.config?.currency
-  return typeof code === "string" && code.trim() ? code.trim() : DEFAULT_CURRENCY
+  return getInstitutionCurrency(DEFAULT_CURRENCY)
 }
 
 /**

@@ -10,7 +10,7 @@ import {
   Settings as SettingsIcon,
 } from "lucide-react"
 import Link from "next/link"
-import { getSession } from "@/lib/session"
+import { useStaffSession } from "@/components/staff-session-provider"
 
 type RequirementsConfig = {
   currency: string
@@ -38,16 +38,15 @@ type RequirementRow = {
  * nested mini-cards or hover effects on non-interactive elements.
  */
 export function MemberRequirementsCard() {
+  const { session } = useStaffSession()
   const [config, setConfig] = useState<RequirementsConfig | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [clientTerminology, setClientTerminology] = useState<string>("Member")
 
-  useEffect(() => {
-    const s = getSession()
-    const term = s?.institution?.config?.clientTerminology
-    if (typeof term === "string" && term.trim()) setClientTerminology(term)
-  }, [])
+  const clientTerminology =
+    (typeof session?.institution?.config?.clientTerminology === "string" &&
+      session.institution.config.clientTerminology.trim()) ||
+    "Member"
 
   useEffect(() => {
     let active = true

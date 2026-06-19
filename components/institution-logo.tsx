@@ -7,6 +7,8 @@ type InstitutionLogoProps = {
   className?: string
   imageClassName?: string
   initialsClassName?: string
+  /** "brand" = orange gradient fallback; "theme" = uses CSS primary tokens */
+  tone?: "brand" | "theme"
 }
 
 export function InstitutionLogo({
@@ -15,6 +17,7 @@ export function InstitutionLogo({
   className,
   imageClassName,
   initialsClassName,
+  tone = "brand",
 }: InstitutionLogoProps) {
   const label = name.trim() || "Institution"
 
@@ -34,12 +37,17 @@ export function InstitutionLogo({
   return (
     <div
       className={cn(
-        "flex items-center justify-center border border-[#f08c2b]/15 font-semibold text-[#f08c2b]",
+        "flex items-center justify-center font-semibold",
+        tone === "theme"
+          ? "border border-primary/20 bg-primary/10 text-primary"
+          : "border border-[#f08c2b]/15 text-[#f08c2b]",
         className,
       )}
-      style={{
-        background: "linear-gradient(135deg, rgba(240,140,43,0.15) 0%, rgba(240,140,43,0.05) 100%)",
-      }}
+      style={
+        tone === "theme"
+          ? undefined
+          : { background: "linear-gradient(135deg, rgba(240,140,43,0.15) 0%, rgba(240,140,43,0.05) 100%)" }
+      }
       aria-label={label}
     >
       <span className={cn("leading-none", initialsClassName)}>{getInstitutionInitials(label)}</span>

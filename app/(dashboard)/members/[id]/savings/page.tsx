@@ -4,20 +4,19 @@ import { useState, useEffect } from "react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 
-import { getSession } from "@/lib/session"
+import { useStaffSession } from "@/components/staff-session-provider"
 import { ArrowLeft, PiggyBank, TrendingUp, TrendingDown, Calendar, ArrowUpRight, ArrowDownLeft } from "lucide-react"
 import Link from "next/link"
 
 export default function UserSavingsPage() {
   const params = useParams()
   const userId = params.id as string
+  const { session } = useStaffSession()
   const [user, setUser] = useState<{ id: string; fullName: string; clientNumber: string } | null>(null)
   const [transactions, setTransactions] = useState<Array<{ id: string; type: string; amount: number; mode: string; date: string; description?: string }>>([])
-  const [session, setSession] = useState<any>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    setSession(getSession())
     Promise.all([
       fetch(`/api/institution/members/${userId}`).then((r) => r.json()),
       fetch(`/api/institution/transactions?client_id=${userId}&pageSize=100`).then((r) => r.json()),

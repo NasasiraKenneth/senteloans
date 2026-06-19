@@ -65,11 +65,16 @@ export async function proxy(req: NextRequest) {
     }
   }
 
+  // Client login: only bounce users who are already signed in as a client.
+  // Staff may open /client-login in another tab (e.g. to test or share the link).
   if (isClientLogin) {
-    const url = req.nextUrl.clone()
-    url.pathname = role === "client" ? CLIENT_PREFIX : "/dashboard"
-    url.search = ""
-    return NextResponse.redirect(url)
+    if (role === "client") {
+      const url = req.nextUrl.clone()
+      url.pathname = CLIENT_PREFIX
+      url.search = ""
+      return NextResponse.redirect(url)
+    }
+    return NextResponse.next()
   }
 
   return NextResponse.next()
@@ -98,6 +103,7 @@ export const config = {
     "/finances/:path*",
     "/expenses/:path*",
     "/client-login",
+    "/client-portal",
     "/client-portal/:path*",
   ],
 }

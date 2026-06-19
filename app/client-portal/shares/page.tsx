@@ -7,9 +7,13 @@ import { Badge } from "@/components/ui/badge"
 import { History, PieChart, TrendingUp } from "lucide-react"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 
+import { useClientSession } from "@/components/client-session-provider"
+import { useClientModuleGuard } from "@/hooks/use-client-module-guard"
+
 export default function ClientSharesPage() {
+  const { formatMoney } = useClientSession()
+  const { enabled, isLoading: guardLoading } = useClientModuleGuard("shares")
   const [isLoading, setIsLoading] = useState(true)
-  const [client, setClient] = useState<any>(null)
   const [totals, setTotals] = useState<any>({ units: 0, totalValue: 0, lastShareValue: null })
   const [history, setHistory] = useState<any[]>([])
   const [filter, setFilter] = useState<string>("all")
@@ -18,18 +22,9 @@ export default function ClientSharesPage() {
     let cancelled = false
     const load = async () => {
       try {
-        const [meRes, sharesRes] = await Promise.all([
-          fetch("/api/client/me", { cache: "no-store" }),
-          fetch("/api/client/shares", { cache: "no-store" }),
-        ])
-        if (!meRes.ok) {
-          window.location.href = "/client-login?redirect=" + encodeURIComponent("/client-portal/shares")
-          return
-        }
-        const me = await meRes.json()
+        const sharesRes = await fetch("/api/client/shares", { cache: "no-store" })
         const shares = sharesRes.ok ? await sharesRes.json() : { totals: { units: 0, totalValue: 0, lastShareValue: null }, history: [] }
         if (cancelled) return
-        setClient(me.client)
         setTotals(shares.totals || { units: 0, totalValue: 0, lastShareValue: null })
         setHistory(shares.history || [])
       } finally {
@@ -51,7 +46,7 @@ export default function ClientSharesPage() {
     return true
   })
 
-  if (isLoading) {
+  if (isLoading || guardLoading || !enabled) {
     return <div className="text-center py-8">Loading...</div>
   }
 
@@ -91,7 +86,7 @@ export default function ClientSharesPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="stat-value">UGX {(Number(totals.totalValue || 0) / 1000).toFixed(0)}K</div>
+            <div className="stat-value">{formatMoney(Number(totals.totalValue || 0))}</div>
             <p className="stat-label">Current total value</p>
           </CardContent>
         </Card>
@@ -111,7 +106,7 @@ export default function ClientSharesPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="stat-value">{totals.lastShareValue != null ? `UGX ${(Number(totals.lastShareValue) / 1000).toFixed(0)}K` : "—"}</div>
+            <div className="stat-value">{totals.lastShareValue != null ? formatMoney(Number(totals.lastShareValue)) : "—"}</div>
             <p className="stat-label">Most recent purchase price</p>
           </CardContent>
         </Card>
@@ -127,10 +122,10 @@ export default function ClientSharesPage() {
               <div key={row.id} className="flex items-center justify-between py-3">
                 <div>
                   <div className="text-sm font-medium">{new Date(row.date).toLocaleDateString()}</div>
-                  <div className="text-xs text-muted-foreground">{row.units} units @ UGX {(Number(row.shareValue)/1000).toFixed(0)}K</div>
+                  <div className="text-xs text-muted-foreground">{row.units} units @ {formatMoney(Number(row.shareValue))}</div>
                 </div>
                 <div className="text-right">
-                  <div className="text-sm font-semibold">UGX {(Number(row.totalValue)/1000).toFixed(0)}K</div>
+                  <div className="text-sm font-semibold">{formatMoney(Number(row.totalValue))}</div>
                 </div>
               </div>
             ))}

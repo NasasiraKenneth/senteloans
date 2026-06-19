@@ -3,7 +3,6 @@
 import type React from "react"
 import { use, useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
-import { updateInstitutionConfig } from "@/lib/session"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
@@ -18,7 +17,7 @@ import { ArrowLeft, Save, CreditCard, Smartphone, Check, AlertCircle, User, MapP
 import Image from "next/image"
 import { upload } from "@vercel/blob/client"
 import Link from "next/link"
-import { getSession } from "@/lib/session"
+import { useStaffSession } from "@/components/staff-session-provider"
 import { notFound } from "next/navigation"
 import { useToast } from "@/components/ui/toast"
 
@@ -148,8 +147,8 @@ function StyledSelect({
 export default function UserEditPage({ params }: UserEditPageProps) {
   const { id } = use(params)
   const router = useRouter()
+  const { session } = useStaffSession()
   const [user, setUser] = useState<any | null>(null)
-  const [session, setSession] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -193,8 +192,6 @@ export default function UserEditPage({ params }: UserEditPageProps) {
   })
 
   useEffect(() => {
-    const sessionData = getSession()
-    setSession(sessionData)
     let cancelled = false
     async function load() {
       setLoading(true)
@@ -289,30 +286,6 @@ export default function UserEditPage({ params }: UserEditPageProps) {
     }
     loadCurrency()
   }, [])
-
-  // If session config is missing, hydrate from API and cache locally (best-effort)
-  useEffect(() => {
-    async function hydrateConfig() {
-      if (!session?.institution?.config) {
-        try {
-          const res = await fetch(`/api/institution/settings`, { cache: "no-store" })
-          if (res.ok) {
-            const data = await res.json()
-            if (data?.config) {
-              // Cache in localStorage so terminology/config is available next load.
-              try {
-                updateInstitutionConfig(data.config)
-              } catch {}
-            }
-          }
-        } catch (_) {
-          // ignore
-        }
-      }
-    }
-    hydrateConfig()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session?.institution?.config])
 
   const getTerminology = () => {
     if (!session?.institution?.config) {

@@ -4,15 +4,10 @@ import { MemberRegistrationForm } from "@/components/member-registration-form"
 import { MemberRequirementsCard } from "@/components/member-requirements-card"
 import { ArrowLeft } from "lucide-react"
 import Link from "next/link"
-import { useState, useEffect } from "react"
-import { getSession } from "@/lib/session"
+import { useStaffSession } from "@/components/staff-session-provider"
 
 export default function NewMemberPage() {
-  const [session, setSession] = useState<any>(null)
-
-  useEffect(() => {
-    setSession(getSession())
-  }, [])
+  const { session } = useStaffSession()
 
   const clientTerminology = session?.institution?.config?.clientTerminology || "Member"
 

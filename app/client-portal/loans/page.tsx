@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import Link from "next/link"
 import { CreditCard, Plus } from "lucide-react"
-import { useRouter } from "next/navigation"
+import { ClientPortalPageHeader } from "@/components/client-portal-page-header"
 
 export default function ClientLoansPage() {
   const [clientLoans, setClientLoans] = useState<any[]>([])

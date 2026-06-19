@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 
-import { getSession } from "@/lib/session"
+import { useStaffSession } from "@/components/staff-session-provider"
 import {
   ArrowLeft,
   User,
@@ -60,8 +60,8 @@ const staggerItem = {
 export default function UserProfilePage() {
   const params = useParams()
   const userId = params.id as string
+  const { session } = useStaffSession()
   const [user, setUser] = useState<any>(null)
-  const [session, setSession] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [loadingSavings, setLoadingSavings] = useState(false)
   const [primarySavingsId, setPrimarySavingsId] = useState<string | null>(null)
@@ -92,8 +92,6 @@ export default function UserProfilePage() {
   const [canEditKyc, setCanEditKyc] = useState(false)
 
   useEffect(() => {
-    const sessionData = getSession()
-    setSession(sessionData)
     let cancelled = false
     async function load() {
       setLoading(true)

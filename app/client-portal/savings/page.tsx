@@ -8,36 +8,28 @@ import { Progress } from "@/components/ui/progress"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Plus, Download, TrendingUp, ArrowUpRight, ArrowDownRight, History } from "lucide-react"
 import Link from "next/link"
-import { useRouter } from "next/navigation"
+import { useClientSession } from "@/components/client-session-provider"
+import { useClientModuleGuard } from "@/hooks/use-client-module-guard"
 
 export default function ClientSavingsPage() {
-  const [session, setSession] = useState<any>(null)
-  const [currentClient, setCurrentClient] = useState<any>(null)
+  const { formatMoney } = useClientSession()
+  const { enabled, isLoading: guardLoading } = useClientModuleGuard("savings")
   const [accounts, setAccounts] = useState<any[]>([])
   const [clientTransactions, setClientTransactions] = useState<any[]>([])
   const [transactionFilter, setTransactionFilter] = useState("all")
   const [isLoading, setIsLoading] = useState(true)
-  const router = useRouter()
 
   useEffect(() => {
     let cancelled = false
     const load = async () => {
       try {
-        const [meRes, savRes, txRes] = await Promise.all([
-          fetch("/api/client/me", { cache: "no-store" }),
+        const [savRes, txRes] = await Promise.all([
           fetch("/api/client/savings", { cache: "no-store" }),
           fetch("/api/client/transactions", { cache: "no-store" }),
         ])
-        if (!meRes.ok) {
-          router.push(`/client-login?redirect=${encodeURIComponent("/client-portal/savings")}`)
-          return
-        }
-        const me = await meRes.json()
         const sav = savRes.ok ? await savRes.json() : { accounts: [] }
         const tx = txRes.ok ? await txRes.json() : { transactions: [] }
         if (cancelled) return
-        setSession({ institution: me.institution })
-        setCurrentClient(me.client)
         setAccounts(sav.accounts || [])
         setClientTransactions(tx.transactions || [])
       } finally {
@@ -46,7 +38,7 @@ export default function ClientSavingsPage() {
     }
     load()
     return () => { cancelled = true }
-  }, [router])
+  }, [])
 
   const getFilteredTransactions = () => {
     const normalizeType = (t: string) => {
@@ -63,7 +55,7 @@ export default function ClientSavingsPage() {
     return filtered.sort((a: any, b: any) => new Date(b.date) as any - (new Date(a.date) as any))
   }
 
-  if (isLoading) {
+  if (isLoading || guardLoading || !enabled) {
     return <div className="text-center py-8">Loading...</div>
   }
 
@@ -121,13 +113,14 @@ export default function ClientSavingsPage() {
           <div className="grid grid-cols-2 gap-4">
             <div>
               <p className="text-muted-foreground text-sm">Available Balance</p>
-              <p className="text-2xl font-bold text-primary">UGX {(totalAvailable / 1000).toFixed(0)}K</p>
+              <p className="text-2xl font-bold text-primary">{formatMoney(totalAvailable)}</p>
             </div>
             <div>
               <p className="text-muted-foreground text-sm">This Month</p>
               <p className="text-lg font-semibold text-green-600 flex items-center">
                 <TrendingUp className="h-4 w-4 mr-1" />
-                {monthlyGrowth >= 0 ? "+" : "-"}UGX {(Math.abs(monthlyGrowth) / 1000).toFixed(0)}K
+                {monthlyGrowth >= 0 ? "+" : "-"}
+                {formatMoney(Math.abs(monthlyGrowth))}
               </p>
             </div>
           </div>
@@ -170,7 +163,7 @@ export default function ClientSavingsPage() {
                   <div className="text-xs text-muted-foreground">{a.account_type} • Opened {new Date(a.open_date).toLocaleDateString()}</div>
                 </div>
                 <div className="text-right">
-                  <div className="text-sm font-semibold">UGX {(Number(a.available_balance || 0)/1000).toFixed(0)}K</div>
+                  <div className="text-sm font-semibold">{formatMoney(Number(a.available_balance || 0))}</div>
                   <div className="text-xs text-muted-foreground">Available</div>
                 </div>
               </Link>
@@ -221,10 +214,11 @@ export default function ClientSavingsPage() {
                       transaction.type === "Deposit" ? "text-green-600" : "text-red-600"
                     }`}
                   >
-                    {transaction.type === "Deposit" ? "+" : "-"}UGX {(transaction.amount / 1000).toFixed(0)}K
+                    {String(transaction.type || "").toLowerCase().includes("deposit") ? "+" : "-"}
+                    {formatMoney(transaction.amount)}
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    Balance: UGX {(transaction.balance / 1000).toFixed(0)}K
+                    Balance: {formatMoney(transaction.balance)}
                   </p>
                 </div>
               </div>

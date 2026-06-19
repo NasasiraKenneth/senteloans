@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { User, Phone, MapPin, Briefcase, Users, AlertCircle, Check, UserPlus, PiggyBank } from "lucide-react"
 import { useRouter } from "next/navigation"
-import { getSession } from "@/lib/session"
+import { useStaffSession } from "@/components/staff-session-provider"
 import Popover from "@mui/material/Popover"
 import ReeveDatePicker, { parseDateOnly } from "@/components/newUI/date_picker"
 import TooltipButton from "@/components/newUI/tooltip_button"
@@ -110,13 +110,8 @@ function StyledSelect({
 export function MemberRegistrationForm({ onClose }: MemberRegistrationFormProps) {
   const router = useRouter()
   const { toast } = useToast()
-  const [session, setSession] = useState<any>(null)
+  const { session } = useStaffSession()
   const permissionToastShown = useRef(false)
-
-  useEffect(() => {
-    const sessionData = getSession()
-    setSession(sessionData)
-  }, [])
 
   const [formData, setFormData] = useState({
     fullName: "",

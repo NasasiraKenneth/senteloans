@@ -25,15 +25,46 @@ import {
   EyeOff,
 } from "lucide-react"
 import Link from "next/link"
-import { useRouter } from "next/navigation"
 import { useToast } from "@/components/ui/toast"
+import { ClientPortalPageHeader } from "@/components/client-portal-page-header"
+import { useClientSession } from "@/components/client-session-provider"
+import type { ClientPortalClient } from "@/lib/client-session-types"
+
+function seedProfileForms(client: ClientPortalClient) {
+  return {
+    personalInfo: {
+      fullName: client.fullName || "",
+      email: client.email || "",
+      phoneNumber: client.phone || "",
+      dateOfBirth: client.dateOfBirth || "",
+      gender: client.gender || "",
+      maritalStatus: client.maritalStatus || "",
+      occupation: client.occupation || "",
+      monthlyIncome: client.monthlyIncome?.toString?.() || "",
+      village: client.village || "",
+      district: client.district || "",
+      nextOfKinName: client.nextOfKinName || "",
+      nextOfKinRelationship: client.nextOfKinRelationship || "",
+      nextOfKinPhone: client.nextOfKinPhone || "",
+    },
+    paymentInfo: {
+      mobileMoneyProvider: client.mobileMoneyProvider || "",
+      mobileMoneyNumber: client.mobileMoneyNumber || "",
+      bankName: client.bankName || "",
+      bankAccountNumber: client.bankAccountNumber || "",
+      bankAccountName: client.bankAccountName || "",
+      bankBranch: client.bankBranch || "",
+    },
+  }
+}
 
 export default function ProfilePage() {
   type KycDocStatus = "missing" | "pending" | "verified" | "rejected"
   type KycDocState = { status: KycDocStatus; currentUrl: string; pendingUrl: string; reason: string; pendingId?: string | null }
 
-  const [session, setSession] = useState<{ institution: any } | null>(null)
-  const [currentClient, setCurrentClient] = useState<any>(null)
+  const { data, clientTerminology } = useClientSession()
+  const currentClient = data?.client
+  const institution = data?.institution
   const [isEditing, setIsEditing] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
@@ -89,71 +120,42 @@ export default function ProfilePage() {
   })
   const [isChangingPassword, setIsChangingPassword] = useState(false)
 
-  const router = useRouter()
-
   useEffect(() => {
+    if (!data?.client) return
     let cancelled = false
-    const load = async () => {
+
+    const seeded = seedProfileForms(data.client)
+    setPersonalInfo(seeded.personalInfo)
+    setPaymentInfo(seeded.paymentInfo)
+
+    const loadKyc = async () => {
       try {
-        const res = await fetch("/api/client/me", { cache: "no-store" })
-        if (!res.ok) {
-          router.push(`/client-login?redirect=${encodeURIComponent("/client-portal/profile")}`)
-          return
+        const kycRes = await fetch("/api/client/kyc-docs", { cache: "no-store" })
+        if (!kycRes.ok || cancelled) return
+        const k = await kycRes.json()
+        const mapDoc = (node: any): KycDocState => {
+          if (node?.pending) return { status: "pending", currentUrl: node?.current_verified?.url || "", pendingUrl: node?.pending?.url || "", reason: node?.last_rejection?.reason || "", pendingId: node?.pending?.id || null }
+          if (node?.current_verified) return { status: "verified", currentUrl: node?.current_verified?.url || "", pendingUrl: "", reason: node?.last_rejection?.reason || "", pendingId: null }
+          if (node?.last_rejection) return { status: "rejected", currentUrl: "", pendingUrl: "", reason: node?.last_rejection?.reason || "", pendingId: null }
+          return { status: "missing", currentUrl: "", pendingUrl: "", reason: "", pendingId: null }
         }
-        const data = await res.json()
-        if (cancelled) return
-        setSession({ institution: data.institution })
-        setCurrentClient(data.client)
-        // Map minimal fields available from /api/client/me; rest remain empty until extended endpoints
-        setPersonalInfo({
-          fullName: data.client.fullName || "",
-          email: data.client.email || "",
-          phoneNumber: data.client.phone || "",
-          dateOfBirth: data.client.dateOfBirth || "",
-          gender: data.client.gender || "",
-          maritalStatus: data.client.maritalStatus || "",
-          occupation: data.client.occupation || "",
-          monthlyIncome: data.client.monthlyIncome?.toString?.() || "",
-          village: data.client.village || "",
-          district: data.client.district || "",
-          nextOfKinName: data.client.nextOfKinName || "",
-          nextOfKinRelationship: data.client.nextOfKinRelationship || "",
-          nextOfKinPhone: data.client.nextOfKinPhone || "",
+        setKycDocs({
+          passportPhoto: mapDoc(k?.docs?.passport_photo),
+          nationalIdFront: mapDoc(k?.docs?.national_id_front),
+          nationalIdBack: mapDoc(k?.docs?.national_id_back),
         })
-        // Payment info mapping
-        setPaymentInfo({
-          mobileMoneyProvider: data.client.mobileMoneyProvider || "",
-          mobileMoneyNumber: data.client.mobileMoneyNumber || "",
-          bankName: data.client.bankName || "",
-          bankAccountNumber: data.client.bankAccountNumber || "",
-          bankAccountName: data.client.bankAccountName || "",
-          bankBranch: data.client.bankBranch || "",
-        })
-        // Load KYC docs status
-        try {
-          const kycRes = await fetch("/api/client/kyc-docs", { cache: "no-store" })
-          if (kycRes.ok) {
-            const k = await kycRes.json()
-            const mapDoc = (node: any): KycDocState => {
-              if (node?.pending) return { status: "pending", currentUrl: node?.current_verified?.url || "", pendingUrl: node?.pending?.url || "", reason: node?.last_rejection?.reason || "", pendingId: node?.pending?.id || null }
-              if (node?.current_verified) return { status: "verified", currentUrl: node?.current_verified?.url || "", pendingUrl: "", reason: node?.last_rejection?.reason || "", pendingId: null }
-              if (node?.last_rejection) return { status: "rejected", currentUrl: "", pendingUrl: "", reason: node?.last_rejection?.reason || "", pendingId: null }
-              return { status: "missing", currentUrl: "", pendingUrl: "", reason: "", pendingId: null }
-            }
-            setKycDocs({
-              passportPhoto: mapDoc(k?.docs?.passport_photo),
-              nationalIdFront: mapDoc(k?.docs?.national_id_front),
-              nationalIdBack: mapDoc(k?.docs?.national_id_back),
-            })
-          }
-        } catch {}
+      } catch {
+        // KYC status is optional for initial render
       } finally {
         if (!cancelled) setIsLoading(false)
       }
     }
-    load()
-    return () => { cancelled = true }
-  }, [router])
+
+    void loadKyc()
+    return () => {
+      cancelled = true
+    }
+  }, [data])
 
   const calculateKycProgress = () => {
     const totalDocs = Object.keys(kycDocs).length
@@ -349,40 +351,29 @@ export default function ProfilePage() {
     )
   }
 
-  if (!session || !currentClient) {
+  if (!currentClient || !institution) {
     return null
   }
 
-  const institution = session.institution
-  const clientTerminology = institution?.config?.clientTerminology || "Member"
+  const currency = institution.config?.currency || "UGX"
   const kycProgress = calculateKycProgress()
   const verifiedCount = Object.values(kycDocs).filter((doc: any) => doc.status === "verified").length
   const remainingDocs = Math.max(0, 3 - verifiedCount)
 
   return (
-    <div className="min-h-screen bg-background">
-      {/* Header */}
-      <div className="bg-primary text-primary-foreground p-4">
-        <div className="flex items-center space-x-3">
-          <Link href="/client-portal">
-            <Button size="sm" variant="ghost" className="text-primary-foreground">
-              <ArrowLeft className="h-4 w-4" />
-            </Button>
-          </Link>
-          <div>
-            <h1 className="text-lg font-semibold">My Profile</h1>
-            <p className="text-sm opacity-90">Manage your account information</p>
-          </div>
-        </div>
-      </div>
+    <div className="space-y-6">
+      <ClientPortalPageHeader
+        title="My Profile"
+        description="Manage your account information"
+        backHref="/client-portal"
+      />
 
-      <div className="p-4 space-y-6">
         {/* Profile Summary */}
         <Card>
           <CardContent className="pt-4">
             <div className="flex items-center space-x-4">
-              <div className="h-16 w-16 bg-primary rounded-full flex items-center justify-center">
-                <span className="text-2xl font-bold text-primary-foreground">
+              <div className="flex h-16 w-16 items-center justify-center rounded-full bg-muted">
+                <span className="text-2xl font-semibold text-foreground">
                   {String(currentClient.fullName || "")
                     .split(" ")
                     .map((n: string) => n[0])
@@ -481,7 +472,7 @@ export default function ProfilePage() {
                     <p className="text-sm mt-1 capitalize">{personalInfo.maritalStatus || "—"}</p>
                   </div>
                   <div>
-                    <Label>Monthly Income (UGX)</Label>
+                    <Label>Monthly Income ({currency})</Label>
                     <p className="text-sm mt-1">{personalInfo.monthlyIncome || "—"}</p>
                   </div>
                 </div>
@@ -886,7 +877,6 @@ export default function ProfilePage() {
             </Card>
           </TabsContent>
         </Tabs>
-      </div>
     </div>
   )
 }

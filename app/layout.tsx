@@ -24,8 +24,8 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en" className="h-full overflow-hidden">
-      <body className={`h-full overflow-hidden font-sans ${GeistSans.variable} ${GeistMono.variable}`}>
+    <html lang="en" className="h-full">
+      <body className={`min-h-full font-sans ${GeistSans.variable} ${GeistMono.variable}`}>
         <AuthProvider>
           <ToastProvider>
             <SessionBootstrap />

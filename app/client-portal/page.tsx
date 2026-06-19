@@ -1,63 +1,48 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import Link from "next/link"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { format } from "date-fns"
-import Link from "next/link"
 import {
-  User,
   CreditCard,
   PiggyBank,
-  History,
   CheckCircle,
   Clock,
   Plus,
-  Download,
   Eye,
   EyeOff,
-  TrendingUp,
-  Filter,
   PieChart,
   ArrowUpRight,
   ArrowDownRight,
+  ChevronRight,
 } from "lucide-react"
-import { useRouter } from "next/navigation"
+import { useClientSession } from "@/components/client-session-provider"
+import { getGreeting } from "@/lib/greeting"
+import { cn } from "@/lib/utils"
 
 export default function ClientPortalPage() {
-  const [activeTab, setActiveTab] = useState("overview")
-  const [session, setSession] = useState<any>(null)
-  const [currentClient, setCurrentClient] = useState<any>(null)
+  const { data, clientTerminology, isMoneyLender, formatMoney } = useClientSession()
+  const currentClient = data?.client
+  const institution = data?.institution
   const [clientLoans, setClientLoans] = useState<any[]>([])
   const [clientTransactions, setClientTransactions] = useState<any[]>([])
   const [txAggregates, setTxAggregates] = useState<any>({ totalSavings: 0, totalShares: 0 })
-  const [showBalance, setShowBalance] = useState(true)
+  const [showBalance, setShowBalance] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
-  const [transactionFilter, setTransactionFilter] = useState("all")
-  const [dateRange, setDateRange] = useState({ from: null, to: null })
-  const router = useRouter()
 
   useEffect(() => {
     let cancelled = false
     const load = async () => {
       try {
-        const [meRes, loansRes, txRes] = await Promise.all([
-          fetch("/api/client/me", { cache: "no-store" }),
+        const [loansRes, txRes] = await Promise.all([
           fetch("/api/client/loans", { cache: "no-store" }),
           fetch("/api/client/transactions", { cache: "no-store" }),
         ])
-        if (!meRes.ok) {
-          router.push(`/client-login?redirect=${encodeURIComponent("/client-portal")}`)
-          return
-        }
-        const me = await meRes.json()
         const loans = loansRes.ok ? await loansRes.json() : { loans: [] }
         const tx = txRes.ok ? await txRes.json() : { transactions: [], aggregates: { totalSavings: 0, totalShares: 0 } }
         if (cancelled) return
-        setSession({ institution: me.institution })
-        setCurrentClient(me.client)
         setClientLoans(loans.loans || [])
         setClientTransactions(tx.transactions || [])
         setTxAggregates(tx.aggregates || { totalSavings: 0, totalShares: 0 })
@@ -69,290 +54,218 @@ export default function ClientPortalPage() {
     return () => {
       cancelled = true
     }
-  }, [router])
+  }, [])
 
-  const calculateFinancialSummary = () => {
-    const totalLoans = clientLoans.reduce((sum, loan) => sum + (Number(loan.outstandingBalance) || 0), 0)
-    const totalPrincipal = clientLoans.reduce((sum, loan) => sum + (Number(loan.principalAmount) || 0), 0)
-    const totalPaid = totalPrincipal - totalLoans
-    const activeLoans = clientLoans.filter((loan) => String(loan.status) === "Disbursed").length
-
-    // Aggregate savings and shares from API aggregates
+  const summary = (() => {
+    const totalLoans = clientLoans.reduce((sum, l) => sum + (Number(l.outstandingBalance) || 0), 0)
     const totalSavings = Number(txAggregates?.totalSavings || 0)
     const totalShares = Number(txAggregates?.totalShares || 0)
+    const activeLoans = clientLoans.filter((l) => String(l.status) === "Disbursed").length
+    return { totalLoans, totalSavings, totalShares, activeLoans, netWorth: totalSavings + totalShares - totalLoans }
+  })()
 
-    // Compute this month's net savings movement from transactions (Deposit - Withdrawal)
-    const now = new Date()
-    const thisMonth = now.getMonth()
-    const thisYear = now.getFullYear()
-    const normalizeType = (t: string) => {
-      const s = String(t || "").toLowerCase()
-      if (s.includes("deposit")) return "deposit"
-      if (s.includes("withdraw")) return "withdrawal"
-      return "other"
-    }
-    const monthlyGrowth = clientTransactions.reduce((acc: number, t: any) => {
-      const dt = new Date(t.date)
-      if (dt.getFullYear() !== thisYear || dt.getMonth() !== thisMonth) return acc
-      const kind = normalizeType(t.type)
-      if (kind === "deposit") return acc + Number(t.amount || 0)
-      if (kind === "withdrawal") return acc - Number(t.amount || 0)
-      return acc
-    }, 0)
-
-    return {
-      totalLoans,
-      totalPrincipal,
-      totalPaid,
-      activeLoans,
-      totalSavings,
-      monthlyGrowth,
-      totalShares,
-      repaymentProgress: totalPrincipal > 0 ? (totalPaid / totalPrincipal) * 100 : 0,
-    }
-  }
-
-  const getFilteredTransactions = () => {
-    const normalizeType = (t: string) => {
-      const s = String(t || "").toLowerCase()
-      if (s.includes("deposit")) return "deposit"
-      if (s.includes("withdraw")) return "withdrawal"
-      if (s.includes("repay") || s.includes("payment")) return "payment"
-      return "other"
-    }
-    let filtered = [...clientTransactions]
-    if (transactionFilter !== "all") {
-      filtered = filtered.filter((tx) => normalizeType(tx.type) === transactionFilter)
-    }
-    return filtered.sort((a: any, b: any) => new Date(b.date) as any - (new Date(a.date) as any))
-  }
-
-  const generateStatement = () => {
-    // Mock statement generation
-    const statement = {
-      period:
-        dateRange.from && dateRange.to
-          ? `${format(dateRange.from, "MMM dd, yyyy")} - ${format(dateRange.to, "MMM dd, yyyy")}`
-          : "Last 30 days",
-      transactions: getFilteredTransactions(),
-      summary: calculateFinancialSummary(),
-    }
-
-    // In real app, this would generate and download a PDF
-    console.log("Generated statement:", statement)
-    alert("Statement generated successfully! (Demo mode)")
+  const getTransactionKind = (type: string) => {
+    const s = String(type || "").toLowerCase()
+    if (s.includes("deposit")) return "deposit"
+    if (s.includes("withdraw")) return "withdrawal"
+    return "payment"
   }
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
-          <p className="text-muted-foreground">Loading your account...</p>
+      <div className="space-y-6">
+        <div className="h-20 animate-pulse rounded-xl bg-muted" />
+        <div className="h-36 animate-pulse rounded-xl bg-muted" />
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          {[1, 2, 3, 4].map((i) => (
+            <div key={i} className="h-28 animate-pulse rounded-xl bg-muted" />
+          ))}
+        </div>
+        <div className="grid gap-6 lg:grid-cols-5">
+          <div className="h-48 animate-pulse rounded-xl bg-muted lg:col-span-2" />
+          <div className="h-48 animate-pulse rounded-xl bg-muted lg:col-span-3" />
         </div>
       </div>
     )
   }
 
-  if (!session || !currentClient) {
-    return null
-  }
+  if (!currentClient || !institution) return null
 
-  const institution = session.institution
-  const clientTerminology = institution?.config?.clientTerminology || "Member"
-  const isMoneyLender = institution?.type === "money-lender"
-  const hasSavings = institution?.config?.modules?.savings
-  const hasShares = institution?.config?.modules?.shares
+  const hasSavings = institution.config?.modules?.savings
+  const hasShares = institution.config?.modules?.shares
+  const firstName = currentClient.fullName.split(" ")[0] || currentClient.fullName
+  const recentTx = [...clientTransactions]
+    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+    .slice(0, 8)
 
-  const financialSummary = calculateFinancialSummary()
-  const nextPayment = clientLoans.find((loan) => loan.nextPaymentDate)
-  const filteredTransactions = getFilteredTransactions()
+  const statCount = 1 + (hasSavings ? 1 : 0) + (hasShares ? 1 : 0)
 
   return (
-    <div className="min-h-screen bg-background">
-      <div className="space-y-6">
+    <div className="space-y-6">
+      <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
-          <p className="text-gray-600">Welcome back, {currentClient?.fullName}</p>
+          <p className="text-sm text-muted-foreground">{getGreeting()}</p>
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">{firstName}</h1>
         </div>
+        <Button size="icon" variant="outline" onClick={() => setShowBalance(!showBalance)} className="shrink-0">
+          {showBalance ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+        </Button>
+      </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {hasSavings && (
-            <Card className="financial-card">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium flex items-center justify-between">
-                  <div className="flex items-center">
-                    <PiggyBank className="h-4 w-4 mr-2 text-primary" />
-                    Total Savings
-                  </div>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => setShowBalance(!showBalance)}
-                    className="h-6 w-6 p-0"
-                  >
-                    {showBalance ? <Eye className="h-3 w-3" /> : <EyeOff className="h-3 w-3" />}
-                  </Button>
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="stat-value">
-                  {showBalance ? `UGX ${(financialSummary.totalSavings / 1000).toFixed(0)}K` : "****"}
-                </div>
-                <div className="flex items-center space-x-1 mt-1">
-                  <TrendingUp className="h-3 w-3 text-green-600" />
-                  <p className="stat-label text-green-600">
-                    +UGX {(financialSummary.monthlyGrowth / 1000).toFixed(0)}K this month
-                  </p>
-                </div>
-              </CardContent>
-            </Card>
-          )}
+      <Card>
+        <CardContent className="flex flex-col gap-6 pt-6 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-sm text-muted-foreground">Net position</p>
+            <p className="mt-1 text-3xl font-semibold tracking-tight sm:text-4xl">
+              {showBalance ? formatMoney(summary.netWorth) : "••••••"}
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2 sm:justify-end">
+            <Link href="/client-portal/apply-loan">
+              <Button size="sm">
+                <Plus className="mr-1.5 h-4 w-4" />
+                Apply for loan
+              </Button>
+            </Link>
+            <Link href="/client-portal/transactions">
+              <Button size="sm" variant="outline">
+                View transactions
+              </Button>
+            </Link>
+          </div>
+        </CardContent>
+      </Card>
 
-          <Card className="financial-card">
+      <div
+        className={cn(
+          "grid gap-4",
+          statCount === 1 && "sm:grid-cols-1",
+          statCount === 2 && "sm:grid-cols-2",
+          statCount === 3 && "sm:grid-cols-2 xl:grid-cols-3",
+        )}
+      >
+        {hasSavings ? (
+          <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium flex items-center">
-                <CreditCard className="h-4 w-4 mr-2 text-primary" />
-                {isMoneyLender ? "Outstanding Debt" : "Active Loans"}
+              <CardTitle className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+                <PiggyBank className="h-4 w-4" />
+                Savings
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="stat-value">
-                {showBalance ? `UGX ${(financialSummary.totalLoans / 1000).toFixed(0)}K` : "****"}
-              </div>
-              <p className="stat-label">{financialSummary.activeLoans} active loans</p>
+              <p className="text-2xl font-semibold">{showBalance ? formatMoney(summary.totalSavings) : "••••••"}</p>
             </CardContent>
           </Card>
-
-          {hasShares && (
-            <Card className="financial-card">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium flex items-center">
-                  <PieChart className="h-4 w-4 mr-2 text-primary" />
-                  Share Value
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="stat-value">
-                  {showBalance ? `UGX ${(financialSummary.totalShares / 1000).toFixed(0)}K` : "****"}
-                </div>
-                <p className="stat-label">Total shares owned</p>
-              </CardContent>
-            </Card>
-          )}
-        </div>
+        ) : null}
 
         <Card>
-          <CardHeader>
-            <CardTitle className="text-base flex items-center">
-              <User className="h-4 w-4 mr-2" />
-              Account Status
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+              <CreditCard className="h-4 w-4" />
+              {isMoneyLender ? "Outstanding" : "Loans"}
             </CardTitle>
           </CardHeader>
+          <CardContent>
+            <p className="text-2xl font-semibold">{showBalance ? formatMoney(summary.totalLoans) : "••••••"}</p>
+            <p className="mt-1 text-xs text-muted-foreground">{summary.activeLoans} active</p>
+          </CardContent>
+        </Card>
+
+        {hasShares ? (
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+                <PieChart className="h-4 w-4" />
+                Shares
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-2xl font-semibold">{showBalance ? formatMoney(summary.totalShares) : "••••••"}</p>
+            </CardContent>
+          </Card>
+        ) : null}
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-5">
+        <Card className="lg:col-span-2">
+          <CardHeader>
+            <CardTitle className="text-base">Account</CardTitle>
+          </CardHeader>
           <CardContent className="space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="text-sm">{clientTerminology} Status</span>
-              <Badge variant={currentClient.status === "Active" ? "default" : "secondary"}>
-                {currentClient.status}
-              </Badge>
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-muted-foreground">{clientTerminology} status</span>
+              <Badge variant={currentClient.status === "Active" ? "default" : "secondary"}>{currentClient.status}</Badge>
             </div>
-            <div className="flex items-center justify-between">
-              <span className="text-sm">KYC Verification</span>
-              <Badge variant={currentClient.kycStatus === "Verified" ? "default" : "outline"}>
-                {currentClient.kycStatus === "Verified" && <CheckCircle className="w-3 h-3 mr-1" />}
-                {currentClient.kycStatus === "Pending" && <Clock className="w-3 h-3 mr-1" />}
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-muted-foreground">KYC</span>
+              <Badge variant="outline" className="gap-1">
+                {currentClient.kycStatus === "Verified" && <CheckCircle className="h-3 w-3" />}
+                {currentClient.kycStatus === "Pending" && <Clock className="h-3 w-3" />}
                 {currentClient.kycStatus}
               </Badge>
             </div>
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-muted-foreground">{clientTerminology} no.</span>
+              <span className="font-medium">{currentClient.clientNumber}</span>
+            </div>
+            <Link
+              href="/client-portal/profile"
+              className="inline-flex items-center pt-1 text-sm font-medium text-foreground hover:underline"
+            >
+              Manage profile
+              <ChevronRight className="ml-1 h-4 w-4" />
+            </Link>
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-base flex items-center">
-                <History className="h-4 w-4 mr-2" />
-                Recent Activity
-              </CardTitle>
-              <Select value={transactionFilter} onValueChange={setTransactionFilter}>
-                <SelectTrigger className="w-24 h-8">
-                  <Filter className="h-3 w-3 mr-1" />
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All</SelectItem>
-                  <SelectItem value="deposit">Deposits</SelectItem>
-                  <SelectItem value="withdrawal">Withdrawals</SelectItem>
-                  <SelectItem value="payment">Payments</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+        <Card className="lg:col-span-3">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0">
+            <CardTitle className="text-base">Recent activity</CardTitle>
+            <Link href="/client-portal/transactions" className="text-sm text-muted-foreground hover:text-foreground">
+              See all
+            </Link>
           </CardHeader>
           <CardContent>
-            <div className="space-y-3">
-              {filteredTransactions.slice(0, 5).map((transaction) => (
-                <div
-                  key={transaction.id}
-                  className="flex items-center justify-between p-2 rounded-lg hover:bg-muted/50"
-                >
-                  <div className="flex items-center space-x-3">
-                    <div
-                      className={`h-8 w-8 rounded-full flex items-center justify-center ${
-                        transaction.type === "Deposit"
-                          ? "bg-green-100 text-green-600"
-                          : transaction.type === "Withdrawal"
-                            ? "bg-red-100 text-red-600"
-                            : "bg-blue-100 text-blue-600"
-                      }`}
-                    >
-                      {transaction.type === "Deposit" ? (
-                        <ArrowDownRight className="h-4 w-4" />
-                      ) : transaction.type === "Withdrawal" ? (
-                        <ArrowUpRight className="h-4 w-4" />
-                      ) : (
-                        <CreditCard className="h-4 w-4" />
-                      )}
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium">{transaction.type}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {transaction.date} • {transaction.mode}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <p
-                      className={`text-sm font-medium ${
-                        transaction.type === "Deposit"
-                          ? "text-green-600"
-                          : transaction.type === "Withdrawal"
-                            ? "text-red-600"
-                            : "text-blue-600"
-                      }`}
-                    >
-                      {transaction.type === "Deposit" ? "+" : "-"}UGX {(transaction.amount / 1000).toFixed(0)}K
-                    </p>
-                    <p className="text-xs text-muted-foreground">Bal: UGX {(transaction.balance / 1000).toFixed(0)}K</p>
-                  </div>
-                </div>
-              ))}
-            </div>
+            {recentTx.length === 0 ? (
+              <p className="py-8 text-center text-sm text-muted-foreground">No transactions yet</p>
+            ) : (
+              <ul className="divide-y">
+                {recentTx.map((tx) => {
+                  const kind = getTransactionKind(tx.type)
+                  return (
+                    <li key={tx.id} className="flex items-center justify-between gap-4 py-3 first:pt-0 last:pb-0">
+                      <div className="flex min-w-0 items-center gap-3">
+                        <div
+                          className={cn(
+                            "flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted",
+                            kind === "deposit" && "text-emerald-600",
+                            kind === "withdrawal" && "text-red-600",
+                          )}
+                        >
+                          {kind === "deposit" ? (
+                            <ArrowDownRight className="h-4 w-4" />
+                          ) : kind === "withdrawal" ? (
+                            <ArrowUpRight className="h-4 w-4" />
+                          ) : (
+                            <CreditCard className="h-4 w-4" />
+                          )}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-medium">{tx.type}</p>
+                          <p className="text-xs text-muted-foreground">{tx.date}</p>
+                        </div>
+                      </div>
+                      <span className="shrink-0 text-sm font-semibold tabular-nums">
+                        {kind === "deposit" ? "+" : "-"}
+                        {formatMoney(tx.amount)}
+                      </span>
+                    </li>
+                  )
+                })}
+              </ul>
+            )}
           </CardContent>
         </Card>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <Link href="/client-portal/apply-loan" className="w-full">
-            <Button className="h-12 w-full">
-              <Plus className="h-4 w-4 mr-2" />
-              Apply for Loan
-            </Button>
-          </Link>
-          <Button variant="outline" className="h-12 bg-transparent" disabled>
-            <Download className="h-4 w-4 mr-2" />
-            Get Statement
-            <Badge variant="secondary" className="ml-2">Coming Soon</Badge>
-          </Button>
-        </div>
       </div>
     </div>
   )

@@ -417,6 +417,7 @@ export default function SettingsPage() {
         try { updateInstitutionConfig(updated.config) } catch {}
         setConfig(updated.config)
         setInstitutionConfigDraftBackup(cloneConfig(updated.config))
+        void refreshStaffSession()
       }
       toast({ title: "Saved", description: "Institution settings updated.", variant: "success" })
       return true

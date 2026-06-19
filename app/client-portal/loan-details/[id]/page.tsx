@@ -6,8 +6,8 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { ArrowLeft, AlertCircle, CheckCircle, Download, CreditCard, Phone, FileText } from "lucide-react"
-import Link from "next/link"
+import { AlertCircle, CheckCircle, Download, CreditCard, Phone, FileText } from "lucide-react"
+import { ClientPortalPageHeader } from "@/components/client-portal-page-header"
 import { useRouter } from "next/navigation"
 
 export default function LoanDetailsPage({ params }: { params: Promise<{ id: string }> }) {
@@ -62,9 +62,9 @@ export default function LoanDetailsPage({ params }: { params: Promise<{ id: stri
 
   if (!loan) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
+      <div className="flex items-center justify-center py-16">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+          <div className="mx-auto mb-4 h-8 w-8 animate-spin rounded-full border-2 border-muted border-t-foreground/30" />
           <p className="text-muted-foreground">Loading loan details...</p>
         </div>
       </div>
@@ -78,23 +78,14 @@ export default function LoanDetailsPage({ params }: { params: Promise<{ id: stri
     repaymentSchedule.find((r) => r.status === "Pending")
 
   return (
-    <div className="min-h-screen bg-background">
-      {/* Header */}
-      <div className="bg-primary text-primary-foreground p-4">
-        <div className="flex items-center space-x-3">
-          <Link href="/client-portal">
-            <Button size="sm" variant="ghost" className="text-primary-foreground">
-              <ArrowLeft className="h-4 w-4" />
-            </Button>
-          </Link>
-          <div>
-            <h1 className="text-lg font-semibold">{loan.loanProduct}</h1>
-            <p className="text-sm opacity-90">Application ID: {loan.applicationId}</p>
-          </div>
-        </div>
-      </div>
+    <div className="space-y-6">
+      <ClientPortalPageHeader
+        title={loan.loanProduct}
+        description={`Application ID: ${loan.applicationId}`}
+        backHref="/client-portal/loans"
+        backLabel="Back to loans"
+      />
 
-      <div className="p-4 space-y-6">
         {/* Loan Status Card */}
         <Card>
           <CardHeader>
@@ -388,7 +379,6 @@ export default function LoanDetailsPage({ params }: { params: Promise<{ id: stri
             </Card>
           </TabsContent>
         </Tabs>
-      </div>
     </div>
   )
 }

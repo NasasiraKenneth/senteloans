@@ -10,12 +10,15 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { NotificationPanel } from "@/components/notification-panel"
+import { cn } from "@/lib/utils"
 
 interface NotificationBellProps {
   apiEndpoint: string // '/api/client/notifications' or '/api/institution/notifications'
+  contentClassName?: string
+  triggerClassName?: string
 }
 
-export function NotificationBell({ apiEndpoint }: NotificationBellProps) {
+export function NotificationBell({ apiEndpoint, contentClassName, triggerClassName }: NotificationBellProps) {
   const [unreadCount, setUnreadCount] = useState(0)
   const [open, setOpen] = useState(false)
 
@@ -60,7 +63,14 @@ export function NotificationBell({ apiEndpoint }: NotificationBellProps) {
   return (
     <DropdownMenu open={open} onOpenChange={handleOpenChange}>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon" className="relative">
+        <Button
+          variant="ghost"
+          size="icon"
+          className={cn(
+            "relative text-muted-foreground hover:bg-primary/5 hover:text-foreground",
+            triggerClassName,
+          )}
+        >
           <Bell className="h-5 w-5" />
           {unreadCount > 0 && (
             <Badge
@@ -72,7 +82,7 @@ export function NotificationBell({ apiEndpoint }: NotificationBellProps) {
           )}
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-96 p-0">
+      <DropdownMenuContent align="end" className={cn("w-96 p-0", contentClassName)}>
         <NotificationPanel apiEndpoint={apiEndpoint} onCountChange={setUnreadCount} />
       </DropdownMenuContent>
     </DropdownMenu>
