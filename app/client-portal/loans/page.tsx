@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { CreditCard, Plus } from "lucide-react"
 import { ClientPortalPageHeader } from "@/components/client-portal-page-header"
 

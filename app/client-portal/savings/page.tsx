@@ -4,15 +4,16 @@ import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Progress } from "@/components/ui/progress"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Plus, Download, TrendingUp, ArrowUpRight, ArrowDownRight, History } from "lucide-react"
-import Link from "next/link"
 import { useClientSession } from "@/components/client-session-provider"
 import { useClientModuleGuard } from "@/hooks/use-client-module-guard"
+import { SavingsAccountCard } from "@/components/client-portal-account-card"
 
 export default function ClientSavingsPage() {
-  const { formatMoney } = useClientSession()
+  const { data, formatMoney } = useClientSession()
+  const currentClient = data?.client
+  const institution = data?.institution
   const { enabled, isLoading: guardLoading } = useClientModuleGuard("savings")
   const [accounts, setAccounts] = useState<any[]>([])
   const [clientTransactions, setClientTransactions] = useState<any[]>([])
@@ -148,32 +149,34 @@ export default function ClientSavingsPage() {
         </CardContent>
       </Card>
 
-      {/* Accounts List */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Accounts</CardTitle>
-          <CardDescription>Your savings accounts</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="divide-y">
-            {accounts.map((a) => (
-              <Link key={a.id} href={`/client-portal/savings/${a.id}`} className="flex items-center justify-between py-3 hover:bg-muted/50 rounded">
-                <div>
-                  <div className="text-sm font-medium">{a.account_number}</div>
-                  <div className="text-xs text-muted-foreground">{a.account_type} • Opened {new Date(a.open_date).toLocaleDateString()}</div>
-                </div>
-                <div className="text-right">
-                  <div className="text-sm font-semibold">{formatMoney(Number(a.available_balance || 0))}</div>
-                  <div className="text-xs text-muted-foreground">Available</div>
-                </div>
-              </Link>
+      {/* Savings account cards */}
+      <div>
+        <h2 className="mb-4 text-base font-semibold">Your accounts</h2>
+        {accounts.length > 0 ? (
+          <div className="-mx-1 flex flex-wrap gap-4 px-1 pb-1">
+            {accounts.map((a, i) => (
+              <SavingsAccountCard
+                key={a.id}
+                accountType={a.account_type}
+                accountNumber={a.account_number}
+                availableBalance={formatMoney(Number(a.available_balance || 0))}
+                totalBalance={formatMoney(Number(a.total_balance || 0))}
+                status={a.status}
+                openDate={a.open_date}
+                cardholderName={currentClient?.fullName || "Account holder"}
+                institutionName={institution?.name}
+                href={`/client-portal/savings/${a.id}`}
+                themeIndex={i}
+                index={i}
+              />
             ))}
-            {accounts.length === 0 && (
-              <div className="text-center py-8 text-muted-foreground">No savings accounts found</div>
-            )}
           </div>
-        </CardContent>
-      </Card>
+        ) : (
+          <div className="rounded-xl border border-dashed border-border py-12 text-center text-muted-foreground">
+            No savings accounts found
+          </div>
+        )}
+      </div>
 
       <Card>
         <CardHeader>

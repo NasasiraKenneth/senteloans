@@ -331,3 +331,10 @@ Password: changeme
 Client portal
 Use a client that has been given portal access (linked in senteloans_clients and seeded in app_auth_users). If the seed script only showed staff, client accounts may be created when you use “Enable login” for a client in the institution UI.
 Change any default password after first login.
+
+SACCO Member: sarah.nakamya@email.com
+
+MFI Client: grace.namugga@email.com
+
+Money Lender Borrower: moses.kiprotich@email.com
+
