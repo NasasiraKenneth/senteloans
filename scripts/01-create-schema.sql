@@ -814,7 +814,8 @@ CREATE TABLE IF NOT EXISTS member_kyc_docs (
     reviewed_by UUID REFERENCES users(id) ON DELETE SET NULL,
     reviewed_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    CONSTRAINT unique_member UNIQUE (member_id)
 );
 
 CREATE TABLE IF NOT EXISTS memberfee_fines (
@@ -1197,6 +1198,6 @@ COMMENT ON TABLE savings_accounts IS 'Savings account records (not for Money Len
 COMMENT ON TABLE transactions IS 'All financial transaction records';
 COMMENT ON TABLE loan_repayments IS 'Loan repayment schedule and tracking';
 COMMENT ON TABLE audit_logs IS 'System audit trail for all operations';
-COMMENT ON TABLE member_kyc_docs IS 'Member KYC document uploads and verification tracking. One row per doc_type (national_id, passport, driving_license) with URLs in passport_photo / document_front / document_back.';
+COMMENT ON TABLE member_kyc_docs IS 'Member KYC documents: one row per member. doc_type selects the ID type; passport_photo, document_front, and document_back are updated in place.';
 COMMENT ON TABLE notifications IS 'In-app notifications for members and institution users';
 COMMENT ON TABLE notification_preferences IS 'User notification channel preferences';

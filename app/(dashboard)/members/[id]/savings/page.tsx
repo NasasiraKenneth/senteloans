@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { useStaffSession } from "@/components/staff-session-provider"
 import { ArrowLeft, PiggyBank, TrendingUp, TrendingDown, Calendar, ArrowUpRight, ArrowDownLeft } from "lucide-react"
 import Link from "next/link"
+import { readClientTerminology } from "@/lib/institution-branch-config"
 
 export default function UserSavingsPage() {
   const params = useParams()
@@ -45,15 +46,18 @@ export default function UserSavingsPage() {
   if (loading) {
     return (
       <>
-            <div className="text-center">
-              <p>Loading...</p>
-            </div>
+        <div className="flex min-h-[70vh] w-full items-center justify-center">
+          <div className="text-center">
+            <div className="mx-auto mb-4 h-8 w-8 animate-spin rounded-full border-b-2 border-primary"></div>
+            <p className="text-muted-foreground">Loading ...</p>
+          </div>
+        </div>
       </>
     )
   }
 
   if (!user) {
-    const clientTerm = session?.institution?.config?.clientTerminology || "User"
+    const clientTerm = readClientTerminology(session?.institution?.config, "User")
     return (
       <>
             <div className="text-center">
@@ -83,7 +87,7 @@ export default function UserSavingsPage() {
     })
   }
 
-  const clientTerm = session?.institution?.config?.clientTerminology || "User"
+  const clientTerm = readClientTerminology(session?.institution?.config, "User")
 
   // Calculate savings summary
   const deposits = transactions.filter((t) => t.type === "Deposit")
@@ -97,7 +101,7 @@ export default function UserSavingsPage() {
       <div className="max-w-6xl mx-auto space-y-6">
             {/* Header */}
             <div className="flex items-center space-x-4">
-              <Link href={`/users/${userId}`}>
+              <Link href={`/members/${userId}`}>
                 <Button variant="ghost" size="icon">
                   <ArrowLeft className="h-4 w-4" />
                 </Button>

@@ -35,6 +35,7 @@ Schema: `scripts/01-create-schema.sql` (sections 17 & 18). RLS policies: `script
 | Member uploads/replaces KYC (`POST /api/client/kyc-docs[/replace]`) | Admins/managers/loan officers + member | `pendingKycReview`, `kycSubmitted` |
 | Staff approves/rejects KYC (`POST /api/institution/members/[id]/kyc/{approve,reject}`) | Member | `kycApproved` / `kycRejected` |
 | Loan repayment recorded (`POST /api/institution/loans/[id]/record-payment`) | Member | `paymentReceived` |
+| Staff updates member profile (`PATCH /api/institution/members/[id]`) | Member + staff with `view_members` (actor excluded) | `profileUpdated`, `memberProfileUpdatedForStaff` |
 
 > Sacco-loans (`senteloans_institution_loans`) target an organizational `senteloans_clients` row, not a portal user, so they don't notify a member.
 
@@ -94,7 +95,7 @@ Run these in order after deploying. Each step asserts an exact visual outcome an
 
 1. As Member, `POST /api/client/kyc-docs` with a `national_id_front`.
 2. **Expected:** Staff bells +1 (`pending_kyc_review`), Member bell +1 (`kyc_submitted`).
-3. As Admin, `POST /api/institution/members/[id]/kyc/approve`.
+3. As Admin, `POST /api/institution/members/[id]/kyc/review` with `{ pendingId, decision: "approved" | "rejected", rejectionReason? }`.
 4. **Expected:** Member bell +1 (`kyc_approved`).
 
 ### E. Payment received

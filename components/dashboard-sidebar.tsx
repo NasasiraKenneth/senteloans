@@ -29,6 +29,7 @@ import { clearSession } from "@/lib/session"
 import { signOut } from "next-auth/react"
 import { useRouter } from "next/navigation"
 import { useStaffSession } from "@/components/staff-session-provider"
+import { readClientTerminology, readInstitutionConfigModuleEnabled } from "@/lib/institution-branch-config"
 
 interface NavItem {
   name: string
@@ -63,9 +64,10 @@ export function DashboardSidebar() {
   }, [pathname])
 
   const getSections = (): NavSection[] => {
-    const config = session?.institution?.config || {}
-    const modules = config.modules || {}
-    const clientTerm = config.clientTerminology || "Member"
+    const config = session?.institution?.config
+    const clientTerm = readClientTerminology(config)
+    const savingsEnabled = readInstitutionConfigModuleEnabled(config, "savings")
+    const sharesEnabled = readInstitutionConfigModuleEnabled(config, "shares")
 
     const clientLabel = session?.institution
       ? clientTerm === "Member" ? "Members" : "Borrowers"
@@ -84,7 +86,7 @@ export function DashboardSidebar() {
         ],
       },
     ]
-    if (!session?.institution || modules.savings) {
+    if (!session?.institution || savingsEnabled) {
       financeItems.push({ name: "Savings", href: "/savings", icon: PiggyBank })
     }
     financeItems.push(
@@ -103,10 +105,10 @@ export function DashboardSidebar() {
 
     // Reports submenu
     const reportsSubmenu = [{ name: "Loan Reports", href: "/reports/loans" }]
-    if (!session?.institution || modules.savings) {
+    if (!session?.institution || savingsEnabled) {
       reportsSubmenu.push({ name: "Savings Reports", href: "/reports/savings" })
     }
-    if (!session?.institution || modules.shares) {
+    if (!session?.institution || sharesEnabled) {
       reportsSubmenu.push({ name: "Share Reports", href: "/reports/shares" })
     }
     reportsSubmenu.push(

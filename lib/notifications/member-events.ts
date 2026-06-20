@@ -2,7 +2,7 @@ import type { PoolClient } from "pg"
 import { notificationService } from "./notification-service"
 import { NotificationTemplates } from "./notification-types"
 import type { CreateNotificationInput } from "./notification-types"
-import { getInstitutionAdminRecipients } from "./admin-recipients"
+import { getInstitutionAdminRecipients, getInstitutionRecipientsWithPermission } from "./admin-recipients"
 
 export interface MemberRegistrationActor {
   /** users.id of the staff member that performed the registration. */
@@ -208,6 +208,123 @@ export async function notifyMemberRegistration(
       staffNotifications = staffRes.count ?? staffMessages.length
     } else if (staffRes.error) {
       errors.push(`staff_notifications:${staffRes.error}`)
+    }
+  }
+
+  return {
+    ok: errors.length === 0,
+    memberNotifications,
+    staffNotifications,
+    errors,
+  }
+}
+
+export interface MemberProfileUpdateActor {
+  id: string
+  institution_id: string
+  branch_id: string
+}
+
+export interface MemberProfileUpdateSummary {
+  id: string
+  full_name: string
+  member_number: string
+}
+
+export interface NotifyMemberProfileUpdatedInput {
+  client?: PoolClient
+  actor: MemberProfileUpdateActor
+  member: MemberProfileUpdateSummary
+  /** DB column names that changed (excluding modified_by). */
+  updatedFields?: string[]
+  institutionName?: string
+}
+
+export interface NotifyMemberProfileUpdatedResult {
+  ok: boolean
+  memberNotifications: number
+  staffNotifications: number
+  errors: string[]
+}
+
+/**
+ * Fan out in-app notifications when staff updates a member profile.
+ *
+ * Member receives `profile_updated`. Staff with `view_members` (excluding the
+ * actor) receive `member_profile_updated`.
+ */
+export async function notifyMemberProfileUpdated(
+  input: NotifyMemberProfileUpdatedInput,
+): Promise<NotifyMemberProfileUpdatedResult> {
+  const errors: string[] = []
+  let memberNotifications = 0
+  let staffNotifications = 0
+
+  const memberTpl = NotificationTemplates.profileUpdated(input.institutionName)
+  const memberRes = await notificationService.create(
+    {
+      institutionId: input.actor.institution_id,
+      branchId: input.actor.branch_id,
+      recipientType: "member",
+      recipientId: input.member.id,
+      type: "profile_updated",
+      title: memberTpl.title,
+      message: memberTpl.message,
+      actionUrl: memberTpl.actionUrl,
+      metadata: {
+        member_id: input.member.id,
+        member_number: input.member.member_number,
+        updated_fields: input.updatedFields,
+      },
+    },
+    input.client,
+  )
+  if (memberRes.ok) {
+    memberNotifications = 1
+  } else if (memberRes.error) {
+    errors.push(`member_notifications:${memberRes.error}`)
+  }
+
+  if (input.client) {
+    let recipients: { id: string; branch_id: string | null }[] = []
+    try {
+      recipients = await getInstitutionRecipientsWithPermission(
+        input.client,
+        input.actor.institution_id,
+        "view_members",
+        { excludeUserId: input.actor.id },
+      )
+    } catch (e) {
+      errors.push(`recipients:view_members:${(e as Error)?.message || "lookup_failed"}`)
+    }
+
+    if (recipients.length > 0) {
+      const staffTpl = NotificationTemplates.memberProfileUpdatedForStaff(
+        input.member.full_name,
+        input.member.member_number,
+        input.member.id,
+      )
+      const staffMessages: CreateNotificationInput[] = recipients.map((r) => ({
+        institutionId: input.actor.institution_id,
+        branchId: r.branch_id ?? input.actor.branch_id,
+        recipientType: "institution_user",
+        recipientId: r.id,
+        type: "member_profile_updated",
+        title: staffTpl.title,
+        message: staffTpl.message,
+        actionUrl: staffTpl.actionUrl,
+        metadata: {
+          member_id: input.member.id,
+          member_number: input.member.member_number,
+          updated_fields: input.updatedFields,
+        },
+      }))
+      const staffRes = await notificationService.createBulk(staffMessages, input.client)
+      if (staffRes.ok) {
+        staffNotifications = staffRes.count ?? staffMessages.length
+      } else if (staffRes.error) {
+        errors.push(`staff_notifications:member_profile_updated:${staffRes.error}`)
+      }
     }
   }
 

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
-import { runWithAuth } from "@/lib/db"
+import { runWithAuth, runWithoutAuth } from "@/lib/db"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
 import { auditLogger } from "@/lib/audit/audit-logger"
 import {
@@ -10,9 +10,16 @@ import {
   resolveActorContext,
   SUPER_ADMIN_WRITE_BLOCKED,
 } from "@/lib/api/rbac"
-import { assertBranchActive } from "@/lib/branches/branch-status"
 import { syncMemberEmailPreferences } from "@/lib/email/seed-member-preferences"
-import { fetchMemberKycFlatUrls } from "@/lib/members/kyc-docs"
+import { fetchStaffMemberKycSnapshot } from "@/lib/members/kyc-docs"
+import {
+  assertMemberAndBranchActive,
+  isMemberRouteDenial,
+  memberRouteDenialBody,
+  memberWriteGateHttpStatus,
+  memberWriteGateRouteError,
+} from "@/lib/members/member-status"
+import { notifyMemberProfileUpdated } from "@/lib/notifications/member-events"
 
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const apiPath = getApiPath(req)
@@ -54,7 +61,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       const memberRow = memberRes.rows[0]
       if (!memberRow) return null
 
-      const kycUrls = await fetchMemberKycFlatUrls(client, memberId)
+      const kycSnapshot = await fetchStaffMemberKycSnapshot(client, memberId)
 
       // Configured fee comes from the member's branch (not the actor's branch — super-admin compatibility).
       const cfgRes = await client.query(
@@ -100,9 +107,15 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
           next_of_kin_name: memberRow.next_of_kin_name,
           next_of_kin_relationship: memberRow.next_of_kin_relationship,
           next_of_kin_phone: memberRow.next_of_kin_phone,
-          passport_photo: kycUrls.passport_photo,
-          national_id_front: kycUrls.national_id_front,
-          national_id_back: kycUrls.national_id_back,
+          passport_photo: kycSnapshot.flatUrls.passport_photo,
+          national_id_front: kycSnapshot.flatUrls.national_id_front,
+          national_id_back: kycSnapshot.flatUrls.national_id_back,
+          passport_biodata: kycSnapshot.formDocs.passportBiodataPage,
+          driving_license_front: kycSnapshot.formDocs.drivingLicenseFront,
+          driving_license_back: kycSnapshot.formDocs.drivingLicenseBack,
+          kyc_doc_type: kycSnapshot.docType,
+          kyc_doc_status: kycSnapshot.docStatus,
+          kyc_doc_complete: kycSnapshot.docComplete,
           kyc_status: memberRow.kyc_status,
           status: memberRow.status,
           join_date: memberRow.join_date,
@@ -183,7 +196,6 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       nextOfKinPhone: "next_of_kin_phone",
       notes: "notes",
       status: "status",
-      kycStatus: "kyc_status",
       mobileMoneyProvider: "mobile_money_provider",
       mobileMoneyNumber: "mobile_money_number",
       bankName: "bank_name",
@@ -255,7 +267,6 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     if (typeof body.nextOfKinRelationship === "string") updates["next_of_kin_relationship"] = body.nextOfKinRelationship
     if (typeof body.nextOfKinPhone === "string") updates["next_of_kin_phone"] = body.nextOfKinPhone
     if (typeof body.status === "string") updates["status"] = body.status
-    if (typeof body.kycStatus === "string") updates["kyc_status"] = body.kycStatus
     if (typeof body.mobileMoneyProvider === "string") updates["mobile_money_provider"] = body.mobileMoneyProvider.trim() || null
     if (typeof body.mobileMoneyNumber === "string") updates["mobile_money_number"] = body.mobileMoneyNumber.trim() || null
     if (typeof body.bankName === "string") updates["bank_name"] = body.bankName.trim() || null
@@ -291,30 +302,22 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       if (!allowed) return { error: "missing_permission:edit_member" as const }
       if (!actor.branch_id) return { error: "actor_branch_missing" as const }
 
-      const targetRes = await client.query(
-        `SELECT id, institution_id, branch_id, kyc_status FROM members WHERE id = $1 AND institution_id = $2`,
-        [memberId, actor.institution_id]
-      )
-      const targetMember = targetRes.rows[0]
-      if (!targetMember) return { error: "member_not_found" as const }
-      if (targetMember.branch_id !== actor.branch_id) {
+      const gate = await assertMemberAndBranchActive(client, memberId, actor.institution_id)
+      if (!gate.ok) {
+        return memberWriteGateRouteError(gate)!
+      }
+
+      if (gate.member.branch_id !== actor.branch_id) {
         return { error: "cross_branch_operation_forbidden" as const }
       }
 
-      const branchCheck = await assertBranchActive(client, targetMember.branch_id)
-      if (!branchCheck.ok) {
-        return {
-          error: branchCheck.error as "branch_not_found" | "branch_inactive",
-          branchStatus: branchCheck.error === "branch_inactive" ? branchCheck.status : undefined,
-        }
-      }
+      const beforeRes = await client.query<{ kyc_status: string }>(
+        `SELECT kyc_status FROM members WHERE id = $1 AND institution_id = $2`,
+        [memberId, actor.institution_id],
+      )
+      const beforeKycStatus = beforeRes.rows[0]?.kyc_status
 
       updates["modified_by"] = actor.id
-
-      if (updates["kyc_status"] === "Verified" && targetMember.kyc_status !== "Verified") {
-        updates["kyc_approved_by"] = actor.id
-        updates["kyc_approved_at"] = new Date().toISOString()
-      }
 
       const keys = Object.keys(updates)
       const setClause = keys.map((k, i) => `${k} = $${i + 3}`).join(", ")
@@ -328,8 +331,8 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       if ("email" in updates) {
         await syncMemberEmailPreferences(client, {
           memberId,
-          institutionId: targetMember.institution_id,
-          branchId: targetMember.branch_id,
+          institutionId: gate.member.institution_id,
+          branchId: gate.member.branch_id,
           emailEnabled: Boolean(updates["email"]),
         })
       }
@@ -337,7 +340,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       await auditLogger.logUpdate(
         "members",
         memberId,
-        { kyc_status: targetMember.kyc_status },
+        { kyc_status: beforeKycStatus },
         updates,
         actor.institution_id,
         actor.id,
@@ -345,39 +348,82 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         client
       )
 
-      return { ok: true, id: updateRes.rows[0].id }
+      return {
+        ok: true,
+        id: updateRes.rows[0].id,
+        postCommit: {
+          actorId: actor.id,
+          institutionId: actor.institution_id,
+          branchId: actor.branch_id,
+          member: {
+            id: memberId,
+            full_name: gate.member.full_name,
+            member_number: gate.member.member_number,
+          },
+          updatedFields: keys.filter((k) => k !== "modified_by"),
+        },
+      }
     })
 
-    if (result && "error" in result) {
-      const err = result.error
+    if (isMemberRouteDenial(result)) {
       const status =
-        err === "member_not_found" ? 404 :
-        err === "actor_branch_missing" ? 400 :
-        err === SUPER_ADMIN_WRITE_BLOCKED ||
-        err === "missing_permission:edit_member" ||
-        err === "cross_branch_operation_forbidden" ||
-        err === "branch_not_found" ||
-        err === "branch_inactive" ? 403 :
-        err === "auth_context" ? 401 : 400
+        result.error === "member_not_found" ? 404 :
+        result.error === "actor_branch_missing" ? 400 :
+        result.error === SUPER_ADMIN_WRITE_BLOCKED ||
+        result.error === "missing_permission:edit_member" ||
+        result.error === "cross_branch_operation_forbidden" ? 403 :
+        memberWriteGateHttpStatus(result.error)
       apiLog("warn", "member.update.denied", {
         method: "PATCH",
         apiPath,
         status,
-        error: err,
+        error: result.error,
         memberId,
         authUserId: session.user.authUserId,
-        ...(("branchStatus" in result) ? { branchStatus: (result as { branchStatus?: string }).branchStatus } : {}),
       })
-      const errorText =
-        "message" in result && result.message ? result.message : err
-      const payload: Record<string, unknown> = { error: errorText, code: err }
-      if ("branchStatus" in result && (result as { branchStatus?: string }).branchStatus) {
-        payload.branch_status = (result as { branchStatus?: string }).branchStatus
-      }
-      return NextResponse.json(payload, { status })
+      return NextResponse.json(memberRouteDenialBody(result), { status })
     }
+
+    if (result && "postCommit" in result && result.postCommit) {
+      const ctx = result.postCommit
+      try {
+        const notifyRes = await runWithoutAuth((notifyClient) =>
+          notifyMemberProfileUpdated({
+            client: notifyClient,
+            actor: {
+              id: ctx.actorId,
+              institution_id: ctx.institutionId,
+              branch_id: ctx.branchId,
+            },
+            member: ctx.member,
+            updatedFields: ctx.updatedFields,
+          }),
+        )
+        apiLog(notifyRes.ok ? "info" : "warn",
+          notifyRes.ok ? "member.update.notifications_dispatched" : "member.update.notifications_partial",
+          {
+            method: "PATCH",
+            apiPath,
+            status: 200,
+            memberId,
+            memberNotifications: notifyRes.memberNotifications,
+            staffNotifications: notifyRes.staffNotifications,
+            ...(notifyRes.errors.length ? { errors: notifyRes.errors } : {}),
+          },
+        )
+      } catch (notifyErr) {
+        apiLog("error", "member.update.notifications_failed", {
+          method: "PATCH",
+          apiPath,
+          status: 200,
+          memberId,
+          error: (notifyErr as Error)?.message || "notify_failed",
+        })
+      }
+    }
+
     apiLog("info", "member.update.success", { method: "PATCH", apiPath, status: 200, memberId, authUserId: session.user.authUserId })
-    return NextResponse.json(result)
+    return NextResponse.json({ ok: true, id: result && "id" in result ? result.id : undefined })
   } catch (e: unknown) {
     const err = e as Error
     apiLog("error", "member.update.error", { method: "PATCH", apiPath, status: 500, error: err?.message || "Unexpected error" })

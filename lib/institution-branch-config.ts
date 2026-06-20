@@ -30,6 +30,37 @@ export const toConfigFlag = (v: unknown, fallback = false): boolean => {
   return fallback
 }
 
+export function readInstitutionConfigString(
+  config: Record<string, unknown> | null | undefined,
+  key: string,
+  fallback: string,
+): string {
+  return readString(config, key) ?? fallback
+}
+
+export function readClientTerminology(
+  config: Record<string, unknown> | null | undefined,
+  fallback = "Member",
+): string {
+  return readInstitutionConfigString(config, "clientTerminology", fallback)
+}
+
+export function readInstitutionCurrency(
+  config: Record<string, unknown> | null | undefined,
+  fallback = "UGX",
+): string {
+  return readInstitutionConfigString(config, "currency", fallback)
+}
+
+export function readInstitutionConfigModuleEnabled(
+  config: Record<string, unknown> | null | undefined,
+  module: keyof BranchConfigModules,
+): boolean {
+  const modules = config?.modules
+  if (!modules || typeof modules !== "object" || Array.isArray(modules)) return false
+  return toConfigFlag((modules as Record<string, unknown>)[module], false)
+}
+
 /** Map DB institution `type` values to client-facing terminology. */
 export function clientTerminologyForInstitutionType(type: string): string {
   const normalized = type.trim().toLowerCase()

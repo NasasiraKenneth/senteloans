@@ -3,7 +3,13 @@ import {
   assertMemberActiveRow,
   assertMemberAndBranchActive,
   getMemberById,
+  isMemberRouteDenial,
+  mapMemberWriteGateClientMessage,
+  memberRouteDenialBody,
+  memberRouteHttpStatus,
+  memberWriteGateRouteError,
 } from "@/lib/members/member-status"
+import { SUPER_ADMIN_WRITE_BLOCKED } from "@/lib/api/rbac"
 
 jest.mock("@/lib/branches/branch-status", () => ({
   assertBranchActive: jest.fn(),
@@ -87,5 +93,71 @@ describe("member-status", () => {
     expect(res.ok).toBe(true)
     if (res.ok) expect(res.member.id).toBe("m1")
     expect(assertBranchActiveMock).toHaveBeenCalledWith(client, "b1")
+  })
+
+  it("memberWriteGateRouteError maps failed gate to route error shape", () => {
+    expect(
+      memberWriteGateRouteError({
+        ok: false,
+        error: "member_inactive",
+        memberStatus: "Suspended",
+      }),
+    ).toEqual({
+      error: "member_inactive",
+      memberStatus: "Suspended",
+    })
+    expect(memberWriteGateRouteError({ ok: true, member: activeMember })).toBeNull()
+  })
+
+  it("memberRouteDenialBody builds API error payload", () => {
+    expect(
+      memberRouteDenialBody({
+        error: "branch_inactive",
+        branchStatus: "Closed",
+      }),
+    ).toEqual({
+      error: "branch_inactive",
+      code: "branch_inactive",
+      branch_status: "Closed",
+    })
+  })
+
+  it("mapMemberWriteGateClientMessage returns user-facing copy", () => {
+    expect(mapMemberWriteGateClientMessage("member_inactive", "uploading KYC documents")).toContain(
+      "uploading KYC documents",
+    )
+  })
+
+  it("memberRouteHttpStatus classifies route-specific error groups", () => {
+    expect(
+      memberRouteHttpStatus("missing_permission:edit_shares", {
+        forbidden: ["missing_permission:edit_shares"],
+      }),
+    ).toBe(403)
+    expect(memberRouteHttpStatus("minimum_shares_2")).toBe(400)
+    expect(
+      memberRouteHttpStatus(SUPER_ADMIN_WRITE_BLOCKED, {
+        forbidden: [SUPER_ADMIN_WRITE_BLOCKED],
+      }),
+    ).toBe(403)
+  })
+
+  it("isMemberRouteDenial narrows route error results", () => {
+    expect(isMemberRouteDenial({ error: "member_inactive", memberStatus: "Suspended" })).toBe(true)
+    expect(isMemberRouteDenial({ ok: true, docs: {} })).toBe(false)
+    expect(isMemberRouteDenial(null)).toBe(false)
+  })
+
+  it("memberRouteDenialBody includes detail when provided", () => {
+    expect(
+      memberRouteDenialBody({
+        error: "shares_transaction_failed",
+        detail: "db timeout",
+      }),
+    ).toEqual({
+      error: "shares_transaction_failed",
+      code: "shares_transaction_failed",
+      detail: "db timeout",
+    })
   })
 })

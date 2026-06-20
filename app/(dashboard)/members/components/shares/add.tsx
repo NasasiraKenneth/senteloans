@@ -3,6 +3,10 @@
 import { useState } from "react"
 import { ReeveModal } from "@/components/modals/ReeveModal"
 import { useToast } from "@/components/ui/toast"
+import {
+  isMemberWriteGateClientError,
+  mapMemberWriteGateClientMessage,
+} from "@/lib/members/member-status"
 import SharesForm, { SharesPayload } from "../forms/sharesForm"
 
 interface AddSharesModalProps {
@@ -21,6 +25,9 @@ interface AddSharesModalProps {
 
 function mapError(code: unknown): string {
   const c = String(code || "")
+  if (isMemberWriteGateClientError(c)) {
+    return mapMemberWriteGateClientMessage(c, "recording share purchases")
+  }
   if (c.startsWith("minimum_shares_")) {
     return `Minimum holding is ${c.replace("minimum_shares_", "")} share(s).`
   }
@@ -28,12 +35,6 @@ function mapError(code: unknown): string {
     return `Maximum holding is ${c.replace("maximum_shares_", "")} share(s).`
   }
   switch (c) {
-    case "branch_inactive":
-      return "This member's branch is not active. Share purchases are disabled until the branch is reactivated."
-    case "branch_not_found":
-      return "This member's branch could not be found."
-    case "member_inactive":
-      return "This member is not active. Share purchases are disabled until the member is reactivated."
     case "missing_permission:edit_shares":
       return "You do not have permission to record share purchases."
     case "invalid_number_of_shares":
@@ -56,8 +57,6 @@ function mapError(code: unknown): string {
       return "Shares are not enabled for this branch."
     case "share_value_not_configured":
       return "Share value has not been configured for this branch."
-    case "member_not_found":
-      return "Member not found."
     case "forbidden":
       return "You cannot record shares for a member in another institution."
     case "shares_transaction_account_missing":
@@ -107,7 +106,7 @@ export default function AddSharesModal({
       })
       const body = await res.json().catch(() => ({}))
       if (!res.ok) {
-        throw new Error(mapError(body?.error))
+        throw new Error(mapError(body?.code || body?.error))
       }
 
       const refs = [

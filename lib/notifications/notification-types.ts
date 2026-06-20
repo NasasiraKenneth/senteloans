@@ -19,6 +19,7 @@ export type NotificationType =
   | 'deposit_received'
   | 'withdrawal_processed'
   | 'profile_updated'
+  | 'member_profile_updated'
   // Admin events
   | 'pending_loan_approval'
   | 'pending_kyc_review'
@@ -180,6 +181,24 @@ export const NotificationTemplates = {
     actionUrl: `/client-portal/savings/${accountId}`,
   }),
 
+  profileUpdated: (institutionName?: string) => ({
+    title: 'Profile Updated',
+    message: institutionName
+      ? `Your membership profile at ${institutionName} has been updated. Review your details in the portal.`
+      : 'Your membership profile has been updated. Review your details in the portal.',
+    actionUrl: '/client-portal/profile',
+  }),
+
+  memberProfileUpdatedForStaff: (
+    memberName: string,
+    memberNumber: string,
+    memberId: string,
+  ) => ({
+    title: 'Member Profile Updated',
+    message: `The profile for ${memberName} (${memberNumber}) was updated.`,
+    actionUrl: `/members/${memberId}`,
+  }),
+
   // Admin templates
   pendingLoanApproval: (clientName: string, amount: number, loanId: string) => ({
     title: 'New Loan Application',
@@ -190,6 +209,17 @@ export const NotificationTemplates = {
   pendingKycReview: (clientName: string, docType: string, memberId: string) => ({
     title: 'KYC Document Pending Review',
     message: `${clientName} has submitted ${formatDocType(docType)} for verification.`,
+    actionUrl: `/members/${memberId}`,
+  }),
+
+  kycReadyForReviewStaff: (
+    memberName: string,
+    memberNumber: string,
+    docType: string,
+    memberId: string,
+  ) => ({
+    title: 'KYC Documents Ready for Review',
+    message: `${memberName} (${memberNumber}) has successfully uploaded KYC documents (${formatDocType(docType)}) and they are ready for review.`,
     actionUrl: `/members/${memberId}`,
   }),
 

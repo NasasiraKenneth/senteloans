@@ -4,10 +4,20 @@ import { authOptions } from "@/lib/auth"
 import { runWithAuth, runWithoutAuth } from "@/lib/db"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
 import { auditLogger } from "@/lib/audit/audit-logger"
-import { resolveActorContext, hasPermission } from "@/lib/api/rbac"
+import {
+  assertNotSuperAdmin,
+  hasPermission,
+  resolveActorContext,
+  SUPER_ADMIN_WRITE_BLOCKED,
+} from "@/lib/api/rbac"
 import { createTransaction } from "@/lib/transactions/create-transaction"
-import { assertBranchActive, type BranchStatus } from "@/lib/branches/branch-status"
-import { assertMemberActiveRow, type MemberStatus } from "@/lib/members/member-status"
+import {
+  assertMemberAndBranchActive,
+  memberRouteDenialBody,
+  memberRouteHttpStatus,
+  memberWriteGateRouteError,
+  type MemberRouteHttpStatusGroups,
+} from "@/lib/members/member-status"
 import { applyDailyFinanceEntry } from "@/lib/finances/daily-finance"
 import { getBranchBankAccount, adjustBankAccountBalance, type BankAccountRow } from "@/lib/finances/bank-account"
 import { createInvoiceWithItems } from "@/lib/invoices/create-invoice"
@@ -25,6 +35,47 @@ type SharePurchasePostCommit = {
   shares: { numberOfShares: number; totalValue: number }
   transaction: { id: string; transaction_number: string; amount: number }
   invoice: { id: string; invoice_number: string; total_amount: number }
+}
+
+const SHARES_GET_STATUS_GROUPS: MemberRouteHttpStatusGroups = {
+  forbidden: ["missing_permission:view_members", "forbidden", "no_app_user_profile"],
+  notFound: ["member_not_found"],
+  defaultStatus: 400,
+}
+
+const SHARES_POST_STATUS_GROUPS: MemberRouteHttpStatusGroups = {
+  forbidden: ["forbidden", "no_app_user", "missing_permission:edit_shares", SUPER_ADMIN_WRITE_BLOCKED],
+  notFound: ["member_not_found", "institution_not_found"],
+  badRequest: [
+    "shares_transaction_account_missing",
+    "reference_number_required",
+    "bank_account_required",
+    "bank_account_not_found",
+    "invalid_mode",
+    "invoice_payments_table_missing",
+    "invoices_table_missing",
+    "shares_disabled",
+    "share_value_not_configured",
+  ],
+  serverError: ["shares_transaction_failed"],
+  defaultStatus: 400,
+}
+
+function sharesRouteDenialResponse(
+  result: Record<string, unknown>,
+  groups: MemberRouteHttpStatusGroups,
+) {
+  const error = String(result.error)
+  return NextResponse.json(
+    memberRouteDenialBody({
+      error,
+      memberStatus: result.memberStatus as never,
+      branchStatus: result.branchStatus as never,
+      message: typeof result.message === "string" ? result.message : undefined,
+      detail: typeof result.detail === "string" ? result.detail : undefined,
+    }),
+    { status: memberRouteHttpStatus(error, groups) },
+  )
 }
 
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -65,13 +116,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     })
 
     if (result && "error" in result) {
-      const status =
-        result.error === "missing_permission:view_members" || result.error === "forbidden" || result.error === "no_app_user_profile"
-          ? 403
-          : result.error === "member_not_found"
-            ? 404
-            : 400
-      return NextResponse.json({ error: result.error }, { status })
+      return sharesRouteDenialResponse(result as Record<string, unknown>, SHARES_GET_STATUS_GROUPS)
     }
     apiLog("info", "member.shares.list.success", { method: "GET", apiPath, status: 200, memberId, authUserId: session.user.authUserId })
     return NextResponse.json(result)
@@ -156,33 +201,20 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const result = await runWithAuth(session.user.authUserId, async (client) => {
       const actor = await resolveActorContext(client, session!.user!.authUserId)
       if (!actor) return { error: "no_app_user" as const }
+
+      const writeGuard = assertNotSuperAdmin(actor)
+      if (!writeGuard.ok) {
+        return { error: writeGuard.error, message: writeGuard.message }
+      }
+
       const allowed = await hasPermission(client, actor, "edit_shares")
       if (!allowed) return { error: "missing_permission:edit_shares" as const }
 
-      const memberRes = await client.query(
-        `SELECT id, institution_id, branch_id, full_name, member_number, email, status FROM members WHERE id = $1`,
-        [memberId]
-      )
-      const memberRow = memberRes.rows[0]
-      if (!memberRow) return { error: "member_not_found" as const }
-      if (memberRow.institution_id !== actor.institution_id) return { error: "forbidden" as const }
-
-      const memberCheck = assertMemberActiveRow(memberRow)
-      if (!memberCheck.ok) {
-        return {
-          error: memberCheck.error as "member_inactive",
-          memberStatus: memberCheck.status as MemberStatus,
-        }
+      const gate = await assertMemberAndBranchActive(client, memberId, actor.institution_id)
+      if (gate.ok === false) {
+        return memberWriteGateRouteError(gate)!
       }
-
-      // Reusable branch gate: block share purchases against inactive branches.
-      const branchCheck = await assertBranchActive(client, memberRow.branch_id)
-      if (!branchCheck.ok) {
-        return {
-          error: branchCheck.error as "branch_not_found" | "branch_inactive",
-          branchStatus: branchCheck.error === "branch_inactive" ? branchCheck.status : undefined,
-        }
-      }
+      const memberRow = gate.member
 
       const cfgRes = await client.query(
         `SELECT shares, share_value, minimum_shares, maximum_shares, currency
@@ -473,38 +505,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     })
 
     if (result && "error" in result) {
-      const status =
-        result.error === "forbidden" ||
-        result.error === "no_app_user" ||
-        result.error === "missing_permission:edit_shares" ||
-        result.error === "branch_inactive" ||
-        result.error === "branch_not_found" ||
-        result.error === "member_inactive"
-          ? 403
-          : result.error === "member_not_found" || result.error === "institution_not_found"
-            ? 404
-            : result.error === "shares_transaction_account_missing" ||
-                result.error === "reference_number_required" ||
-                result.error === "bank_account_required" ||
-                result.error === "bank_account_not_found" ||
-                result.error === "invalid_mode" ||
-                result.error === "invoice_payments_table_missing" ||
-                result.error === "invoices_table_missing"
-              ? 400
-            : result.error === "shares_transaction_failed"
-              ? 500
-              : 400
-      const payload: Record<string, unknown> = { error: result.error }
-      if ("detail" in result && (result as { detail?: string }).detail) {
-        payload.detail = (result as { detail?: string }).detail
-      }
-      if ("branchStatus" in result && (result as { branchStatus?: BranchStatus }).branchStatus) {
-        payload.branch_status = (result as { branchStatus?: BranchStatus }).branchStatus
-      }
-      if ("memberStatus" in result && (result as { memberStatus?: MemberStatus }).memberStatus) {
-        payload.member_status = (result as { memberStatus?: MemberStatus }).memberStatus
-      }
-      return NextResponse.json(payload, { status })
+      return sharesRouteDenialResponse(result as Record<string, unknown>, SHARES_POST_STATUS_GROUPS)
     }
     apiLog("info", "member.shares.create.success", { method: "POST", apiPath, status: 200, memberId, authUserId: session.user.authUserId })
 

@@ -1,3 +1,4 @@
+import type { Buffer } from "node:buffer"
 import type { PoolClient } from "pg"
 import {
   renderTransactionDetailPdfBuffer,

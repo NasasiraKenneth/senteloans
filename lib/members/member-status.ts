@@ -128,3 +128,117 @@ export async function assertMemberAndBranchActive(
 
   return { ok: true, member: memberCheck.member }
 }
+
+export type MemberWriteGateRouteError = {
+  error: MemberWriteGateError
+  memberStatus?: MemberStatus
+  branchStatus?: BranchStatus
+}
+
+/** Convert a failed write gate into the route-handler error shape used across member APIs. */
+export function memberWriteGateRouteError(
+  gate: MemberWriteGateResult,
+): MemberWriteGateRouteError | null {
+  if (gate.ok) return null
+  return {
+    error: gate.error,
+    memberStatus: gate.memberStatus,
+    branchStatus: gate.branchStatus,
+  }
+}
+
+/** HTTP status for member/branch write-gate failures. */
+export function memberWriteGateHttpStatus(error: string): number {
+  if (error === "member_not_found") return 404
+  if (
+    error === "member_inactive" ||
+    error === "branch_inactive" ||
+    error === "branch_not_found"
+  ) {
+    return 403
+  }
+  return 403
+}
+
+/** JSON body for member route denial responses (write gate, permissions, etc.). */
+export function memberRouteDenialBody(result: {
+  error: string
+  memberStatus?: MemberStatus
+  branchStatus?: BranchStatus
+  message?: string
+  detail?: string
+  includeCode?: boolean
+}): Record<string, unknown> {
+  const payload: Record<string, unknown> = { error: result.error }
+  if (result.includeCode !== false) payload.code = result.error
+  if (result.memberStatus) payload.member_status = result.memberStatus
+  if (result.branchStatus) payload.branch_status = result.branchStatus
+  if (result.message) payload.message = result.message
+  if (result.detail) payload.detail = result.detail
+  return payload
+}
+
+export type MemberRouteHttpStatusGroups = {
+  forbidden?: readonly string[]
+  notFound?: readonly string[]
+  badRequest?: readonly string[]
+  serverError?: readonly string[]
+  defaultStatus?: number
+}
+
+/** Classify route error codes to HTTP status, falling back to write-gate rules. */
+export function memberRouteHttpStatus(
+  error: string,
+  groups: MemberRouteHttpStatusGroups = {},
+): number {
+  if (groups.forbidden?.includes(error)) return 403
+  if (groups.notFound?.includes(error)) return 404
+  if (groups.badRequest?.includes(error)) return 400
+  if (groups.serverError?.includes(error)) return 500
+  if (error.startsWith("minimum_shares_") || error.startsWith("maximum_shares_")) return 400
+  return groups.defaultStatus ?? memberWriteGateHttpStatus(error)
+}
+
+export const MEMBER_WRITE_GATE_CLIENT_ERRORS = [
+  "member_inactive",
+  "branch_inactive",
+  "branch_not_found",
+  "member_not_found",
+] as const
+
+export function isMemberWriteGateClientError(code: string): boolean {
+  return (MEMBER_WRITE_GATE_CLIENT_ERRORS as readonly string[]).includes(code)
+}
+
+export type MemberRouteDenial = {
+  error: string
+  memberStatus?: MemberStatus
+  branchStatus?: BranchStatus
+  message?: string
+  detail?: string
+}
+
+export function isMemberRouteDenial(result: unknown): result is MemberRouteDenial {
+  return (
+    typeof result === "object" &&
+    result !== null &&
+    "error" in result &&
+    typeof (result as { error?: unknown }).error === "string"
+  )
+}
+
+/** Client-facing message for member/branch write-gate failures. */
+export function mapMemberWriteGateClientMessage(code: unknown, action = "complete this action"): string {
+  switch (String(code || "")) {
+    case "member_inactive":
+      return `This member is not active. Reactivate the member before ${action}.`
+    case "branch_inactive":
+      return `This member's branch is not active. Reactivate the branch before ${action}.`
+    case "branch_not_found":
+      return `This member's branch could not be found. Assign an active branch before ${action}.`
+    case "member_not_found":
+      return "Member not found."
+    default:
+      return String(code || "Unexpected error")
+  }
+}

@@ -13,6 +13,7 @@ import Popover from "@mui/material/Popover"
 import ReeveDatePicker, { parseDateOnly } from "@/components/newUI/date_picker"
 import TooltipButton from "@/components/newUI/tooltip_button"
 import { useToast } from "@/components/ui/toast"
+import { readClientTerminology } from "@/lib/institution-branch-config"
 
 interface MemberRegistrationFormProps {
   onClose?: () => void
@@ -378,7 +379,7 @@ export function MemberRegistrationForm({ onClose }: MemberRegistrationFormProps)
     }
   }
 
-  const clientTerminology = session?.institution?.config?.clientTerminology || "Member"
+  const clientTerminology = readClientTerminology(session?.institution?.config)
 
   const sections = [
     { id: "reg-personal", label: "Personal Info", icon: User },

@@ -86,12 +86,14 @@ describe("GET /api/client/kyc-docs", () => {
               rows: [
                 {
                   id: "doc-1",
-                  doc_type: "national_id_back",
-                  url: "https://example.com/id-back-pending.jpg",
-                  status: "pending_review",
+                  doc_type: "national_id",
+                  passport_photo: "https://example.com/passport.jpg",
+                  document_front: "https://example.com/id-front.jpg",
+                  document_back: "https://example.com/id-back.jpg",
+                  status: "verified",
                   rejection_reason: null,
                   created_at: "2024-01-02",
-                  reviewed_at: null,
+                  reviewed_at: "2024-01-03",
                 },
               ],
             }
@@ -107,8 +109,8 @@ describe("GET /api/client/kyc-docs", () => {
     expect(response.status).toBe(200)
     expect(body.ok).toBe(true)
     expect(body.kycStatus).toBe("Approved")
-    expect(body.docs.passport_photo.current_verified).toBeTruthy()
-    expect(body.docs.national_id_back.pending).toBeTruthy()
+    expect(body.docs.passport_photo.current_verified?.url).toBe("https://example.com/passport.jpg")
+    expect(body.docs.national_id_back.current_verified?.url).toBe("https://example.com/id-back.jpg")
   })
 })
 
@@ -167,6 +169,9 @@ describe("POST /api/client/kyc-docs", () => {
       createPgMock({
         onQuery: (sql) => {
           const s = normalizeSql(sql)
+          if (s.includes("select id") && s.includes("member_kyc_docs")) {
+            return { rows: [] }
+          }
           if (s.includes("insert into member_kyc_docs")) {
             return { rows: [{ id: "doc-123", created_at: "2024-01-01" }] }
           }

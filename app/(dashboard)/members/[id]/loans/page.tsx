@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { useStaffSession } from "@/components/staff-session-provider"
 import { ArrowLeft, CreditCard, DollarSign, TrendingUp, AlertCircle, CheckCircle, Clock } from "lucide-react"
 import Link from "next/link"
+import { readClientTerminology } from "@/lib/institution-branch-config"
 
 export default function UserLoansPage() {
   const params = useParams()
@@ -58,15 +59,18 @@ export default function UserLoansPage() {
   if (loading) {
     return (
       <>
-        <div className="text-center">
-          <p>Loading...</p>
+        <div className="flex min-h-[70vh] w-full items-center justify-center">
+          <div className="text-center">
+            <div className="mx-auto mb-4 h-8 w-8 animate-spin rounded-full border-b-2 border-primary"></div>
+            <p className="text-muted-foreground">Loading ...</p>
+          </div>
         </div>
       </>
     )
   }
 
   if (!user) {
-    const clientTerm = session?.institution?.config?.clientTerminology || "User"
+    const clientTerm = readClientTerminology(session?.institution?.config, "User")
     return (
       <>
         <div className="text-center">
@@ -122,7 +126,7 @@ export default function UserLoansPage() {
     }
   }
 
-  const clientTerm = session?.institution?.config?.clientTerminology || "User"
+  const clientTerm = readClientTerminology(session?.institution?.config, "User")
   const totalLoanAmount = loans.reduce((sum, loan) => sum + loan.principalAmount, 0)
   const totalOutstanding = loans.reduce((sum, loan) => sum + loan.outstandingBalance, 0)
   const activeLoanCount = loans.filter((loan) => loan.status === "Disbursed").length
@@ -132,7 +136,7 @@ export default function UserLoansPage() {
       <div className="max-w-6xl mx-auto space-y-6">
             {/* Header */}
             <div className="flex items-center space-x-4">
-              <Link href={`/users/${userId}`}>
+              <Link href={`/members/${userId}`}>
                 <Button variant="ghost" size="icon">
                   <ArrowLeft className="h-4 w-4" />
                 </Button>

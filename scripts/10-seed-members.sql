@@ -349,51 +349,30 @@ BEGIN
     )
     ON CONFLICT (institution_id, member_number) DO NOTHING;
 
-    -- Seed member KYC documents (passport + national ID rows in member_kyc_docs)
+    -- Seed member KYC documents (one row per member in member_kyc_docs)
     INSERT INTO member_kyc_docs (
-        institution_id, branch_id, member_id, doc_type, passport_photo, status, reviewed_at
+        institution_id, branch_id, member_id, doc_type,
+        passport_photo, document_front, document_back, status, reviewed_at
     )
-    SELECT m.institution_id, m.branch_id, m.id, 'passport', v.passport_photo, v.doc_status,
+    SELECT m.institution_id, m.branch_id, m.id, 'national_id',
+           v.passport_photo, v.document_front, v.document_back, v.doc_status,
            CASE WHEN v.doc_status = 'verified' THEN NOW() ELSE NULL END
     FROM members m
     JOIN (VALUES
-        ('SL001', '/passport-photo-of-sarah-nakamya.png', 'verified'),
-        ('SL002', '/passport-photo-of-james-mukasa.png', 'verified'),
-        ('SL003', '/passport-photo-of-grace-namugga.png', 'pending_review'),
-        ('SL004', '/passport-photo-of-robert-kiwanuka.png', 'verified'),
-        ('QC001', '/passport-photo-of-moses-kiprotich.png', 'verified'),
-        ('QC002', '/passport-photo-of-betty-nakato.png', 'verified'),
-        ('QC003', '/passport-photo-of-james-okello.png', 'verified'),
-        ('OM001', '/passport-photo-of-agnes-namutebi.png', 'verified'),
-        ('OM002', '/passport-photo-of-kampala-womens-group.png', 'verified'),
-        ('OM003', '/passport-photo-of-patricia-nabirye.png', 'verified')
-    ) AS v(member_number, passport_photo, doc_status) ON m.member_number = v.member_number
+        ('SL001', '/passport-photo-of-sarah-nakamya.png', '/uganda-national-id-front-cm1234567890123.png', '/uganda-national-id-back.png', 'verified'),
+        ('SL002', '/passport-photo-of-james-mukasa.png', '/uganda-national-id-front-cm2345678901234.png', '/uganda-national-id-back.png', 'verified'),
+        ('SL003', '/passport-photo-of-grace-namugga.png', '/uganda-national-id-front-cm3456789012345.png', '/uganda-national-id-back.png', 'pending_review'),
+        ('SL004', '/passport-photo-of-robert-kiwanuka.png', '/uganda-national-id-front-cm4567890123456.png', '/uganda-national-id-back.png', 'verified'),
+        ('QC001', '/passport-photo-of-moses-kiprotich.png', '/uganda-national-id-front-cm7890123456789.png', '/uganda-national-id-back.png', 'verified'),
+        ('QC002', '/passport-photo-of-betty-nakato.png', '/uganda-national-id-front-cm8901234567890.png', '/uganda-national-id-back.png', 'verified'),
+        ('QC003', '/passport-photo-of-james-okello.png', '/uganda-national-id-front-cm9012345678901.png', '/uganda-national-id-back.png', 'verified'),
+        ('OM001', '/passport-photo-of-agnes-namutebi.png', '/uganda-national-id-front-cm0123456789012.png', '/uganda-national-id-back.png', 'verified'),
+        ('OM002', '/passport-photo-of-kampala-womens-group.png', '/uganda-national-id-front-gr5678901234567.png', '/uganda-national-id-back.png', 'verified'),
+        ('OM003', '/passport-photo-of-patricia-nabirye.png', '/uganda-national-id-front-cm6789012345678.png', '/uganda-national-id-back.png', 'verified')
+    ) AS v(member_number, passport_photo, document_front, document_back, doc_status) ON m.member_number = v.member_number
     WHERE NOT EXISTS (
         SELECT 1 FROM member_kyc_docs d
-        WHERE d.member_id = m.id AND d.doc_type = 'passport'
-    );
-
-    INSERT INTO member_kyc_docs (
-        institution_id, branch_id, member_id, doc_type, document_front, document_back, status, reviewed_at
-    )
-    SELECT m.institution_id, m.branch_id, m.id, 'national_id', v.document_front, v.document_back, v.doc_status,
-           CASE WHEN v.doc_status = 'verified' THEN NOW() ELSE NULL END
-    FROM members m
-    JOIN (VALUES
-        ('SL001', '/uganda-national-id-front-cm1234567890123.png', '/uganda-national-id-back.png', 'verified'),
-        ('SL002', '/uganda-national-id-front-cm2345678901234.png', '/uganda-national-id-back.png', 'verified'),
-        ('SL003', '/uganda-national-id-front-cm3456789012345.png', '/uganda-national-id-back.png', 'pending_review'),
-        ('SL004', '/uganda-national-id-front-cm4567890123456.png', '/uganda-national-id-back.png', 'verified'),
-        ('QC001', '/uganda-national-id-front-cm7890123456789.png', '/uganda-national-id-back.png', 'verified'),
-        ('QC002', '/uganda-national-id-front-cm8901234567890.png', '/uganda-national-id-back.png', 'verified'),
-        ('QC003', '/uganda-national-id-front-cm9012345678901.png', '/uganda-national-id-back.png', 'verified'),
-        ('OM001', '/uganda-national-id-front-cm0123456789012.png', '/uganda-national-id-back.png', 'verified'),
-        ('OM002', '/uganda-national-id-front-gr5678901234567.png', '/uganda-national-id-back.png', 'verified'),
-        ('OM003', '/uganda-national-id-front-cm6789012345678.png', '/uganda-national-id-back.png', 'verified')
-    ) AS v(member_number, document_front, document_back, doc_status) ON m.member_number = v.member_number
-    WHERE NOT EXISTS (
-        SELECT 1 FROM member_kyc_docs d
-        WHERE d.member_id = m.id AND d.doc_type = 'national_id'
+        WHERE d.member_id = m.id
     );
 
 END $$;

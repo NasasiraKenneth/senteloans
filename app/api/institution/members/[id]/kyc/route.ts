@@ -3,7 +3,13 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { runWithAuth, runWithoutAuth } from "@/lib/db"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
-import { assertMemberAndBranchActive } from "@/lib/members/member-status"
+import {
+  assertMemberAndBranchActive,
+  isMemberRouteDenial,
+  memberRouteDenialBody,
+  memberWriteGateHttpStatus,
+  memberWriteGateRouteError,
+} from "@/lib/members/member-status"
 import { notifyKycUploaded } from "@/lib/notifications/kyc-events"
 import { enqueueKycUploadedEmail, type KycEmailContext } from "@/lib/email/kyc-emails"
 import {
@@ -12,7 +18,14 @@ import {
   resolveActorContext,
   SUPER_ADMIN_WRITE_BLOCKED,
 } from "@/lib/api/rbac"
-import { isLegacyKycField, upsertKycDocField } from "@/lib/members/kyc-docs"
+import {
+  fetchStaffMemberKycFormDocs,
+  isMemberKycDocSetComplete,
+  parseKycUploadPayload,
+  type KycDocType,
+  type MemberKycDocRow,
+  upsertKycDocFields,
+} from "@/lib/members/kyc-docs"
 
 type KycStaffUploadPostCommit = {
   actorId: string
@@ -25,19 +38,60 @@ type KycStaffUploadPostCommit = {
     member_number: string
     email: string
   }
-  docType: string
+  docType: KycDocType
+  readyForReview: boolean
+}
+
+export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const apiPath = getApiPath(req)
+  try {
+    const { id: memberId } = await params
+
+    const session = await getServerSession(authOptions)
+    if (!session?.user?.authUserId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+    if (session.user.type !== "staff") {
+      return NextResponse.json({ error: "forbidden" }, { status: 403 })
+    }
+
+    const result = await runWithAuth(session.user.authUserId, async (client) => {
+      const actor = await resolveActorContext(client, session!.user!.authUserId)
+      if (!actor) return { error: "forbidden" as const }
+
+      const allowed = await hasPermission(client, actor, "view_members")
+      if (!allowed) return { error: "missing_permission:view_members" as const }
+
+      const gate = await assertMemberAndBranchActive(client, memberId, actor.institution_id)
+      const gateError = memberWriteGateRouteError(gate)
+      if (gateError) return gateError
+
+      const docs = await fetchStaffMemberKycFormDocs(client, memberId)
+      return { ok: true as const, docs }
+    })
+
+    if (isMemberRouteDenial(result)) {
+      const status = memberWriteGateHttpStatus(result.error)
+      return NextResponse.json(memberRouteDenialBody(result), { status })
+    }
+
+    return NextResponse.json(result)
+  } catch (e: unknown) {
+    const err = e as Error
+    apiLog("error", "member.kyc.fetch.error", { method: "GET", apiPath, status: 500, error: err?.message || "Unknown error" })
+    return NextResponse.json({ error: err?.message || "Unknown error" }, { status: 500 })
+  }
 }
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const apiPath = getApiPath(req)
   try {
     const { id: memberId } = await params
-    const body = (await req.json()) as { docType?: string; url?: string }
-    if (!body?.docType || !body?.url || !isLegacyKycField(body.docType)) {
+    const body = await req.json().catch(() => null)
+    const uploads = parseKycUploadPayload(body)
+    if (!uploads) {
       return NextResponse.json({ error: "Invalid payload" }, { status: 400 })
     }
-    const legacyField = body.docType
-    const uploadUrl = body.url
 
     const session = await getServerSession(authOptions)
     if (!session?.user?.authUserId) {
@@ -64,30 +118,36 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       if (!allowed) return { error: "missing_permission:edit_kyc" as const }
 
       const gate = await assertMemberAndBranchActive(client, memberId, actor.institution_id)
-      if (!gate.ok) {
-        return {
-          error: gate.error,
-          memberStatus: gate.memberStatus,
-          branchStatus: gate.branchStatus,
-        }
+      if (gate.ok === false) {
+        return memberWriteGateRouteError(gate)!
       }
+      const memberRow = gate.member
 
-      const memberRes = await client.query(
-        `SELECT id, branch_id, full_name, member_number, email FROM members WHERE id = $1 AND institution_id = $2`,
-        [memberId, actor.institution_id],
-      )
-      const memberRow = memberRes.rows[0]
-      if (!memberRow) return { error: "member_not_found" as const }
-
-      const saved = await upsertKycDocField(client, {
+      const saved = await upsertKycDocFields(client, {
         memberId,
         institutionId: actor.institution_id,
         branchId: String(memberRow.branch_id || actor.branch_id || ""),
-        field: legacyField,
-        url: uploadUrl,
-        status: "verified",
-        reviewedBy: actor.id,
+        uploads,
+        status: "pending_review",
       })
+
+      const kycRowRes = await client.query<MemberKycDocRow>(
+        `SELECT doc_type, passport_photo, document_front, document_back, status
+         FROM member_kyc_docs
+         WHERE member_id = $1
+         LIMIT 1`,
+        [memberId],
+      )
+      const kycRow = kycRowRes.rows[0]
+      const docType = (kycRow?.doc_type || saved.docTypes[0] || "national_id") as KycDocType
+      const readyForReview = kycRow ? isMemberKycDocSetComplete(kycRow) : false
+
+      if (readyForReview) {
+        await client.query(
+          `UPDATE members SET kyc_status = 'Pending', modified_by = $1, updated_at = NOW() WHERE id = $2`,
+          [actor.id, memberId],
+        )
+      }
 
       const instRes = await client.query<{ name: string }>(
         `SELECT name FROM institutions WHERE id = $1`,
@@ -105,19 +165,17 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
           member_number: String(memberRow.member_number || ""),
           email: memberRow.email ? String(memberRow.email) : "",
         },
-        docType: saved.legacyField,
+        docType,
+        readyForReview,
       }
 
-      return { ok: true, docId: saved.docId }
+      return { ok: true, saved: saved.saved, docs: await fetchStaffMemberKycFormDocs(client, memberId) }
     })
 
-    if (result && "error" in result) {
+    if (isMemberRouteDenial(result)) {
       const status =
-        result.error === "member_not_found" ? 404 :
         result.error === SUPER_ADMIN_WRITE_BLOCKED || result.error === "missing_permission:edit_kyc" ? 403 :
-        result.error === "member_inactive" || result.error === "branch_inactive" || result.error === "branch_not_found" || result.error === "forbidden"
-          ? 403
-          : 403
+        memberWriteGateHttpStatus(result.error)
       apiLog("warn", "member.kyc.upload.denied", {
         method: "POST",
         apiPath,
@@ -126,14 +184,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         memberId,
         authUserId: session.user.authUserId,
       })
-      const payload: Record<string, unknown> = { error: result.error, code: result.error }
-      if ("memberStatus" in result && result.memberStatus) payload.member_status = result.memberStatus
-      if ("branchStatus" in result && result.branchStatus) payload.branch_status = result.branchStatus
-      return NextResponse.json(payload, { status })
+      return NextResponse.json(memberRouteDenialBody(result), { status })
     }
 
     const ctx = postCommit as KycStaffUploadPostCommit | null
-    if (ctx) {
+    if (ctx?.readyForReview) {
       try {
         const notifyRes = await runWithoutAuth((notifyClient) =>
           notifyKycUploaded({
@@ -141,6 +196,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
             actor: { id: ctx.actorId, institution_id: ctx.institutionId, branch_id: ctx.branchId },
             member: ctx.member,
             docType: ctx.docType,
+            readyForReview: true,
           }),
         )
         apiLog(notifyRes.ok ? "info" : "warn",
@@ -152,12 +208,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
             memberId,
             docType: ctx.docType,
             memberNotifications: notifyRes.memberNotifications,
+            staffNotifications: notifyRes.staffNotifications,
             ...(notifyRes.errors.length ? { errors: notifyRes.errors } : {}),
           },
         )
       } catch (notifyErr) {
         apiLog("error", "member.kyc.upload.notifications_failed", {
-          method: "POST", apiPath, status: 200, memberId,
+          method: "POST", apiPath, status: 200, memberId, docType: ctx.docType,
           error: (notifyErr as Error)?.message || "notify_failed",
         })
       }
@@ -181,13 +238,20 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         }
       } catch (emailErr) {
         apiLog("error", "member.kyc.upload.email_enqueue_failed", {
-          method: "POST", apiPath, status: 200, memberId,
+          method: "POST", apiPath, status: 200, memberId, docType: ctx.docType,
           error: (emailErr as Error)?.message || "email_failed",
         })
       }
     }
 
-    apiLog("info", "member.kyc.upload.success", { method: "POST", apiPath, status: 200, memberId, authUserId: session.user.authUserId })
+    apiLog("info", "member.kyc.upload.success", {
+      method: "POST",
+      apiPath,
+      status: 200,
+      memberId,
+      authUserId: session.user.authUserId,
+      uploadCount: uploads.length,
+    })
     return NextResponse.json(result)
   } catch (e: unknown) {
     const err = e as Error

@@ -6,6 +6,7 @@ import { getInstitutionRecipientsWithPermission } from "./admin-recipients"
 
 const PERMISSIONS = {
   members: "view_members",
+  editKyc: "edit_kyc",
 } as const
 
 export interface KycActor {
@@ -36,6 +37,11 @@ export interface NotifyKycReviewInput {
   member: KycMember
   docType: string
   reason?: string
+}
+
+export interface NotifyKycUploadedInput extends NotifyKycReviewInput {
+  /** When true, staff with edit_kyc are notified (actor included). */
+  readyForReview?: boolean
 }
 
 export interface NotifyKycResult {
@@ -125,15 +131,24 @@ export async function notifyKycSubmitted(
   return { ok: errors.length === 0, memberNotifications, staffNotifications, errors }
 }
 
-/** Member receives `kyc_submitted` when staff uploads a document on their behalf. */
+/**
+ * Member receives `kyc_submitted` when staff uploads on their behalf.
+ * When `readyForReview` is true, every staff user with `edit_kyc` (including
+ * the actor) receives `pending_kyc_review`.
+ */
 export async function notifyKycUploaded(
-  input: NotifyKycReviewInput,
+  input: NotifyKycUploadedInput,
 ): Promise<NotifyKycResult> {
   const errors: string[] = []
   let memberNotifications = 0
+  let staffNotifications = 0
+
+  if (!input.readyForReview) {
+    return { ok: true, memberNotifications: 0, staffNotifications: 0, errors }
+  }
 
   const tpl = NotificationTemplates.kycUploaded(input.docType)
-  const res = await notificationService.create(
+  const memberRes = await notificationService.create(
     {
       institutionId: input.actor.institution_id,
       branchId: input.actor.branch_id,
@@ -147,13 +162,58 @@ export async function notifyKycUploaded(
     },
     input.client,
   )
-  if (res.ok) {
+  if (memberRes.ok) {
     memberNotifications = 1
-  } else if (res.error) {
-    errors.push(`member_notifications:${res.error}`)
+  } else if (memberRes.error) {
+    errors.push(`member_notifications:${memberRes.error}`)
   }
 
-  return { ok: errors.length === 0, memberNotifications, staffNotifications: 0, errors }
+  if (input.client) {
+    let recipients: { id: string; branch_id: string | null }[] = []
+    try {
+      recipients = await getInstitutionRecipientsWithPermission(
+        input.client,
+        input.actor.institution_id,
+        PERMISSIONS.editKyc,
+      )
+    } catch (e) {
+      errors.push(`recipients:${PERMISSIONS.editKyc}:${(e as Error)?.message || "lookup_failed"}`)
+    }
+
+    if (recipients.length > 0) {
+      const memberNumber = input.member.member_number?.trim() || "—"
+      const reviewTpl = NotificationTemplates.kycReadyForReviewStaff(
+        input.member.full_name,
+        memberNumber,
+        input.docType,
+        input.member.id,
+      )
+      const staffMessages: CreateNotificationInput[] = recipients.map((r) => ({
+        institutionId: input.actor.institution_id,
+        branchId: r.branch_id ?? input.actor.branch_id,
+        recipientType: "institution_user",
+        recipientId: r.id,
+        type: "pending_kyc_review",
+        title: reviewTpl.title,
+        message: reviewTpl.message,
+        actionUrl: reviewTpl.actionUrl,
+        metadata: {
+          member_id: input.member.id,
+          member_name: input.member.full_name,
+          member_number: memberNumber,
+          doc_type: input.docType,
+        },
+      }))
+      const staffRes = await notificationService.createBulk(staffMessages, input.client)
+      if (staffRes.ok) {
+        staffNotifications = staffRes.count ?? staffMessages.length
+      } else if (staffRes.error) {
+        errors.push(`staff_notifications:pending_kyc_review:${staffRes.error}`)
+      }
+    }
+  }
+
+  return { ok: errors.length === 0, memberNotifications, staffNotifications, errors }
 }
 
 /** Member receives `kyc_approved` after staff verifies a pending document. */

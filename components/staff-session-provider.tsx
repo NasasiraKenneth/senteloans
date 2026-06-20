@@ -5,6 +5,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useState,
   type ReactNode,
@@ -20,9 +21,8 @@ type StaffSessionContextValue = {
 const StaffSessionContext = createContext<StaffSessionContextValue | null>(null)
 
 export function StaffSessionProvider({ children }: { children: ReactNode }) {
-  const [session, setSession] = useState<SessionData | null>(() =>
-    typeof window === "undefined" ? null : getSession(),
-  )
+  // Always null on first render (server + client) so SSR HTML matches hydration.
+  const [session, setSession] = useState<SessionData | null>(null)
 
   const refresh = useCallback(async () => {
     const local = getSession()
@@ -31,6 +31,12 @@ export function StaffSessionProvider({ children }: { children: ReactNode }) {
     const merged = await hydrateStaffSession()
     if (merged) setSession(merged)
     return merged
+  }, [])
+
+  // Sync localStorage before paint to minimize "Sente Loan" flash after hydration.
+  useLayoutEffect(() => {
+    const local = getSession()
+    if (local) setSession(local)
   }, [])
 
   useEffect(() => {

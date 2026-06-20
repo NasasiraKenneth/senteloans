@@ -9,6 +9,7 @@ import {
   notifyKycSubmitted,
   notifyKycApproved,
   notifyKycRejected,
+  notifyKycUploaded,
 } from "@/lib/notifications/kyc-events"
 import { notificationService } from "@/lib/notifications/notification-service"
 import { getInstitutionRecipientsWithPermission } from "@/lib/notifications/admin-recipients"
@@ -52,6 +53,62 @@ describe("notifyKycSubmitted", () => {
     expect(staffMessages[0].type).toBe("pending_kyc_review")
     expect(res.memberNotifications).toBe(1)
     expect(res.staffNotifications).toBe(1)
+  })
+})
+
+describe("notifyKycUploaded", () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    create.mockResolvedValue({ ok: true })
+    createBulk.mockImplementation((messages: unknown[]) =>
+      Promise.resolve({ ok: true, count: messages.length }),
+    )
+    getRecipients.mockResolvedValue([
+      { id: "staff-1", branch_id: "branch-1" },
+      { id: "staff-2", branch_id: "branch-1" },
+    ])
+  })
+
+  it("skips notifications when the doc set is incomplete", async () => {
+    const res = await notifyKycUploaded({
+      actor: { id: "staff-1", institution_id: "inst-1", branch_id: "branch-1" },
+      member: { id: "member-1", full_name: "Jane Doe", member_number: "M-001" },
+      docType: "national_id",
+      readyForReview: false,
+    })
+
+    expect(create).not.toHaveBeenCalled()
+    expect(getRecipients).not.toHaveBeenCalled()
+    expect(res.staffNotifications).toBe(0)
+    expect(res.memberNotifications).toBe(0)
+  })
+
+  it("notifies member and all edit_kyc staff including the actor when complete", async () => {
+    const res = await notifyKycUploaded({
+      client: {} as any,
+      actor: { id: "staff-1", institution_id: "inst-1", branch_id: "branch-1" },
+      member: { id: "member-1", full_name: "Jane Doe", member_number: "M-001" },
+      docType: "national_id",
+      readyForReview: true,
+    })
+
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        recipientType: "member",
+        type: "kyc_submitted",
+        recipientId: "member-1",
+      }),
+      expect.anything(),
+    )
+    expect(getRecipients).toHaveBeenCalledWith(expect.anything(), "inst-1", "edit_kyc")
+    const staffMessages = createBulk.mock.calls[0][0]
+    expect(staffMessages).toHaveLength(2)
+    expect(staffMessages[0].type).toBe("pending_kyc_review")
+    expect(staffMessages[0].message).toContain("Jane Doe")
+    expect(staffMessages[0].message).toContain("M-001")
+    expect(staffMessages[0].message).toContain("ready for review")
+    expect(res.memberNotifications).toBe(1)
+    expect(res.staffNotifications).toBe(2)
   })
 })
 

@@ -1,8 +1,8 @@
-import { createMocks as createNodeMocks } from 'node-mocks-http'
+import { createMocks as createNodeMocks, type RequestMethod } from 'node-mocks-http'
 import { NextRequest, NextResponse } from 'next/server'
 import { MockSession } from './auth-helpers'
 
-export function createMocks(method: string, url: string, body?: any, session?: MockSession) {
+export function createMocks(method: RequestMethod, url: string, body?: any, session?: MockSession) {
   const { req, res } = createNodeMocks({
     method,
     url,
@@ -23,7 +23,7 @@ export function createMocks(method: string, url: string, body?: any, session?: M
 export function mockNextRequest(
   url: string,
   options: {
-    method?: string
+    method?: RequestMethod
     body?: any
     headers?: Record<string, string>
     session?: MockSession

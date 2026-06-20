@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-import { useParams } from "next/navigation"
+import { useParams, useRouter, useSearchParams } from "next/navigation"
 import { useState, useEffect } from "react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -21,11 +21,10 @@ import {
   FileText,
   TrendingUp,
   CheckCircle2,
-  Circle,
+  CircleCheck,
   Shield,
   ShieldCheck,
   AlertCircle,
-  Clock,
   Calculator,
   Plus,
   BookOpen,
@@ -38,7 +37,16 @@ import AddMembershipFeeModal from "../components/membershipFee/add"
 import AddSharesModal from "../components/shares/add"
 import SharesCalculatorModal from "../components/shares/calculator"
 import AddOpeningBalanceModal from "../components/openningBalance/add"
+import AddKycDocumentsModal from "../components/kycDocuments/add"
+import ReviewKycDocumentsModal from "../components/kycDocuments/review"
+import OnboardingChecklist from "../components/onboarding-checklist"
+import { buildMemberKycDocumentSlots, type KycDocType } from "@/lib/members/kyc-docs"
 import { formatCurrency as fmtCurrency } from "@/lib/format-currency"
+import {
+  readClientTerminology,
+  readInstitutionConfigModuleEnabled,
+  readInstitutionCurrency,
+} from "@/lib/institution-branch-config"
 
 const tabPanelMotion = {
   initial: { opacity: 0, y: 10 },
@@ -57,14 +65,70 @@ const staggerItem = {
   show: { opacity: 1, y: 0, transition: { duration: 0.25, ease: [0.4, 0, 0.2, 1] as const } },
 }
 
+type MemberTab = "overview" | "personal" | "financial" | "documents"
+
+function mapMemberFromApi(member: Record<string, unknown>) {
+  const kycDocType = member.kyc_doc_type
+  return {
+    id: String(member.id),
+    clientNumber: member.member_number,
+    fullName: member.full_name,
+    supabaseUserId: member.auth_id || null,
+    dateOfBirth: member.date_of_birth,
+    gender: member.gender,
+    maritalStatus: member.marital_status,
+    clientType: member.member_type,
+    phoneNumber: member.phone_number,
+    email: member.email || "",
+    nationalId: member.national_id || "",
+    district: member.district || "",
+    village: member.village || "",
+    occupation: member.occupation || "",
+    monthlyIncome: member.monthly_income || 0,
+    monthlySavings: member.monthly_savings || 0,
+    notes: member.notes || "",
+    nextOfKinName: member.next_of_kin_name || "",
+    nextOfKinRelationship: member.next_of_kin_relationship || "",
+    nextOfKinPhone: member.next_of_kin_phone || "",
+    passportPhoto: member.passport_photo || "",
+    nationalIdFront: member.national_id_front || "",
+    nationalIdBack: member.national_id_back || "",
+    passportBiodataPage: member.passport_biodata || "",
+    drivingLicenseFront: member.driving_license_front || "",
+    drivingLicenseBack: member.driving_license_back || "",
+    kycDocType:
+      typeof kycDocType === "string" && ["national_id", "passport", "driving_license"].includes(kycDocType)
+        ? (kycDocType as KycDocType)
+        : null,
+    kycDocStatus: member.kyc_doc_status ? String(member.kyc_doc_status) : null,
+    kycDocComplete: Boolean(member.kyc_doc_complete),
+    kycStatus: member.kyc_status,
+    status: member.status,
+    joinDate: member.join_date,
+    numberOfShares: member.number_of_shares || 0,
+    shareValue: member.share_value || 0,
+    totalShareValue: member.total_share_value || 0,
+    mobileMoneyProvider: member.mobile_money_provider || "",
+    mobileMoneyNumber: member.mobile_money_number || "",
+    bankName: member.bank_name || "",
+    bankAccountNumber: member.bank_account_number || "",
+    bankAccountName: member.bank_account_name || "",
+    bankBranch: member.bank_branch || "",
+    carLogbook: null,
+    landTitle: null,
+    bankStatement: null,
+    employmentLetter: null,
+  }
+}
+
 export default function UserProfilePage() {
   const params = useParams()
+  const router = useRouter()
+  const searchParams = useSearchParams()
   const userId = params.id as string
   const { session } = useStaffSession()
   const [user, setUser] = useState<any>(null)
   const [loading, setLoading] = useState(true)
-  const [loadingSavings, setLoadingSavings] = useState(false)
-  const [primarySavingsId, setPrimarySavingsId] = useState<string | null>(null)
   const [savingsBalance, setSavingsBalance] = useState<number>(0)
   const [savingsAccounts, setSavingsAccounts] = useState<any[]>([])
   const [activeLoansCount, setActiveLoansCount] = useState<number>(0)
@@ -76,15 +140,15 @@ export default function UserProfilePage() {
   const [copied, setCopied] = useState(false)
   const [kycPending, setKycPending] = useState<any[]>([])
   const [kycLoading, setKycLoading] = useState(false)
-  const [rejectReason, setRejectReason] = useState("")
-  const [actionBusy, setActionBusy] = useState(false)
   const [membershipFee, setMembershipFee] = useState(0)
   const [membershipFeePaid, setMembershipFeePaid] = useState(0)
-  const [activeTab, setActiveTab] = useState<"overview" | "personal" | "financial" | "documents">("overview")
+  const [activeTab, setActiveTab] = useState<MemberTab>("overview")
   const [showSharesCalculator, setShowSharesCalculator] = useState(false)
   const [showMembershipFeeModal, setShowMembershipFeeModal] = useState(false)
   const [showSharesModal, setShowSharesModal] = useState(false)
   const [showOpeningBalanceModal, setShowOpeningBalanceModal] = useState(false)
+  const [showAddKycModal, setShowAddKycModal] = useState(false)
+  const [showReviewKycModal, setShowReviewKycModal] = useState(false)
   const [canEditShares, setCanEditShares] = useState(false)
   const [canEditMembershipFee, setCanEditMembershipFee] = useState(false)
   const [canEditOpeningSavings, setCanEditOpeningSavings] = useState(false)
@@ -147,51 +211,7 @@ export default function UserProfilePage() {
         if (typeof responseData.membershipFee === "number") setMembershipFee(responseData.membershipFee)
         if (typeof member.membership_fee_paid === "number") setMembershipFeePaid(member.membership_fee_paid)
         if (cancelled) return
-        // Map API client to UI schema without changing UI
-        const mapped = {
-          id: member.id,
-          clientNumber: member.member_number,
-          fullName: member.full_name,
-          supabaseUserId: member.auth_id || null,
-          dateOfBirth: member.date_of_birth,
-          gender: member.gender,
-          maritalStatus: member.marital_status,
-          clientType: member.member_type,
-          phoneNumber: member.phone_number,
-          email: member.email || "",
-          nationalId: member.national_id || "",
-          district: member.district || "",
-          village: member.village || "",
-          occupation: member.occupation || "",
-          monthlyIncome: member.monthly_income || 0,
-          monthlySavings: member.monthly_savings || 0,
-          notes: (member as any).notes || "",
-          nextOfKinName: member.next_of_kin_name || "",
-          nextOfKinRelationship: member.next_of_kin_relationship || "",
-          nextOfKinPhone: member.next_of_kin_phone || "",
-          passportPhoto: member.passport_photo || "",
-          nationalIdFront: member.national_id_front || "",
-          nationalIdBack: member.national_id_back || "",
-          kycStatus: member.kyc_status,
-          status: member.status,
-          joinDate: member.join_date,
-          numberOfShares: member.number_of_shares || 0,
-          shareValue: member.share_value || 0,
-          totalShareValue: member.total_share_value || 0,
-          // payout fields
-          mobileMoneyProvider: member.mobile_money_provider || "",
-          mobileMoneyNumber: member.mobile_money_number || "",
-          bankName: member.bank_name || "",
-          bankAccountNumber: member.bank_account_number || "",
-          bankAccountName: member.bank_account_name || "",
-          bankBranch: member.bank_branch || "",
-          // Mock-only fields retained as fallbacks for UI:
-          carLogbook: null,
-          landTitle: null,
-          bankStatement: null,
-          employmentLetter: null,
-        }
-        setUser(mapped)
+        setUser(mapMemberFromApi(member as Record<string, unknown>))
       } catch (e: any) {
         if (!cancelled) setError(e?.message || "Failed to load client")
       } finally {
@@ -203,6 +223,22 @@ export default function UserProfilePage() {
       cancelled = true
     }
   }, [userId])
+
+  useEffect(() => {
+    const tab = searchParams.get("tab")
+    if (tab === "overview" || tab === "personal" || tab === "financial" || tab === "documents") {
+      setActiveTab(tab)
+    }
+  }, [searchParams])
+
+  const setMemberTab = (tab: MemberTab) => {
+    setActiveTab(tab)
+    router.replace(`/members/${userId}?tab=${tab}`, { scroll: false })
+  }
+
+  const openDocumentsTab = () => {
+    setMemberTab("documents")
+  }
 
   // Load the current staff member's action permissions so we only surface
   // buttons (Buy Shares, Record Fee) they're actually allowed to use.
@@ -236,28 +272,6 @@ export default function UserProfilePage() {
       cancelled = true
     }
   }, [])
-
-  // Fetch client's primary savings account id to power the "View Savings" link
-  useEffect(() => {
-    let cancelled = false
-    async function loadSavings() {
-      if (!user?.id) return
-      setLoadingSavings(true)
-      try {
-        const res = await fetch(`/api/institution/savings?client_id=${encodeURIComponent(user.id)}&limit=1`, { cache: "no-store" })
-        const data = await res.json()
-        if (!res.ok) throw new Error(data?.error || "Failed to load savings")
-        const first = (data.items || [])[0]
-        if (!cancelled) setPrimarySavingsId(first?.id || null)
-      } catch (_e) {
-        if (!cancelled) setPrimarySavingsId(null)
-      } finally {
-        if (!cancelled) setLoadingSavings(false)
-      }
-    }
-    loadSavings()
-    return () => { cancelled = true }
-  }, [user?.id])
 
   // Fetch total savings balance for this client
   useEffect(() => {
@@ -315,30 +329,35 @@ export default function UserProfilePage() {
   }, [user?.id])
 
   // Fetch pending KYC docs for reviewers with edit_kyc permission
+  const loadKycPending = async () => {
+    if (!userId || !canEditKyc) {
+      setKycPending([])
+      setKycLoading(false)
+      return
+    }
+    setKycLoading(true)
+    try {
+      const res = await fetch(`/api/institution/members/${encodeURIComponent(userId)}/kyc/pending`, { cache: "no-store" })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data?.error || "Failed to load KYC docs")
+      setKycPending(data?.pending || [])
+    } catch {
+      setKycPending([])
+    } finally {
+      setKycLoading(false)
+    }
+  }
+
   useEffect(() => {
     let cancelled = false
-    async function loadKyc() {
-      if (!userId || !canEditKyc) {
-        if (!cancelled) {
-          setKycPending([])
-          setKycLoading(false)
-        }
-        return
-      }
-      setKycLoading(true)
-      try {
-        const res = await fetch(`/api/institution/members/${encodeURIComponent(userId)}/kyc/pending`, { cache: "no-store" })
-        const data = await res.json()
-        if (!res.ok) throw new Error(data?.error || "Failed to load KYC docs")
-        if (!cancelled) setKycPending(data?.pending || [])
-      } catch (_e) {
-        if (!cancelled) setKycPending([])
-      } finally {
-        if (!cancelled) setKycLoading(false)
-      }
+    async function load() {
+      await loadKycPending()
+      if (cancelled) return
     }
-    loadKyc()
-    return () => { cancelled = true }
+    void load()
+    return () => {
+      cancelled = true
+    }
   }, [userId, canEditKyc])
 
   function generatePassword(len = 16) {
@@ -399,65 +418,6 @@ export default function UserProfilePage() {
     }
   }
 
-  async function handleApproveKyc(pendingId: string) {
-    if (!userId || !canEditKyc) return
-    try {
-      setActionBusy(true)
-      const res = await fetch(`/api/institution/members/${userId}/kyc/approve`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pendingId }),
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data?.error || "Approve failed")
-      // Reload pending list and client data
-      setKycPending((prev) => prev.filter((item) => item.pendingId !== pendingId))
-      const clientRes = await fetch(`/api/institution/members/${userId}`, { cache: "no-store" })
-      if (clientRes.ok) {
-        const payload = await clientRes.json()
-        const c = payload?.member
-        if (c) {
-          setUser((prev: any) => ({
-            ...prev,
-            passportPhoto: c.passport_photo || prev?.passportPhoto,
-            nationalIdFront: c.national_id_front || prev?.nationalIdFront,
-            nationalIdBack: c.national_id_back || prev?.nationalIdBack,
-            kycStatus: c.kyc_status || prev?.kycStatus,
-          }))
-        }
-      }
-    } catch (e: any) {
-      alert(e?.message || "Failed to approve")
-    } finally {
-      setActionBusy(false)
-    }
-  }
-
-  async function handleRejectKyc(pendingId: string) {
-    if (!userId || !canEditKyc) return
-    const reason = rejectReason.trim()
-    if (!reason) {
-      alert("Rejection reason is required")
-      return
-    }
-    try {
-      setActionBusy(true)
-      const res = await fetch(`/api/institution/members/${userId}/kyc/reject`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pendingId, reason }),
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data?.error || "Reject failed")
-      setKycPending((prev) => prev.filter((item) => item.pendingId !== pendingId))
-      setRejectReason("")
-    } catch (e: any) {
-      alert(e?.message || "Failed to reject")
-    } finally {
-      setActionBusy(false)
-    }
-  }
-
   if (loading) {
     return (
       <>
@@ -472,7 +432,7 @@ export default function UserProfilePage() {
   }
 
   if (!user) {
-    const clientTerm = session?.institution?.config?.clientTerminology || "User"
+    const clientTerm = readClientTerminology(session?.institution?.config, "User")
     return (
       <>
             <div className="text-center">
@@ -487,7 +447,7 @@ export default function UserProfilePage() {
     )
   }
 
-  const currency = session?.institution?.config?.currency || "UGX"
+  const currency = readInstitutionCurrency(session?.institution?.config)
   const formatCurrency = (amount: number) => fmtCurrency(amount, currency)
 
   const refreshMembershipFee = async () => {
@@ -500,6 +460,21 @@ export default function UserProfilePage() {
       if (typeof data.membershipFeePaid === "number") setMembershipFeePaid(data.membershipFeePaid)
     } catch {
       // ignore; UI keeps current values
+    }
+  }
+
+  const refreshMemberDocs = async () => {
+    if (!userId) return
+    try {
+      const res = await fetch(`/api/institution/members/${userId}`, { cache: "no-store" })
+      if (!res.ok) return
+      const data = await res.json()
+      const member = data?.member
+      if (!member) return
+      const mapped = mapMemberFromApi(member as Record<string, unknown>)
+      setUser((prev: any) => (prev ? { ...prev, ...mapped } : mapped))
+    } catch {
+      // Best-effort refresh after upload.
     }
   }
 
@@ -526,15 +501,15 @@ export default function UserProfilePage() {
     })
   }
 
-  const clientTerm = session?.institution?.config?.clientTerminology || "User"
-  const hasSharesFeature = session?.institution?.config?.modules?.shares
+  const clientTerm = readClientTerminology(session?.institution?.config, "User")
+  const hasSharesFeature = readInstitutionConfigModuleEnabled(session?.institution?.config, "shares")
   // Show the shares section when the module is on or the member already holds
   // shares, but only allow *buying* when the module is enabled AND the staff
   // member has the edit_shares permission.
   const showShares = Boolean(hasSharesFeature || (user?.numberOfShares && user.numberOfShares > 0))
   const canBuyShares = Boolean(hasSharesFeature && canEditShares)
   const canRecordOpeningBalance = canEditOpeningSavings || canEditOpeningLoans
-  const hasSavings = session?.institution?.config?.modules?.savings
+  const hasSavings = readInstitutionConfigModuleEnabled(session?.institution?.config, "savings")
 
   const initials = user.fullName
     .split(" ")
@@ -542,6 +517,18 @@ export default function UserProfilePage() {
     .join("")
     .slice(0, 2)
     .toUpperCase()
+
+  const kycDocumentSlots = buildMemberKycDocumentSlots(
+    {
+      passportPhoto: user.passportPhoto || null,
+      passportBiodataPage: user.passportBiodataPage || null,
+      nationalIdFront: user.nationalIdFront || null,
+      nationalIdBack: user.nationalIdBack || null,
+      drivingLicenseFront: user.drivingLicenseFront || null,
+      drivingLicenseBack: user.drivingLicenseBack || null,
+    },
+    user.kycDocType ?? null,
+  )
 
   return (
     <>
@@ -656,19 +643,12 @@ export default function UserProfilePage() {
                     </Button>
                   </Link>
                   {hasSavings && (
-                    primarySavingsId ? (
-                      <Link href={`/savings/${primarySavingsId}`}>
-                        <Button variant="outline" size="sm">
-                          <PiggyBank className="h-4 w-4 mr-2" />
-                          Savings
-                        </Button>
-                      </Link>
-                    ) : (
-                      <Button variant="outline" size="sm" disabled title={loadingSavings ? "Loading..." : "No savings account found"}>
+                    <Link href={`/members/${user.id}/savings`}>
+                      <Button variant="outline" size="sm">
                         <PiggyBank className="h-4 w-4 mr-2" />
                         Savings
                       </Button>
-                    )
+                    </Link>
                   )}
                   <Link href={`/members/${user.id}/edit`}>
                     <Button variant="outline" size="sm">
@@ -738,7 +718,7 @@ export default function UserProfilePage() {
                   <button
                     key={t.key}
                     type="button"
-                    onClick={() => setActiveTab(t.key)}
+                    onClick={() => setMemberTab(t.key)}
                     className={cn(
                       "relative inline-flex items-center gap-2 whitespace-nowrap px-1 py-3 text-sm font-medium transition-colors duration-200",
                       activeTab === t.key
@@ -769,65 +749,26 @@ export default function UserProfilePage() {
             {/* Overview tab */}
             {activeTab === "overview" && (
             <motion.div key="overview" className="space-y-6" {...tabPanelMotion}>
-            {/* Onboarding Checklist */}
-            {(() => {
-              const kycComplete = Boolean(user.passportPhoto && user.nationalIdFront && user.nationalIdBack)
-              const payoutComplete = Boolean(
-                (user.mobileMoneyProvider && user.mobileMoneyNumber) ||
-                  (user.bankName && user.bankAccountNumber && user.bankAccountName && user.bankBranch)
-              )
-              const notesNokComplete = Boolean(user.notes && user.nextOfKinName && user.nextOfKinPhone)
-              const items = [
-                { key: "kyc", label: "Upload KYC documents", hint: "Passport photo, National ID front & back", done: kycComplete, href: `/members/${user.id}/edit#kyc` },
-                { key: "payout", label: "Add payout account", hint: "Mobile Money or Bank Account", done: payoutComplete, href: `/members/${user.id}/edit#payout` },
-                { key: "notes", label: "Add notes & next of kin", hint: "Notes and next-of-kin contact", done: notesNokComplete, href: `/members/${user.id}/edit#notes` },
-              ]
-              const doneCount = items.filter((i) => i.done).length
-              const allDone = doneCount === items.length
-              if (allDone) return null
-
-              return (
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between gap-4">
-                    <div>
-                      <h2 className="text-lg font-semibold">Onboarding Checklist</h2>
-                      <p className="text-sm text-muted-foreground">Complete these steps to finish setup</p>
-                    </div>
-                    <span className="shrink-0 rounded-full bg-muted px-3 py-1 text-xs font-semibold text-muted-foreground">
-                      {doneCount} of {items.length} done
-                    </span>
-                  </div>
-
-                  <motion.div
-                    variants={staggerContainer}
-                    initial="hidden"
-                    animate="show"
-                    className="divide-y divide-border overflow-hidden rounded-xl border border-border"
-                  >
-                    {items.map((i) => (
-                      <motion.div key={i.key} variants={staggerItem} className="flex items-center justify-between gap-4 p-4">
-                        <div className="flex items-center gap-3">
-                          {i.done ? (
-                            <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-600" />
-                          ) : (
-                            <Circle className="h-5 w-5 shrink-0 text-muted-foreground" />
-                          )}
-                          <div>
-                            <p className={cn("text-sm font-medium", i.done && "text-muted-foreground line-through")}>{i.label}</p>
-                            <p className="text-xs text-muted-foreground">{i.hint}</p>
-                          </div>
-                        </div>
-                        {!i.done && (
-                          <Link href={i.href}>
-                            <Button size="sm" variant="outline">Complete</Button>
-                          </Link>
-                        )}
-                      </motion.div>
-                    ))}
-                  </motion.div>
-                </div>
-              )
-            })()}
+            <OnboardingChecklist
+              member={{
+                id: user.id,
+                kycStatus: user.kycStatus,
+                kycDocType: user.kycDocType,
+                kycDocStatus: user.kycDocStatus,
+                kycDocComplete: user.kycDocComplete,
+                mobileMoneyProvider: user.mobileMoneyProvider,
+                mobileMoneyNumber: user.mobileMoneyNumber,
+                bankName: user.bankName,
+                bankAccountNumber: user.bankAccountNumber,
+                bankAccountName: user.bankAccountName,
+                bankBranch: user.bankBranch,
+                notes: user.notes,
+                nextOfKinName: user.nextOfKinName,
+                nextOfKinRelationship: user.nextOfKinRelationship,
+                nextOfKinPhone: user.nextOfKinPhone,
+              }}
+              onOpenDocuments={openDocumentsTab}
+            />
 
             {/* Account Summary */}
             <div className="space-y-4">
@@ -1242,99 +1183,37 @@ export default function UserProfilePage() {
                     </div>
                   </div>
                   {canEditKyc && (
-                    <Link href={`/members/${user.id}/edit#kyc`}>
-                      <Button variant="outline" size="sm">
-                        <Plus className="h-4 w-4 mr-2" />
-                        Verify Documents
+                    <div className="flex gap-2">
+                      <Button variant="outline" size="sm" onClick={() => setShowReviewKycModal(true)}>
+                        <CircleCheck className="h-4 w-4 mr-2" />
+                        Verify
+                        {kycPending.length > 0 ? (
+                          <span className="ml-1.5 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-100 px-1.5 text-[10px] font-semibold text-amber-800">
+                            {kycPending.length}
+                          </span>
+                        ) : null}
                       </Button>
-                    </Link>
+                      <Button variant="outline" size="sm" onClick={() => setShowAddKycModal(true)}>
+                        <Plus className="h-4 w-4 mr-2" />
+                        Add Documents
+                      </Button>
+                    </div>
                   )}
                 </div>
 
                 <div className="grid grid-cols-1 items-start gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                  <DocImage label="Passport Photo" src={user.passportPhoto} width={300} height={375} wide />
-                  <DocImage label="National ID (Front)" src={user.nationalIdFront} width={400} height={240} wide />
-                  <DocImage label="National ID (Back)" src={user.nationalIdBack} width={400} height={240} wide />
-                </div>
-              </motion.div>
-
-            {/* KYC Documents Review */}
-            {canEditKyc && kycPending.length > 0 && (
-              <motion.div variants={staggerItem} className="space-y-4 rounded-xl border border-border bg-card p-5">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-2.5">
-                    <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-amber-100">
-                      <Shield className="h-4 w-4 text-amber-600" />
-                    </div>
-                    <div>
-                      <h2 className="text-base font-semibold">KYC Documents Review</h2>
-                      <p className="text-xs text-muted-foreground">Pending documents submitted for verification</p>
-                    </div>
-                  </div>
-                  <Badge variant="outline" className="shrink-0 border-amber-200 bg-amber-50 text-amber-700">
-                    {kycPending.length} pending
-                  </Badge>
-                </div>
-
-                <div className="space-y-3">
-                  {kycLoading ? (
-                    <p className="text-sm text-muted-foreground">Loading...</p>
-                  ) : (
-                    kycPending.map((item: any) => (
-                      <div key={item.pendingId} className="rounded-lg border border-border bg-muted/30 p-4">
-                        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                          <div className="min-w-0 flex-1 space-y-2">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <Badge variant="outline" className="bg-card">
-                                <Clock className="mr-1 h-3 w-3" />
-                                {item.docType.replaceAll("_", " ")}
-                              </Badge>
-                              <span className="text-xs text-muted-foreground">
-                                Submitted {new Date(item.submittedAt).toLocaleDateString()}
-                              </span>
-                            </div>
-                            <a
-                              href={item.url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-block text-sm font-medium text-primary hover:underline"
-                            >
-                              View Document →
-                            </a>
-                          </div>
-                          <div className="flex shrink-0 items-center gap-2">
-                            <Button size="sm" onClick={() => handleApproveKyc(item.pendingId)} disabled={actionBusy}>
-                              Approve
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="destructive"
-                              onClick={() => handleRejectKyc(item.pendingId)}
-                              disabled={actionBusy}
-                            >
-                              Reject
-                            </Button>
-                          </div>
-                        </div>
-                      </div>
-                    ))
-                  )}
-
-                  <div className="rounded-lg border border-dashed border-border p-4">
-                    <p className="mb-2 text-sm font-medium">Rejection Reason (if rejecting)</p>
-                    <Input
-                      placeholder="Enter reason for rejection..."
-                      value={rejectReason}
-                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRejectReason(e.target.value)}
-                      className="w-full"
+                  {kycDocumentSlots.map((slot) => (
+                    <DocImage
+                      key={slot.key}
+                      label={slot.label}
+                      src={slot.src}
+                      width={slot.width}
+                      height={slot.height}
+                      wide={slot.wide}
                     />
-                    <p className="mt-2 text-xs text-muted-foreground">
-                      This reason will be shown to the {clientTerm.toLowerCase()} so they can resubmit with corrections.
-                    </p>
-                  </div>
+                  ))}
                 </div>
               </motion.div>
-            )}
 
             {/* Collateral Documents */}
             {session?.institution?.type === "money-lender" && (
@@ -1419,6 +1298,32 @@ export default function UserProfilePage() {
             )}
             </AnimatePresence>
       </div>
+
+      <AddKycDocumentsModal
+        isOpen={showAddKycModal}
+        onClose={() => setShowAddKycModal(false)}
+        memberId={user.id}
+        initialDocs={{
+          passportPhoto: user.passportPhoto || "",
+          passportBiodataPage: user.passportBiodataPage || "",
+          nationalIdFront: user.nationalIdFront || "",
+          nationalIdBack: user.nationalIdBack || "",
+          drivingLicenseFront: user.drivingLicenseFront || "",
+          drivingLicenseBack: user.drivingLicenseBack || "",
+        }}
+        onSuccess={refreshMemberDocs}
+      />
+
+      <ReviewKycDocumentsModal
+        isOpen={showReviewKycModal}
+        onClose={() => setShowReviewKycModal(false)}
+        memberId={user.id}
+        pending={kycPending}
+        loading={kycLoading}
+        onSuccess={async () => {
+          await Promise.all([loadKycPending(), refreshMemberDocs()])
+        }}
+      />
 
       <AddMembershipFeeModal
         isOpen={showMembershipFeeModal}

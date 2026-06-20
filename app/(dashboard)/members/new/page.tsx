@@ -5,11 +5,12 @@ import { MemberRequirementsCard } from "@/components/member-requirements-card"
 import { ArrowLeft } from "lucide-react"
 import Link from "next/link"
 import { useStaffSession } from "@/components/staff-session-provider"
+import { readClientTerminology } from "@/lib/institution-branch-config"
 
 export default function NewMemberPage() {
   const { session } = useStaffSession()
 
-  const clientTerminology = session?.institution?.config?.clientTerminology || "Member"
+  const clientTerminology = readClientTerminology(session?.institution?.config)
 
   return (
     <div className="max-w-5xl mx-auto space-y-5">
