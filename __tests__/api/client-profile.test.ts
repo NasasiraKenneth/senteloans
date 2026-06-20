@@ -74,6 +74,7 @@ describe("GET /api/client/me", () => {
     expect(body.client.id).toBe(MEMBER_ID)
     expect(body.client.fullName).toBe("John Doe")
     expect(body.client.clientNumber).toBe("MEM-001")
+    expect(body.client.avatarUrl).toBeNull()
     expect(body.institution.id).toBe(INSTITUTION_ID)
     expect(body.institution.name).toBe("Test SACCO")
     expect(body.institution.config).toEqual({
@@ -86,6 +87,36 @@ describe("GET /api/client/me", () => {
       currency: "UGX",
       clientTerminology: "Member",
     })
+  })
+
+  it("returns avatarUrl from verified or pending passport photo", async () => {
+    setupPg(
+      createPgMock({
+        onQuery: (sql) => {
+          const s = normalizeSql(sql)
+          if (s.includes("from member_kyc_docs")) {
+            return {
+              rows: [
+                {
+                  doc_type: "national_id",
+                  passport_photo: "https://example.com/pending-passport.jpg",
+                  document_front: null,
+                  document_back: null,
+                  status: "pending_review",
+                },
+              ],
+            }
+          }
+          return undefined
+        },
+      }),
+    )
+
+    const response = await GET_ME()
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(body.client.avatarUrl).toBe("https://example.com/pending-passport.jpg")
   })
 })
 

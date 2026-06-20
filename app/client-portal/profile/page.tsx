@@ -62,7 +62,7 @@ export default function ProfilePage() {
   type KycDocStatus = "missing" | "pending" | "verified" | "rejected"
   type KycDocState = { status: KycDocStatus; currentUrl: string; pendingUrl: string; reason: string; pendingId?: string | null }
 
-  const { data, clientTerminology } = useClientSession()
+  const { data, clientTerminology, refresh } = useClientSession()
   const currentClient = data?.client
   const institution = data?.institution
   const [isEditing, setIsEditing] = useState(false)
@@ -264,6 +264,9 @@ export default function ProfilePage() {
         return next
       })
       toast({ title: "Uploaded", description: "Document submitted for review.", variant: "success" })
+      if (docType === "passport_photo") {
+        await refresh()
+      }
     } catch (e: any) {
       toast({ title: "Upload failed", description: e?.message || "Unexpected error", variant: "destructive" })
       throw e
@@ -577,7 +580,7 @@ export default function ProfilePage() {
                 <FileUpload
                   label="Passport Photo"
                   description="Upload a clear passport-style photo (JPG, PNG, or PDF)"
-                  currentUrl={kycDocs.passportPhoto.currentUrl}
+                  currentUrl={kycDocs.passportPhoto.pendingUrl || kycDocs.passportPhoto.currentUrl}
                   uploading={!!kycUploading["passport_photo"]}
                   onUpload={(file) => handleKycUpload("passport_photo", file)}
                   accept="image/*,application/pdf"

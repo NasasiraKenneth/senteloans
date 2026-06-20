@@ -10,11 +10,45 @@ import {
   mapPendingKycRows,
   parseKycUploadPayload,
   pickKycDisplayUrl,
+  resolveClientAvatarUrl,
   uploadFieldToTarget,
   upsertKycDocFields,
 } from "@/lib/members/kyc-docs"
 
 describe("lib/members/kyc-docs", () => {
+  it("prefers verified passport for client avatar, then pending", () => {
+    expect(
+      resolveClientAvatarUrl([
+        {
+          doc_type: "national_id",
+          passport_photo: "https://example.com/pending.jpg",
+          document_front: null,
+          document_back: null,
+          status: "pending_review",
+        },
+      ]),
+    ).toBe("https://example.com/pending.jpg")
+
+    expect(
+      resolveClientAvatarUrl([
+        {
+          doc_type: "national_id",
+          passport_photo: "https://example.com/pending.jpg",
+          document_front: null,
+          document_back: null,
+          status: "pending_review",
+        },
+        {
+          doc_type: "national_id",
+          passport_photo: "https://example.com/verified.jpg",
+          document_front: "https://example.com/front.jpg",
+          document_back: "https://example.com/back.jpg",
+          status: "verified",
+        },
+      ]),
+    ).toBe("https://example.com/verified.jpg")
+  })
+
   it("maps legacy upload fields to member_kyc_docs columns", () => {
     expect(legacyFieldToTarget("passport_photo")).toEqual({
       docType: "passport",

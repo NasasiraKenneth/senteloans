@@ -89,7 +89,7 @@ export default function ClientPortalPage() {
   const [clientTransactions, setClientTransactions] = useState<ClientTransaction[]>([])
   const [txAggregates, setTxAggregates] = useState({ totalSavings: 0, totalShares: 0 })
   const [shareUnits, setShareUnits] = useState(0)
-  const [showBalance, setShowBalance] = useState(true)
+  const [showBalance, setShowBalance] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
 
   const hasSavings = institution?.config?.modules?.savings

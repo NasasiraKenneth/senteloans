@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { runWithAuth } from "@/lib/db"
-import { fetchMemberKycFlatUrls } from "@/lib/members/kyc-docs"
+import { fetchMemberKycClientAvatarUrl } from "@/lib/members/kyc-docs"
 import { normalizeBranchConfig } from "@/lib/institution-branch-config"
 
 export async function GET() {
@@ -37,11 +37,11 @@ export async function GET() {
          LIMIT 1`,
         [row.branch_id]
       )
-      const kycUrls = await fetchMemberKycFlatUrls(client, row.id)
+      const kycAvatarUrl = await fetchMemberKycClientAvatarUrl(client, row.id)
       return {
         client: row,
         institution: inst,
-        avatarUrl: kycUrls.passport_photo,
+        avatarUrl: kycAvatarUrl,
         config: normalizeBranchConfig(cfgRes.rows[0] as Record<string, unknown> | undefined, String(inst.type)),
       }
     })

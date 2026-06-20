@@ -327,6 +327,28 @@ export async function fetchMemberKycFlatUrls(client: PoolClient, memberId: strin
   return snapshot.flatUrls
 }
 
+/** Client portal avatar: verified passport first, then pending upload awaiting review. */
+export function resolveClientAvatarUrl(rows: MemberKycDocRow[]): string | null {
+  const verified = verifiedKycRow(rows)
+  const verifiedPhoto = verified?.passport_photo?.trim()
+  if (verifiedPhoto) return verifiedPhoto
+
+  const pending = rows.find(
+    (row) => row.status === "pending_review" && Boolean(row.passport_photo?.trim()),
+  )
+  return pending?.passport_photo?.trim() || null
+}
+
+export async function fetchMemberKycClientAvatarUrl(client: PoolClient, memberId: string): Promise<string | null> {
+  const res = await client.query<MemberKycDocRow>(
+    `SELECT doc_type, passport_photo, document_front, document_back, status
+     FROM member_kyc_docs
+     WHERE member_id = $1`,
+    [memberId],
+  )
+  return resolveClientAvatarUrl(res.rows)
+}
+
 export async function fetchStaffMemberKycSnapshot(client: PoolClient, memberId: string): Promise<MemberKycSnapshot> {
   return fetchMemberKycSnapshot(client, memberId, "staff")
 }
