@@ -23,6 +23,7 @@ import {
   PiggyBank,
   Plus,
   User,
+  FileText,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { ClientPortalClient, ClientPortalInstitution } from "@/lib/client-session-types"
@@ -96,6 +97,7 @@ export function ClientPortalHeader({
     ...(modules?.shares
       ? [{ name: "Shares", href: "/client-portal/shares", icon: PieChart }]
       : []),
+    { name: "Invoices", href: "/client-portal/invoices", icon: FileText },
   ]
 
   return (

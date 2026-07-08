@@ -1,34 +1,29 @@
 "use client"
 
-import { useState, useEffect } from "react"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
+import { Suspense, useState, useEffect, useCallback, useMemo } from "react"
+import { useRouter, useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Progress } from "@/components/ui/progress"
-import { FileUpload } from "@/components/ui/file-upload"
-import { upload } from "@vercel/blob/client"
-import {
-  ArrowLeft,
-  Camera,
-  Upload,
-  CheckCircle,
-  Clock,
-  AlertCircle,
-  Smartphone,
-  Building,
-  Shield,
-  Eye,
-  EyeOff,
-} from "lucide-react"
-import Link from "next/link"
+import { Eye, EyeOff, CreditCard, Lock, Shield, User } from "lucide-react"
 import { useToast } from "@/components/ui/toast"
-import { ClientPortalPageHeader } from "@/components/client-portal-page-header"
+import { KycTabView } from "@/app/client-portal/profile/kyc-tab-view"
+import {
+  ProfileCard,
+  ProfileField,
+  ProfileHeader,
+  ProfileLoadingSkeleton,
+  ProfileRow,
+  ProfileTabNav,
+  ProfileTabPanel,
+  ProfileToggleRow,
+  profileInputClass,
+  type ProfileTabConfig,
+} from "@/components/client-portal-profile-ui"
 import { useClientSession } from "@/components/client-session-provider"
 import type { ClientPortalClient } from "@/lib/client-session-types"
+import { computeClientKycProgress, parseProfileTab, type ProfileTab } from "@/lib/client-portal-kyc"
+import type { KycDocType, KycUploadField, MemberKycDocRow } from "@/lib/members/kyc-docs"
+import { MEMBER_TRANSACTIONAL_EMAIL_TYPES } from "@/lib/email/seed-member-preferences"
 
 function seedProfileForms(client: ClientPortalClient) {
   return {
@@ -58,18 +53,53 @@ function seedProfileForms(client: ClientPortalClient) {
   }
 }
 
-export default function ProfilePage() {
-  type KycDocStatus = "missing" | "pending" | "verified" | "rejected"
-  type KycDocState = { status: KycDocStatus; currentUrl: string; pendingUrl: string; reason: string; pendingId?: string | null }
+const PROFILE_TABS: ProfileTabConfig[] = [
+  { id: "personal", label: "Personal", icon: User },
+  { id: "kyc", label: "KYC", icon: Shield },
+  { id: "payment", label: "Payment", icon: CreditCard },
+  { id: "security", label: "Security", icon: Lock },
+]
 
-  const { data, clientTerminology, refresh } = useClientSession()
+export default function ProfilePage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-[50vh] items-center justify-center text-muted-foreground">
+          Loading profile...
+        </div>
+      }
+    >
+      <ProfilePageContent />
+    </Suspense>
+  )
+}
+
+function clientInitials(fullName: string): string {
+  return fullName
+    .split(" ")
+    .map((part) => part[0] ?? "")
+    .join("")
+    .slice(0, 2)
+    .toUpperCase()
+}
+
+function ProfilePageContent() {
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const { data, clientTerminology, refresh, formatMoney } = useClientSession()
   const currentClient = data?.client
   const institution = data?.institution
   const [isEditing, setIsEditing] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState("personal")
+  const [activeTab, setActiveTab] = useState<ProfileTab>(() => parseProfileTab(searchParams.get("tab")))
   const [showPassword, setShowPassword] = useState(false)
+  const [kycError, setKycError] = useState<string | null>(null)
+  const [kycRow, setKycRow] = useState<MemberKycDocRow | null>(null)
+  const [kycDocType, setKycDocType] = useState<KycDocType>("national_id")
+  const [kycUploading, setKycUploading] = useState<Record<string, boolean>>({})
+  const [personalDraft, setPersonalDraft] = useState<ReturnType<typeof seedProfileForms>["personalInfo"] | null>(null)
+  const [prefsSaving, setPrefsSaving] = useState(false)
   const { toast } = useToast()
 
   // Form states
@@ -89,16 +119,6 @@ export default function ProfilePage() {
     nextOfKinPhone: "",
   })
 
-  // KYC docs state (client portal)
-  const [kycDocs, setKycDocs] = useState<{ passportPhoto: KycDocState; nationalIdFront: KycDocState; nationalIdBack: KycDocState }>(
-    {
-      passportPhoto: { status: "missing", currentUrl: "", pendingUrl: "", reason: "", pendingId: null },
-      nationalIdFront: { status: "missing", currentUrl: "", pendingUrl: "", reason: "", pendingId: null },
-      nationalIdBack: { status: "missing", currentUrl: "", pendingUrl: "", reason: "", pendingId: null },
-    },
-  )
-  const [kycUploading, setKycUploading] = useState<{ [k: string]: boolean }>({})
-
   const [paymentInfo, setPaymentInfo] = useState({
     mobileMoneyProvider: "",
     mobileMoneyNumber: "",
@@ -109,6 +129,7 @@ export default function ProfilePage() {
   })
   const [isSavingPayment, setIsSavingPayment] = useState(false)
   const [isEditingPayment, setIsEditingPayment] = useState(false)
+  const [paymentDraft, setPaymentDraft] = useState<ReturnType<typeof seedProfileForms>["paymentInfo"] | null>(null)
 
   const [securitySettings, setSecuritySettings] = useState({
     currentPassword: "",
@@ -120,6 +141,62 @@ export default function ProfilePage() {
   })
   const [isChangingPassword, setIsChangingPassword] = useState(false)
 
+  const kycProgress = useMemo(
+    () => computeClientKycProgress(kycDocType, kycRow),
+    [kycDocType, kycRow],
+  )
+
+  const loadKyc = useCallback(async () => {
+    try {
+      const kycRes = await fetch("/api/client/kyc-docs", { cache: "no-store" })
+      const k = await kycRes.json()
+      if (!kycRes.ok) throw new Error(k?.error || "Failed to load KYC documents")
+      setKycRow(k.kycRow || null)
+      setKycDocType(k.docType || "national_id")
+      setKycError(null)
+    } catch (e: unknown) {
+      setKycError((e as Error)?.message || "Could not load KYC documents")
+    }
+  }, [])
+
+  const loadNotificationPrefs = useCallback(async () => {
+    try {
+      const res = await fetch("/api/client/notification-preferences", { cache: "no-store" })
+      const data = await res.json()
+      if (!res.ok) return
+      const prefs = data.preferences || []
+      const emailOn = prefs.length > 0 && prefs.every((p: { emailEnabled: boolean }) => p.emailEnabled)
+      const smsOn = prefs.some((p: { smsEnabled: boolean }) => p.smsEnabled)
+      setSecuritySettings((prev) => ({
+        ...prev,
+        emailNotifications: emailOn,
+        smsNotifications: smsOn,
+      }))
+    } catch {
+      // Preferences are optional for initial render
+    }
+  }, [])
+
+  useEffect(() => {
+    setActiveTab(parseProfileTab(searchParams.get("tab")))
+  }, [searchParams])
+
+  const handleTabChange = (tab: ProfileTab) => {
+    setActiveTab(tab)
+    router.replace(`/client-portal/profile?tab=${tab}`, { scroll: false })
+  }
+
+  const startPaymentEdit = () => {
+    setPaymentDraft(paymentInfo)
+    setIsEditingPayment(true)
+  }
+
+  const cancelPaymentEdit = () => {
+    if (paymentDraft) setPaymentInfo(paymentDraft)
+    setPaymentDraft(null)
+    setIsEditingPayment(false)
+  }
+
   useEffect(() => {
     if (!data?.client) return
     let cancelled = false
@@ -128,40 +205,16 @@ export default function ProfilePage() {
     setPersonalInfo(seeded.personalInfo)
     setPaymentInfo(seeded.paymentInfo)
 
-    const loadKyc = async () => {
-      try {
-        const kycRes = await fetch("/api/client/kyc-docs", { cache: "no-store" })
-        if (!kycRes.ok || cancelled) return
-        const k = await kycRes.json()
-        const mapDoc = (node: any): KycDocState => {
-          if (node?.pending) return { status: "pending", currentUrl: node?.current_verified?.url || "", pendingUrl: node?.pending?.url || "", reason: node?.last_rejection?.reason || "", pendingId: node?.pending?.id || null }
-          if (node?.current_verified) return { status: "verified", currentUrl: node?.current_verified?.url || "", pendingUrl: "", reason: node?.last_rejection?.reason || "", pendingId: null }
-          if (node?.last_rejection) return { status: "rejected", currentUrl: "", pendingUrl: "", reason: node?.last_rejection?.reason || "", pendingId: null }
-          return { status: "missing", currentUrl: "", pendingUrl: "", reason: "", pendingId: null }
-        }
-        setKycDocs({
-          passportPhoto: mapDoc(k?.docs?.passport_photo),
-          nationalIdFront: mapDoc(k?.docs?.national_id_front),
-          nationalIdBack: mapDoc(k?.docs?.national_id_back),
-        })
-      } catch {
-        // KYC status is optional for initial render
-      } finally {
-        if (!cancelled) setIsLoading(false)
-      }
+    const load = async () => {
+      await Promise.all([loadKyc(), loadNotificationPrefs()])
+      if (!cancelled) setIsLoading(false)
     }
 
-    void loadKyc()
+    void load()
     return () => {
       cancelled = true
     }
-  }, [data])
-
-  const calculateKycProgress = () => {
-    const totalDocs = Object.keys(kycDocs).length
-    const verifiedDocs = Object.values(kycDocs).filter((doc: any) => doc.status === "verified").length
-    return Math.round((verifiedDocs / totalDocs) * 100)
-  }
+  }, [data, loadKyc, loadNotificationPrefs])
 
   const handlePersonalInfoSave = async () => {
     // Validate only editable fields
@@ -197,6 +250,8 @@ export default function ProfilePage() {
       if (!res.ok) throw new Error(data?.error || "Failed to save profile")
       toast({ title: "Saved", description: "Your profile was updated.", variant: "success" })
       setIsEditing(false)
+      setPersonalDraft(null)
+      await refresh()
     } catch (e: any) {
       toast({ title: "Could not save", description: e?.message || "Unexpected error", variant: "destructive" })
     } finally {
@@ -204,74 +259,55 @@ export default function ProfilePage() {
     }
   }
 
-  const handleCancelReplacement = async (docType: "passport_photo" | "national_id_front" | "national_id_back") => {
-    const state = docType === "passport_photo" ? kycDocs.passportPhoto : docType === "national_id_front" ? kycDocs.nationalIdFront : kycDocs.nationalIdBack
-    if (!state.pendingId) return
-    try {
-      const res = await fetch("/api/client/kyc-docs/cancel", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pendingId: state.pendingId }),
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data?.error || "Failed to cancel")
-      setKycDocs((prev) => {
-        const next = { ...prev }
-        const revertStatus = state.currentUrl ? "verified" : state.reason ? "rejected" : "missing"
-        if (docType === "passport_photo") next.passportPhoto = { ...next.passportPhoto, status: revertStatus as KycDocStatus, pendingUrl: "", pendingId: null }
-        if (docType === "national_id_front") next.nationalIdFront = { ...next.nationalIdFront, status: revertStatus as KycDocStatus, pendingUrl: "", pendingId: null }
-        if (docType === "national_id_back") next.nationalIdBack = { ...next.nationalIdBack, status: revertStatus as KycDocStatus, pendingUrl: "", pendingId: null }
-        return next
-      })
-      toast({ title: "Cancelled", description: "Replacement request was cancelled.", variant: "success" })
-    } catch (e: any) {
-      toast({ title: "Could not cancel", description: e?.message || "Unexpected error", variant: "destructive" })
+  const startPersonalEdit = () => {
+    setPersonalDraft(personalInfo)
+    setIsEditing(true)
+  }
+
+  const cancelPersonalEdit = () => {
+    if (personalDraft) setPersonalInfo(personalDraft)
+    setPersonalDraft(null)
+    setIsEditing(false)
+  }
+
+  const handleKycUploadComplete = async (field: KycUploadField, _pendingId: string | null, _url: string) => {
+    toast({ title: "Uploaded", description: "Document submitted for review.", variant: "success" })
+    await loadKyc()
+    if (field === "passport_photo") {
+      await refresh()
     }
   }
 
-  const handleKycUpload = async (
-    docType: "passport_photo" | "national_id_front" | "national_id_back",
-    file: File,
-  ) => {
-    if (!currentClient?.id) throw new Error("Missing client context")
+  const updateNotificationPrefs = async (emailEnabled: boolean, smsEnabled: boolean) => {
+    setPrefsSaving(true)
     try {
-      setKycUploading((p) => ({ ...p, [docType]: true }))
-      const name = `client-kyc-pending/${currentClient.id}/${docType}-${Date.now()}-${file.name}`
-      const res = await upload(name, file, {
-        handleUploadUrl: "/api/vercel_blob/upload",
-        access: "public",
-        contentType: file.type,
-      })
-      // Persist pending row via client endpoint
-      const endpoint = (() => {
-        const statusByType = docType === "passport_photo" ? kycDocs.passportPhoto.status : docType === "national_id_front" ? kycDocs.nationalIdFront.status : kycDocs.nationalIdBack.status
-        return statusByType === "verified" ? "/api/client/kyc-docs/replace" : "/api/client/kyc-docs"
-      })()
-      const save = await fetch(endpoint, {
-        method: "POST",
+      const res = await fetch("/api/client/notification-preferences", {
+        method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ docType, url: res.url }),
+        body: JSON.stringify({
+          preferences: MEMBER_TRANSACTIONAL_EMAIL_TYPES.map((notificationType) => ({
+            notificationType,
+            emailEnabled,
+            smsEnabled,
+          })),
+        }),
       })
-      const data = await save.json().catch(() => ({}))
-      if (!save.ok) throw new Error(data?.error || "Failed to submit document")
-      // Update UI state to pending
-      setKycDocs((prev) => {
-        const next = { ...prev }
-        const newPendingId = data?.pendingId || null
-        if (docType === "passport_photo") next.passportPhoto = { ...next.passportPhoto, status: "pending", pendingUrl: res.url, pendingId: newPendingId }
-        if (docType === "national_id_front") next.nationalIdFront = { ...next.nationalIdFront, status: "pending", pendingUrl: res.url, pendingId: newPendingId }
-        if (docType === "national_id_back") next.nationalIdBack = { ...next.nationalIdBack, status: "pending", pendingUrl: res.url, pendingId: newPendingId }
-        return next
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data?.error || "Failed to update preferences")
+      setSecuritySettings((prev) => ({
+        ...prev,
+        emailNotifications: emailEnabled,
+        smsNotifications: smsEnabled,
+      }))
+      toast({ title: "Saved", description: "Notification preferences updated.", variant: "success" })
+    } catch (e: unknown) {
+      toast({
+        title: "Could not save",
+        description: (e as Error)?.message || "Unexpected error",
+        variant: "destructive",
       })
-      toast({ title: "Uploaded", description: "Document submitted for review.", variant: "success" })
-      if (docType === "passport_photo") {
-        await refresh()
-      }
-    } catch (e: any) {
-      toast({ title: "Upload failed", description: e?.message || "Unexpected error", variant: "destructive" })
-      throw e
     } finally {
-      setKycUploading((p) => ({ ...p, [docType]: false }))
+      setPrefsSaving(false)
     }
   }
 
@@ -299,6 +335,8 @@ export default function ProfilePage() {
       if (!res.ok) throw new Error(data?.error || "Failed to save payment info")
       toast({ title: "Saved", description: "Payment information updated.", variant: "success" })
       setIsEditingPayment(false)
+      setPaymentDraft(null)
+      await refresh()
     } catch (e: any) {
       toast({ title: "Could not save", description: e?.message || "Unexpected error", variant: "destructive" })
     } finally {
@@ -344,14 +382,7 @@ export default function ProfilePage() {
   }
 
   if (isLoading) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
-          <p className="text-muted-foreground">Loading profile...</p>
-        </div>
-      </div>
-    )
+    return <ProfileLoadingSkeleton />
   }
 
   if (!currentClient || !institution) {
@@ -359,527 +390,315 @@ export default function ProfilePage() {
   }
 
   const currency = institution.config?.currency || "UGX"
-  const kycProgress = calculateKycProgress()
-  const verifiedCount = Object.values(kycDocs).filter((doc: any) => doc.status === "verified").length
-  const remainingDocs = Math.max(0, 3 - verifiedCount)
 
   return (
-    <div className="space-y-6">
-      <ClientPortalPageHeader
-        title="My Profile"
-        description="Manage your account information"
-        backHref="/client-portal"
+    <div className="w-full space-y-6 pb-12">
+      <ProfileHeader
+        fullName={currentClient.fullName}
+        phone={currentClient.phone}
+        avatarUrl={currentClient.avatarUrl}
+        initials={clientInitials(currentClient.fullName)}
+        kycStatus={currentClient.kycStatus}
+        clientTerminology={clientTerminology}
+        joinDate={currentClient.joinDate}
+        kycPercent={kycProgress.percent}
+        kycComplete={kycProgress.complete}
+        onKycClick={() => handleTabChange("kyc")}
       />
 
-        {/* Profile Summary */}
-        <Card>
-          <CardContent className="pt-4">
-            <div className="flex items-center space-x-4">
-              <div className="flex h-16 w-16 items-center justify-center rounded-full bg-muted">
-                <span className="text-2xl font-semibold text-foreground">
-                  {String(currentClient.fullName || "")
-                    .split(" ")
-                    .map((n: string) => n[0])
-                    .join("")}
-                </span>
+      <ProfileTabNav tabs={PROFILE_TABS} activeTab={activeTab} onTabChange={handleTabChange} />
+
+      {activeTab === "personal" ? (
+        <ProfileTabPanel tabKey="personal">
+          <div className="grid gap-6 lg:grid-cols-2">
+            <ProfileCard title="Identity" description="Details captured at onboarding">
+              <div className="divide-y divide-border/60">
+                <ProfileRow label="Full name" value={personalInfo.fullName || "—"} />
+                <ProfileRow label="Email" value={personalInfo.email || "—"} />
+                <ProfileRow label="Phone" value={personalInfo.phoneNumber || "—"} />
+                <ProfileRow label="Date of birth" value={personalInfo.dateOfBirth || "—"} />
+                <ProfileRow
+                  label="Gender"
+                  value={
+                    personalInfo.gender
+                      ? personalInfo.gender.charAt(0).toUpperCase() + personalInfo.gender.slice(1)
+                      : "—"
+                  }
+                />
+                <ProfileRow
+                  label="Marital status"
+                  value={
+                    personalInfo.maritalStatus
+                      ? personalInfo.maritalStatus.charAt(0).toUpperCase() + personalInfo.maritalStatus.slice(1)
+                      : "—"
+                  }
+                />
+                <ProfileRow
+                  label={`Income (${currency})`}
+                  value={personalInfo.monthlyIncome ? formatMoney(Number(personalInfo.monthlyIncome)) : "—"}
+                />
               </div>
-              <div className="flex-1">
-                <h2 className="text-xl font-semibold">{currentClient.fullName}</h2>
-                <p className="text-muted-foreground">{currentClient.phone}</p>
-                <div className="flex items-center space-x-2 mt-1">
-                  <Badge variant={currentClient.kycStatus === "Verified" ? "default" : "outline"}>
-                    {currentClient.kycStatus === "Verified" && <CheckCircle className="w-3 h-3 mr-1" />}
-                    {currentClient.kycStatus === "Pending" && <Clock className="w-3 h-3 mr-1" />}
-                    {currentClient.kycStatus}
-                  </Badge>
-                  <Badge variant="outline">
-                    {clientTerminology} since {currentClient.joinDate}
-                  </Badge>
-                </div>
+            </ProfileCard>
+
+            <ProfileCard
+              title="Contact & next of kin"
+              description="Occupation, location, and emergency contact"
+              editable
+              editing={isEditing}
+              saving={isSaving}
+              onEdit={startPersonalEdit}
+              onCancel={cancelPersonalEdit}
+              onSave={handlePersonalInfoSave}
+            >
+              <div className="grid gap-4 sm:grid-cols-2">
+                <ProfileField label="Occupation" className="sm:col-span-2">
+                  <Input
+                    id="occupation"
+                    value={personalInfo.occupation}
+                    onChange={(e) => setPersonalInfo((prev) => ({ ...prev, occupation: e.target.value }))}
+                    disabled={!isEditing}
+                    readOnly={!isEditing}
+                    className={profileInputClass(isEditing)}
+                  />
+                </ProfileField>
+                <ProfileField label="Village / area">
+                  <Input
+                    id="village"
+                    value={personalInfo.village}
+                    onChange={(e) => setPersonalInfo((prev) => ({ ...prev, village: e.target.value }))}
+                    disabled={!isEditing}
+                    readOnly={!isEditing}
+                    className={profileInputClass(isEditing)}
+                  />
+                </ProfileField>
+                <ProfileField label="District">
+                  <Input
+                    id="district"
+                    value={personalInfo.district}
+                    onChange={(e) => setPersonalInfo((prev) => ({ ...prev, district: e.target.value }))}
+                    disabled={!isEditing}
+                    readOnly={!isEditing}
+                    className={profileInputClass(isEditing)}
+                  />
+                </ProfileField>
+                <ProfileField label="Next of kin" className="sm:col-span-2">
+                  <Input
+                    id="nokName"
+                    placeholder="Name"
+                    value={personalInfo.nextOfKinName}
+                    onChange={(e) => setPersonalInfo((prev) => ({ ...prev, nextOfKinName: e.target.value }))}
+                    disabled={!isEditing}
+                    readOnly={!isEditing}
+                    className={profileInputClass(isEditing)}
+                  />
+                </ProfileField>
+                <ProfileField label="Relationship">
+                  <Input
+                    id="nokRelationship"
+                    value={personalInfo.nextOfKinRelationship}
+                    onChange={(e) =>
+                      setPersonalInfo((prev) => ({ ...prev, nextOfKinRelationship: e.target.value }))
+                    }
+                    disabled={!isEditing}
+                    readOnly={!isEditing}
+                    className={profileInputClass(isEditing)}
+                  />
+                </ProfileField>
+                <ProfileField label="Next of kin phone">
+                  <Input
+                    id="nokPhone"
+                    value={personalInfo.nextOfKinPhone}
+                    onChange={(e) => setPersonalInfo((prev) => ({ ...prev, nextOfKinPhone: e.target.value }))}
+                    disabled={!isEditing}
+                    readOnly={!isEditing}
+                    className={profileInputClass(isEditing)}
+                  />
+                </ProfileField>
               </div>
+            </ProfileCard>
+          </div>
+        </ProfileTabPanel>
+      ) : null}
+
+      {activeTab === "kyc" ? (
+        <ProfileTabPanel tabKey="kyc">
+          {kycError ? (
+            <ProfileCard title="Documents" description="Could not load your KYC documents">
+              <p className="text-sm text-destructive">{kycError}</p>
+              <Button size="sm" variant="outline" className="mt-3" onClick={() => void loadKyc()}>
+                Retry
+              </Button>
+            </ProfileCard>
+          ) : currentClient?.id ? (
+            <KycTabView
+              memberId={currentClient.id}
+              docType={kycDocType}
+              kycRow={kycRow}
+              kycStatus={currentClient.kycStatus}
+              uploading={kycUploading}
+              onUploadingChange={(field, value) =>
+                setKycUploading((prev) => ({ ...prev, [field]: value }))
+              }
+              onUploadComplete={(field, pendingId, url) =>
+                void handleKycUploadComplete(field, pendingId, url)
+              }
+            />
+          ) : null}
+        </ProfileTabPanel>
+      ) : null}
+
+      {activeTab === "payment" ? (
+        <ProfileTabPanel tabKey="payment">
+          <ProfileCard
+            title="Payment details"
+            description="Mobile money and bank account for disbursements"
+            editable
+            editing={isEditingPayment}
+            saving={isSavingPayment}
+            onEdit={startPaymentEdit}
+            onCancel={cancelPaymentEdit}
+            onSave={handlePaymentSave}
+          >
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              <ProfileField label="Mobile money provider">
+                <Input
+                  id="mmProvider"
+                  value={paymentInfo.mobileMoneyProvider}
+                  onChange={(e) => setPaymentInfo((p) => ({ ...p, mobileMoneyProvider: e.target.value }))}
+                  disabled={!isEditingPayment}
+                  readOnly={!isEditingPayment}
+                  className={profileInputClass(isEditingPayment)}
+                />
+              </ProfileField>
+              <ProfileField label="Mobile money number">
+                <Input
+                  id="mmNumber"
+                  value={paymentInfo.mobileMoneyNumber}
+                  onChange={(e) => setPaymentInfo((p) => ({ ...p, mobileMoneyNumber: e.target.value }))}
+                  disabled={!isEditingPayment}
+                  readOnly={!isEditingPayment}
+                  className={profileInputClass(isEditingPayment)}
+                />
+              </ProfileField>
+              <ProfileField label="Bank">
+                <Input
+                  id="bankName"
+                  value={paymentInfo.bankName}
+                  onChange={(e) => setPaymentInfo((p) => ({ ...p, bankName: e.target.value }))}
+                  disabled={!isEditingPayment}
+                  readOnly={!isEditingPayment}
+                  className={profileInputClass(isEditingPayment)}
+                />
+              </ProfileField>
+              <ProfileField label="Branch">
+                <Input
+                  id="bankBranch"
+                  value={paymentInfo.bankBranch}
+                  onChange={(e) => setPaymentInfo((p) => ({ ...p, bankBranch: e.target.value }))}
+                  disabled={!isEditingPayment}
+                  readOnly={!isEditingPayment}
+                  className={profileInputClass(isEditingPayment)}
+                />
+              </ProfileField>
+              <ProfileField label="Account name">
+                <Input
+                  id="accountName"
+                  value={paymentInfo.bankAccountName}
+                  onChange={(e) => setPaymentInfo((p) => ({ ...p, bankAccountName: e.target.value }))}
+                  disabled={!isEditingPayment}
+                  readOnly={!isEditingPayment}
+                  className={profileInputClass(isEditingPayment)}
+                />
+              </ProfileField>
+              <ProfileField label="Account number">
+                <Input
+                  id="accountNumber"
+                  value={paymentInfo.bankAccountNumber}
+                  onChange={(e) => setPaymentInfo((p) => ({ ...p, bankAccountNumber: e.target.value }))}
+                  disabled={!isEditingPayment}
+                  readOnly={!isEditingPayment}
+                  className={profileInputClass(isEditingPayment)}
+                />
+              </ProfileField>
             </div>
-          </CardContent>
-        </Card>
+          </ProfileCard>
+        </ProfileTabPanel>
+      ) : null}
 
-        {/* KYC Progress */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base flex items-center">
-              <Shield className="h-4 w-4 mr-2" />
-              KYC Verification Progress
-            </CardTitle>
-            <CardDescription>Complete your verification to unlock all features</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-2">
-              <div className="flex justify-between text-sm">
-                <span>Verification Progress</span>
-                <span>{kycProgress}% Complete</span>
-              </div>
-              <Progress value={kycProgress} className="h-2" />
-              <p className="text-xs text-muted-foreground">
-                {kycProgress === 100 ? "Verification complete!" : `${remainingDocs} document${remainingDocs === 1 ? "" : "s"} remaining`}
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="grid w-full grid-cols-4">
-            <TabsTrigger value="personal" className="text-xs">
-              Personal
-            </TabsTrigger>
-            <TabsTrigger value="kyc" className="text-xs">
-              KYC
-            </TabsTrigger>
-            <TabsTrigger value="payment" className="text-xs">
-              Payment
-            </TabsTrigger>
-            <TabsTrigger value="security" className="text-xs">
-              Security
-            </TabsTrigger>
-          </TabsList>
-
-          {/* Personal Information Tab */}
-          <TabsContent value="personal" className="space-y-4">
-            {/* Identity & KYC (Read-only) */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Identity & KYC (Read-only)</CardTitle>
-                <CardDescription>Core identity details captured at onboarding</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <Label>Full Name</Label>
-                    <p className="text-sm mt-1">{personalInfo.fullName || "—"}</p>
-                  </div>
-                  <div>
-                    <Label>Email</Label>
-                    <p className="text-sm mt-1">{personalInfo.email || "—"}</p>
-                  </div>
-                  <div>
-                    <Label>Phone Number</Label>
-                    <p className="text-sm mt-1">{personalInfo.phoneNumber || "—"}</p>
-                  </div>
-                  <div>
-                    <Label>Date of Birth</Label>
-                    <p className="text-sm mt-1">{personalInfo.dateOfBirth || "—"}</p>
-                  </div>
-                  <div>
-                    <Label>Gender</Label>
-                    <p className="text-sm mt-1 capitalize">{personalInfo.gender || "—"}</p>
-                  </div>
-                  <div>
-                    <Label>Marital Status</Label>
-                    <p className="text-sm mt-1 capitalize">{personalInfo.maritalStatus || "—"}</p>
-                  </div>
-                  <div>
-                    <Label>Monthly Income ({currency})</Label>
-                    <p className="text-sm mt-1">{personalInfo.monthlyIncome || "—"}</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Contact & Context (Editable) */}
-            <Card>
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <CardTitle className="text-base">Contact & Context</CardTitle>
-                    <CardDescription>Editable: occupation, location, next of kin information</CardDescription>
-                  </div>
-                  <Button
-                    size="sm"
-                    variant={isEditing ? "default" : "outline"}
-                    onClick={() => (isEditing ? handlePersonalInfoSave() : setIsEditing(true))}
-                    disabled={isSaving}
-                  >
-                    {isEditing ? (isSaving ? "Saving..." : "Save Changes") : "Edit"}
-                  </Button>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <Label htmlFor="occupation">Occupation</Label>
-                    <Input
-                      id="occupation"
-                      value={personalInfo.occupation}
-                      onChange={(e) => setPersonalInfo((prev) => ({ ...prev, occupation: e.target.value }))}
-                      disabled={!isEditing}
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="village">Village/Area</Label>
-                    <Input
-                      id="village"
-                      value={personalInfo.village}
-                      onChange={(e) => setPersonalInfo((prev) => ({ ...prev, village: e.target.value }))}
-                      disabled={!isEditing}
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="district">District</Label>
-                    <Input
-                      id="district"
-                      value={personalInfo.district}
-                      onChange={(e) => setPersonalInfo((prev) => ({ ...prev, district: e.target.value }))}
-                      disabled={!isEditing}
-                    />
-                  </div>
-                  <div className="md:col-span-2">
-                    <Label className="block mb-2">Next of Kin Information</Label>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      <div>
-                        <Label htmlFor="nokName">Full Name</Label>
-                        <Input
-                          id="nokName"
-                          value={personalInfo.nextOfKinName}
-                          onChange={(e) => setPersonalInfo((prev) => ({ ...prev, nextOfKinName: e.target.value }))}
-                          disabled={!isEditing}
-                        />
-                      </div>
-                      <div>
-                        <Label htmlFor="nokRelationship">Relationship</Label>
-                        <Input
-                          id="nokRelationship"
-                          value={personalInfo.nextOfKinRelationship}
-                          onChange={(e) =>
-                            setPersonalInfo((prev) => ({ ...prev, nextOfKinRelationship: e.target.value }))
-                          }
-                          disabled={!isEditing}
-                        />
-                      </div>
-                      <div>
-                        <Label htmlFor="nokPhone">Phone Number</Label>
-                        <Input
-                          id="nokPhone"
-                          value={personalInfo.nextOfKinPhone}
-                          onChange={(e) => setPersonalInfo((prev) => ({ ...prev, nextOfKinPhone: e.target.value }))}
-                          disabled={!isEditing}
-                        />
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </CardContent>
-          </Card>
-          </TabsContent>
-
-          {/* KYC Documents Tab */}
-          <TabsContent value="kyc" className="space-y-4">
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">KYC Documents</CardTitle>
-                <CardDescription>Upload identification documents for verification.</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                {/* Passport Photo */}
-                <FileUpload
-                  label="Passport Photo"
-                  description="Upload a clear passport-style photo (JPG, PNG, or PDF)"
-                  currentUrl={kycDocs.passportPhoto.pendingUrl || kycDocs.passportPhoto.currentUrl}
-                  uploading={!!kycUploading["passport_photo"]}
-                  onUpload={(file) => handleKycUpload("passport_photo", file)}
-                  accept="image/*,application/pdf"
-                  maxSize={5}
-                  layout="inline"
-                />
-                <div className="-mt-3 flex items-center justify-between text-xs">
-                  <div className="flex items-center gap-2">
-                    {kycDocs.passportPhoto.status === "verified" && (
-                      <Badge><CheckCircle className="w-3 h-3" /> Verified</Badge>
-                    )}
-                    {kycDocs.passportPhoto.status === "pending" && (
-                      <Badge variant="outline"><Clock className="w-3 h-3" /> Pending Review</Badge>
-                    )}
-                    {kycDocs.passportPhoto.status === "missing" && (
-                      <Badge variant="secondary"><AlertCircle className="w-3 h-3" /> Missing</Badge>
-                    )}
-                    {kycDocs.passportPhoto.status === "rejected" && (
-                      <Badge variant="destructive"><AlertCircle className="w-3 h-3" /> Rejected</Badge>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-3">
-                    {(kycDocs.passportPhoto.status === "rejected" || kycDocs.passportPhoto.status === "verified") && kycDocs.passportPhoto.reason && (
-                      <span className="text-destructive text-xs">Last rejection: {kycDocs.passportPhoto.reason}</span>
-                    )}
-                    {kycDocs.passportPhoto.status === "pending" && kycDocs.passportPhoto.pendingId && kycDocs.passportPhoto.currentUrl && (
-                      <Button size="sm" variant="outline" onClick={() => handleCancelReplacement("passport_photo")}>
-                        Cancel replacement
-                      </Button>
-                    )}
-                  </div>
-                </div>
-
-                {/* National ID (Front) */}
-                <FileUpload
-                  label="National ID (Front)"
-                  description="Upload the front side of your national ID card"
-                  currentUrl={kycDocs.nationalIdFront.currentUrl}
-                  uploading={!!kycUploading["national_id_front"]}
-                  onUpload={(file) => handleKycUpload("national_id_front", file)}
-                  accept="image/*,application/pdf"
-                  maxSize={5}
-                  layout="inline"
-                />
-                <div className="-mt-3 flex items-center justify-between text-xs">
-                  <div className="flex items-center gap-2">
-                    {kycDocs.nationalIdFront.status === "verified" && (
-                      <Badge><CheckCircle className="w-3 h-3" /> Verified</Badge>
-                    )}
-                    {kycDocs.nationalIdFront.status === "pending" && (
-                      <Badge variant="outline"><Clock className="w-3 h-3" /> Pending Review</Badge>
-                    )}
-                    {kycDocs.nationalIdFront.status === "missing" && (
-                      <Badge variant="secondary"><AlertCircle className="w-3 h-3" /> Missing</Badge>
-                    )}
-                    {kycDocs.nationalIdFront.status === "rejected" && (
-                      <Badge variant="destructive"><AlertCircle className="w-3 h-3" /> Rejected</Badge>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-3">
-                    {(kycDocs.nationalIdFront.status === "rejected" || kycDocs.nationalIdFront.status === "verified") && kycDocs.nationalIdFront.reason && (
-                      <span className="text-destructive text-xs">Last rejection: {kycDocs.nationalIdFront.reason}</span>
-                    )}
-                    {kycDocs.nationalIdFront.status === "pending" && kycDocs.nationalIdFront.pendingId && kycDocs.nationalIdFront.currentUrl && (
-                      <Button size="sm" variant="outline" onClick={() => handleCancelReplacement("national_id_front")}>
-                        Cancel replacement
-                      </Button>
-                    )}
-                  </div>
-                </div>
-
-                {/* National ID (Back) */}
-                <FileUpload
-                  label="National ID (Back)"
-                  description="Upload the back side of your national ID card"
-                  currentUrl={kycDocs.nationalIdBack.currentUrl}
-                  uploading={!!kycUploading["national_id_back"]}
-                  onUpload={(file) => handleKycUpload("national_id_back", file)}
-                  accept="image/*,application/pdf"
-                  maxSize={5}
-                  layout="inline"
-                />
-                <div className="-mt-3 flex items-center justify-between text-xs">
-                  <div className="flex items-center gap-2">
-                    {kycDocs.nationalIdBack.status === "verified" && (
-                      <Badge><CheckCircle className="w-3 h-3" /> Verified</Badge>
-                    )}
-                    {kycDocs.nationalIdBack.status === "pending" && (
-                      <Badge variant="outline"><Clock className="w-3 h-3" /> Pending Review</Badge>
-                    )}
-                    {kycDocs.nationalIdBack.status === "missing" && (
-                      <Badge variant="secondary"><AlertCircle className="w-3 h-3" /> Missing</Badge>
-                    )}
-                    {kycDocs.nationalIdBack.status === "rejected" && (
-                      <Badge variant="destructive"><AlertCircle className="w-3 h-3" /> Rejected</Badge>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-3">
-                    {(kycDocs.nationalIdBack.status === "rejected" || kycDocs.nationalIdBack.status === "verified") && kycDocs.nationalIdBack.reason && (
-                      <span className="text-destructive text-xs">Last rejection: {kycDocs.nationalIdBack.reason}</span>
-                    )}
-                    {kycDocs.nationalIdBack.status === "pending" && kycDocs.nationalIdBack.pendingId && kycDocs.nationalIdBack.currentUrl && (
-                      <Button size="sm" variant="outline" onClick={() => handleCancelReplacement("national_id_back")}>
-                        Cancel replacement
-                      </Button>
-                    )}
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* Security Settings Tab */}
-          <TabsContent value="payment" className="space-y-4">
-            <Card>
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <CardTitle className="text-base flex items-center">
-                      <Smartphone className="h-4 w-4 mr-2" />
-                      Mobile Money
-                    </CardTitle>
-                    <CardDescription>Link your mobile money number for fast disbursements</CardDescription>
-                  </div>
-                  <Button
-                    size="sm"
-                    variant={isEditingPayment ? "default" : "outline"}
-                    onClick={() => (isEditingPayment ? handlePaymentSave() : setIsEditingPayment(true))}
-                    disabled={isSavingPayment}
-                  >
-                    {isEditingPayment ? (isSavingPayment ? "Saving..." : "Save Changes") : "Edit"}
-                  </Button>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <Label htmlFor="mmProvider">Provider</Label>
-                    <Input
-                      id="mmProvider"
-                      value={paymentInfo.mobileMoneyProvider}
-                      onChange={(e) => setPaymentInfo((p) => ({ ...p, mobileMoneyProvider: e.target.value }))}
-                      disabled={!isEditingPayment}
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="mmNumber">Phone Number</Label>
-                    <Input
-                      id="mmNumber"
-                      value={paymentInfo.mobileMoneyNumber}
-                      onChange={(e) => setPaymentInfo((p) => ({ ...p, mobileMoneyNumber: e.target.value }))}
-                      disabled={!isEditingPayment}
-                    />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base flex items-center">
-                  <Building className="h-4 w-4 mr-2" />
-                  Bank Account
-                </CardTitle>
-                <CardDescription>Provide bank details for loan disbursements</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <Label htmlFor="bankName">Bank Name</Label>
-                    <Input
-                      id="bankName"
-                      value={paymentInfo.bankName}
-                      onChange={(e) => setPaymentInfo((p) => ({ ...p, bankName: e.target.value }))}
-                      disabled={!isEditingPayment}
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="bankBranch">Branch</Label>
-                    <Input
-                      id="bankBranch"
-                      value={paymentInfo.bankBranch}
-                      onChange={(e) => setPaymentInfo((p) => ({ ...p, bankBranch: e.target.value }))}
-                      disabled={!isEditingPayment}
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="accountName">Account Name</Label>
-                    <Input
-                      id="accountName"
-                      value={paymentInfo.bankAccountName}
-                      onChange={(e) => setPaymentInfo((p) => ({ ...p, bankAccountName: e.target.value }))}
-                      disabled={!isEditingPayment}
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="accountNumber">Account Number</Label>
-                    <Input
-                      id="accountNumber"
-                      value={paymentInfo.bankAccountNumber}
-                      onChange={(e) => setPaymentInfo((p) => ({ ...p, bankAccountNumber: e.target.value }))}
-                      disabled={!isEditingPayment}
-                    />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-          <TabsContent value="security" className="space-y-4">
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Change Password</CardTitle>
-                <CardDescription>Update your account password</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div>
-                  <Label htmlFor="currentPassword">Current Password</Label>
+      {activeTab === "security" ? (
+        <ProfileTabPanel tabKey="security">
+          <div className="grid gap-6 lg:grid-cols-2">
+            <ProfileCard title="Password" description="Update your sign-in password">
+              <div className="space-y-4">
+                <ProfileField label="Current password">
                   <div className="relative">
                     <Input
                       id="currentPassword"
                       type={showPassword ? "text" : "password"}
                       value={securitySettings.currentPassword}
-                      onChange={(e) => setSecuritySettings((prev) => ({ ...prev, currentPassword: e.target.value }))}
+                      onChange={(e) =>
+                        setSecuritySettings((prev) => ({ ...prev, currentPassword: e.target.value }))
+                      }
+                      className="pr-10"
                     />
                     <Button
                       type="button"
                       variant="ghost"
                       size="sm"
-                      className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
+                      className="absolute right-0 top-0 h-9 px-2 hover:bg-transparent"
                       onClick={() => setShowPassword(!showPassword)}
                     >
                       {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                     </Button>
                   </div>
-                </div>
-                <div>
-                  <Label htmlFor="newPassword">New Password</Label>
+                </ProfileField>
+                <ProfileField label="New password">
                   <Input
                     id="newPassword"
                     type="password"
                     value={securitySettings.newPassword}
                     onChange={(e) => setSecuritySettings((prev) => ({ ...prev, newPassword: e.target.value }))}
                   />
-                </div>
-                <div>
-                  <Label htmlFor="confirmPassword">Confirm New Password</Label>
+                </ProfileField>
+                <ProfileField label="Confirm password">
                   <Input
                     id="confirmPassword"
                     type="password"
                     value={securitySettings.confirmPassword}
-                    onChange={(e) => setSecuritySettings((prev) => ({ ...prev, confirmPassword: e.target.value }))}
+                    onChange={(e) =>
+                      setSecuritySettings((prev) => ({ ...prev, confirmPassword: e.target.value }))
+                    }
                   />
-                </div>
-                <Button onClick={handlePasswordChange} className="w-full" disabled={isChangingPassword}>
-                  {isChangingPassword ? "Updating..." : "Update Password"}
+                </ProfileField>
+                <Button onClick={handlePasswordChange} disabled={isChangingPassword} className="w-full">
+                  {isChangingPassword ? "Updating…" : "Update password"}
                 </Button>
-              </CardContent>
-            </Card>
+              </div>
+            </ProfileCard>
 
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Notification Preferences</CardTitle>
-                <CardDescription>Choose how you want to receive notifications</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="font-medium">SMS Notifications</p>
-                    <p className="text-sm text-muted-foreground">Receive payment reminders via SMS</p>
-                  </div>
-                  <Button
-                    variant={securitySettings.smsNotifications ? "default" : "outline"}
-                    size="sm"
-                    onClick={() =>
-                      setSecuritySettings((prev) => ({ ...prev, smsNotifications: !prev.smsNotifications }))
-                    }
-                  >
-                    {securitySettings.smsNotifications ? "Enabled" : "Disabled"}
-                  </Button>
-                </div>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="font-medium">Email Notifications</p>
-                    <p className="text-sm text-muted-foreground">Receive statements and updates via email</p>
-                  </div>
-                  <Button
-                    variant={securitySettings.emailNotifications ? "default" : "outline"}
-                    size="sm"
-                    onClick={() =>
-                      setSecuritySettings((prev) => ({ ...prev, emailNotifications: !prev.emailNotifications }))
-                    }
-                  >
-                    {securitySettings.emailNotifications ? "Enabled" : "Disabled"}
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-        </Tabs>
+            <ProfileCard title="Notifications" description="How we reach you">
+              <ProfileToggleRow
+                label="SMS"
+                description="Payment reminders and alerts"
+                checked={securitySettings.smsNotifications}
+                disabled={prefsSaving}
+                onCheckedChange={(checked) =>
+                  void updateNotificationPrefs(securitySettings.emailNotifications, checked)
+                }
+              />
+              <ProfileToggleRow
+                label="Email"
+                description="Statements and account updates"
+                checked={securitySettings.emailNotifications}
+                disabled={prefsSaving}
+                onCheckedChange={(checked) =>
+                  void updateNotificationPrefs(checked, securitySettings.smsNotifications)
+                }
+              />
+            </ProfileCard>
+          </div>
+        </ProfileTabPanel>
+      ) : null}
     </div>
   )
 }

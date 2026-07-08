@@ -167,7 +167,10 @@ export type MemberKycSnapshot = {
   flatUrls: MemberKycFlatUrls
 }
 
-export function buildMemberKycSnapshot(rows: MemberKycDocRow[], mode: "verified" | "staff"): MemberKycSnapshot {
+export function buildMemberKycSnapshot(
+  rows: MemberKycDocRow[],
+  mode: "verified" | "staff",
+): MemberKycSnapshot {
   const row = mode === "staff" ? staffDisplayKycRow(rows) : verifiedKycRow(rows)
   const docType = row?.doc_type && (KYC_DOC_TYPES as readonly string[]).includes(row.doc_type)
     ? (row.doc_type as KycDocType)

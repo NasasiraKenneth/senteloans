@@ -38,3 +38,30 @@ export async function downloadInvoicePdfFile(params: {
 
   return fileName
 }
+
+export async function downloadClientInvoicePdfFile(params: {
+  invoiceId: string
+  fallbackName: string
+}): Promise<string> {
+  const { invoiceId, fallbackName } = params
+  const url = `/api/client/invoices/${encodeURIComponent(invoiceId)}/pdf?download=1`
+  const res = await fetch(url, { method: "GET" })
+
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}))
+    throw new Error(body?.error || "Failed to generate invoice PDF")
+  }
+
+  const fileName = resolveDownloadFileName(res.headers.get("content-disposition"), fallbackName)
+  const blob = await res.blob()
+  const href = URL.createObjectURL(blob)
+  const a = document.createElement("a")
+  a.href = href
+  a.download = fileName
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(href)
+
+  return fileName
+}

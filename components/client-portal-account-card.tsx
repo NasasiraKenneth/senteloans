@@ -28,10 +28,12 @@ const SAVINGS_THEMES = [
   },
 ] as const
 
-function maskAccountNumber(value: string): string {
+const HIDDEN_ACCOUNT_NUMBER = "•••• •••• •••• ••••"
+
+function formatAccountNumber(value: string): string {
   const clean = value.replace(/\s/g, "")
-  if (clean.length <= 4) return clean
-  return `•••• •••• •••• ${clean.slice(-4)}`
+  if (!clean) return value
+  return clean.replace(/(.{4})/g, "$1 ").trim()
 }
 
 function formatOpenDate(value: string): string {
@@ -74,7 +76,7 @@ export function SavingsAccountCard({
   index = 0,
 }: SavingsAccountCardProps) {
   const theme = SAVINGS_THEMES[themeIndex % SAVINGS_THEMES.length]
-  const displayNumber = maskAccountNumber(accountNumber)
+  const displayNumber = balanceHidden ? HIDDEN_ACCOUNT_NUMBER : formatAccountNumber(accountNumber)
   const isActive = String(status).toLowerCase() === "active"
 
   const card = (
@@ -107,7 +109,9 @@ export function SavingsAccountCard({
               Savings account
             </p>
             <p className="mt-0.5 truncate text-base font-semibold leading-tight text-white">{accountType}</p>
-            <p className="mt-2 font-mono text-xs tracking-[0.14em] text-white/75">{displayNumber}</p>
+            <p className="mt-2 break-all font-mono text-[11px] leading-relaxed tracking-[0.06em] text-white/75 sm:text-xs">
+              {displayNumber}
+            </p>
           </div>
 
           <div className="flex shrink-0 flex-col items-end gap-2 text-right">

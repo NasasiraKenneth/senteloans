@@ -8,8 +8,10 @@ import { enqueueKycSubmittedEmail, type KycEmailContext } from "@/lib/email/kyc-
 import { apiLog, getApiPath } from "@/lib/api/api-log"
 import {
   buildLegacyClientKycDocs,
-  isLegacyKycField,
-  type LegacyKycField,
+  buildMemberKycSnapshot,
+  isKycUploadField,
+  kycUploadHint,
+  type KycUploadField,
   type MemberKycDocRow,
   upsertKycDocField,
 } from "@/lib/members/kyc-docs"
@@ -49,7 +51,19 @@ export async function GET() {
         [row.id]
       )
 
-      return { ok: true, kycStatus: row.kyc_status, docs: buildLegacyClientKycDocs(docsRes.rows) }
+      const snapshot = buildMemberKycSnapshot(docsRes.rows, "staff")
+      const kycRow = docsRes.rows[0] || null
+      return {
+        ok: true,
+        kycStatus: row.kyc_status,
+        docType: snapshot.docType,
+        docStatus: snapshot.docStatus,
+        docComplete: snapshot.docComplete,
+        uploadHint: kycUploadHint(snapshot.docType),
+        formDocs: snapshot.formDocs,
+        kycRow,
+        docs: buildLegacyClientKycDocs(docsRes.rows),
+      }
     })
 
     if (!result) return NextResponse.json({ error: "client_not_found" }, { status: 404 })
@@ -70,7 +84,7 @@ export async function POST(req: Request) {
     const payload = (await req.json().catch(() => ({}))) as { docType?: string; url?: string }
     const docType = payload.docType
     const url = typeof payload.url === "string" ? payload.url.trim() : ""
-    if (!docType || !isLegacyKycField(docType)) return NextResponse.json({ error: "invalid_doc_type" }, { status: 400 })
+    if (!docType || !isKycUploadField(docType)) return NextResponse.json({ error: "invalid_doc_type" }, { status: 400 })
     if (!url) return NextResponse.json({ error: "url_required" }, { status: 400 })
 
     let postCommit: KycSubmitPostCommit | null = null
@@ -87,7 +101,7 @@ export async function POST(req: Request) {
         memberId: row.id,
         institutionId: row.institution_id,
         branchId: String(row.branch_id || ""),
-        field: docType as LegacyKycField,
+        field: docType as KycUploadField,
         url,
         status: "pending_review",
       })

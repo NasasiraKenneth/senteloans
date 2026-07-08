@@ -1,5 +1,5 @@
 import type { LucideIcon } from "lucide-react"
-import { User, CreditCard, PiggyBank, Home, PieChart, History } from "lucide-react"
+import { User, CreditCard, PiggyBank, Home, PieChart, History, FileText } from "lucide-react"
 
 export type ClientPortalNavItem = {
   name: string
@@ -49,6 +49,13 @@ export function buildClientPortalNavSections(params: {
     mobilePrimary: true,
   }
 
+  const invoices: ClientPortalNavItem = {
+    name: "Invoices",
+    href: "/client-portal/invoices",
+    icon: FileText,
+    active: pathname.startsWith("/client-portal/invoices"),
+  }
+
   const profile: ClientPortalNavItem = {
     name: "Profile",
     href: "/client-portal/profile",
@@ -57,7 +64,7 @@ export function buildClientPortalNavSections(params: {
     mobilePrimary: true,
   }
 
-  const financeItems: ClientPortalNavItem[] = [loans, transactions]
+  const financeItems: ClientPortalNavItem[] = [loans, transactions, invoices]
   if (hasSavings) {
     financeItems.push({
       name: "Savings",

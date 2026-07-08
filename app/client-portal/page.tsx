@@ -236,7 +236,6 @@ export default function ClientPortalPage() {
               className="gap-2"
             >
               {showBalance ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
-              {showBalance ? "Hide balances" : "Show balances"}
             </Button>
             <Link href="/client-portal/apply-loan">
               <Button size="sm" className="gap-2 shadow-sm">
@@ -363,7 +362,6 @@ export default function ClientPortalPage() {
                         >
                           {showBalance ? (
                             <>
-                              {isCredit ? "+" : "−"}
                               {formatMoney(tx.amount)}
                             </>
                           ) : (

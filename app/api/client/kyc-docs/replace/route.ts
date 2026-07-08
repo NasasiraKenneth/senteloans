@@ -6,7 +6,7 @@ import { auditLogger } from "@/lib/audit/audit-logger"
 import { notifyKycSubmitted } from "@/lib/notifications/kyc-events"
 import { enqueueKycSubmittedEmail, type KycEmailContext } from "@/lib/email/kyc-emails"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
-import { isLegacyKycField, type LegacyKycField, upsertKycDocField } from "@/lib/members/kyc-docs"
+import { isKycUploadField, type KycUploadField, upsertKycDocField } from "@/lib/members/kyc-docs"
 
 type KycSubmitPostCommit = {
   institutionId: string
@@ -31,7 +31,7 @@ export async function POST(req: Request) {
     const payload = (await req.json().catch(() => ({}))) as { docType?: string; url?: string }
     const docType = payload.docType
     const url = typeof payload.url === "string" ? payload.url.trim() : ""
-    if (!docType || !isLegacyKycField(docType)) return NextResponse.json({ error: "invalid_doc_type" }, { status: 400 })
+    if (!docType || !isKycUploadField(docType)) return NextResponse.json({ error: "invalid_doc_type" }, { status: 400 })
     if (!url) return NextResponse.json({ error: "url_required" }, { status: 400 })
 
     let postCommit: KycSubmitPostCommit | null = null
@@ -48,7 +48,7 @@ export async function POST(req: Request) {
         memberId: row.id,
         institutionId: row.institution_id,
         branchId: String(row.branch_id || ""),
-        field: docType as LegacyKycField,
+        field: docType as KycUploadField,
         url,
         status: "pending_review",
       })
