@@ -30,7 +30,7 @@ type ExportLoanSummaryPdfParams = {
   isSuperAdmin: boolean
   branchIds: string[]
   branches: BranchOption[]
-  buildQuery: () => URLSearchParams
+  buildQuery: (opts?: { exportAll?: boolean }) => URLSearchParams
   apiPath?: string
 }
 
@@ -81,7 +81,7 @@ export async function exportLoanSummaryPdf({
   const collectionRate = totalDue > 0 ? (totalPaid / totalDue) * 100 : 0
   const totalPenalties = items.reduce((a, i) => a + toNum(i.penalties_collected), 0)
 
-  const statusBuckets = ["Applied", "Under Review", "Approved", "Rejected", "Partially Disbursed", "Fully Disbursed", "Closed", "Defaulted"]
+  const statusBuckets = ["Applied", "Under Review", "Reviewed", "Approved", "Rejected", "Partially Disbursed", "Fully Disbursed", "Active", "Closed", "Defaulted"]
   const statusRows = statusBuckets.map((s) => ({
     status: s,
     count: items.filter((i) => String(i.status || "") === s).length,

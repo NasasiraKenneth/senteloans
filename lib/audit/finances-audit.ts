@@ -21,6 +21,7 @@ function financesMeta(
 
 export function bankAccountSnapshot(row: Record<string, unknown>): Record<string, unknown> {
   return {
+    third_party_agent_id: row.third_party_agent_id ?? null,
     bank_name: row.bank_name ?? null,
     bank_account_number: row.bank_account_number ?? null,
     total_amount: row.total_amount ?? null,
@@ -37,7 +38,8 @@ export function unclaimedDepositSnapshot(row: Record<string, unknown>): Record<s
     date: row.date ?? null,
     status: row.status ?? null,
     member_id: row.member_id ?? null,
-    client_id: row.client_id ?? null,
+    third_party_agent_id: row.third_party_agent_id ?? null,
+    bank_account_id: row.bank_account_id ?? null,
     transaction_id: row.transaction_id ?? null,
     branch_id: row.branch_id ?? null,
     notes: row.notes ?? null,
@@ -46,7 +48,7 @@ export function unclaimedDepositSnapshot(row: Record<string, unknown>): Record<s
 
 export function grantSnapshot(row: Record<string, unknown>): Record<string, unknown> {
   return {
-    client_id: row.client_id ?? null,
+    third_party_agent_id: row.third_party_agent_id ?? null,
     total_amount: row.total_amount ?? null,
     available_balance: row.available_balance ?? null,
     branch_id: row.branch_id ?? null,

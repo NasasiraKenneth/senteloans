@@ -173,7 +173,7 @@ export async function GET(req: Request) {
              t.balance_after
            FROM transactions t
            LEFT JOIN members m ON m.id = t.member_id
-           LEFT JOIN clients c ON c.id = t.client_id
+           LEFT JOIN third_party_agents c ON c.id = t.third_party_agent_id
            LEFT JOIN users su ON su.id = t.staff_id
            LEFT JOIN savings_accounts sa ON sa.id = t.account_id
            WHERE ${where}

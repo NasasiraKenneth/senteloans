@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
+import { requireStaffSession } from "@/lib/api/rbac"
 import {
-  hasPermission,
-  isSuperAdmin,
-  requireStaffSession,
-  resolveActorContext,
-} from "@/lib/api/rbac"
+  assertFinanceBranchScope,
+  assertFinanceMutationAccess,
+  financeAccessErrorResponseOrNull,
+  resolveFinanceWriteBranchId,
+} from "@/lib/api/finance-access"
 import { runWithAuth } from "@/lib/db"
 import {
   auditBankAccountUpdate,
@@ -58,24 +59,26 @@ export async function POST(req: Request) {
     }
 
     const result = await runWithAuth(sess.authUserId, async (client) => {
-      const actor = await resolveActorContext(client, sess.authUserId)
-      if (!actor?.institution_id) return { error: "user_not_linked" as const }
-
-      const allowed = await hasPermission(client, actor, FINANCE_PERMISSIONS.editDailyReport)
-      if (!allowed) return { error: "missing_permission:edit_daily_report" as const }
-
-      const targetBranchId = isSuperAdmin(actor)
-        ? rawBranchId || actor.branch_id || ""
-        : actor.branch_id || ""
-      if (!targetBranchId) return { error: "branch_id_required" as const }
-
-      if (isSuperAdmin(actor) && rawBranchId) {
-        const branchCheck = await client.query(
-          `SELECT 1 FROM branches WHERE id = $1::uuid AND institution_id = $2::uuid LIMIT 1`,
-          [targetBranchId, actor.institution_id],
-        )
-        if ((branchCheck.rowCount ?? 0) === 0) return { error: "invalid_branch" as const }
+      const access = await assertFinanceMutationAccess(client, sess.authUserId, FINANCE_PERMISSIONS.editDailyReport)
+      if (!access.ok) {
+        return {
+          error: access.error,
+          staffStatus: access.staffStatus,
+          branchStatus: access.branchStatus,
+        }
       }
+      const { actor } = access
+
+      const targetBranchId = resolveFinanceWriteBranchId(actor, rawBranchId)
+      const branchScope = await assertFinanceBranchScope(client, actor, targetBranchId)
+      if (!branchScope.ok) {
+        return {
+          error: branchScope.error,
+          staffStatus: branchScope.staffStatus,
+          branchStatus: branchScope.branchStatus,
+        }
+      }
+      const resolvedBranchId = branchScope.branchId
 
       const bankTotalAmount = bankInputs.reduce((acc, b) => acc + b.amount, 0)
       const totalAmount = bankTotalAmount + mobileMoneyAmount + cashAmount
@@ -93,7 +96,7 @@ export async function POST(req: Request) {
            AND created_at >= date_trunc('day', NOW())
            AND created_at <  date_trunc('day', NOW()) + INTERVAL '1 day'
          LIMIT 1`,
-        [actor.institution_id, targetBranchId],
+        [actor.institution_id, resolvedBranchId],
       )
       if ((existingTodayRes.rowCount ?? 0) > 0) {
         return { error: "daily_report_already_filed" as const }
@@ -106,14 +109,16 @@ export async function POST(req: Request) {
 
         for (const entry of bankInputs) {
           const existing = await client.query(
-            `SELECT id, bank_name, bank_account_number, branch_id,
-                    COALESCE(total_amount, 0)::numeric AS total_amount
-             FROM bank_accounts
-             WHERE id = $1::uuid
-               AND institution_id = $2::uuid
-               AND branch_id = $3::uuid
+            `SELECT ba.id, ba.third_party_agent_id, ba.bank_account_number, ba.branch_id,
+                    tpa.name AS bank_name,
+                    COALESCE(ba.total_amount, 0)::numeric AS total_amount
+             FROM bank_accounts ba
+             INNER JOIN third_party_agents tpa ON tpa.id = ba.third_party_agent_id
+             WHERE ba.id = $1::uuid
+               AND ba.institution_id = $2::uuid
+               AND ba.branch_id = $3::uuid
              LIMIT 1`,
-            [entry.accountId, actor.institution_id, targetBranchId],
+            [entry.accountId, actor.institution_id, resolvedBranchId],
           )
           if ((existing.rowCount ?? 0) === 0) {
             throw new Error("invalid_bank_account")
@@ -128,13 +133,13 @@ export async function POST(req: Request) {
              WHERE id = $3::uuid
                AND institution_id = $4::uuid
                AND branch_id = $5::uuid
-             RETURNING id, bank_name, bank_account_number, total_amount, branch_id`,
+             RETURNING id, third_party_agent_id, bank_account_number, total_amount, branch_id`,
             [
               entry.amount,
               actor.id,
               entry.accountId,
               actor.institution_id,
-              targetBranchId,
+              resolvedBranchId,
             ],
           )
           if ((updateRes.rowCount ?? 0) === 0) {
@@ -165,7 +170,7 @@ export async function POST(req: Request) {
                      cash_amount, total_amount, available_balance`,
           [
             actor.institution_id,
-            targetBranchId,
+            resolvedBranchId,
             bankTotalAmount,
             mobileMoneyAmount,
             cashAmount,
@@ -183,7 +188,7 @@ export async function POST(req: Request) {
           actor,
           newId,
           dailyFinanceSnapshot(insertedRow),
-          (insertedRow.branch_id as string | null | undefined) ?? targetBranchId,
+          (insertedRow.branch_id as string | null | undefined) ?? resolvedBranchId,
         )
 
         for (const upd of accountUpdates) {
@@ -223,12 +228,13 @@ export async function POST(req: Request) {
     })
 
     if (result && "error" in result) {
+      const accessResponse = financeAccessErrorResponseOrNull(result)
+      if (accessResponse) {
+        return NextResponse.json(accessResponse.body, { status: accessResponse.status })
+      }
       const code = String(result.error)
       const status =
-        code === "branch_id_required" ||
-        code === "invalid_branch" ||
-        code === "invalid_bank_account_amount" ||
-        code === "no_amounts_declared"
+        code === "invalid_bank_account_amount" || code === "no_amounts_declared"
           ? 400
           : code === "invalid_bank_account"
             ? 404

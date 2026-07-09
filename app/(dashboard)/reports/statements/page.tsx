@@ -143,7 +143,7 @@ export default function StatementsPage() {
 
   const loadClients = useCallback(async () => {
     try {
-      const res = await fetch("/api/institution/clients?limit=100", { cache: "no-store" })
+      const res = await fetch("/api/institution/third-party-agents?limit=100", { cache: "no-store" })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) return setClients([])
       const raw = Array.isArray(data.clients) ? data.clients : []

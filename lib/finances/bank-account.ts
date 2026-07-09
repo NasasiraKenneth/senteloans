@@ -6,12 +6,15 @@ type ActorForFinance = Pick<ActorContext, "id" | "institution_id" | "branch_id">
 
 export interface BankAccountRow {
   id: string
+  third_party_agent_id: string
   bank_name: string
   bank_account_number: string
   available_balance: string | number | null
   total_amount: string | number | null
   branch_id: string
 }
+
+export const BANK_ACCOUNT_AGENT_JOIN = `INNER JOIN third_party_agents tpa ON tpa.id = ba.third_party_agent_id`
 
 /**
  * Resolve a bank account scoped to a specific institution + branch.
@@ -23,9 +26,16 @@ export async function getBranchBankAccount(
   params: { bankAccountId: string; institutionId: string; branchId: string },
 ): Promise<BankAccountRow | null> {
   const res = await client.query<BankAccountRow>(
-    `SELECT id, bank_name, bank_account_number, available_balance, total_amount, branch_id
-       FROM bank_accounts
-      WHERE id = $1 AND institution_id = $2 AND branch_id = $3
+    `SELECT ba.id,
+            ba.third_party_agent_id,
+            tpa.name AS bank_name,
+            ba.bank_account_number,
+            ba.available_balance,
+            ba.total_amount,
+            ba.branch_id
+       FROM bank_accounts ba
+       ${BANK_ACCOUNT_AGENT_JOIN}
+      WHERE ba.id = $1 AND ba.institution_id = $2 AND ba.branch_id = $3
       LIMIT 1`,
     [params.bankAccountId, params.institutionId, params.branchId],
   )

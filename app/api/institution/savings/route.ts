@@ -2,7 +2,16 @@ import { NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { runWithAuth } from "@/lib/db"
+import { auditLogger } from "@/lib/audit/audit-logger"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
+import { insertWithPrefixedNumberRetry } from "@/lib/ids/insert-with-prefixed-number-retry"
+import { assertBranchActive } from "@/lib/branches/branch-status"
+import { assertActorActive } from "@/lib/staff/staff-status"
+import {
+  assertNotSuperAdmin,
+} from "@/lib/api/rbac"
+import { assertMemberActive } from "@/lib/members/member-status"
+import { parseMonthlySavingsInput } from "@/lib/members/monthly-savings"
 
 type ActorContext = {
   id: string
@@ -10,6 +19,19 @@ type ActorContext = {
   branch_id: string | null
   role_id: string | null
   role: string | null
+}
+
+const VALID_ACCOUNT_TYPES = ["Voluntary", "Fixed", "Shares", "Current"] as const
+
+const mapSavingsDuplicateError = (err: unknown): "duplicate_savings_account_number" | null => {
+  const e = err as { code?: string; constraint?: string; detail?: string; message?: string }
+  if (String(e?.code || "") !== "23505") return null
+  const constraint = String(e?.constraint || "")
+  const detail = String(e?.detail || e?.message || "")
+  if (constraint === "uk_accounts_number" || /account_number/.test(detail)) {
+    return "duplicate_savings_account_number"
+  }
+  return null
 }
 
 async function resolveActorContext(client: any, authUserId: string): Promise<ActorContext | null> {
@@ -212,6 +234,7 @@ export async function GET(req: Request) {
 
       const items = data.map((row: Record<string, unknown>) => ({
         id: row.id,
+        member_id: row.member_id,
         account_number: row.account_number,
         account_type: row.account_type,
         available_balance: row.available_balance,
@@ -266,6 +289,210 @@ export async function GET(req: Request) {
   } catch (e: unknown) {
     const err = e as Error
     apiLog("error", "savings.list.error", { method: "GET", apiPath, status: 500, error: err?.message || "Unexpected error" })
+    return NextResponse.json({ error: err?.message || "Unexpected error" }, { status: 500 })
+  }
+}
+
+export async function POST(req: Request) {
+  const apiPath = getApiPath(req)
+  try {
+    const session = await getServerSession(authOptions)
+    if (!session?.user?.authUserId) {
+      apiLog("warn", "savings.create.denied", { method: "POST", apiPath, status: 401, error: "unauthorized" })
+      return NextResponse.json({ error: "unauthorized" }, { status: 401 })
+    }
+    if (session.user.type !== "staff") {
+      apiLog("warn", "savings.create.denied", { method: "POST", apiPath, status: 403, error: "no_app_user_profile" })
+      return NextResponse.json({ error: "no_app_user_profile" }, { status: 403 })
+    }
+
+    const body = (await req.json()) as {
+      member_id?: string
+      account_type?: string
+      monthly_savings?: unknown
+      monthlySavings?: unknown
+    }
+    const memberId = String(body.member_id || "").trim()
+    const accountType = String(body.account_type || "").trim()
+
+    if (!memberId) {
+      apiLog("warn", "savings.create.invalid", { method: "POST", apiPath, status: 400, error: "member_id_required" })
+      return NextResponse.json({ error: "member_id_required" }, { status: 400 })
+    }
+    if (!accountType || !VALID_ACCOUNT_TYPES.includes(accountType as (typeof VALID_ACCOUNT_TYPES)[number])) {
+      apiLog("warn", "savings.create.invalid", { method: "POST", apiPath, status: 400, error: "invalid_account_type" })
+      return NextResponse.json({ error: "invalid_account_type" }, { status: 400 })
+    }
+
+    let monthlySavings: number | null = null
+    if (accountType === "Fixed") {
+      const parsed = parseMonthlySavingsInput(body.monthly_savings ?? body.monthlySavings, "Fixed")
+      if (parsed.error) {
+        apiLog("warn", "savings.create.invalid", { method: "POST", apiPath, status: 400, error: parsed.error })
+        return NextResponse.json({ error: parsed.error }, { status: 400 })
+      }
+      monthlySavings = parsed.value
+    }
+
+    const result = await runWithAuth(session.user.authUserId, async (client) => {
+      const actor = await resolveActorContext(client, session.user.authUserId as string)
+      if (!actor?.institution_id) return { error: "no_app_user_profile" as const }
+
+      const staffCheck = await assertActorActive(client, actor)
+      if (!staffCheck.ok) {
+        return {
+          error: staffCheck.error,
+          staffStatus: staffCheck.error === "staff_inactive" ? staffCheck.status : undefined,
+        }
+      }
+
+      const writeGuard = assertNotSuperAdmin(actor)
+      if (!writeGuard.ok) {
+        return { error: writeGuard.error, message: writeGuard.message }
+      }
+
+      const allowed = await hasPermission(client, actor, "add_account")
+      if (!allowed) return { error: "missing_permission:add_account" as const }
+      if (!actor.branch_id) return { error: "actor_branch_missing" as const }
+
+      const branchCheck = await assertBranchActive(client, actor.branch_id)
+      if (!branchCheck.ok) {
+        return {
+          error: branchCheck.error,
+          branchStatus: branchCheck.error === "branch_inactive" ? branchCheck.status : undefined,
+        }
+      }
+
+      const memberCheck = await assertMemberActive(client, memberId, actor.institution_id)
+      if (!memberCheck.ok) {
+        return {
+          error: memberCheck.error,
+          memberStatus: memberCheck.error === "member_inactive" ? memberCheck.status : undefined,
+        }
+      }
+      const member = memberCheck.member
+      if (member.branch_id !== actor.branch_id) return { error: "cross_branch_operation_forbidden" as const }
+
+      const inst = String(actor.institution_id).slice(0, 6).replace(/-/g, "").toUpperCase()
+      const now = new Date()
+      const yymm = `${String(now.getFullYear()).slice(2)}${String(now.getMonth() + 1).padStart(2, "0")}`
+      const savingsNumberGen = () =>
+        `SA${inst}-${yymm}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`
+      const openDate = new Date().toISOString().slice(0, 10)
+
+      await client.query("BEGIN")
+      try {
+        const savInsert = await insertWithPrefixedNumberRetry<{
+          id: string
+          account_number: string
+          account_type: string
+          member_id: string
+          status: string
+          open_date: string
+          available_balance: number
+          total_balance: number
+        }>(
+          (accountNumber) =>
+            client.query(
+              `INSERT INTO savings_accounts (
+                institution_id,
+                branch_id,
+                member_id,
+                account_number,
+                account_type,
+                monthly_savings,
+                available_balance,
+                total_balance,
+                status,
+                open_date
+              )
+              VALUES ($1, $2, $3, $4, $5, $6, 0, 0, 'Active', $7)
+              RETURNING id, account_number, account_type, member_id, status, open_date, available_balance, total_balance`,
+              [
+                actor.institution_id,
+                member.branch_id,
+                memberId,
+                accountNumber,
+                accountType,
+                monthlySavings,
+                openDate,
+              ],
+            ),
+          {
+            prefix: "SA",
+            savepointName: "sp_ins_savings_num_retry",
+            client,
+            generateNumber: savingsNumberGen,
+            shouldRetryOnUniqueViolation: (err) =>
+              mapSavingsDuplicateError(err) === "duplicate_savings_account_number",
+          },
+        )
+
+        if (!savInsert) {
+          await client.query("ROLLBACK")
+          return { error: "duplicate_savings_account_number" as const }
+        }
+
+        await auditLogger.logInsert(
+          "savings_accounts",
+          savInsert.row.id,
+          {
+            member_id: memberId,
+            account_number: savInsert.row.account_number,
+            account_type: accountType,
+            monthly_savings: monthlySavings,
+            open_date: openDate,
+          },
+          actor.institution_id,
+          actor.id,
+          { branch_id: member.branch_id },
+          client,
+        )
+
+        await client.query("COMMIT")
+
+        return {
+          ok: true as const,
+          account: savInsert.row,
+        }
+      } catch (err) {
+        await client.query("ROLLBACK").catch(() => {})
+
+        const duplicate = mapSavingsDuplicateError(err)
+        if (duplicate) {
+          return { error: duplicate }
+        }
+
+        throw err
+      }
+    })
+
+    if (result && "error" in result) {
+      const errorCode = String(result.error || "")
+      const statusCode =
+        errorCode.startsWith("missing_permission:") ? 403 :
+        errorCode === "actor_branch_missing" ? 400 :
+        errorCode === "no_app_user_profile" ? 403 :
+        errorCode === "member_not_found" ? 404 :
+        errorCode === "member_inactive" || errorCode === "staff_inactive" || errorCode === "branch_inactive" ? 403 :
+        errorCode === "cross_branch_operation_forbidden" ? 403 :
+        errorCode === "duplicate_savings_account_number" ? 409 :
+        400
+      apiLog("warn", "savings.create.denied", { method: "POST", apiPath, status: statusCode, error: errorCode })
+      return NextResponse.json({ error: errorCode }, { status: statusCode })
+    }
+
+    apiLog("info", "savings.create.success", {
+      method: "POST",
+      apiPath,
+      status: 201,
+      accountId: result?.account?.id,
+      accountNumber: result?.account?.account_number,
+    })
+    return NextResponse.json({ account: result.account }, { status: 201 })
+  } catch (e: unknown) {
+    const err = e as Error
+    apiLog("error", "savings.create.error", { method: "POST", apiPath, status: 500, error: err?.message || "Unexpected error" })
     return NextResponse.json({ error: err?.message || "Unexpected error" }, { status: 500 })
   }
 }

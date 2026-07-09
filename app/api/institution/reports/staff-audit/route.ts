@@ -104,7 +104,7 @@ async function resolveEntityMap(client: any, source: IdKeySpec["source"], ids: s
   let query = ""
   switch (source) {
     case "clients":
-      query = `SELECT id::text AS id, name::text AS label FROM clients WHERE id = ANY($1::uuid[])`
+      query = `SELECT id::text AS id, name::text AS label FROM third_party_agents WHERE id = ANY($1::uuid[])`
       break
     case "members":
       query = `SELECT id::text AS id, full_name::text AS label FROM members WHERE id = ANY($1::uuid[])`

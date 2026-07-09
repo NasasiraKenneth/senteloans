@@ -4,10 +4,14 @@
 export type NotificationType =
   // Loan events
   | 'loan_status_change'
+  | 'loan_under_review'
+  | 'loan_reviewed'
+  | 'loan_partially_disbursed'
   | 'loan_application_submitted'
   | 'loan_approved'
   | 'loan_rejected'
   | 'loan_disbursed'
+  | 'loan_ready_for_approval'
   | 'payment_due'
   | 'payment_received'
   | 'payment_overdue'
@@ -18,6 +22,7 @@ export type NotificationType =
   // Account events
   | 'deposit_received'
   | 'withdrawal_processed'
+  | 'transfer_processed'
   | 'profile_updated'
   | 'member_profile_updated'
   // Admin events
@@ -39,7 +44,25 @@ export type NotificationType =
   // Generic finance events
   | 'transaction_recorded'
   | 'invoice_created'
+  | 'invoice_draft_created'
+  | 'invoice_cancelled'
+  | 'invoice_overdue'
   | 'invoice_payment_recorded'
+  // Third-party agent events
+  | 'third_party_agent_created'
+  | 'third_party_agent_updated'
+  // External / sacco loan events
+  | 'sacco_loan_created'
+  | 'sacco_loan_activated'
+  | 'sacco_loan_payment_recorded'
+  // Investment events
+  | 'investment_created'
+  | 'investment_development_started'
+  | 'investment_cashflow_recorded'
+  // Expense events
+  | 'expense_created'
+  | 'expense_updated'
+  | 'expense_cashflow_payment_recorded'
 
 export type RecipientType = 'member' | 'institution_user'
 
@@ -97,32 +120,193 @@ export interface NotificationPreference {
 }
 
 // Notification template helpers
+
+function memberLoanDescription(applicationId: string, productName?: string | null): string {
+  const product = productName?.trim()
+  if (product) {
+    return `${product} application (${applicationId})`
+  }
+  return `loan application (${applicationId})`
+}
+
+function staffLoanDescription(
+  memberName: string,
+  applicationId: string,
+  productName?: string | null,
+): string {
+  const product = productName?.trim()
+  if (product) {
+    return `${memberName}'s ${product} application (${applicationId})`
+  }
+  return `${memberName}'s loan application (${applicationId})`
+}
+
 export const NotificationTemplates = {
   // Loan templates
-  loanApplicationSubmitted: (loanId: string, amount: number) => ({
+  loanApplicationSubmitted: (
+    loanId: string,
+    amount: number,
+    applicationId: string,
+    productName?: string | null,
+  ) => ({
     title: 'Loan Application Submitted',
-    message: `Your loan application for ${formatCurrency(amount)} has been submitted successfully.`,
+    message: `Your ${memberLoanDescription(applicationId, productName)} for ${formatCurrency(amount)} has been submitted successfully.`,
     actionUrl: `/client-portal/loan-details/${loanId}`,
   }),
 
-  loanApproved: (loanId: string, amount: number) => ({
+  loanApproved: (
+    loanId: string,
+    amount: number,
+    applicationId: string,
+    productName?: string | null,
+  ) => ({
     title: 'Loan Application Approved',
-    message: `Great news! Your loan application for ${formatCurrency(amount)} has been approved.`,
+    message: `Great news! Your ${memberLoanDescription(applicationId, productName)} for ${formatCurrency(amount)} has been approved.`,
     actionUrl: `/client-portal/loan-details/${loanId}`,
   }),
 
-  loanRejected: (loanId: string, amount: number, reason?: string) => ({
+  loanRejected: (
+    loanId: string,
+    amount: number,
+    applicationId: string,
+    productName?: string | null,
+    reason?: string,
+  ) => ({
     title: 'Loan Application Status',
     message: reason
-      ? `Your loan application for ${formatCurrency(amount)} was not approved. Reason: ${reason}`
-      : `Your loan application for ${formatCurrency(amount)} was not approved.`,
+      ? `Your ${memberLoanDescription(applicationId, productName)} for ${formatCurrency(amount)} was not approved. Reason: ${reason}`
+      : `Your ${memberLoanDescription(applicationId, productName)} for ${formatCurrency(amount)} was not approved.`,
     actionUrl: `/client-portal/loan-details/${loanId}`,
   }),
 
-  loanDisbursed: (loanId: string, amount: number) => ({
-    title: 'Loan Disbursed',
-    message: `Your loan of ${formatCurrency(amount)} has been disbursed to your account.`,
+  loanDisbursed: (
+    loanId: string,
+    amount: number,
+    applicationId: string,
+    productName?: string | null,
+  ) => ({
+    title: 'Loan Fully Disbursed',
+    message: `Your ${memberLoanDescription(applicationId, productName)} for ${formatCurrency(amount)} has been fully disbursed.`,
     actionUrl: `/client-portal/loan-details/${loanId}`,
+  }),
+
+  loanUnderReview: (
+    loanId: string,
+    amount: number,
+    applicationId: string,
+    productName?: string | null,
+  ) => ({
+    title: 'Loan Under Review',
+    message: `Your ${memberLoanDescription(applicationId, productName)} for ${formatCurrency(amount)} is under review.`,
+    actionUrl: `/client-portal/loan-details/${loanId}`,
+  }),
+
+  loanReviewed: (
+    loanId: string,
+    amount: number,
+    applicationId: string,
+    productName?: string | null,
+  ) => ({
+    title: 'Loan Review Complete',
+    message: `Your ${memberLoanDescription(applicationId, productName)} for ${formatCurrency(amount)} has been reviewed.`,
+    actionUrl: `/client-portal/loan-details/${loanId}`,
+  }),
+
+  loanPartiallyDisbursed: (
+    loanId: string,
+    amount: number,
+    applicationId: string,
+    productName?: string | null,
+  ) => ({
+    title: 'Loan Partially Disbursed',
+    message: `A partial disbursement of ${formatCurrency(amount)} has been made on your ${memberLoanDescription(applicationId, productName)}.`,
+    actionUrl: `/client-portal/loan-details/${loanId}`,
+  }),
+
+  loanStatusChange: (
+    loanId: string,
+    statusLabel: string,
+    applicationId: string,
+    productName?: string | null,
+    amount?: number,
+  ) => ({
+    title: 'Loan Status Update',
+    message: amount != null && amount > 0
+      ? `Your ${memberLoanDescription(applicationId, productName)} for ${formatCurrency(amount)} is now ${statusLabel}.`
+      : `Your ${memberLoanDescription(applicationId, productName)} is now ${statusLabel}.`,
+    actionUrl: `/client-portal/loan-details/${loanId}`,
+  }),
+
+  loanReadyForApprovalStaff: (
+    memberName: string,
+    applicationId: string,
+    amount: number,
+    loanId: string,
+    productName?: string | null,
+  ) => ({
+    title: 'Loan Ready for Approval',
+    message: `${staffLoanDescription(memberName, applicationId, productName)} for ${formatCurrency(amount)} has been reviewed and is ready for approval.`,
+    actionUrl: `/loans/${loanId}`,
+  }),
+
+  loanUnderReviewStaff: (
+    memberName: string,
+    applicationId: string,
+    amount: number,
+    loanId: string,
+    productName?: string | null,
+  ) => ({
+    title: 'Loan Under Review',
+    message: `${staffLoanDescription(memberName, applicationId, productName)} for ${formatCurrency(amount)} is under review.`,
+    actionUrl: `/loans/${loanId}`,
+  }),
+
+  loanApprovedStaff: (
+    memberName: string,
+    applicationId: string,
+    amount: number,
+    loanId: string,
+    productName?: string | null,
+  ) => ({
+    title: 'Loan Approved',
+    message: `${staffLoanDescription(memberName, applicationId, productName)} for ${formatCurrency(amount)} has been approved.`,
+    actionUrl: `/loans/${loanId}`,
+  }),
+
+  loanRejectedStaff: (
+    memberName: string,
+    applicationId: string,
+    amount: number,
+    loanId: string,
+    productName?: string | null,
+  ) => ({
+    title: 'Loan Rejected',
+    message: `${staffLoanDescription(memberName, applicationId, productName)} for ${formatCurrency(amount)} was rejected.`,
+    actionUrl: `/loans/${loanId}`,
+  }),
+
+  loanPartiallyDisbursedStaff: (
+    memberName: string,
+    applicationId: string,
+    amount: number,
+    loanId: string,
+    productName?: string | null,
+  ) => ({
+    title: 'Loan Partially Disbursed',
+    message: `${staffLoanDescription(memberName, applicationId, productName)} has been partially disbursed (${formatCurrency(amount)}).`,
+    actionUrl: `/loans/${loanId}`,
+  }),
+
+  loanFullyDisbursedStaff: (
+    memberName: string,
+    applicationId: string,
+    amount: number,
+    loanId: string,
+    productName?: string | null,
+  ) => ({
+    title: 'Loan Fully Disbursed',
+    message: `${staffLoanDescription(memberName, applicationId, productName)} for ${formatCurrency(amount)} has been fully disbursed.`,
+    actionUrl: `/loans/${loanId}`,
   }),
 
   paymentDue: (loanId: string, amount: number, dueDate: string) => ({
@@ -169,15 +353,21 @@ export const NotificationTemplates = {
   }),
 
   // Account templates
-  depositReceived: (amount: number, accountId: string) => ({
+  depositReceived: (amount: number, accountId: string, currency?: string) => ({
     title: 'Deposit Received',
-    message: `Your deposit of ${formatCurrency(amount)} has been processed successfully.`,
+    message: `Your deposit of ${formatCurrency(amount, currency)} has been processed successfully.`,
     actionUrl: `/client-portal/savings/${accountId}`,
   }),
 
-  withdrawalProcessed: (amount: number, accountId: string) => ({
+  withdrawalProcessed: (amount: number, accountId: string, currency?: string) => ({
     title: 'Withdrawal Processed',
-    message: `Your withdrawal of ${formatCurrency(amount)} has been processed.`,
+    message: `Your withdrawal of ${formatCurrency(amount, currency)} has been processed.`,
+    actionUrl: `/client-portal/savings/${accountId}`,
+  }),
+
+  transferProcessed: (amount: number, accountId: string, currency?: string) => ({
+    title: 'Transfer Processed',
+    message: `Your transfer of ${formatCurrency(amount, currency)} has been processed.`,
     actionUrl: `/client-portal/savings/${accountId}`,
   }),
 
@@ -200,9 +390,15 @@ export const NotificationTemplates = {
   }),
 
   // Admin templates
-  pendingLoanApproval: (clientName: string, amount: number, loanId: string) => ({
+  pendingLoanApproval: (
+    clientName: string,
+    amount: number,
+    loanId: string,
+    applicationId: string,
+    productName?: string | null,
+  ) => ({
     title: 'New Loan Application',
-    message: `${clientName} has applied for a loan of ${formatCurrency(amount)}.`,
+    message: `${staffLoanDescription(clientName, applicationId, productName)} for ${formatCurrency(amount)}.`,
     actionUrl: `/loans/${loanId}`,
   }),
 
@@ -266,6 +462,172 @@ export const NotificationTemplates = {
     message: `${memberName} (${memberNumber}) has been added to the institution.`,
     actionUrl: `/users/${memberId}`,
   }),
+
+  thirdPartyAgentCreatedForStaff: (agentName: string) => ({
+    title: 'Third Party Agent Added',
+    message: `${agentName} has been added as a Third Party Agent.`,
+    actionUrl: '/third-party-agents',
+  }),
+
+  thirdPartyAgentUpdatedForStaff: (agentName: string) => ({
+    title: 'Third Party Agent Updated',
+    message: `${agentName}'s profile has been updated.`,
+    actionUrl: '/third-party-agents',
+  }),
+
+  saccoLoanCreatedForStaff: (
+    agentName: string,
+    amount: number,
+    loanId: string,
+    productName?: string | null,
+    currency?: string,
+  ) => ({
+    title: 'New External Loan',
+    message: `${agentName}'s ${productName?.trim() || 'external loan'} for ${formatCurrency(amount, currency)} has been created.`,
+    actionUrl: `/sacco-loans/${loanId}`,
+  }),
+
+  saccoLoanActivatedForStaff: (
+    agentName: string,
+    loanId: string,
+    productName?: string | null,
+    nextPaymentDate?: string | null,
+  ) => ({
+    title: 'External Loan Activated',
+    message: `${agentName}'s ${productName?.trim() || 'external loan'} is now active${
+      nextPaymentDate ? `; next payment due ${nextPaymentDate}` : ''
+    }.`,
+    actionUrl: `/sacco-loans/${loanId}`,
+  }),
+
+  saccoLoanPaymentRecordedForStaff: (
+    agentName: string,
+    amount: number,
+    loanId: string,
+    balanceAfter: number,
+    productName?: string | null,
+    isClosed?: boolean,
+    currency?: string,
+  ) => ({
+    title: 'External Loan Payment Recorded',
+    message: isClosed
+      ? `${agentName}'s ${productName?.trim() || 'external loan'} payment of ${formatCurrency(amount, currency)} was recorded; the loan is now closed.`
+      : `${agentName}'s ${productName?.trim() || 'external loan'} payment of ${formatCurrency(amount, currency)} was recorded; outstanding ${formatCurrency(balanceAfter, currency)}.`,
+    actionUrl: `/sacco-loans/${loanId}`,
+  }),
+
+  investmentCreatedForStaff: (
+    investmentName: string,
+    amount: number,
+    investmentId: string,
+    investmentNumber?: string | null,
+    currency?: string,
+  ) => ({
+    title: 'New Investment',
+    message: `${investmentName}${
+      investmentNumber ? ` (${investmentNumber})` : ''
+    } for ${formatCurrency(amount, currency)} has been created.`,
+    actionUrl: `/investments/${investmentId}`,
+  }),
+
+  investmentDevelopmentStartedForStaff: (
+    investmentName: string,
+    amount: number,
+    investmentId: string,
+    startDate: string,
+    maturityDate?: string | null,
+    currency?: string,
+  ) => ({
+    title: 'Investment Development Started',
+    message: `${investmentName} development has started with a ${formatCurrency(amount, currency)} deposit on ${startDate}${
+      maturityDate ? `; matures ${maturityDate}` : ''
+    }.`,
+    actionUrl: `/investments/${investmentId}`,
+  }),
+
+  investmentCashflowRecordedForStaff: (
+    investmentName: string,
+    type: string,
+    category: string,
+    amount: number,
+    investmentId: string,
+    closingValue: number,
+    investmentNumber?: string | null,
+    currency?: string,
+  ) => {
+    const suffix = investmentNumber ? ` (${investmentNumber})` : ''
+    if (category === 'adjustment') {
+      return {
+        title: 'Investment Value Adjusted',
+        message: `${investmentName}${suffix} value was adjusted to ${formatCurrency(closingValue, currency)}.`,
+        actionUrl: `/investments/${investmentId}`,
+      }
+    }
+    return {
+      title: 'Investment Cashflow Recorded',
+      message: `A ${category} ${type} of ${formatCurrency(amount, currency)} was recorded on ${investmentName}${suffix}; closing value ${formatCurrency(closingValue, currency)}.`,
+      actionUrl: `/investments/${investmentId}`,
+    }
+  },
+
+  expenseCreatedForStaff: (
+    expenseName: string,
+    expenseId: string,
+    expenseNumber?: string | null,
+    expenseType?: string | null,
+  ) => {
+    const suffix = expenseNumber ? ` (${expenseNumber})` : ''
+    const typeLabel = expenseType?.trim()
+      ? expenseType.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+      : null
+    return {
+      title: 'New Expense',
+      message: typeLabel
+        ? `${expenseName}${suffix} has been created as ${typeLabel}.`
+        : `${expenseName}${suffix} has been created.`,
+      actionUrl: `/expenses/${expenseId}`,
+    }
+  },
+
+  expenseUpdatedForStaff: (
+    expenseName: string,
+    expenseId: string,
+    expenseNumber?: string | null,
+    expenseType?: string | null,
+  ) => {
+    const suffix = expenseNumber ? ` (${expenseNumber})` : ''
+    const typeLabel = expenseType?.trim()
+      ? expenseType.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+      : null
+    return {
+      title: 'Expense Updated',
+      message: typeLabel
+        ? `${expenseName}${suffix} was updated (${typeLabel}).`
+        : `${expenseName}${suffix} was updated.`,
+      actionUrl: `/expenses/${expenseId}`,
+    }
+  },
+
+  expenseCashflowPaymentRecordedForStaff: (
+    assigneeName: string,
+    paymentAmount: number,
+    expenseId: string,
+    expenseName: string,
+    expenseNumber: string | null | undefined,
+    fullyPaid: boolean,
+    outstanding: number,
+    currency?: string,
+  ) => {
+    const suffix = expenseNumber ? ` (${expenseNumber})` : ''
+    const label = expenseName?.trim() ? `${expenseName}${suffix}` : `expense${suffix}`
+    return {
+      title: fullyPaid ? 'Expense Cashflow Fully Paid' : 'Expense Cashflow Payment Recorded',
+      message: fullyPaid
+        ? `A payment of ${formatCurrency(paymentAmount, currency)} to ${assigneeName} fully settled the cashflow on ${label}.`
+        : `A payment of ${formatCurrency(paymentAmount, currency)} to ${assigneeName} was recorded on ${label}; outstanding ${formatCurrency(outstanding, currency)}.`,
+      actionUrl: `/expenses/${expenseId}`,
+    }
+  },
 
   newInvoiceCreatedForStaff: (
     invoiceNumber: string,
@@ -409,6 +771,54 @@ export const NotificationTemplates = {
   ) => ({
     title: `Invoice ${invoiceNumber} Created`,
     message: `An invoice of ${formatCurrency(amount, currency)} was issued to ${memberName}.`,
+    actionUrl: `/invoices?invoice_id=${invoiceId}`,
+  }),
+
+  invoiceDraftCreatedForStaff: (
+    invoiceNumber: string,
+    recipientName: string,
+    amount: number,
+    invoiceId: string,
+    currency?: string,
+  ) => ({
+    title: `Draft Invoice ${invoiceNumber}`,
+    message: `A draft invoice of ${formatCurrency(amount, currency)} for ${recipientName} was created.`,
+    actionUrl: `/invoices?invoice_id=${invoiceId}`,
+  }),
+
+  invoiceCancelled: (invoiceNumber: string, invoiceId?: string) => ({
+    title: `Invoice ${invoiceNumber} Cancelled`,
+    message: `Invoice ${invoiceNumber} has been cancelled.`,
+    actionUrl: invoiceId
+      ? `/client-portal/invoices?invoice_id=${invoiceId}`
+      : "/client-portal/invoices",
+  }),
+
+  invoiceCancelledForStaff: (
+    invoiceNumber: string,
+    recipientName: string,
+    invoiceId: string,
+  ) => ({
+    title: `Invoice ${invoiceNumber} Cancelled`,
+    message: `Invoice ${invoiceNumber} for ${recipientName} has been cancelled.`,
+    actionUrl: `/invoices?invoice_id=${invoiceId}`,
+  }),
+
+  invoiceOverdue: (invoiceNumber: string, invoiceId?: string) => ({
+    title: `Invoice ${invoiceNumber} Overdue`,
+    message: `Invoice ${invoiceNumber} is overdue.`,
+    actionUrl: invoiceId
+      ? `/client-portal/invoices?invoice_id=${invoiceId}`
+      : "/client-portal/invoices",
+  }),
+
+  invoiceOverdueForStaff: (
+    invoiceNumber: string,
+    recipientName: string,
+    invoiceId: string,
+  ) => ({
+    title: `Invoice ${invoiceNumber} Overdue`,
+    message: `Invoice ${invoiceNumber} for ${recipientName} is overdue.`,
     actionUrl: `/invoices?invoice_id=${invoiceId}`,
   }),
 

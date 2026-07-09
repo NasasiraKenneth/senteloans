@@ -4,51 +4,10 @@ import { authOptions } from "@/lib/auth"
 import { runWithAuth } from "@/lib/db"
 import { addExcelTitleAndHeaders, createExcelWorkbook, formatIsoDateForExcel, toSafeExcelSheetName } from "@/lib/export/server-excel"
 import { renderSaccoLoansPdfBuffer } from "./sacco-loans-pdf"
-
-type ActorContext = {
-  id: string
-  institution_id: string
-  branch_id: string | null
-  role_id: string | null
-  role: string | null
-}
+import { appendSaccoLoanListFilters } from "@/lib/sacco-loans/query-filters"
+import { hasPermission, isSuperAdmin, resolveActorContext } from "@/lib/api/rbac"
 
 type BranchScope = { id: string; name: string }
-
-async function resolveActorContext(client: any, authUserId: string): Promise<ActorContext | null> {
-  const actorRes = await client.query(
-    `SELECT
-       u.id, u.institution_id, u.branch_id, u.role_id,
-       CASE
-         WHEN r.name = 'System Admin' THEN 'system_admin'
-         WHEN r.name = 'Super Admin' THEN 'super_admin'
-         WHEN r.name = 'Admin' THEN 'institution_admin'
-         WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
-         ELSE NULL
-       END AS role
-     FROM users u
-     LEFT JOIN roles r ON r.id = u.role_id
-     WHERE u.auth_id = $1
-     LIMIT 1`,
-    [authUserId]
-  )
-  return actorRes.rows[0] || null
-}
-
-async function hasPermission(client: any, actor: ActorContext, permission: string): Promise<boolean> {
-  const role = String(actor.role || "").trim().toLowerCase()
-  if (role === "super_admin") return true
-  if (!actor.role_id || !actor.branch_id) return false
-  const permRes = await client.query(
-    `SELECT 1
-     FROM role_permissions rp
-     JOIN permissions p ON p.id = rp.permission_id
-     WHERE rp.role_id = $1 AND rp.branch_id = $2 AND p.name = $3
-     LIMIT 1`,
-    [actor.role_id, actor.branch_id, permission]
-  )
-  return permRes.rowCount > 0
-}
 
 function titleCaseLoanType(v: string): string {
   return v
@@ -119,12 +78,11 @@ export async function GET(req: Request) {
       if (!actor?.institution_id) return { error: "user_not_linked" as const }
       const allowed = await hasPermission(client, actor, "view_sacco_loans")
       if (!allowed) return { error: "missing_permission:view_sacco_loans" as const }
-      const role = String(actor.role || "").trim().toLowerCase()
-      const isSuperAdmin = role === "super_admin"
-      if (!isSuperAdmin && !actor.branch_id) return { error: "actor_branch_missing" as const }
+      const isSA = isSuperAdmin(actor)
+      if (!isSA && !actor.branch_id) return { error: "actor_branch_missing" as const }
 
       let branchScopes: BranchScope[] = []
-      if (isSuperAdmin) {
+      if (isSA) {
         const branchRes = await client.query(`SELECT id, name FROM branches WHERE institution_id = $1 ORDER BY name ASC`, [actor.institution_id])
         const allBranches = branchRes.rows as BranchScope[]
         branchScopes = selectedBranchIds.length > 0 ? allBranches.filter((b) => selectedBranchIds.includes(b.id)) : allBranches
@@ -147,43 +105,37 @@ export async function GET(req: Request) {
       const sheets: Array<{ branch_name: string; rows: Array<any> }> = []
       for (const branch of branchScopes) {
         let where = "l.institution_id = $1 AND l.branch_id = $2"
-        const params: unknown[] = [actor.institution_id, branch.id]
+        let params: unknown[] = [actor.institution_id, branch.id]
         let idx = 3
 
         if (status) { where += ` AND l.status = $${idx++}`; params.push(status) }
-        if (loanType) { where += ` AND lower(l.loan_type) = $${idx++}`; params.push(loanType) }
-        if (remainingTenure === "eq1") where += ` AND l.tenure_months = 1`
-        else if (remainingTenure === "lte3") where += ` AND l.tenure_months <= 3`
-        else if (remainingTenure === "lte6") where += ` AND l.tenure_months <= 6`
-        else if (remainingTenure === "lte12") where += ` AND l.tenure_months <= 12`
-        else if (remainingTenure === "gt12") where += ` AND l.tenure_months > 12`
-        if (applicationDateStart) { where += ` AND l.application_date >= (($${idx}::timestamp AT TIME ZONE 'Africa/Nairobi')::date)`; params.push(applicationDateStart); idx++ }
-        if (applicationDateEnd) { where += ` AND l.application_date <= (($${idx}::timestamp AT TIME ZONE 'Africa/Nairobi')::date)`; params.push(applicationDateEnd); idx++ }
-        if (nextPaymentDateStart) { where += ` AND l.next_payment_date IS NOT NULL AND l.next_payment_date >= (($${idx}::timestamp AT TIME ZONE 'Africa/Nairobi')::date)`; params.push(nextPaymentDateStart); idx++ }
-        if (nextPaymentDateEnd) { where += ` AND l.next_payment_date IS NOT NULL AND l.next_payment_date <= (($${idx}::timestamp AT TIME ZONE 'Africa/Nairobi')::date)`; params.push(nextPaymentDateEnd); idx++ }
-        if (q) {
-          where += ` AND (
-            COALESCE(c.name, '') ILIKE $${idx}
-            OR COALESCE(l.loan_product, '') ILIKE $${idx}
-            OR COALESCE(l.purpose, '') ILIKE $${idx}
-          )`
-          params.push(`%${q}%`)
-          idx++
-        }
+        ;({ where, params, idx } = appendSaccoLoanListFilters({
+          where,
+          params,
+          idx,
+          loanType,
+          remainingTenure,
+          applicationDateStart,
+          applicationDateEnd,
+          nextPaymentDateStart,
+          nextPaymentDateEnd,
+          q,
+        }))
 
         const loanRes = await client.query(
           `SELECT
-             COALESCE(c.name, '') AS client_name,
+             COALESCE(tpa.name, '') AS client_name,
              COALESCE(l.loan_product, '') AS loan_product,
              l.status,
              l.loan_type,
              l.principal_amount,
              l.tenure_months,
+             COALESCE(l.remaining_tenure_months, l.tenure_months) AS remaining_tenure_months,
              l.outstanding_balance,
              l.application_date,
              l.next_payment_date
            FROM institution_loans l
-           LEFT JOIN clients c ON c.id = l.client_id
+           LEFT JOIN third_party_agents tpa ON tpa.id = l.third_party_agent_id
            WHERE ${where}
            ORDER BY l.application_date DESC, l.created_at DESC`,
           params

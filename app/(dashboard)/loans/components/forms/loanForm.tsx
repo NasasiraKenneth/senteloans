@@ -157,7 +157,7 @@ export default function LoanForm({ onSubmit, loading = false }: LoanFormProps) {
     let stop = false
     ;(async () => {
       try {
-        const res = await fetch("/api/institution/loan-products?status=Active&limit=200", { cache: "no-store" })
+        const res = await fetch("/api/institution/loan-products?status=Active&pageSize=200", { cache: "no-store" })
         const data = await res.json().catch(() => ({}))
         if (!res.ok) throw new Error(data?.error || "Failed to load loan products")
         if (!stop) setProducts(Array.isArray(data?.items) ? data.items : [])
@@ -230,10 +230,10 @@ export default function LoanForm({ onSubmit, loading = false }: LoanFormProps) {
     let stop = false
     ;(async () => {
       try {
-        const res = await fetch("/api/institution/clients?limit=200", { cache: "no-store" })
+        const res = await fetch("/api/institution/third-party-agents?limit=200", { cache: "no-store" })
         const data = await res.json().catch(() => ({}))
         if (!res.ok) throw new Error(data?.error || "Failed to load clients")
-        const rows = Array.isArray(data?.clients) ? data.clients : []
+        const rows = Array.isArray(data?.third_party_agents) ? data.third_party_agents : []
         if (!stop)
           setLenderClients(
             rows.map((c: { id?: string; name?: string }) => ({ id: String(c.id || ""), name: String(c.name || "").trim() })).filter((c: { id: string }) => Boolean(c.id))

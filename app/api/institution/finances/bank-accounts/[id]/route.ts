@@ -1,12 +1,19 @@
 import { NextResponse } from "next/server"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
-import { hasPermission, isSuperAdmin, requireStaffSession, resolveActorContext } from "@/lib/api/rbac"
+import { isSuperAdmin, requireStaffSession, type ActorContext } from "@/lib/api/rbac"
+import {
+  assertFinanceBranchScope,
+  assertFinanceMutationAccess,
+  assertFinanceReadAccess,
+  financeAccessErrorResponseOrNull,
+} from "@/lib/api/finance-access"
 import { runWithAuth } from "@/lib/db"
 import { auditBankAccountUpdate, bankAccountSnapshot } from "@/lib/audit/finances-audit"
 import { FINANCE_PERMISSIONS } from "@/lib/finances/permissions"
+import { BANK_ACCOUNT_AGENT_JOIN } from "@/lib/finances/bank-account"
 
 function singleBankAccountWhere(
-  actor: NonNullable<Awaited<ReturnType<typeof resolveActorContext>>>,
+  actor: ActorContext,
   accountId: string,
 ): { where: string; values: unknown[] } {
   let where = `ba.id = $1::uuid AND ba.institution_id = $2::uuid`
@@ -32,25 +39,33 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     }
 
     const result = await runWithAuth(sess.authUserId, async (client) => {
-      const actor = await resolveActorContext(client, sess.authUserId)
-      if (!actor?.institution_id) return { error: "user_not_linked" as const }
-
-      const canView = await hasPermission(client, actor, FINANCE_PERMISSIONS.viewBankAccounts)
-      const canEdit = await hasPermission(client, actor, FINANCE_PERMISSIONS.editBankAccount)
-      if (!canView && !canEdit) return { error: "missing_permission:view_bank_accouts" as const }
-      if (!isSuperAdmin(actor) && !actor.branch_id) return { error: "actor_branch_missing" as const }
+      const access = await assertFinanceReadAccess(client, sess.authUserId, [
+        FINANCE_PERMISSIONS.viewBankAccounts,
+        FINANCE_PERMISSIONS.editBankAccount,
+      ])
+      if (!access.ok) {
+        return {
+          error: access.error,
+          staffStatus: access.staffStatus,
+          branchStatus: access.branchStatus,
+        }
+      }
+      const { actor } = access
 
       const { where, values } = singleBankAccountWhere(actor, accountId)
       const res = await client.query(
         `SELECT
            ba.id,
-           ba.bank_name,
+           ba.third_party_agent_id,
+           tpa.name AS bank_name,
+           tpa.name AS third_party_agent_name,
            ba.bank_account_number,
            COALESCE(ba.total_amount, 0)::numeric AS total_amount,
            ba.branch_id,
            b.name AS branch_name,
            ba.updated_at
          FROM bank_accounts ba
+         ${BANK_ACCOUNT_AGENT_JOIN}
          LEFT JOIN branches b ON b.id = ba.branch_id
          WHERE ${where}
          LIMIT 1`,
@@ -63,6 +78,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       return {
         account: {
           id: String(row.id),
+          third_party_agent_id: row.third_party_agent_id ? String(row.third_party_agent_id) : "",
+          third_party_agent_name: String(row.third_party_agent_name || ""),
           bank_name: String(row.bank_name || ""),
           bank_account_number: String(row.bank_account_number || ""),
           total_amount: Number(row.total_amount || 0),
@@ -74,8 +91,11 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     })
 
     if (result && "error" in result) {
-      const status =
-        result.error === "not_found" ? 404 : result.error === "actor_branch_missing" ? 400 : 403
+      const accessResponse = financeAccessErrorResponseOrNull(result)
+      if (accessResponse) {
+        return NextResponse.json(accessResponse.body, { status: accessResponse.status })
+      }
+      const status = result.error === "not_found" ? 404 : 403
       return NextResponse.json({ error: result.error }, { status })
     }
 
@@ -101,24 +121,31 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     }
 
     const body = await req.json().catch(() => ({}))
-    const bankName = String(body?.bank_name || "").trim()
+    const thirdPartyAgentId = String(body?.third_party_agent_id || "").trim()
     const accountNumber = String(body?.bank_account_number || "").trim()
     const branchId = String(body?.branch_id || "").trim()
 
-    if (!bankName || !accountNumber) {
-      return NextResponse.json({ error: "bank_name_and_account_required" }, { status: 400 })
+    if (!thirdPartyAgentId) {
+      return NextResponse.json({ error: "third_party_agent_id_required" }, { status: 400 })
+    }
+    if (!accountNumber) {
+      return NextResponse.json({ error: "bank_account_number_required" }, { status: 400 })
     }
 
     const updated = await runWithAuth(sess.authUserId, async (client) => {
-      const actor = await resolveActorContext(client, sess.authUserId)
-      if (!actor?.institution_id) return { error: "user_not_linked" as const }
-      const allowed = await hasPermission(client, actor, FINANCE_PERMISSIONS.editBankAccount)
-      if (!allowed) return { error: "missing_permission:edit_bank_account" as const }
-      if (!isSuperAdmin(actor) && !actor.branch_id) return { error: "actor_branch_missing" as const }
+      const access = await assertFinanceMutationAccess(client, sess.authUserId, FINANCE_PERMISSIONS.editBankAccount)
+      if (!access.ok) {
+        return {
+          error: access.error,
+          staffStatus: access.staffStatus,
+          branchStatus: access.branchStatus,
+        }
+      }
+      const { actor } = access
 
       const { where, values } = singleBankAccountWhere(actor, accountId)
       const existing = await client.query(
-        `SELECT id, branch_id, bank_name, bank_account_number, total_amount
+        `SELECT ba.id, ba.branch_id, ba.third_party_agent_id, ba.bank_account_number, ba.total_amount
          FROM bank_accounts ba
          WHERE ${where}
          LIMIT 1`,
@@ -128,20 +155,27 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       const oldRow = existing.rows[0] as Record<string, unknown>
 
       const targetBranchId = isSuperAdmin(actor)
-        ? branchId || String(existing.rows[0]?.branch_id || "")
-        : String(existing.rows[0]?.branch_id || actor.branch_id)
+        ? branchId || String(oldRow.branch_id || "")
+        : String(oldRow.branch_id || actor.branch_id)
 
-      if (!targetBranchId) return { error: "branch_id_required" as const }
-
-      if (isSuperAdmin(actor) && branchId) {
-        const branchCheck = await client.query(
-          `SELECT 1 FROM branches WHERE id = $1::uuid AND institution_id = $2::uuid LIMIT 1`,
-          [targetBranchId, actor.institution_id],
-        )
-        if ((branchCheck.rowCount ?? 0) === 0) return { error: "invalid_branch" as const }
+      const branchScope = await assertFinanceBranchScope(client, actor, targetBranchId)
+      if (!branchScope.ok) {
+        return {
+          error: branchScope.error,
+          staffStatus: branchScope.staffStatus,
+          branchStatus: branchScope.branchStatus,
+        }
       }
 
-      const setParams: unknown[] = [bankName, accountNumber, targetBranchId, actor.id]
+      const agentCheck = await client.query(
+        `SELECT 1 FROM third_party_agents
+         WHERE id = $1::uuid AND institution_id = $2::uuid AND branch_id = $3::uuid
+         LIMIT 1`,
+        [thirdPartyAgentId, actor.institution_id, branchScope.branchId],
+      )
+      if ((agentCheck.rowCount ?? 0) === 0) return { error: "invalid_third_party_agent" as const }
+
+      const setParams: unknown[] = [thirdPartyAgentId, accountNumber, branchScope.branchId, actor.id]
       let scopedWhere = `ba.id = $5::uuid AND ba.institution_id = $6::uuid`
       setParams.push(accountId, actor.institution_id)
       if (!isSuperAdmin(actor)) {
@@ -151,13 +185,13 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
       const updateRes = await client.query(
         `UPDATE bank_accounts ba
-         SET bank_name = $1,
+         SET third_party_agent_id = $1::uuid,
              bank_account_number = $2,
              branch_id = $3::uuid,
              modified_by = $4::uuid,
              updated_at = NOW()
          WHERE ${scopedWhere}
-         RETURNING id, bank_name, bank_account_number, total_amount, branch_id`,
+         RETURNING id, third_party_agent_id, bank_account_number, total_amount, branch_id`,
         setParams,
       )
 
@@ -170,17 +204,21 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         accountId,
         bankAccountSnapshot(oldRow),
         bankAccountSnapshot(newRow),
-        (newRow.branch_id as string | null | undefined) ?? targetBranchId,
+        (newRow.branch_id as string | null | undefined) ?? branchScope.branchId,
       )
 
       return { id: String(newRow.id || "") }
     })
 
     if (updated && "error" in updated) {
+      const accessResponse = financeAccessErrorResponseOrNull(updated)
+      if (accessResponse) {
+        return NextResponse.json(accessResponse.body, { status: accessResponse.status })
+      }
       const status =
         updated.error === "not_found"
           ? 404
-          : updated.error === "branch_id_required" || updated.error === "invalid_branch"
+          : updated.error === "invalid_third_party_agent"
             ? 400
             : 403
       return NextResponse.json({ error: updated.error }, { status })

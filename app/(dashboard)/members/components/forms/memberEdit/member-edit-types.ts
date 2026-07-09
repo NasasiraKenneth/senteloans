@@ -10,7 +10,6 @@ export type MemberEditFormData = {
   village: string
   occupation: string
   monthlyIncome: string
-  monthlySavings: string
   nextOfKin: string
   nextOfKinRelationship: string
   nextOfKinPhone: string
@@ -43,7 +42,6 @@ export const emptyMemberEditFormData = (): MemberEditFormData => ({
   village: "",
   occupation: "",
   monthlyIncome: "",
-  monthlySavings: "",
   nextOfKin: "",
   nextOfKinRelationship: "",
   nextOfKinPhone: "",

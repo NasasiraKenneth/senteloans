@@ -3,7 +3,10 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { runWithAuth } from "@/lib/db"
 import { auditLogger } from "@/lib/audit/audit-logger"
-import { hasInvestmentPermission, resolveInvestmentActor } from "@/lib/api/investment-rbac"
+import {
+  assertInvestmentWriteAccess,
+  investmentRouteDenialResponse,
+} from "@/lib/api/investment-access"
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string; partnerId: string }> }) {
   const { id: investmentId, partnerId } = await params
@@ -12,10 +15,16 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   if (session.user.type !== "staff") return NextResponse.json({ error: "not_staff" }, { status: 403 })
   const body = (await req.json().catch(() => ({}))) as Record<string, unknown>
   return runWithAuth(session.user.authUserId, async (client) => {
-    const actor = await resolveInvestmentActor(client, session.user.authUserId as string)
-    if (!actor?.institution_id) return NextResponse.json({ error: "user_not_linked" }, { status: 403 })
-    const allowed = await hasInvestmentPermission(client, actor, "edit_investment")
-    if (!allowed) return NextResponse.json({ error: "missing_permission:edit_investment" }, { status: 403 })
+    const access = await assertInvestmentWriteAccess(
+      client,
+      session.user.authUserId as string,
+      "edit_investment",
+    )
+    if (!access.ok) {
+      const { status, body: denialBody } = investmentRouteDenialResponse(access)
+      return NextResponse.json(denialBody, { status })
+    }
+    const { actor } = access
 
     const counterpartyId = String(body.counterpartyId || body.counterparty_id || "").trim()
     const role = String(body.role || "").trim() || null
@@ -24,10 +33,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     const contributionAmount = body.contributionAmount ?? body.contribution_amount ?? null
     const ownershipPercentage = body.ownershipPercentage ?? body.ownership_percentage ?? null
 
-    const isSuperAdmin = String(actor.role || "").trim().toLowerCase() === "super_admin"
-    if (!isSuperAdmin && !actor.branch_id) return NextResponse.json({ error: "actor_branch_missing" }, { status: 400 })
-
-    const setParams: unknown[] = [
+    const params: unknown[] = [
       counterpartyId,
       role,
       status,
@@ -37,9 +43,8 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       partnerId,
       investmentId,
       actor.institution_id,
+      actor.branch_id,
     ]
-    const branchClause = isSuperAdmin ? "" : " AND i.branch_id = $10"
-    const params: unknown[] = isSuperAdmin ? setParams : [...setParams, actor.branch_id]
 
     const prevRes = await client.query(
       `SELECT
@@ -55,11 +60,12 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
        JOIN investments i ON i.id = p.investment_id
        WHERE p.id = $7
          AND p.investment_id = $8
-         AND i.institution_id = $9${branchClause}`,
+         AND i.institution_id = $9
+         AND i.branch_id = $10`,
       params,
     )
     if (prevRes.rowCount === 0) return NextResponse.json({ error: "partner_not_found" }, { status: 404 })
-    const investmentBranchId = String((prevRes.rows[0] as { branch_id?: string })?.branch_id || actor.branch_id || "")
+    const investmentBranchId = String((prevRes.rows[0] as { branch_id?: string })?.branch_id || actor.branch_id)
     const prev = prevRes.rows[0] as {
       counterparty_id: string
       role: string | null
@@ -82,7 +88,8 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
        WHERE p.id = $7
          AND p.investment_id = $8
          AND i.id = p.investment_id
-         AND i.institution_id = $9${branchClause}
+         AND i.institution_id = $9
+         AND i.branch_id = $10
        RETURNING p.id`,
       params,
     )
@@ -121,25 +128,28 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
   if (!session?.user?.authUserId) return NextResponse.json({ error: "unauthorized" }, { status: 401 })
   if (session.user.type !== "staff") return NextResponse.json({ error: "not_staff" }, { status: 403 })
   return runWithAuth(session.user.authUserId, async (client) => {
-    const actor = await resolveInvestmentActor(client, session.user.authUserId as string)
-    if (!actor?.institution_id) return NextResponse.json({ error: "user_not_linked" }, { status: 403 })
-    const allowed = await hasInvestmentPermission(client, actor, "edit_investment")
-    if (!allowed) return NextResponse.json({ error: "missing_permission:edit_investment" }, { status: 403 })
-
-    const isSuperAdmin = String(actor.role || "").trim().toLowerCase() === "super_admin"
-    if (!isSuperAdmin && !actor.branch_id) return NextResponse.json({ error: "actor_branch_missing" }, { status: 400 })
+    const access = await assertInvestmentWriteAccess(
+      client,
+      session.user.authUserId as string,
+      "edit_investment",
+    )
+    if (!access.ok) {
+      const { status, body } = investmentRouteDenialResponse(access)
+      return NextResponse.json(body, { status })
+    }
+    const { actor } = access
 
     const investmentRes = await client.query(
       `SELECT i.id, i.status, i.branch_id
        FROM investments i
        WHERE i.id = $1
          AND i.institution_id = $2
-         ${isSuperAdmin ? "" : "AND i.branch_id = $3"}
+         AND i.branch_id = $3
        LIMIT 1`,
-      isSuperAdmin ? [id, actor.institution_id] : [id, actor.institution_id, actor.branch_id],
+      [id, actor.institution_id, actor.branch_id],
     )
     if (investmentRes.rowCount === 0) return NextResponse.json({ error: "investment_not_found" }, { status: 404 })
-    const investmentBranchId = String(investmentRes.rows[0]?.branch_id || actor.branch_id || "")
+    const investmentBranchId = String(investmentRes.rows[0]?.branch_id || actor.branch_id)
     const investmentStatus = String(investmentRes.rows[0]?.status || "").trim().toLowerCase()
     if (investmentStatus !== "pending") {
       return NextResponse.json({ error: "partner_delete_allowed_only_when_pending" }, { status: 409 })

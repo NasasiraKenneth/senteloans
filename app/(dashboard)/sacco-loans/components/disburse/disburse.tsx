@@ -11,10 +11,6 @@ interface DisburseProps {
   loanId: string
   completeDisbursementAmount?: number
   principalAmount?: number
-  processingFeeAmount?: number
-  processingFeePercentage?: number
-  loanType?: "normal" | "top up" | "buy off" | string
-  settlementOutstandingBalance?: number
   onSuccess?: () => void | Promise<void>
 }
 
@@ -24,10 +20,6 @@ export default function Disburse({
   loanId,
   completeDisbursementAmount = 0,
   principalAmount = 0,
-  processingFeeAmount = 0,
-  processingFeePercentage = 0,
-  loanType = "normal",
-  settlementOutstandingBalance = 0,
   onSuccess,
 }: DisburseProps) {
   const { toast } = useToast()
@@ -48,6 +40,8 @@ export default function Disburse({
             : {}),
           disbursement_mode: data.disbursement_mode,
           disbursement_date: data.disbursement_date,
+          reference_number: data.reference_number,
+          bank_account_id: data.bank_account_id,
         }),
       })
       const body = await res.json().catch(() => ({}))
@@ -73,10 +67,6 @@ export default function Disburse({
         loading={loading}
         completeDisbursementAmount={completeDisbursementAmount}
         principalAmount={principalAmount}
-        processingFeeAmount={processingFeeAmount}
-        processingFeePercentage={processingFeePercentage}
-        loanType={loanType}
-        settlementOutstandingBalance={settlementOutstandingBalance}
       />
     </LowModal>
   )

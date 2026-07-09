@@ -5,7 +5,13 @@ import { LowModal } from "@/components/modals/LowModal"
 import { Button } from "@/components/ui/button"
 import { useToast } from "@/components/ui/toast"
 import { describeExpenseCashflowApiError } from "./cashflowApiErrors"
-import CashflowForm, { emptyFlowForm, validateFlowForm, type FlowFormData } from "../forms/cashflowForm"
+import CashflowForm, {
+  allowsExpenseCashflowTransactionCharges,
+  emptyFlowForm,
+  isExpenseCashflowFullyPaidStatus,
+  validateFlowForm,
+  type FlowFormData,
+} from "../forms/cashflowForm"
 
 interface RecordExpenseCashflowProps {
   isOpen: boolean
@@ -38,18 +44,30 @@ export default function RecordExpenseCashflow({ isOpen, onClose, expenseId, onSu
       return
     }
     if (!expenseId) return
+    const isFullyPaid = isExpenseCashflowFullyPaidStatus(form.paymentStatus)
+    const isCash = form.transactionMode === "Cash"
+    const charges = Number(form.transactionCharges || 0)
+    const canCharge = allowsExpenseCashflowTransactionCharges(form.transactionMode)
     try {
       setSaving(true)
       const res = await fetch(`/api/institution/expenses/${expenseId}/cashflows`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          type: form.type,
-          ...(form.type === "staff" ? { staff_id: form.staffId } : { client_id: form.clientId }),
+          type: form.type === "staff" ? "staff" : "clients",
+          ...(form.type === "staff" ? { staff_id: form.staffId } : { third_party_agent_id: form.thirdPartyAgentId }),
           amount: Number(form.amount || 0),
           description: form.description.trim() || null,
           date: form.date,
-          mode: form.transactionMode.trim() || null,
+          payment_status: form.paymentStatus || "unpaid",
+          ...(isFullyPaid
+            ? {
+                mode: form.transactionMode,
+                bank_account_id: form.bankAccountId || undefined,
+                reference_number: !isCash ? form.referenceNumber.trim() : undefined,
+                transaction_charges: !isCash && canCharge && charges > 0 ? charges : undefined,
+              }
+            : {}),
         }),
       })
       const body = (await res.json().catch(() => ({}))) as Record<string, unknown>

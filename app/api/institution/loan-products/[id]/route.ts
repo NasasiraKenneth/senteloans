@@ -1,65 +1,29 @@
 import { NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
+import type { PoolClient } from "pg"
 import { authOptions } from "@/lib/auth"
 import { runWithAuth } from "@/lib/db"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
+import {
+  type ActorContext,
+  hasPermission,
+  isSuperAdmin,
+  resolveActorContext,
+} from "@/lib/api/rbac"
+import { assertBranchActive } from "@/lib/branches/branch-status"
+import { assertActorActive } from "@/lib/staff/staff-status"
 import { auditLogger } from "@/lib/audit/audit-logger"
 
-type ActorContext = {
-  id: string
-  institution_id: string
-  branch_id: string | null
-  role_id: string | null
-  role: string | null
-}
-
-async function resolveActorContext(client: any, authUserId: string): Promise<ActorContext | null> {
-  const actorRes = await client.query(
-    `SELECT
-       u.id,
-       u.institution_id,
-       u.branch_id,
-       u.role_id,
-       CASE
-         WHEN r.name = 'System Admin' THEN 'system_admin'
-         WHEN r.name = 'Super Admin' THEN 'super_admin'
-         WHEN r.name = 'Admin' THEN 'institution_admin'
-         WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
-         ELSE NULL
-       END AS role
-     FROM users u
-     LEFT JOIN roles r ON r.id = u.role_id
-     WHERE u.auth_id = $1
-     LIMIT 1`,
-    [authUserId]
-  )
-  return actorRes.rows[0] || null
-}
-
-async function hasPermission(client: any, actor: ActorContext, permission: string): Promise<boolean> {
-  const role = String(actor.role || "").trim().toLowerCase()
-  if (role === "super_admin") return true
-  if (!actor.role_id || !actor.branch_id) return false
-
-  const permRes = await client.query(
-    `SELECT 1
-     FROM role_permissions rp
-     JOIN permissions p ON p.id = rp.permission_id
-     WHERE rp.role_id = $1
-       AND rp.branch_id = $2
-       AND p.name = $3
-     LIMIT 1`,
-    [actor.role_id, actor.branch_id, permission]
-  )
-  return permRes.rowCount > 0
-}
-
-function whereScope(actor: ActorContext, idParamIndex: number, institutionParamIndex: number) {
-  const role = String(actor.role || "").trim().toLowerCase()
-  if (role === "super_admin") {
+function productScopeWhere(
+  actor: ActorContext,
+  tableAlias: string,
+  idParamIndex: number,
+  institutionParamIndex: number,
+) {
+  if (isSuperAdmin(actor)) {
     return {
-      clause: `id = $${idParamIndex}
-               AND institution_id = $${institutionParamIndex}`,
+      clause: `${tableAlias}.id = $${idParamIndex}
+               AND ${tableAlias}.institution_id = $${institutionParamIndex}`,
       params: [actor.institution_id],
     }
   }
@@ -67,11 +31,22 @@ function whereScope(actor: ActorContext, idParamIndex: number, institutionParamI
     return { error: "actor_branch_missing" as const }
   }
   return {
-    clause: `id = $${idParamIndex}
-             AND institution_id = $${institutionParamIndex}
-             AND branch_id = $${institutionParamIndex + 1}`,
+    clause: `${tableAlias}.id = $${idParamIndex}
+             AND ${tableAlias}.institution_id = $${institutionParamIndex}
+             AND ${tableAlias}.branch_id = $${institutionParamIndex + 1}`,
     params: [actor.institution_id, actor.branch_id],
   }
+}
+
+function routeErrorStatus(error: string | undefined): number {
+  const code = error || "unexpected_error"
+  if (code.startsWith("missing_permission:")) return 403
+  if (code === "no_app_user_profile") return 403
+  if (code === "staff_inactive") return 403
+  if (code === "branch_inactive") return 403
+  if (code === "product_not_found") return 404
+  if (code === "invalid_product_code") return 400
+  return 400
 }
 
 const deriveInstitutionInitials = (institutionName: string): string => {
@@ -106,7 +81,7 @@ const buildNextProductCode = async (
   institutionId: string,
   institutionName: string,
   shortCodeInput: string,
-  excludeProductId?: string
+  excludeProductId?: string,
 ): Promise<string> => {
   const institutionInitials = deriveInstitutionInitials(institutionName)
   const shortCode = normalizeShortProductCode(shortCodeInput)
@@ -135,6 +110,49 @@ const buildNextProductCode = async (
   return `${prefix}${nextSeq}`
 }
 
+async function loadScopedProduct(
+  client: PoolClient,
+  actor: ActorContext,
+  productId: string,
+  options?: { includeInstitutionName?: boolean },
+) {
+  const scope = productScopeWhere(actor, "lp", 1, 2)
+  if ("error" in scope) return { error: scope.error as "actor_branch_missing" }
+
+  if (options?.includeInstitutionName) {
+    const currentRes = await client.query(
+      `SELECT lp.branch_id,
+              lp.product_name, lp.product_code, lp.description,
+              lp.minimum_amount, lp.maximum_amount, lp.interest_rate,
+              lp.minimum_tenure_months, lp.maximum_tenure_months,
+              lp.interest_calculation_method, lp.collateral_required, lp.guarantors_required,
+              lp.processing_fee_percentage, lp.insurance_required, lp.status,
+              $2::uuid AS institution_id, i.name AS institution_name
+       FROM loan_products lp
+       JOIN institutions i ON i.id = $2
+       WHERE ${scope.clause}`,
+      [productId, ...scope.params],
+    )
+    const current = currentRes.rows[0]
+    if (!current) return { error: "product_not_found" as const }
+    return { product: current }
+  }
+
+  const res = await client.query(
+    `SELECT lp.id, lp.branch_id, lp.product_name, lp.product_code, lp.description,
+            lp.minimum_amount, lp.maximum_amount, lp.interest_rate,
+            lp.minimum_tenure_months, lp.maximum_tenure_months,
+            lp.interest_calculation_method, lp.collateral_required, lp.guarantors_required,
+            lp.processing_fee_percentage, lp.insurance_required, lp.status
+     FROM loan_products lp
+     WHERE ${scope.clause}`,
+    [productId, ...scope.params],
+  )
+  const product = res.rows[0]
+  if (!product) return { error: "product_not_found" as const }
+  return { product }
+}
+
 /**
  * GET /api/institution/loan-products/[id]
  */
@@ -156,39 +174,31 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     const result = await runWithAuth(session.user.authUserId, async (client) => {
       const actor = await resolveActorContext(client, session.user.authUserId as string)
       if (!actor?.institution_id) return { error: "no_app_user_profile" as const }
+
+      if (!isSuperAdmin(actor) && !actor.branch_id) {
+        return { error: "actor_branch_missing" as const }
+      }
+
       const allowed = await hasPermission(client, actor, "view_loan_products")
       if (!allowed) return { error: "missing_permission:view_loan_products" as const }
-      const scope = whereScope(actor, 1, 2)
-      if ("error" in scope) return { error: scope.error }
 
-      const res = await client.query(
-        `SELECT id, product_name, product_code, description, minimum_amount, maximum_amount,
-                interest_rate, minimum_tenure_months, maximum_tenure_months,
-                interest_calculation_method, collateral_required, guarantors_required,
-                processing_fee_percentage, insurance_required, status
-         FROM loan_products
-         WHERE ${scope.clause}`,
-        [id, ...scope.params]
-      )
-      const product = res.rows[0]
-      if (!product) return null
+      const loaded = await loadScopedProduct(client, actor, id)
+      if ("error" in loaded) return { error: loaded.error }
+      const product = loaded.product
 
       const eligRes = await client.query(
         `SELECT id, eligibility, status
          FROM loan_product_eligibilities
          WHERE loan_product_id = $1
          ORDER BY created_at ASC`,
-        [id]
+        [id],
       )
 
       return { ...product, eligibilities: eligRes.rows }
     })
 
     if (result && "error" in result) {
-      const statusCode =
-        result.error === "missing_permission:view_loan_products" ? 403 :
-        result.error === "no_app_user_profile" ? 403 :
-        result.error === "actor_branch_missing" ? 400 : 400
+      const statusCode = routeErrorStatus(result.error)
       apiLog("warn", "loan_products.detail.denied", { method: "GET", apiPath, status: statusCode, error: result.error, authUserId: session.user.authUserId, productId: id })
       return NextResponse.json({ error: result.error }, { status: statusCode })
     }
@@ -241,25 +251,27 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     const result = await runWithAuth(session.user.authUserId, async (client) => {
       const actor = await resolveActorContext(client, session.user.authUserId as string)
       if (!actor?.institution_id) return { error: "no_app_user_profile" as const }
+
+      const actorCheck = await assertActorActive(client, actor)
+      if (!actorCheck.ok) return { error: "staff_inactive" as const }
+
+      if (!isSuperAdmin(actor) && !actor.branch_id) {
+        return { error: "actor_branch_missing" as const }
+      }
+
       const allowed = await hasPermission(client, actor, "edit_loan_product")
       if (!allowed) return { error: "missing_permission:edit_loan_product" as const }
-      const scope = whereScope(actor, 1, 2)
-      if ("error" in scope) return { error: scope.error }
 
-      const currentRes = await client.query(
-        `SELECT lp.product_name, lp.product_code, lp.description,
-                lp.minimum_amount, lp.maximum_amount, lp.interest_rate,
-                lp.minimum_tenure_months, lp.maximum_tenure_months,
-                lp.interest_calculation_method, lp.collateral_required, lp.guarantors_required,
-                lp.processing_fee_percentage, lp.insurance_required, lp.status,
-                $2::uuid AS institution_id, i.name AS institution_name
-         FROM loan_products lp
-         JOIN institutions i ON i.id = $2
-         WHERE ${scope.clause}`,
-        [id, ...scope.params]
-      )
-      const current = currentRes.rows[0]
-      if (!current) return { error: "product_not_found" as const }
+      const loaded = await loadScopedProduct(client, actor, id, { includeInstitutionName: true })
+      if ("error" in loaded) return { error: loaded.error }
+      const current = loaded.product
+
+      const branchCheck = await assertBranchActive(client, String(current.branch_id))
+      if (!branchCheck.ok) {
+        return {
+          error: branchCheck.error === "branch_inactive" ? "branch_inactive" as const : "branch_not_found" as const,
+        }
+      }
 
       const requestedShortCode = normalizeShortProductCode(product_code)
       if (!requestedShortCode) return { error: "invalid_product_code" as const }
@@ -273,20 +285,20 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
               String(current.institution_id),
               String(current.institution_name || ""),
               requestedShortCode,
-              productId
+              productId,
             )
 
       const normalizedEligibilities = Array.isArray(eligibilities)
         ? Array.from(
             new Map(
               eligibilities
-                .map((item: any) => ({
+                .map((item: { eligibility?: unknown; status?: unknown }) => ({
                   eligibility: String(item?.eligibility || "").trim(),
                   status: String(item?.status || "Active") === "Inactive" ? "Inactive" : "Active",
                 }))
                 .filter((item) => item.eligibility)
-                .map((item) => [item.eligibility.toLowerCase(), item])
-            ).values()
+                .map((item) => [item.eligibility.toLowerCase(), item]),
+            ).values(),
           )
         : []
 
@@ -297,9 +309,9 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
            FROM loan_product_eligibilities
            WHERE loan_product_id = $1
            ORDER BY created_at ASC`,
-          [id]
+          [id],
         )
-        await client.query(
+        const updateRes = await client.query(
           `UPDATE loan_products SET
              product_name = $1, product_code = $2, description = $3,
              minimum_amount = $4, maximum_amount = $5, interest_rate = $6,
@@ -318,13 +330,17 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
             collateral_required || false, guarantors_required || 0,
             processing_fee_percentage || 0, insurance_required || false,
             status || "Active", productId, actor.institution_id,
-            String(actor.role || "").trim().toLowerCase() === "super_admin" ? null : actor.branch_id,
-          ]
+            isSuperAdmin(actor) ? null : actor.branch_id,
+          ],
         )
+        if ((updateRes.rowCount ?? 0) === 0) {
+          await client.query("ROLLBACK")
+          return { error: "product_not_found" as const }
+        }
 
         await client.query(
           `DELETE FROM loan_product_eligibilities WHERE loan_product_id = $1`,
-          [productId]
+          [productId],
         )
 
         for (const item of normalizedEligibilities) {
@@ -333,7 +349,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
              VALUES ($1, $2, $3)
              ON CONFLICT (loan_product_id, eligibility)
              DO UPDATE SET status = EXCLUDED.status, updated_at = NOW()`,
-            [productId, item.eligibility, item.status]
+            [productId, item.eligibility, item.status],
           )
         }
         await auditLogger.logUpdate(
@@ -375,8 +391,8 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
           },
           actor.institution_id,
           actor.id,
-          undefined,
-          client
+          { branch_id: String(current.branch_id) },
+          client,
         )
 
         await client.query("COMMIT")
@@ -388,14 +404,15 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     })
 
     if (result && "error" in result) {
-      const statusCode =
-        result.error === "missing_permission:edit_loan_product" ? 403 :
-        result.error === "product_not_found" ? 404 :
-        result.error === "invalid_product_code" ? 400 :
-        result.error === "no_app_user_profile" ? 403 :
-        result.error === "actor_branch_missing" ? 400 : 400
+      const statusCode = routeErrorStatus(result.error)
+      const message =
+        result.error === "product_not_found"
+          ? "Product not found"
+          : result.error === "invalid_product_code"
+            ? "Invalid product code"
+            : result.error
       apiLog("warn", "loan_products.update.denied", { method: "PUT", apiPath, status: statusCode, error: result.error, authUserId: session.user.authUserId, productId })
-      return NextResponse.json({ error: result.error === "product_not_found" ? "Product not found" : result.error === "invalid_product_code" ? "Invalid product code" : result.error }, { status: statusCode })
+      return NextResponse.json({ error: message }, { status: statusCode })
     }
 
     apiLog("info", "loan_products.update.success", { method: "PUT", apiPath, status: 200, authUserId: session.user.authUserId, productId })

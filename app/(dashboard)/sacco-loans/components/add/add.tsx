@@ -11,47 +11,71 @@ interface AddSaccoLoanProps {
   onCreated?: () => void
 }
 
-type ClientOption = {
+type ThirdPartyAgentOption = {
   id: string
   name: string
 }
 
+function mapCreateLoanError(code: unknown): string {
+  const c = String(code || "")
+  switch (c) {
+    case "invalid_total_amount":
+      return "Enter the total repayment amount."
+    case "invalid_interest_amount":
+      return "Enter the interest charges amount."
+    case "invalid_monthly_payment":
+      return "Enter the monthly instalment amount."
+    case "total_below_principal":
+      return "Total repayment cannot be less than the principal."
+    case "repayment_breakdown_mismatch":
+      return "Total repayment must equal principal plus interest charges."
+    default:
+      return c || "Failed to create external loan"
+  }
+}
+
 export default function AddSaccoLoan({ isOpen, onClose, onCreated }: AddSaccoLoanProps) {
   const { toast } = useToast()
-  const [clients, setClients] = useState<ClientOption[]>([])
-  const [loadingClients, setLoadingClients] = useState(false)
+  const [thirdPartyAgents, setThirdPartyAgents] = useState<ThirdPartyAgentOption[]>([])
+  const [loadingAgents, setLoadingAgents] = useState(false)
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
     if (!isOpen) return
     let cancelled = false
-    const loadClients = async () => {
+    const loadThirdPartyAgents = async () => {
       try {
-        setLoadingClients(true)
-        const res = await fetch("/api/institution/clients?limit=300", { cache: "no-store" })
+        setLoadingAgents(true)
+        const res = await fetch(
+          "/api/institution/third-party-agents?limit=300&status=Active",
+          { cache: "no-store" },
+        )
         const body = await res.json().catch(() => ({}))
-        if (!res.ok) throw new Error(body?.error || "Failed to load clients")
-        const list = Array.isArray(body?.clients) ? body.clients : Array.isArray(body) ? body : []
+        if (!res.ok) throw new Error(body?.error || "Failed to load third party agents")
+        const list = Array.isArray(body?.third_party_agents) ? body.third_party_agents : []
         if (cancelled) return
-        setClients(
-          list.map((c: any) => ({
-            id: String(c.id || ""),
-            name: String(c.name || c.full_name || ""),
-          })),
+        setThirdPartyAgents(
+          list
+            .filter((c: { status?: string }) => String(c.status || "Active") === "Active")
+            .map((c: { id?: string; name?: string; full_name?: string }) => ({
+              id: String(c.id || ""),
+              name: String(c.name || c.full_name || ""),
+            }))
+            .filter((c: { id: string }) => c.id),
         )
       } catch (e: any) {
         if (!cancelled) {
           toast({
             variant: "destructive",
-            title: "Failed to load clients",
+            title: "Failed to load third party agents",
             description: e?.message || "Please try again.",
           })
         }
       } finally {
-        if (!cancelled) setLoadingClients(false)
+        if (!cancelled) setLoadingAgents(false)
       }
     }
-    void loadClients()
+    void loadThirdPartyAgents()
     return () => {
       cancelled = true
     }
@@ -66,10 +90,13 @@ export default function AddSaccoLoan({ isOpen, onClose, onCreated }: AddSaccoLoa
         body: JSON.stringify(data),
       })
       const body = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(typeof body?.error === "string" ? body.error : "Failed to create Sacco loan")
+      if (!res.ok) {
+        const code = typeof body?.error === "string" ? body.error : ""
+        throw new Error(mapCreateLoanError(code))
+      }
       toast({
-        title: "Sacco loan created",
-        description: "The loan was saved successfully.",
+        title: "Application submitted",
+        description: "The external loan was created and is awaiting approval.",
       })
       onCreated?.()
       onClose()
@@ -86,8 +113,8 @@ export default function AddSaccoLoan({ isOpen, onClose, onCreated }: AddSaccoLoa
   }
 
   return (
-    <SlideModal isOpen={isOpen} onClose={onClose} title="Add Sacco Loan" className="z-20">
-      <SaccoLoanForm onSubmit={handleSubmit} onClose={onClose} loading={saving || loadingClients} clients={clients} />
+    <SlideModal isOpen={isOpen} onClose={onClose} title="New External Loan" className="z-20">
+      <SaccoLoanForm onSubmit={handleSubmit} onClose={onClose} loading={saving || loadingAgents} thirdPartyAgents={thirdPartyAgents} />
     </SlideModal>
   )
 }

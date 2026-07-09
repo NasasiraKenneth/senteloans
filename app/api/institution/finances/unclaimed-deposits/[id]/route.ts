@@ -1,14 +1,21 @@
 import { NextResponse } from "next/server"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
-import { hasPermission, isSuperAdmin, requireStaffSession, resolveActorContext } from "@/lib/api/rbac"
+import { hasPermission, isSuperAdmin, requireStaffSession, type ActorContext } from "@/lib/api/rbac"
+import {
+  assertFinanceBranchScope,
+  assertFinanceMutationAccess,
+  assertFinanceReadAccess,
+  financeAccessErrorResponseOrNull,
+} from "@/lib/api/finance-access"
 import { runWithAuth } from "@/lib/db"
 import { auditUnclaimedDepositUpdate, unclaimedDepositSnapshot } from "@/lib/audit/finances-audit"
 import { FINANCE_PERMISSIONS } from "@/lib/finances/permissions"
 import { toDateOnlyString } from "@/lib/finances/date-only"
 import { normalizePaymentMode } from "@/lib/finances/payment-mode"
+import { getBranchBankAccount } from "@/lib/finances/bank-account"
 
 function singleUnclaimedWhere(
-  actor: NonNullable<Awaited<ReturnType<typeof resolveActorContext>>>,
+  actor: ActorContext,
   depositId: string,
 ): { where: string; values: unknown[] } {
   let where = `ud.id = $1::uuid AND ud.institution_id = $2::uuid`
@@ -34,13 +41,19 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     }
 
     const result = await runWithAuth(sess.authUserId, async (client) => {
-      const actor = await resolveActorContext(client, sess.authUserId)
-      if (!actor?.institution_id) return { error: "user_not_linked" as const }
-
-      const canView = await hasPermission(client, actor, FINANCE_PERMISSIONS.viewUnclaimedDeposits)
+      const access = await assertFinanceReadAccess(client, sess.authUserId, [
+        FINANCE_PERMISSIONS.viewUnclaimedDeposits,
+        FINANCE_PERMISSIONS.editUnclaimedDeposit,
+      ])
+      if (!access.ok) {
+        return {
+          error: access.error,
+          staffStatus: access.staffStatus,
+          branchStatus: access.branchStatus,
+        }
+      }
+      const { actor } = access
       const canEdit = await hasPermission(client, actor, FINANCE_PERMISSIONS.editUnclaimedDeposit)
-      if (!canView && !canEdit) return { error: "missing_permission:view_unclaimed_deposits" as const }
-      if (!isSuperAdmin(actor) && !actor.branch_id) return { error: "actor_branch_missing" as const }
 
       const { where, values } = singleUnclaimedWhere(actor, depositId)
       const res = await client.query(
@@ -53,7 +66,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
            ud.date,
            ud.status,
            ud.member_id,
-           ud.client_id,
+           ud.third_party_agent_id,
+           ud.bank_account_id,
            ud.branch_id,
            ud.transaction_id,
            ud.notes,
@@ -61,7 +75,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
            t.transaction_number AS linked_transaction_number
          FROM unclaimed_deposits ud
          LEFT JOIN members m ON m.id = ud.member_id
-         LEFT JOIN clients c ON c.id = ud.client_id
+         LEFT JOIN third_party_agents c ON c.id = ud.third_party_agent_id
          LEFT JOIN transactions t ON t.id = ud.transaction_id
          WHERE ${where}
          LIMIT 1`,
@@ -72,8 +86,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       if (!row) return { error: "not_found" as const }
 
       const memberId = row.member_id ? String(row.member_id) : ""
-      const clientId = row.client_id ? String(row.client_id) : ""
-      const assigneeType = memberId ? "member" : clientId ? "client" : ""
+      const thirdPartyAgentId = row.third_party_agent_id ? String(row.third_party_agent_id) : ""
+      const assigneeType = memberId ? "member" : thirdPartyAgentId ? "third_party_agent" : ""
       const statusRaw = String(row.status || "unclaimed")
       const isClaimed = statusRaw.trim().toLowerCase() === "claimed"
 
@@ -89,9 +103,10 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
           date: toDateOnlyString(row.date),
           status: statusRaw,
           member_id: memberId,
-          client_id: clientId,
-          assignee_type: assigneeType as "" | "member" | "client",
+          third_party_agent_id: thirdPartyAgentId,
+          assignee_type: assigneeType as "" | "member" | "third_party_agent",
           assignee_name: String(row.assignee_name || ""),
+          bank_account_id: row.bank_account_id ? String(row.bank_account_id) : "",
           branch_id: row.branch_id ? String(row.branch_id) : "",
           transaction_id: row.transaction_id ? String(row.transaction_id) : "",
           linked_transaction_number: row.linked_transaction_number
@@ -104,8 +119,11 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     })
 
     if (result && "error" in result) {
-      const status =
-        result.error === "not_found" ? 404 : result.error === "actor_branch_missing" ? 400 : 403
+      const accessResponse = financeAccessErrorResponseOrNull(result)
+      if (accessResponse) {
+        return NextResponse.json(accessResponse.body, { status: accessResponse.status })
+      }
+      const status = result.error === "not_found" ? 404 : 403
       return NextResponse.json({ error: result.error }, { status })
     }
 
@@ -135,6 +153,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     const mode = normalizePaymentMode(body?.mode)
     const depositDate = String(body?.date || "").trim() || null
     const transactionNumber = String(body?.transaction_number || "").trim() || null
+    const bankAccountIdRaw = String(body?.bank_account_id || "").trim()
     const notes = String(body?.notes || "").trim() || null
     const branchId = String(body?.branch_id || "").trim()
 
@@ -144,18 +163,25 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     if (!mode) {
       return NextResponse.json({ error: "invalid_payment_mode" }, { status: 400 })
     }
+    if (mode === "Bank Transfer" && !bankAccountIdRaw) {
+      return NextResponse.json({ error: "bank_account_required" }, { status: 400 })
+    }
 
     const updated = await runWithAuth(sess.authUserId, async (client) => {
-      const actor = await resolveActorContext(client, sess.authUserId)
-      if (!actor?.institution_id) return { error: "user_not_linked" as const }
-      const allowed = await hasPermission(client, actor, FINANCE_PERMISSIONS.editUnclaimedDeposit)
-      if (!allowed) return { error: "missing_permission:edit_unclaimed_deposit" as const }
-      if (!isSuperAdmin(actor) && !actor.branch_id) return { error: "actor_branch_missing" as const }
+      const access = await assertFinanceMutationAccess(client, sess.authUserId, FINANCE_PERMISSIONS.editUnclaimedDeposit)
+      if (!access.ok) {
+        return {
+          error: access.error,
+          staffStatus: access.staffStatus,
+          branchStatus: access.branchStatus,
+        }
+      }
+      const { actor } = access
 
       const { where, values } = singleUnclaimedWhere(actor, depositId)
       const existing = await client.query(
         `SELECT id, branch_id, status, unclaimed_deposit_number, transaction_number, amount, mode, date,
-                member_id, client_id, transaction_id, notes
+                member_id, third_party_agent_id, bank_account_id, transaction_id, notes
          FROM unclaimed_deposits ud
          WHERE ${where}
          LIMIT 1`,
@@ -176,14 +202,24 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         ? branchId || String(oldRow.branch_id || "")
         : String(oldRow.branch_id || actor.branch_id)
 
-      if (!targetBranchId) return { error: "branch_id_required" as const }
+      const branchScope = await assertFinanceBranchScope(client, actor, targetBranchId)
+      if (!branchScope.ok) {
+        return {
+          error: branchScope.error,
+          staffStatus: branchScope.staffStatus,
+          branchStatus: branchScope.branchStatus,
+        }
+      }
 
-      if (isSuperAdmin(actor) && branchId) {
-        const branchCheck = await client.query(
-          `SELECT 1 FROM branches WHERE id = $1::uuid AND institution_id = $2::uuid LIMIT 1`,
-          [targetBranchId, actor.institution_id],
-        )
-        if ((branchCheck.rowCount ?? 0) === 0) return { error: "invalid_branch" as const }
+      let bankAccountId: string | null = null
+      if (mode === "Bank Transfer") {
+        const bankAccount = await getBranchBankAccount(client, {
+          bankAccountId: bankAccountIdRaw,
+          institutionId: actor.institution_id,
+          branchId: branchScope.branchId,
+        })
+        if (!bankAccount) return { error: "invalid_bank_account" as const }
+        bankAccountId = bankAccount.id
       }
 
       const setParams: unknown[] = [
@@ -192,13 +228,14 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         mode,
         depositDate,
         notes,
-        targetBranchId,
+        bankAccountId,
+        branchScope.branchId,
         actor.id,
       ]
-      let scopedWhere = `ud.id = $8::uuid AND ud.institution_id = $9::uuid`
+      let scopedWhere = `ud.id = $9::uuid AND ud.institution_id = $10::uuid`
       setParams.push(depositId, actor.institution_id)
       if (!isSuperAdmin(actor)) {
-        scopedWhere += ` AND ud.branch_id = $10::uuid AND lower(trim(ud.status)) = 'unclaimed'`
+        scopedWhere += ` AND ud.branch_id = $11::uuid AND lower(trim(ud.status)) = 'unclaimed'`
         setParams.push(actor.branch_id)
       } else {
         scopedWhere += ` AND lower(trim(ud.status)) = 'unclaimed'`
@@ -211,12 +248,13 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
              mode = $3::payment_mode,
              date = $4::date,
              notes = $5,
-             branch_id = $6::uuid,
-             modified_by = $7::uuid,
+             bank_account_id = $6::uuid,
+             branch_id = $7::uuid,
+             modified_by = $8::uuid,
              updated_at = NOW()
          WHERE ${scopedWhere}
          RETURNING id, unclaimed_deposit_number, transaction_number, amount, mode, date, status,
-                   member_id, client_id, transaction_id, branch_id, notes`,
+                   member_id, third_party_agent_id, bank_account_id, transaction_id, branch_id, notes`,
         setParams,
       )
 
@@ -234,20 +272,24 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         depositId,
         unclaimedDepositSnapshot(oldRow),
         unclaimedDepositSnapshot(newRow),
-        (newRow.branch_id as string | null | undefined) ?? targetBranchId,
+        (newRow.branch_id as string | null | undefined) ?? branchScope.branchId,
       )
 
       return { id: String(newRow.id || "") }
     })
 
     if (updated && "error" in updated) {
+      const accessResponse = financeAccessErrorResponseOrNull(updated)
+      if (accessResponse) {
+        return NextResponse.json(accessResponse.body, { status: accessResponse.status })
+      }
       const code = String(updated.error || "")
       const statusCode =
         code === "not_found"
           ? 404
           : code === "deposit_not_editable"
             ? 409
-            : code === "branch_id_required" || code === "invalid_branch"
+            : code === "invalid_bank_account" || code === "bank_account_required"
               ? 400
               : 403
       const message = "message" in updated && updated.message ? updated.message : undefined

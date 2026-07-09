@@ -56,18 +56,6 @@ export default function MemberEditLocationSection({
               onChange={(e) => onChange("monthlyIncome", e.target.value)}
             />
           </div>
-          <div className="space-y-2">
-            <Label htmlFor="monthlySavings">Monthly Savings ({currency})</Label>
-            <StyledInput
-              id="monthlySavings"
-              type="number"
-              min={0}
-              value={formData.monthlySavings}
-              onChange={(e) => onChange("monthlySavings", e.target.value)}
-              placeholder="e.g., 50,000"
-            />
-            <p className="text-xs text-muted-foreground">The agreed monthly savings contribution.</p>
-          </div>
         </div>
       </CardContent>
     </Card>

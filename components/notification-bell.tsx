@@ -82,7 +82,10 @@ export function NotificationBell({ apiEndpoint, contentClassName, triggerClassNa
           )}
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className={cn("w-96 p-0", contentClassName)}>
+      <DropdownMenuContent
+        align="end"
+        className={cn("w-96 max-h-[min(520px,85vh)] overflow-hidden p-0", contentClassName)}
+      >
         <NotificationPanel apiEndpoint={apiEndpoint} onCountChange={setUnreadCount} />
       </DropdownMenuContent>
     </DropdownMenu>

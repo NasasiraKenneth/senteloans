@@ -43,9 +43,46 @@ interface NavSection {
   items: NavItem[]
 }
 
+type NavPermissions = {
+  viewStaff: boolean
+  viewMembers: boolean
+  viewThirdPartyAgents: boolean
+  viewLoans: boolean
+  viewSaccoLoans: boolean
+  viewLoanProducts: boolean
+  viewSavings: boolean
+  viewInvestments: boolean
+  viewInvestmentReports: boolean
+  viewTransactions: boolean
+  viewInvoices: boolean
+  viewFinances: boolean
+  viewExpenses: boolean
+  viewReports: boolean
+  viewSettings: boolean
+}
+
+const DEFAULT_NAV_PERMISSIONS: NavPermissions = {
+  viewStaff: false,
+  viewMembers: false,
+  viewThirdPartyAgents: false,
+  viewLoans: false,
+  viewSaccoLoans: false,
+  viewLoanProducts: false,
+  viewSavings: false,
+  viewInvestments: false,
+  viewInvestmentReports: false,
+  viewTransactions: false,
+  viewInvoices: false,
+  viewFinances: false,
+  viewExpenses: false,
+  viewReports: false,
+  viewSettings: false,
+}
+
 export function DashboardSidebar() {
   const [collapsed, setCollapsed] = useState(false)
   const [expandedMenus, setExpandedMenus] = useState<string[]>([])
+  const [navPermissions, setNavPermissions] = useState<NavPermissions>(DEFAULT_NAV_PERMISSIONS)
   const { session } = useStaffSession()
   const pathname = usePathname()
   const router = useRouter()
@@ -63,6 +100,36 @@ export function DashboardSidebar() {
     }
   }, [pathname])
 
+  useEffect(() => {
+    let cancelled = false
+    fetch("/api/institution/navigation/permissions", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((body) => {
+        if (cancelled || !body?.permissions) return
+        setNavPermissions({
+          viewStaff: !!body.permissions.viewStaff,
+          viewMembers: !!body.permissions.viewMembers,
+          viewThirdPartyAgents: !!body.permissions.viewThirdPartyAgents,
+          viewLoans: !!body.permissions.viewLoans,
+          viewSaccoLoans: !!body.permissions.viewSaccoLoans,
+          viewLoanProducts: !!body.permissions.viewLoanProducts,
+          viewSavings: !!body.permissions.viewSavings,
+          viewInvestments: !!body.permissions.viewInvestments,
+          viewInvestmentReports: !!body.permissions.viewInvestmentReports,
+          viewTransactions: !!body.permissions.viewTransactions,
+          viewInvoices: !!body.permissions.viewInvoices,
+          viewFinances: !!body.permissions.viewFinances,
+          viewExpenses: !!body.permissions.viewExpenses,
+          viewReports: !!body.permissions.viewReports,
+          viewSettings: !!body.permissions.viewSettings,
+        })
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
   const getSections = (): NavSection[] => {
     const config = session?.institution?.config
     const clientTerm = readClientTerminology(config)
@@ -70,91 +137,94 @@ export function DashboardSidebar() {
     const sharesEnabled = readInstitutionConfigModuleEnabled(config, "shares")
 
     const clientLabel = session?.institution
-      ? clientTerm === "Member" ? "Members" : "Borrowers"
+      ? clientTerm === "Member" ? "Members" : clientTerm === "Client" ? "Clients" : "Borrowers"
       : "Users"
 
-    // Finance section
-    const financeItems: NavItem[] = [
-      {
+    const loanSubmenu = [
+      navPermissions.viewLoans ? { name: "Member Loans", href: "/loans" } : null,
+      navPermissions.viewSaccoLoans ? { name: "External Loans", href: "/sacco-loans" } : null,
+      navPermissions.viewLoanProducts ? { name: "Loan Products", href: "/loan-products" } : null,
+    ].filter(Boolean) as { name: string; href: string }[]
+
+    const financeItems: NavItem[] = []
+    if (loanSubmenu.length > 0) {
+      financeItems.push({
         name: "Loans",
-        href: "/loans",
+        href: loanSubmenu[0].href,
         icon: CreditCard,
-        submenu: [
-          { name: "Member Loans", href: "/loans" },
-          { name: "Sacco Loans", href: "/sacco-loans" },
-          { name: "Loan Products", href: "/loan-products" },
-        ],
-      },
-    ]
-    if (!session?.institution || savingsEnabled) {
+        submenu: loanSubmenu,
+      })
+    }
+    if ((!session?.institution || savingsEnabled) && navPermissions.viewSavings) {
       financeItems.push({ name: "Savings", href: "/savings", icon: PiggyBank })
     }
-    financeItems.push(
-      { 
-        name: "Investments", 
-        href: "/investments", 
-        icon: TrendingUp,
-        submenu: [
-          { name: "All Investments", href: "/investments" },
-          { name: "Investment Reports", href: "/investment-reports" },
-        ], 
-      },
-      { name: "Transactions", href: "/transactions", icon: ArrowUpDown },
-      { name: "Invoices", href: "/invoices", icon: Receipt },
-    )
-
-    // Reports submenu
-    const reportsSubmenu = [{ name: "Loan Reports", href: "/reports/loans" }]
-    if (!session?.institution || savingsEnabled) {
-      reportsSubmenu.push({ name: "Savings Reports", href: "/reports/savings" })
+    if (navPermissions.viewInvestments) {
+      financeItems.push({ name: "Investments", href: "/investments", icon: TrendingUp })
     }
-    if (!session?.institution || sharesEnabled) {
-      reportsSubmenu.push({ name: "Share Reports", href: "/reports/shares" })
+    if (navPermissions.viewTransactions) {
+      financeItems.push({ name: "Transactions", href: "/transactions", icon: ArrowUpDown })
     }
-    reportsSubmenu.push(
-      { name: "Statements", href: "/reports/statements" },
-      { name: "Sacco Loan Reports", href: "/reports/sacco-loans" },
-      { name: "Invoice Reports", href: "/reports/invoices" },
-      { name: "Staff Audit Reports", href: "/reports/staff-audit" },
-      { name: "Financial Reports", href: "/reports/financial" },
-      { name: "Treasury Reports", href: "/reports/treasury" },
-    )
+    if (navPermissions.viewInvoices) {
+      financeItems.push({ name: "Invoices", href: "/invoices", icon: Receipt })
+    }
 
-    return [
+    const reportsSubmenu = [
+      navPermissions.viewLoans ? { name: "Loan Reports", href: "/reports/loans" } : null,
+      (!session?.institution || savingsEnabled) && navPermissions.viewSavings
+        ? { name: "Savings Reports", href: "/reports/savings" }
+        : null,
+      (!session?.institution || sharesEnabled) && navPermissions.viewReports
+        ? { name: "Share Reports", href: "/reports/shares" }
+        : null,
+      navPermissions.viewReports ? { name: "Statements", href: "/reports/statements" } : null,
+      navPermissions.viewSaccoLoans ? { name: "Sacco Loan Reports", href: "/reports/sacco-loans" } : null,
+      navPermissions.viewInvoices ? { name: "Invoice Reports", href: "/reports/invoices" } : null,
+      navPermissions.viewStaff ? { name: "Staff Audit Reports", href: "/reports/staff-audit" } : null,
+      navPermissions.viewFinances ? { name: "Financial Reports", href: "/reports/financial" } : null,
+      navPermissions.viewFinances ? { name: "Treasury Reports", href: "/reports/treasury" } : null,
+    ].filter(Boolean) as { name: string; href: string }[]
+
+    const peopleItems = [
+      navPermissions.viewStaff ? { name: "Staff", href: "/staff", icon: UserCog } : null,
+      navPermissions.viewMembers ? { name: clientLabel, href: "/members", icon: Users } : null,
+      navPermissions.viewThirdPartyAgents ? { name: "Third Party Agents", href: "/third-party-agents", icon: Building2 } : null,
+    ].filter(Boolean) as NavItem[]
+
+    const treasuryItems = [
+      navPermissions.viewFinances ? { name: "Finances", href: "/finances", icon: Landmark } : null,
+      navPermissions.viewExpenses ? { name: "Expenses", href: "/expenses", icon: ReceiptText } : null,
+    ].filter(Boolean) as NavItem[]
+
+    const sections: NavSection[] = [
       {
         label: null,
         items: [{ name: "Dashboard", href: "/dashboard", icon: BarChart3 }],
       },
-      {
-        label: "People",
-        items: [
-          { name: "Staff", href: "/staff", icon: UserCog },
-          { name: clientLabel, href: "/members", icon: Users },
-          { name: "Third Party Agents", href: "/clients", icon: Building2 },
-        ],
-      },
-      {
-        label: "Finance",
-        items: financeItems,
-      },
-      {
-        label: "Treasury",
-        items: [
-          { name: "Finances", href: "/finances", icon: Landmark },
-          { name: "Expenses", href: "/expenses", icon: ReceiptText },
-        ],
-      },
-      {
+    ]
+
+    if (peopleItems.length > 0) {
+      sections.push({ label: "People", items: peopleItems })
+    }
+    if (financeItems.length > 0) {
+      sections.push({ label: "Finance", items: financeItems })
+    }
+    if (treasuryItems.length > 0) {
+      sections.push({ label: "Treasury", items: treasuryItems })
+    }
+    if (navPermissions.viewReports && reportsSubmenu.length > 0) {
+      sections.push({
         label: "Insights",
-        items: [
-          { name: "Reports", href: "/reports", icon: FileText, submenu: reportsSubmenu },
-        ],
-      },
-      {
+        items: [{ name: "Reports", href: "/reports", icon: FileText, submenu: reportsSubmenu }],
+      })
+    }
+    if (navPermissions.viewSettings) {
+      sections.push({
         label: null,
         items: [{ name: "Settings", href: "/settings", icon: Settings }],
-      },
-    ]
+      })
+    }
+
+    return sections
   }
 
   const sections = getSections()
@@ -162,7 +232,7 @@ export function DashboardSidebar() {
 
   const isActive = (href: string) => {
     if (href === "/dashboard") return pathname === "/dashboard"
-    if (href === "/users") return pathname.startsWith("/users") || pathname.startsWith("/members")
+    if (href === "/members") return pathname.startsWith("/members")
     if (href === "/staff") return pathname.startsWith("/staff")
     if (href === "/loans")
       return (

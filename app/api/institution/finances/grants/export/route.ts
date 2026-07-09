@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
-import { hasPermission, isSuperAdmin, requireStaffSession, resolveActorContext } from "@/lib/api/rbac"
+import { isSuperAdmin, requireStaffSession } from "@/lib/api/rbac"
+import {
+  assertFinanceReadAccess,
+  financeAccessErrorResponseOrNull,
+} from "@/lib/api/finance-access"
 import { runWithAuth } from "@/lib/db"
 import {
   addExcelTitleAndHeaders,
@@ -67,11 +71,15 @@ export async function GET(req: Request) {
     const format = (url.searchParams.get("format") || "").trim().toLowerCase()
 
     const result = await runWithAuth(sess.authUserId, async (client) => {
-      const actor = await resolveActorContext(client, sess.authUserId)
-      if (!actor?.institution_id) return { error: "user_not_linked" as const }
-      const allowed = await hasPermission(client, actor, FINANCE_PERMISSIONS.viewGrants)
-      if (!allowed) return { error: "missing_permission:view_grants" as const }
-      if (!isSuperAdmin(actor) && !actor.branch_id) return { error: "actor_branch_missing" as const }
+      const access = await assertFinanceReadAccess(client, sess.authUserId, FINANCE_PERMISSIONS.viewGrants)
+      if (!access.ok) {
+        return {
+          error: access.error,
+          staffStatus: access.staffStatus,
+          branchStatus: access.branchStatus,
+        }
+      }
+      const { actor } = access
 
       let branchScopes: BranchScope[] = []
       if (isSuperAdmin(actor)) {
@@ -106,7 +114,7 @@ export async function GET(req: Request) {
         let idx = 3
 
         if (search) {
-          where += ` AND c.name ILIKE $${idx}`
+          where += ` AND tpa.name ILIKE $${idx}`
           params.push(`%${search}%`)
           idx++
         }
@@ -133,7 +141,7 @@ export async function GET(req: Request) {
 
         const rowsRes = await client.query(
           `SELECT
-             c.name AS client_name,
+             tpa.name AS client_name,
              COALESCE(g.total_amount, 0)::numeric AS total_amount,
              COALESCE(g.available_balance, 0)::numeric AS available_balance,
              GREATEST(COALESCE(g.total_amount, 0) - COALESCE(g.available_balance, 0), 0)::numeric AS remaining_amount,
@@ -145,7 +153,7 @@ export async function GET(req: Request) {
              g.created_at,
              g.updated_at
            FROM grants g
-           JOIN clients c ON c.id = g.client_id
+           JOIN third_party_agents tpa ON tpa.id = g.third_party_agent_id
            WHERE ${where}
            ORDER BY g.updated_at DESC NULLS LAST, g.created_at DESC`,
           params,
@@ -169,12 +177,11 @@ export async function GET(req: Request) {
     })
 
     if (result && "error" in result) {
-      const statusCode =
-        result.error === "actor_branch_missing" || result.error === "no_branch_scope"
-          ? 400
-          : result.error === "user_not_linked" || String(result.error).startsWith("missing_permission:")
-            ? 403
-            : 400
+      const accessResponse = financeAccessErrorResponseOrNull(result)
+      if (accessResponse) {
+        return NextResponse.json(accessResponse.body, { status: accessResponse.status })
+      }
+      const statusCode = result.error === "no_branch_scope" ? 400 : 403
       return NextResponse.json({ error: result.error }, { status: statusCode })
     }
     if (!result || "error" in result) {

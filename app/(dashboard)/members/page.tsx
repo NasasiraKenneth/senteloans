@@ -15,6 +15,9 @@ import { withBranchFilterFirst } from "@/lib/filters/branch-first-filter"
 import { ActionButtons } from "@/components/datatables/ActionButtons"
 import { Filter } from "@/types"
 import { useToast } from "@/components/ui/toast"
+import { useStaffSession } from "@/components/staff-session-provider"
+import { formatCurrency as fmtCurrency } from "@/lib/format-currency"
+import { readInstitutionCurrency } from "@/lib/institution-branch-config"
 import { downloadMembersExport } from "./export/export"
 
 type UiMember = {
@@ -40,14 +43,6 @@ function getInitials(name: string): string {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
 }
 
-function formatCurrency(amount: number): string {
-  return new Intl.NumberFormat("en-UG", {
-    style: "currency",
-    currency: "UGX",
-    minimumFractionDigits: 0,
-  }).format(amount)
-}
-
 function formatDate(date: string): string {
   if (!date) return "—"
   return new Date(date).toLocaleDateString("en-UG", {
@@ -71,6 +66,9 @@ function formatDateTime(date: string): string {
 export default function UsersPage() {
   const router = useRouter()
   const { toast } = useToast()
+  const { session } = useStaffSession()
+  const currency = readInstitutionCurrency(session?.institution?.config)
+  const formatMoney = (amount: number) => fmtCurrency(amount, currency)
   const [users, setUsers] = useState<UiMember[]>([])
   const [loading, setLoading] = useState(true)
   const [membershipFee, setMembershipFee] = useState(0)
@@ -324,7 +322,7 @@ export default function UsersPage() {
 
         return (
           <span className="text-sm font-medium text-gray-900">
-            {formatCurrency(paid)}
+            {formatMoney(paid)}
           </span>
         )
       },
@@ -650,6 +648,8 @@ export default function UsersPage() {
             onPdf: () => void downloadExport("pdf"),
             excelDisabled: loading || users.length === 0 || exporting !== null || !memberPermissions.viewMembers,
             pdfDisabled: loading || users.length === 0 || exporting !== null || !memberPermissions.viewMembers,
+            excelLoading: exporting === "excel",
+            pdfLoading: exporting === "pdf",
           }}
           tabularFilters={filters}
           tabularFilterField="status"

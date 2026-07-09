@@ -45,7 +45,7 @@ export default function EditGrant({ isOpen, grantId, onClose, onSuccess }: EditG
     try {
       const [permRes, clientsRes] = await Promise.all([
         fetch("/api/institution/finances/permissions", { cache: "no-store" }),
-        fetch("/api/institution/clients?limit=200", { cache: "no-store" }),
+        fetch("/api/institution/third-party-agents?limit=200", { cache: "no-store" }),
       ])
 
       if (permRes.ok) {
@@ -60,7 +60,7 @@ export default function EditGrant({ isOpen, grantId, onClose, onSuccess }: EditG
 
       if (clientsRes.ok) {
         const clientsBody = await clientsRes.json().catch(() => ({}))
-        const clients = Array.isArray(clientsBody?.clients) ? clientsBody.clients : []
+        const clients = Array.isArray(clientsBody?.third_party_agents) ? clientsBody.third_party_agents : []
         setClientOptions(
           clients
             .map((c: { id?: string; name?: string; branch_id?: string }) => ({
@@ -100,7 +100,7 @@ export default function EditGrant({ isOpen, grantId, onClose, onSuccess }: EditG
 
         const g = body?.grant
         setInitialValues({
-          client_id: g?.client_id || "",
+          third_party_agent_id: g?.third_party_agent_id || "",
           total_amount: String(g?.total_amount ?? ""),
           available_balance: String(g?.available_balance ?? ""),
           branch_id: g?.branch_id || "",
@@ -126,7 +126,7 @@ export default function EditGrant({ isOpen, grantId, onClose, onSuccess }: EditG
     setLoading(true)
     try {
       const payload: Record<string, unknown> = {
-        client_id: data.client_id,
+        third_party_agent_id: data.third_party_agent_id,
         total_amount: Number(data.total_amount),
         branch_id: data.branch_id || null,
       }
@@ -142,10 +142,10 @@ export default function EditGrant({ isOpen, grantId, onClose, onSuccess }: EditG
       const body = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(body?.error || "Failed to update grant")
 
-      const clientLabel = clientOptions.find((c) => c.value === data.client_id)?.label || "Grant"
+      const agentLabel = clientOptions.find((c) => c.value === data.third_party_agent_id)?.label || "Grant"
       toast({
         title: "Grant updated",
-        description: `${clientLabel} has been saved.`,
+        description: `${agentLabel} has been saved.`,
         variant: "success",
       })
       onSuccess()

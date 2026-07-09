@@ -16,6 +16,7 @@ import DataTable, { type DataTableColumn } from "@/components/datatables/DataTab
 import { exportInvoiceReportsExcel } from "./components/excel-export"
 import { exportInvoiceReportsPdf } from "./components/pdf-export"
 import { exportInvoiceSummaryPdf } from "./components/summaryPdf"
+import { formatInvoiceStatusLabel, isPaidInvoiceStatus } from "@/lib/invoices/status"
 
 type BranchOption = { id: string; name: string }
 type MemberOption = { id: string; label: string }
@@ -42,7 +43,7 @@ type Summary = {
   pending_invoices: number
 }
 
-const STATUS_OPTIONS = ["draft", "sent", "paid", "overdue", "cancelled"]
+const STATUS_OPTIONS = ["draft", "sent", "partially paid", "paid", "overdue", "cancelled"]
 
 export default function InvoiceReportsPage() {
   const { toast } = useToast()
@@ -68,8 +69,14 @@ export default function InvoiceReportsPage() {
   const memberOptions = useMemo(() => members.map((m) => ({ value: m.id, label: m.label })), [members])
   const clientOptions = useMemo(() => clients.map((c) => ({ value: c.id, label: c.label })), [clients])
   const statusOptions = useMemo(
-    () => [{ value: "all", label: "All statuses" }, ...STATUS_OPTIONS.map((s) => ({ value: s, label: s.toUpperCase() }))],
-    []
+    () => [
+      { value: "all", label: "All statuses" },
+      ...STATUS_OPTIONS.map((s) => ({
+        value: s,
+        label: formatInvoiceStatusLabel(s),
+      })),
+    ],
+    [],
   )
   const invoiceTypeOptions = useMemo(() => [{ value: "all", label: "All invoice types" }, { value: "Auto", label: "Auto" }, { value: "Manual", label: "Manual" }], [])
   
@@ -107,7 +114,7 @@ export default function InvoiceReportsPage() {
 
   const loadClients = useCallback(async () => {
     try {
-      const res = await fetch("/api/institution/clients?limit=200", { cache: "no-store" })
+      const res = await fetch("/api/institution/third-party-agents?limit=200", { cache: "no-store" })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) return setClients([])
       const raw = Array.isArray(data.clients) ? data.clients : []
@@ -236,7 +243,8 @@ export default function InvoiceReportsPage() {
 
   const statusPillClass = (status: string) => {
     const s = String(status || "").toLowerCase()
-    if (s === "paid") return "bg-green-100 text-green-700 border border-green-200"
+    if (isPaidInvoiceStatus(s)) return "bg-green-100 text-green-700 border border-green-200"
+    if (s === "partially paid") return "bg-teal-100 text-teal-700 border border-teal-200"
     if (s === "overdue") return "bg-rose-100 text-rose-700 border border-rose-200"
     if (s === "cancelled") return "bg-slate-100 text-slate-700 border border-slate-200"
     if (s === "sent") return "bg-blue-100 text-blue-700 border border-blue-200"
@@ -250,7 +258,7 @@ export default function InvoiceReportsPage() {
     { key: "assigned_to", header: "Assigned to", render: (r) => r.assigned_to || "—" },
     { key: "target_type", header: "Target", render: (r) => r.target_type || "—" },
     { key: "invoice_type", header: "Type", render: (r) => r.invoice_type || "—" },
-    { key: "status", header: "Status", render: (r) => <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusPillClass(r.status)}`}>{r.status}</span> },
+    { key: "status", header: "Status", render: (r) => <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusPillClass(r.status)}`}>{formatInvoiceStatusLabel(r.status)}</span> },
     { key: "total_amount", header: "Total", render: (r) => `UGX ${Number(r.total_amount || 0).toLocaleString()}` },
   ], [])
 

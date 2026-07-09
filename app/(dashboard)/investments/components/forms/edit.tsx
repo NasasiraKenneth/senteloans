@@ -133,10 +133,10 @@ export default function EditInvestmentForm({
     const fetchProviders = async () => {
       try {
         setLoadingProviders(true)
-        const res = await fetch("/api/institution/clients?limit=200", { cache: "no-store" })
+        const res = await fetch("/api/institution/third-party-agents?limit=200", { cache: "no-store" })
         if (!res.ok) return
         const data = await res.json()
-        const list = Array.isArray(data) ? data : (Array.isArray(data?.clients) ? data.clients : [])
+        const list = Array.isArray(data) ? data : (Array.isArray(data?.third_party_agents) ? data.third_party_agents : [])
         if (cancelled) return
         setProviders(
           list.map((c: any) => ({

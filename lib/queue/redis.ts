@@ -67,14 +67,18 @@ const globalForRedis = globalThis as GlobalWithRedis
  * Returns the process-wide shared Redis connection. Safe for all BullMQ
  * `Queue` and `QueueEvents` instances. HMR-safe in Next.js dev mode.
  */
-export function getSharedConnection(): ConnectionOptions {
+export function getRedis(): Redis {
   if (!globalForRedis.__senteloansRedis) {
     globalForRedis.__senteloansRedis = attachLifecycle(
       new IORedis(REDIS_URL, BASE_OPTIONS),
       "shared",
     )
   }
-  return asBullConnection(globalForRedis.__senteloansRedis)
+  return globalForRedis.__senteloansRedis
+}
+
+export function getSharedConnection(): ConnectionOptions {
+  return asBullConnection(getRedis())
 }
 
 /**

@@ -12,12 +12,19 @@ interface AddGrantProps {
 }
 
 const ERROR_MESSAGES: Record<string, string> = {
-  client_id_required: "Select a client for this grant.",
+  third_party_agent_id_required: "Select a third party agent for this grant.",
   invalid_total_amount: "Enter a valid total grant amount (0 or greater).",
   invalid_available_balance: "Available balance must be between 0 and the total grant amount.",
   "missing_permission:add_grant": "You do not have permission to add grants.",
   branch_id_required: "Select a branch for this grant.",
-  invalid_client: "The selected client is invalid for this branch.",
+  invalid_third_party_agent: "The selected third party agent is invalid for this branch.",
+  invalid_payment_mode: "Select a valid payment mode.",
+  reference_number_required: "Reference number is required for this payment mode.",
+  bank_account_required: "Select a bank account for bank-routed payments.",
+  invalid_bank_account: "The selected bank account is invalid.",
+  insufficient_bank_balance: "Insufficient bank account balance.",
+  insufficient_cash_balance: "Insufficient cash balance.",
+  insufficient_mobile_money_balance: "Insufficient mobile money balance.",
 }
 
 function formatError(code: string): string {
@@ -40,7 +47,7 @@ export default function AddGrant({ isOpen, onClose, onSuccess }: AddGrantProps) 
     try {
       const [permRes, clientsRes] = await Promise.all([
         fetch("/api/institution/finances/permissions", { cache: "no-store" }),
-        fetch("/api/institution/clients?limit=200", { cache: "no-store" }),
+        fetch("/api/institution/third-party-agents?limit=200", { cache: "no-store" }),
       ])
 
       if (permRes.ok) {
@@ -55,9 +62,9 @@ export default function AddGrant({ isOpen, onClose, onSuccess }: AddGrantProps) 
 
       if (clientsRes.ok) {
         const clientsBody = await clientsRes.json().catch(() => ({}))
-        const clients = Array.isArray(clientsBody?.clients) ? clientsBody.clients : []
+        const agents = Array.isArray(clientsBody?.third_party_agents) ? clientsBody.third_party_agents : []
         setClientOptions(
-          clients
+          agents
             .map((c: { id?: string; name?: string; branch_id?: string }) => ({
               value: String(c.id || ""),
               label: String(c.name || "Client").trim() || "Client",
@@ -87,9 +94,13 @@ export default function AddGrant({ isOpen, onClose, onSuccess }: AddGrantProps) 
     setLoading(true)
     try {
       const payload: Record<string, unknown> = {
-        client_id: data.client_id,
+        third_party_agent_id: data.third_party_agent_id,
         total_amount: Number(data.total_amount),
         branch_id: data.branch_id || null,
+        mode: data.mode,
+        reference_number: data.reference_number || null,
+        bank_account_id: data.bank_account_id || null,
+        date: data.date || null,
       }
       if (data.available_balance.trim() !== "") {
         payload.available_balance = Number(data.available_balance)
@@ -103,10 +114,10 @@ export default function AddGrant({ isOpen, onClose, onSuccess }: AddGrantProps) 
       const body = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(body?.error || "Failed to create grant")
 
-      const clientLabel = clientOptions.find((c) => c.value === data.client_id)?.label || "Client"
+      const agentLabel = clientOptions.find((c) => c.value === data.third_party_agent_id)?.label || "Third party agent"
       toast({
         title: "Grant added",
-        description: `Grant for ${clientLabel} has been created.`,
+        description: `Grant for ${agentLabel} has been created.`,
         variant: "success",
       })
       onSuccess()

@@ -1,684 +1,229 @@
-import { GET, POST } from '@/app/api/institution/clients/route'
-import { createMockSupabaseClient } from '../utils/supabase-mock'
-import { testFactories } from '../utils/test-factories'
+import { GET, POST } from "@/app/api/institution/third-party-agents/route"
+import { mockNextRequest } from "@/__tests__/utils/api-test-helpers"
 
-// Mock the Supabase client
-jest.mock('@/lib/supabase/server', () => ({
-  createClient: jest.fn(),
-  createServiceClient: jest.fn(),
+jest.mock("next-auth", () => ({
+  getServerSession: jest.fn(),
 }))
 
-// Mock audit logger
-jest.mock('@/lib/audit/audit-logger', () => ({
+jest.mock("@/lib/auth", () => ({ authOptions: {} }))
+
+jest.mock("@/lib/db", () => ({
+  runWithAuth: jest.fn(),
+  runWithoutAuth: jest.fn(),
+}))
+
+jest.mock("@/lib/api/rbac", () => {
+  const actual = jest.requireActual("@/lib/api/rbac")
+  return {
+    ...actual,
+    resolveActorContext: jest.fn(),
+    hasPermission: jest.fn(),
+    assertNotSuperAdmin: jest.fn(),
+    isSuperAdmin: jest.fn(),
+  }
+})
+
+jest.mock("@/lib/branches/branch-status", () => ({
+  assertBranchActive: jest.fn(),
+}))
+
+jest.mock("@/lib/staff/staff-status", () => ({
+  assertActorActive: jest.fn(),
+}))
+
+jest.mock("@/lib/audit/audit-logger", () => ({
   auditLogger: {
-    logInsert: jest.fn(),
-    logUpdate: jest.fn(),
-    logDelete: jest.fn(),
+    logInsert: jest.fn().mockResolvedValue(undefined),
   },
 }))
 
-const { createClient, createServiceClient } = require('@/lib/supabase/server')
-const { auditLogger } = require('@/lib/audit/audit-logger')
+jest.mock("@/lib/notifications/third-party-agent-events", () => ({
+  notifyThirdPartyAgentCreated: jest.fn().mockResolvedValue({
+    ok: true,
+    staffNotifications: 1,
+    errors: [],
+  }),
+}))
 
-describe('GET /api/institution/clients', () => {
-  let mockSupabase: any
-  let mockServiceClient: any
+import { getServerSession } from "next-auth"
+import { runWithAuth, runWithoutAuth } from "@/lib/db"
+import {
+  assertNotSuperAdmin,
+  hasPermission,
+  isSuperAdmin,
+  resolveActorContext,
+  SUPER_ADMIN_WRITE_BLOCKED,
+} from "@/lib/api/rbac"
+import { assertBranchActive } from "@/lib/branches/branch-status"
+import { assertActorActive } from "@/lib/staff/staff-status"
+import { notifyThirdPartyAgentCreated } from "@/lib/notifications/third-party-agent-events"
 
+const getServerSessionMock = getServerSession as jest.Mock
+const runWithAuthMock = runWithAuth as jest.Mock
+const runWithoutAuthMock = runWithoutAuth as jest.Mock
+const resolveActorContextMock = resolveActorContext as jest.Mock
+const hasPermissionMock = hasPermission as jest.Mock
+const assertNotSuperAdminMock = assertNotSuperAdmin as jest.Mock
+const isSuperAdminMock = isSuperAdmin as jest.Mock
+const assertBranchActiveMock = assertBranchActive as jest.Mock
+const assertActorActiveMock = assertActorActive as jest.Mock
+const notifyThirdPartyAgentCreatedMock = notifyThirdPartyAgentCreated as jest.Mock
+
+const INSTITUTION_ID = "11111111-1111-1111-1111-111111111111"
+const BRANCH_ID = "22222222-2222-2222-2222-222222222222"
+const STAFF_ID = "staff-1"
+const AUTH_USER_ID = "auth-user-1"
+
+const staffSession = {
+  user: { authUserId: AUTH_USER_ID, type: "staff" },
+}
+
+const actor = {
+  id: STAFF_ID,
+  institution_id: INSTITUTION_ID,
+  branch_id: BRANCH_ID,
+  role_id: "role-1",
+  role: "Manager",
+  status: "Active",
+}
+
+function setupAuth() {
+  getServerSessionMock.mockResolvedValue(staffSession)
+  resolveActorContextMock.mockResolvedValue(actor)
+  assertNotSuperAdminMock.mockReturnValue({ ok: true })
+  isSuperAdminMock.mockReturnValue(false)
+  assertBranchActiveMock.mockResolvedValue({ ok: true })
+  assertActorActiveMock.mockResolvedValue({ ok: true, staff: { id: STAFF_ID } })
+  hasPermissionMock.mockImplementation(async (_client, _actor, permission: string) => {
+    if (permission === "view_third_party_agents") return true
+    if (permission === "create_third_party_agent") return true
+    return false
+  })
+  runWithoutAuthMock.mockImplementation(async (fn) => fn({ query: jest.fn() }))
+}
+
+describe("GET /api/institution/third-party-agents", () => {
   beforeEach(() => {
-    mockSupabase = createMockSupabaseClient()
-    mockServiceClient = createMockSupabaseClient()
-    createClient.mockResolvedValue(mockSupabase)
-    createServiceClient.mockReturnValue(mockServiceClient)
-  })
-
-  afterEach(() => {
     jest.clearAllMocks()
+    setupAuth()
   })
 
-  describe('Authentication', () => {
-    it('should return 401 if user is not authenticated', async () => {
-      mockSupabase.auth.getUser.mockResolvedValue({
-        data: { user: null },
-        error: { message: 'Not authenticated' },
-      })
+  it("returns 401 when unauthenticated", async () => {
+    getServerSessionMock.mockResolvedValue(null)
 
-      const request = new Request('http://localhost:3000/api/institution/clients')
+    const req = mockNextRequest("http://localhost/api/institution/third-party-agents")
+    const res = await GET(req)
 
-      const response = await GET(request)
-      const body = await response.json()
-
-      expect(response.status).toBe(401)
-      expect(body.error).toBe('Not authenticated')
-    })
-
-    it('should return 401 if user data is null', async () => {
-      mockSupabase.auth.getUser.mockResolvedValue({
-        data: { user: null },
-        error: null,
-      })
-
-      const request = new Request('http://localhost:3000/api/institution/clients')
-
-      const response = await GET(request)
-      const body = await response.json()
-
-      expect(response.status).toBe(401)
-      expect(body.error).toBe('Unauthorized')
-    })
+    expect(res.status).toBe(401)
+    expect(runWithAuthMock).not.toHaveBeenCalled()
   })
 
-  describe('Authorization', () => {
-    it('should return 403 if app user profile is not found', async () => {
-      const mockUser = { id: 'user-123', email: 'admin@institution.com' }
-      
-      mockSupabase.auth.getUser.mockResolvedValue({
-        data: { user: mockUser },
-        error: null,
+  it("returns paginated list with summary counts", async () => {
+    const queryMock = jest.fn()
+    queryMock
+      .mockResolvedValueOnce({
+        rows: [{ total: 25, active: 20, inactive_suspended: 5 }],
+      })
+      .mockResolvedValueOnce({
+        rows: [{ id: "agent-1", name: "Acme Finance", status: "Active" }],
       })
 
-      const mockFrom = {
-        select: jest.fn().mockReturnThis(),
-        eq: jest.fn().mockReturnThis(),
-        single: jest.fn().mockResolvedValue({
-          data: null,
-          error: { message: 'No rows found' },
-        }),
-      }
-      mockServiceClient.from.mockReturnValue(mockFrom)
+    runWithAuthMock.mockImplementation(async (_authUserId, fn) => fn({ query: queryMock }))
 
-      const request = new Request('http://localhost:3000/api/institution/clients')
+    const req = mockNextRequest(
+      "http://localhost/api/institution/third-party-agents?page=1&rowsPerPage=10",
+    )
+    const res = await GET(req)
+    const body = await res.json()
 
-      const response = await GET(request)
-      const body = await response.json()
+    expect(res.status).toBe(200)
+    expect(body.third_party_agents).toHaveLength(1)
+    expect(body.pagination).toEqual({ page: 1, rowsPerPage: 10, total: 25 })
+    expect(body.summary).toEqual({ total: 25, active: 20, inactive_suspended: 5 })
 
-      expect(response.status).toBe(403)
-      expect(body.error).toContain('lookup_by_uid')
-    })
-
-    it('should return 404 if app user is null', async () => {
-      const mockUser = { id: 'user-123', email: 'admin@institution.com' }
-      
-      mockSupabase.auth.getUser.mockResolvedValue({
-        data: { user: mockUser },
-        error: null,
-      })
-
-      const mockFrom = {
-        select: jest.fn().mockReturnThis(),
-        eq: jest.fn().mockReturnThis(),
-        single: jest.fn().mockResolvedValue({
-          data: null,
-          error: null,
-        }),
-      }
-      mockServiceClient.from.mockReturnValue(mockFrom)
-
-      const request = new Request('http://localhost:3000/api/institution/clients')
-
-      const response = await GET(request)
-      const body = await response.json()
-
-      expect(response.status).toBe(404)
-      expect(body.error).toContain('no_app_user_profile')
-    })
-  })
-
-  describe('Successful Queries', () => {
-    const mockUser = { id: 'user-123', email: 'admin@institution.com' }
-    const mockAppUser = testFactories.user({ auth_id: 'user-123' })
-    const mockClients = [
-      testFactories.client({ id: 'client-1', full_name: 'John Doe' }),
-      testFactories.client({ id: 'client-2', full_name: 'Jane Smith' }),
-    ]
-
-    beforeEach(() => {
-      mockSupabase.auth.getUser.mockResolvedValue({
-        data: { user: mockUser },
-        error: null,
-      })
-    })
-
-    it('should return list of clients for authenticated institution user', async () => {
-      let callCount = 0
-      mockServiceClient.from.mockImplementation((table: string) => {
-        if (table === 'users') {
-          return {
-            select: jest.fn().mockReturnThis(),
-            eq: jest.fn().mockReturnThis(),
-            single: jest.fn().mockResolvedValue({
-              data: mockAppUser,
-              error: null,
-            }),
-          }
-        }
-        if (table === 'senteloans_clients') {
-          return {
-            select: jest.fn().mockReturnThis(),
-            eq: jest.fn().mockReturnThis(),
-            order: jest.fn().mockReturnThis(),
-            limit: jest.fn().mockResolvedValue({
-              data: mockClients,
-              error: null,
-            }),
-          }
-        }
-        return {}
-      })
-
-      const request = new Request('http://localhost:3000/api/institution/clients')
-
-      const response = await GET(request)
-      const body = await response.json()
-
-      expect(response.status).toBe(200)
-      expect(body.clients).toHaveLength(2)
-      expect(body.clients[0].full_name).toBe('John Doe')
-    })
-
-    it.skip('should filter clients by search query', async () => {
-      const filteredClients = [mockClients[0]]
-      
-      // Reset mocks for this test
-      mockSupabase = createMockSupabaseClient()
-      mockServiceClient = createMockSupabaseClient()
-      createClient.mockResolvedValue(mockSupabase)
-      createServiceClient.mockReturnValue(mockServiceClient)
-      
-      mockSupabase.auth.getUser.mockResolvedValue({
-        data: { user: mockUser },
-        error: null,
-      })
-      
-      mockServiceClient.from.mockImplementation((table: string) => {
-        if (table === 'users') {
-          return {
-            select: jest.fn().mockReturnThis(),
-            eq: jest.fn().mockReturnThis(),
-            single: jest.fn().mockResolvedValue({
-              data: mockAppUser,
-              error: null,
-            }),
-          }
-        }
-        if (table === 'senteloans_clients') {
-          const mockQuery: any = {}
-          mockQuery.select = jest.fn().mockReturnValue(mockQuery)
-          mockQuery.eq = jest.fn().mockReturnValue(mockQuery)
-          mockQuery.or = jest.fn().mockReturnValue(mockQuery)
-          mockQuery.order = jest.fn().mockReturnValue(mockQuery)
-          mockQuery.limit = jest.fn().mockResolvedValue({
-            data: filteredClients,
-            error: null,
-          })
-          return mockQuery
-        }
-        return {}
-      })
-
-      const request = new Request('http://localhost:3000/api/institution/clients?search=John')
-
-      const response = await GET(request)
-      const body = await response.json()
-
-      expect(response.status).toBe(200)
-      expect(body.clients).toHaveLength(1)
-    })
-
-    it.skip('should filter clients by status', async () => {
-      // Reset mocks for this test
-      mockSupabase = createMockSupabaseClient()
-      mockServiceClient = createMockSupabaseClient()
-      createClient.mockResolvedValue(mockSupabase)
-      createServiceClient.mockReturnValue(mockServiceClient)
-      
-      mockSupabase.auth.getUser.mockResolvedValue({
-        data: { user: mockUser },
-        error: null,
-      })
-      
-      mockServiceClient.from.mockImplementation((table: string) => {
-        if (table === 'users') {
-          return {
-            select: jest.fn().mockReturnThis(),
-            eq: jest.fn().mockReturnThis(),
-            single: jest.fn().mockResolvedValue({
-              data: mockAppUser,
-              error: null,
-            }),
-          }
-        }
-        if (table === 'senteloans_clients') {
-          const mockQuery: any = {}
-          mockQuery.select = jest.fn().mockReturnValue(mockQuery)
-          mockQuery.eq = jest.fn().mockReturnValue(mockQuery)
-          mockQuery.order = jest.fn().mockReturnValue(mockQuery)
-          mockQuery.limit = jest.fn().mockResolvedValue({
-            data: mockClients,
-            error: null,
-          })
-          return mockQuery
-        }
-        return {}
-      })
-
-      const request = new Request('http://localhost:3000/api/institution/clients?status=Active')
-
-      const response = await GET(request)
-      const body = await response.json()
-
-      expect(response.status).toBe(200)
-      expect(body.clients).toBeDefined()
-    })
-
-    it.skip('should filter clients by KYC status', async () => {
-      // Reset mocks for this test
-      mockSupabase = createMockSupabaseClient()
-      mockServiceClient = createMockSupabaseClient()
-      createClient.mockResolvedValue(mockSupabase)
-      createServiceClient.mockReturnValue(mockServiceClient)
-      
-      mockSupabase.auth.getUser.mockResolvedValue({
-        data: { user: mockUser },
-        error: null,
-      })
-      
-      mockServiceClient.from.mockImplementation((table: string) => {
-        if (table === 'users') {
-          return {
-            select: jest.fn().mockReturnThis(),
-            eq: jest.fn().mockReturnThis(),
-            single: jest.fn().mockResolvedValue({
-              data: mockAppUser,
-              error: null,
-            }),
-          }
-        }
-        if (table === 'senteloans_clients') {
-          const mockQuery: any = {}
-          mockQuery.select = jest.fn().mockReturnValue(mockQuery)
-          mockQuery.eq = jest.fn().mockReturnValue(mockQuery)
-          mockQuery.order = jest.fn().mockReturnValue(mockQuery)
-          mockQuery.limit = jest.fn().mockResolvedValue({
-            data: mockClients,
-            error: null,
-          })
-          return mockQuery
-        }
-        return {}
-      })
-
-      const request = new Request('http://localhost:3000/api/institution/clients?kyc=Verified')
-
-      const response = await GET(request)
-      const body = await response.json()
-
-      expect(response.status).toBe(200)
-      expect(body.clients).toBeDefined()
-    })
-
-    it('should respect pagination limit', async () => {
-      mockServiceClient.from.mockImplementation((table: string) => {
-        if (table === 'users') {
-          return {
-            select: jest.fn().mockReturnThis(),
-            eq: jest.fn().mockReturnThis(),
-            single: jest.fn().mockResolvedValue({
-              data: mockAppUser,
-              error: null,
-            }),
-          }
-        }
-        if (table === 'senteloans_clients') {
-          const limitFn = jest.fn().mockResolvedValue({
-            data: mockClients.slice(0, 1),
-            error: null,
-          })
-          return {
-            select: jest.fn().mockReturnThis(),
-            eq: jest.fn().mockReturnThis(),
-            order: jest.fn().mockReturnThis(),
-            limit: limitFn,
-          }
-        }
-        return {}
-      })
-
-      const request = new Request('http://localhost:3000/api/institution/clients?limit=1')
-
-      const response = await GET(request)
-      const body = await response.json()
-
-      expect(response.status).toBe(200)
-      expect(body.clients).toBeDefined()
-    })
-  })
-
-  describe('Error Handling', () => {
-    it('should return 500 for unexpected errors', async () => {
-      mockSupabase.auth.getUser.mockRejectedValue(new Error('Database error'))
-
-      const request = new Request('http://localhost:3000/api/institution/clients')
-
-      const response = await GET(request)
-      const body = await response.json()
-
-      expect(response.status).toBe(500)
-      expect(body.error).toBe('Database error')
-    })
+    const listCall = queryMock.mock.calls.find(
+      (call: unknown[]) => typeof call[0] === "string" && call[0].includes("LIMIT"),
+    )
+    expect(listCall).toBeDefined()
+    expect(listCall![0]).toContain("OFFSET")
   })
 })
 
-describe('POST /api/institution/clients', () => {
-  let mockSupabase: any
-  let mockServiceClient: any
-
+describe("POST /api/institution/third-party-agents", () => {
   beforeEach(() => {
-    mockSupabase = createMockSupabaseClient()
-    mockServiceClient = createMockSupabaseClient()
-    createClient.mockResolvedValue(mockSupabase)
-    createServiceClient.mockReturnValue(mockServiceClient)
-    auditLogger.logInsert.mockResolvedValue(undefined)
-  })
-
-  afterEach(() => {
     jest.clearAllMocks()
+    setupAuth()
   })
 
-  describe('Validation', () => {
-    const validPayload = {
-      fullName: 'John Doe',
-      phoneNumber: '0700123456',
-      nationalId: 'CM12345678901234',
-      dateOfBirth: '1990-01-01',
-      gender: 'Male',
-      clientType: 'Individual',
-    }
-
-    it('should return 400 if fullName is missing', async () => {
-      const request = new Request('http://localhost:3000/api/institution/clients', {
-        method: 'POST',
-        body: JSON.stringify({ ...validPayload, fullName: '' }),
-        headers: { 'Content-Type': 'application/json' },
-      })
-
-      const response = await POST(request)
-      const body = await response.json()
-
-      expect(response.status).toBe(400)
-      expect(body.error).toContain('fullName')
+  it("returns 400 when name is missing", async () => {
+    const req = mockNextRequest("http://localhost/api/institution/third-party-agents", {
+      method: "POST",
+      body: { status: "Active" },
     })
 
-    it('should return 400 if phoneNumber is missing', async () => {
-      const request = new Request('http://localhost:3000/api/institution/clients', {
-        method: 'POST',
-        body: JSON.stringify({ ...validPayload, phoneNumber: '' }),
-        headers: { 'Content-Type': 'application/json' },
-      })
+    const res = await POST(req)
+    const body = await res.json()
 
-      const response = await POST(request)
-      const body = await response.json()
-
-      expect(response.status).toBe(400)
-      expect(body.error).toContain('phoneNumber')
-    })
-
-    it('should return 400 for invalid phone format', async () => {
-      const mockUser = { id: 'user-123' }
-      mockSupabase.auth.getUser.mockResolvedValue({
-        data: { user: mockUser },
-        error: null,
-      })
-
-      const request = new Request('http://localhost:3000/api/institution/clients', {
-        method: 'POST',
-        body: JSON.stringify({ ...validPayload, phoneNumber: '1234567890' }),
-        headers: { 'Content-Type': 'application/json' },
-      })
-
-      const response = await POST(request)
-      const body = await response.json()
-
-      expect(response.status).toBe(400)
-      expect(body.error).toBe('invalid_phone_ug_format')
-    })
-
-    it('should return 400 for invalid email format', async () => {
-      const mockUser = { id: 'user-123' }
-      mockSupabase.auth.getUser.mockResolvedValue({
-        data: { user: mockUser },
-        error: null,
-      })
-
-      const request = new Request('http://localhost:3000/api/institution/clients', {
-        method: 'POST',
-        body: JSON.stringify({ ...validPayload, email: 'invalid-email' }),
-        headers: { 'Content-Type': 'application/json' },
-      })
-
-      const response = await POST(request)
-      const body = await response.json()
-
-      expect(response.status).toBe(400)
-      expect(body.error).toBe('invalid_email')
-    })
+    expect(res.status).toBe(400)
+    expect(body.error).toBe("Name is required")
+    expect(runWithAuthMock).not.toHaveBeenCalled()
   })
 
-  describe('Successful Creation', () => {
-    const validPayload = {
-      fullName: 'John Doe',
-      phoneNumber: '0700123456',
-      nationalId: 'CM12345678901234',
-      dateOfBirth: '1990-01-01',
-      gender: 'Male',
-      clientType: 'Individual',
-      email: 'john@example.com',
+  it("returns 403 when super admin attempts to create", async () => {
+    assertNotSuperAdminMock.mockReturnValue({
+      ok: false,
+      error: SUPER_ADMIN_WRITE_BLOCKED,
+      message: "Super admins are not allowed to edit or modify data.",
+    })
+
+    runWithAuthMock.mockImplementation(async (_authUserId, fn) => fn({ query: jest.fn() }))
+
+    const req = mockNextRequest("http://localhost/api/institution/third-party-agents", {
+      method: "POST",
+      body: { name: "Acme Finance", status: "Active" },
+    })
+
+    const res = await POST(req)
+    const body = await res.json()
+
+    expect(res.status).toBe(403)
+    expect(body.code).toBe(SUPER_ADMIN_WRITE_BLOCKED)
+  })
+
+  it("creates an agent and dispatches notifications", async () => {
+    const inserted = {
+      id: "agent-1",
+      institution_id: INSTITUTION_ID,
+      branch_id: BRANCH_ID,
+      name: "Acme Finance",
+      status: "Active",
+      email: null,
+      address: null,
+      phone: null,
+      created_by: STAFF_ID,
+      created_at: "2026-01-01T00:00:00.000Z",
+      modified_by: STAFF_ID,
+      updated_at: "2026-01-01T00:00:00.000Z",
     }
 
-    const mockUser = { id: 'user-123' }
-    const mockAppUser = testFactories.user({ auth_id: 'user-123' })
-    const mockInstitution = testFactories.institution({ type: 'SACCO' })
+    const queryMock = jest.fn().mockResolvedValueOnce({ rows: [inserted] })
+    runWithAuthMock.mockImplementation(async (_authUserId, fn) => fn({ query: queryMock }))
 
-    it('should create client without savings account for Money Lender', async () => {
-      mockSupabase.auth.getUser.mockResolvedValue({
-        data: { user: mockUser },
-        error: null,
-      })
-
-      mockServiceClient.from.mockImplementation((table: string) => {
-        if (table === 'users') {
-          return {
-            select: jest.fn().mockReturnThis(),
-            eq: jest.fn().mockReturnThis(),
-            single: jest.fn().mockResolvedValue({
-              data: mockAppUser,
-              error: null,
-            }),
-          }
-        }
-        if (table === 'institutions') {
-          return {
-            select: jest.fn().mockReturnThis(),
-            eq: jest.fn().mockReturnThis(),
-            single: jest.fn().mockResolvedValue({
-              data: { ...mockInstitution, type: 'Money Lender' },
-              error: null,
-            }),
-          }
-        }
-        return {}
-      })
-
-      mockSupabase.from.mockImplementation((table: string) => {
-        if (table === 'senteloans_clients') {
-          return {
-            insert: jest.fn().mockReturnThis(),
-            select: jest.fn().mockReturnThis(),
-            maybeSingle: jest.fn().mockResolvedValue({
-              data: { id: 'new-client-id', client_number: 'C123456-2501-ABCD' },
-              error: null,
-            }),
-          }
-        }
-        return {}
-      })
-
-      const request = new Request('http://localhost:3000/api/institution/clients', {
-        method: 'POST',
-        body: JSON.stringify(validPayload),
-        headers: { 'Content-Type': 'application/json' },
-      })
-
-      const response = await POST(request)
-      const body = await response.json()
-
-      expect(response.status).toBe(201)
-      expect(body.id).toBe('new-client-id')
-      expect(body.savings_account).toBeNull()
+    const req = mockNextRequest("http://localhost/api/institution/third-party-agents", {
+      method: "POST",
+      body: { name: "Acme Finance", status: "Active" },
     })
 
-    it('should create client with savings account for SACCO', async () => {
-      mockSupabase.auth.getUser.mockResolvedValue({
-        data: { user: mockUser },
-        error: null,
-      })
+    const res = await POST(req)
+    const body = await res.json()
 
-      mockServiceClient.from.mockImplementation((table: string) => {
-        if (table === 'users') {
-          return {
-            select: jest.fn().mockReturnThis(),
-            eq: jest.fn().mockReturnThis(),
-            single: jest.fn().mockResolvedValue({
-              data: mockAppUser,
-              error: null,
-            }),
-          }
-        }
-        if (table === 'institutions') {
-          return {
-            select: jest.fn().mockReturnThis(),
-            eq: jest.fn().mockReturnThis(),
-            single: jest.fn().mockResolvedValue({
-              data: mockInstitution,
-              error: null,
-            }),
-          }
-        }
-        return {}
-      })
-
-      mockSupabase.from.mockImplementation((table: string) => {
-        if (table === 'senteloans_clients') {
-          return {
-            insert: jest.fn().mockReturnThis(),
-            select: jest.fn().mockReturnThis(),
-            maybeSingle: jest.fn().mockResolvedValue({
-              data: { id: 'new-client-id', client_number: 'C123456-2501-ABCD' },
-              error: null,
-            }),
-          }
-        }
-        if (table === 'senteloans_savings_accounts') {
-          return {
-            insert: jest.fn().mockReturnThis(),
-            select: jest.fn().mockReturnThis(),
-            maybeSingle: jest.fn().mockResolvedValue({
-              data: {
-                id: 'savings-id',
-                account_number: 'SA123456-2501-EFGH',
-                account_type: 'Voluntary',
-              },
-              error: null,
-            }),
-          }
-        }
-        return {}
-      })
-
-      const request = new Request('http://localhost:3000/api/institution/clients', {
-        method: 'POST',
-        body: JSON.stringify(validPayload),
-        headers: { 'Content-Type': 'application/json' },
-      })
-
-      const response = await POST(request)
-      const body = await response.json()
-
-      expect(response.status).toBe(201)
-      expect(body.id).toBe('new-client-id')
-      expect(body.savings_account).toBeDefined()
-      expect(body.savings_account.account_number).toBe('SA123456-2501-EFGH')
-      expect(auditLogger.logInsert).toHaveBeenCalled()
-    })
-
-    it('should rollback client creation if savings account creation fails', async () => {
-      mockSupabase.auth.getUser.mockResolvedValue({
-        data: { user: mockUser },
-        error: null,
-      })
-
-      mockServiceClient.from.mockImplementation((table: string) => {
-        if (table === 'users') {
-          return {
-            select: jest.fn().mockReturnThis(),
-            eq: jest.fn().mockReturnThis(),
-            single: jest.fn().mockResolvedValue({
-              data: mockAppUser,
-              error: null,
-            }),
-          }
-        }
-        if (table === 'institutions') {
-          return {
-            select: jest.fn().mockReturnThis(),
-            eq: jest.fn().mockReturnThis(),
-            single: jest.fn().mockResolvedValue({
-              data: mockInstitution,
-              error: null,
-            }),
-          }
-        }
-        return {}
-      })
-
-      const deleteMock = jest.fn().mockResolvedValue({ error: null })
-      mockSupabase.from.mockImplementation((table: string) => {
-        if (table === 'senteloans_clients') {
-          return {
-            insert: jest.fn().mockReturnThis(),
-            select: jest.fn().mockReturnThis(),
-            maybeSingle: jest.fn().mockResolvedValue({
-              data: { id: 'new-client-id', client_number: 'C123456-2501-ABCD' },
-              error: null,
-            }),
-            delete: jest.fn().mockReturnThis(),
-            eq: deleteMock,
-          }
-        }
-        if (table === 'senteloans_savings_accounts') {
-          return {
-            insert: jest.fn().mockReturnThis(),
-            select: jest.fn().mockReturnThis(),
-            maybeSingle: jest.fn().mockResolvedValue({
-              data: null,
-              error: { message: 'Duplicate account number' },
-            }),
-          }
-        }
-        return {}
-      })
-
-      const request = new Request('http://localhost:3000/api/institution/clients', {
-        method: 'POST',
-        body: JSON.stringify(validPayload),
-        headers: { 'Content-Type': 'application/json' },
-      })
-
-      const response = await POST(request)
-      const body = await response.json()
-
-      expect(response.status).toBe(500)
-      expect(body.error).toContain('savings_creation_failed')
-      expect(deleteMock).toHaveBeenCalled()
-    })
+    expect(res.status).toBe(201)
+    expect(body.third_party_agent.name).toBe("Acme Finance")
+    expect(runWithoutAuthMock).toHaveBeenCalled()
+    expect(notifyThirdPartyAgentCreatedMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agent: { id: "agent-1", name: "Acme Finance" },
+      }),
+    )
   })
 })

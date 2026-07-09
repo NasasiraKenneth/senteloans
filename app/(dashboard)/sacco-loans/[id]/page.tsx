@@ -1,9 +1,15 @@
-"use client"
+"use client";
 
-import type React from "react"
-import { useCallback, useEffect, useMemo, useState, type ChangeEvent } from "react"
-import Link from "next/link"
-import { useParams } from "next/navigation"
+import type React from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type ChangeEvent,
+} from "react";
+import Link from "next/link";
+import { useParams } from "next/navigation";
 import {
   ArrowLeft,
   Banknote,
@@ -17,88 +23,99 @@ import {
   User,
   XCircle,
   Zap,
-} from "lucide-react"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Progress } from "@/components/ui/progress"
-import DataTable, { DataTableColumn } from "@/components/datatables/DataTable"
-import { useToast } from "@/components/ui/toast"
-import AddRecordPayment from "../components/recordPayment/add"
-import Disburse from "../components/disburse/disburse"
-import Activate from "../components/activate/activate"
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Progress } from "@/components/ui/progress";
+import DataTable, { DataTableColumn } from "@/components/datatables/DataTable";
+import { useToast } from "@/components/ui/toast";
+import AddRecordPayment from "../components/recordPayment/add";
+import Disburse from "../components/disburse/disburse";
+import Activate from "../components/activate/activate";
 
 type SaccoLoanDetail = {
-  id: string
-  client_id: string
-  client_name: string
-  loan_product: string | null
-  principal_amount: number
-  interest_rate: number
-  tenure_months: number
-  monthly_payment: number | null
-  total_amount: number | null
-  outstanding_balance: number
-  status: string
-  loan_type: string
-  purpose: string | null
-  collateral_description: string | null
-  application_date: string | null
-  approved_at: string | null
-  rejected_at: string | null
-  maturity_date: string | null
-  next_payment_date: string | null
-  overdue_days: number
-  disbursement_balance: number
-  disbursement_date: string | null
-}
+  id: string;
+  client_id: string;
+  client_name: string;
+  third_party_agent_id?: string;
+  third_party_agent_name?: string;
+  loan_product: string | null;
+  principal_amount: number;
+  interest_rate: number;
+  tenure_months: number;
+  remaining_tenure_months?: number;
+  monthly_payment: number | null;
+  total_amount: number | null;
+  outstanding_balance: number;
+  status: string;
+  loan_type: string;
+  purpose: string | null;
+  collateral_description: string | null;
+  application_date: string | null;
+  approved_at: string | null;
+  rejected_at: string | null;
+  maturity_date: string | null;
+  next_payment_date: string | null;
+  overdue_days: number;
+  disbursement_balance: number;
+  disbursement_date: string | null;
+};
 
 /** Matches `senteloans_institution_loan_repayments` (see 01-create-schema.sql). */
 type RepaymentRow = {
-  id: string
-  loan_id: string
-  due_date: string
-  amount_paid: number
-  payment_date: string | null
-  status: string
-  created_at: string
-  updated_at: string | null
-}
+  id: string;
+  loan_id: string;
+  due_date: string;
+  amount_paid: number;
+  payment_date: string | null;
+  status: string;
+  created_at: string;
+  updated_at: string | null;
+};
 
 const formatCurrency = (amount: number) =>
-  new Intl.NumberFormat("en-UG", { style: "currency", currency: "UGX", minimumFractionDigits: 0 }).format(amount)
+  new Intl.NumberFormat("en-UG", {
+    style: "currency",
+    currency: "UGX",
+    minimumFractionDigits: 0,
+  }).format(amount);
 
 const formatDate = (dateString: string) => {
-  if (!dateString) return "—"
+  if (!dateString) return "—";
   return new Date(dateString).toLocaleDateString("en-UG", {
     year: "numeric",
     month: "long",
     day: "numeric",
-  })
-}
+  });
+};
 
 const formatDateTime = (value: string) => {
-  if (!value) return "—"
-  const d = new Date(value)
-  if (Number.isNaN(d.getTime())) return "—"
-  return d.toLocaleString("en-UG", { dateStyle: "medium", timeStyle: "short" })
-}
+  if (!value) return "—";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleString("en-UG", { dateStyle: "medium", timeStyle: "short" });
+};
 
 const toDateOnly = (value: unknown): string => {
-  if (value == null) return ""
-  const raw = String(value).trim()
-  if (!raw) return ""
-  const isoMatch = /^(\d{4}-\d{2}-\d{2})/.exec(raw)
-  if (isoMatch) return isoMatch[1]
-  const d = new Date(raw)
-  if (Number.isNaN(d.getTime())) return raw
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, "0")
-  const day = String(d.getDate()).padStart(2, "0")
-  return `${y}-${m}-${day}`
-}
+  if (value == null) return "";
+  const raw = String(value).trim();
+  if (!raw) return "";
+  const isoMatch = /^(\d{4}-\d{2}-\d{2})/.exec(raw);
+  if (isoMatch) return isoMatch[1];
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) return raw;
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+};
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
-  return <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">{children}</span>
+  return (
+    <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+      {children}
+    </span>
+  );
 }
 
 function getStatusStyle(status: string) {
@@ -107,97 +124,160 @@ function getStatusStyle(status: string) {
     case "Fully Disbursed":
     case "Partially Disbursed":
     case "Active":
-      return { bg: "bg-green-100 text-green-700 border border-green-200", dot: "bg-green-500" }
+      return {
+        bg: "bg-green-100 text-green-700 border border-green-200",
+        dot: "bg-green-500",
+      };
     case "Rejected":
     case "Defaulted":
-      return { bg: "bg-red-100 text-red-700 border border-red-200", dot: "bg-red-500" }
+      return {
+        bg: "bg-red-100 text-red-700 border border-red-200",
+        dot: "bg-red-500",
+      };
     case "Closed":
-      return { bg: "bg-gray-100 text-gray-700 border border-gray-200", dot: "bg-gray-400" }
+      return {
+        bg: "bg-gray-100 text-gray-700 border border-gray-200",
+        dot: "bg-gray-400",
+      };
     default:
-      return { bg: "bg-yellow-100 text-yellow-700 border border-yellow-200", dot: "bg-yellow-500" }
+      return {
+        bg: "bg-yellow-100 text-yellow-700 border border-yellow-200",
+        dot: "bg-yellow-500",
+      };
   }
 }
 
 export default function SaccoLoanDetailPage() {
-  const params = useParams()
-  const loanId = typeof params?.id === "string" ? params.id : ""
-  const { toast } = useToast()
-  const [loan, setLoan] = useState<SaccoLoanDetail | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [recordPaymentOpen, setRecordPaymentOpen] = useState(false)
-  const [disburseLoanOpen, setDisburseLoanOpen] = useState(false)
-  const [activateOpen, setActivateOpen] = useState(false)
-  const [statusActionLoading, setStatusActionLoading] = useState(false)
-  const [schedPage, setSchedPage] = useState(0)
-  const [schedRowsPerPage, setSchedRowsPerPage] = useState(6)
-  const [repayments, setRepayments] = useState<RepaymentRow[]>([])
+  const params = useParams();
+  const loanId = typeof params?.id === "string" ? params.id : "";
+  const { toast } = useToast();
+  const [loan, setLoan] = useState<SaccoLoanDetail | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [recordPaymentOpen, setRecordPaymentOpen] = useState(false);
+  const [disburseLoanOpen, setDisburseLoanOpen] = useState(false);
+  const [activateOpen, setActivateOpen] = useState(false);
+  const [statusActionLoading, setStatusActionLoading] = useState(false);
+  const [schedPage, setSchedPage] = useState(0);
+  const [schedRowsPerPage, setSchedRowsPerPage] = useState(6);
+  const [repayments, setRepayments] = useState<RepaymentRow[]>([]);
+  const [canActivateSaccoLoan, setCanActivateSaccoLoan] = useState(false);
 
   const load = useCallback(async () => {
-    if (!loanId) return
-    setLoading(true)
+    if (!loanId) return;
+    setLoading(true);
     try {
       const [detailRes, repRes] = await Promise.all([
         fetch(`/api/institution/sacco-loans/${loanId}`, { cache: "no-store" }),
-        fetch(`/api/institution/sacco-loans/${loanId}/repayments`, { cache: "no-store" }),
-      ])
-      const detailBody = await detailRes.json().catch(() => ({}))
-      if (!detailRes.ok) throw new Error(detailBody?.error || "Failed to load loan")
-      setLoan(detailBody.loan ?? null)
+        fetch(`/api/institution/sacco-loans/${loanId}/repayments`, {
+          cache: "no-store",
+        }),
+      ]);
+      const detailBody = await detailRes.json().catch(() => ({}));
+      if (!detailRes.ok)
+        throw new Error(detailBody?.error || "Failed to load loan");
+      const raw = detailBody.loan ?? null;
+      if (raw) {
+        setLoan({
+          ...raw,
+          client_id: String(raw.client_id || raw.third_party_agent_id || ""),
+          client_name: String(
+            raw.client_name || raw.third_party_agent_name || "",
+          ),
+          remaining_tenure_months: Number(
+            raw.remaining_tenure_months ?? raw.tenure_months ?? 0,
+          ),
+        });
+      } else {
+        setLoan(null);
+      }
 
       if (repRes.ok) {
-        const repBody = await repRes.json().catch(() => ({}))
-        const list = Array.isArray(repBody?.repayments) ? repBody.repayments : []
+        const repBody = await repRes.json().catch(() => ({}));
+        const list = Array.isArray(repBody?.repayments)
+          ? repBody.repayments
+          : [];
         setRepayments(
           list.map((r: Record<string, unknown>) => ({
             id: String(r.id || ""),
             loan_id: String(r.loan_id || ""),
             due_date: toDateOnly(r.due_date),
             amount_paid: Number(r.amount_paid ?? 0),
-            payment_date: r.payment_date != null ? toDateOnly(r.payment_date) : null,
+            payment_date:
+              r.payment_date != null ? toDateOnly(r.payment_date) : null,
             status: String(r.status || "Pending"),
             created_at: r.created_at != null ? String(r.created_at) : "",
             updated_at: r.updated_at != null ? String(r.updated_at) : null,
           })),
-        )
+        );
       } else {
-        setRepayments([])
+        setRepayments([]);
       }
     } catch (e: unknown) {
-      setLoan(null)
-      setRepayments([])
-      const message = e instanceof Error ? e.message : "Failed to load loan"
-      toast({ variant: "destructive", title: "Error", description: message })
+      setLoan(null);
+      setRepayments([]);
+      const message = e instanceof Error ? e.message : "Failed to load loan";
+      toast({ variant: "destructive", title: "Error", description: message });
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }, [loanId, toast])
+  }, [loanId, toast]);
 
   useEffect(() => {
-    void load()
-  }, [load])
+    void load();
+  }, [load]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadPermissions() {
+      try {
+        const res = await fetch("/api/institution/sacco-loans/permissions", {
+          cache: "no-store",
+        });
+        if (!res.ok) return;
+        const data = (await res.json()) as {
+          permissions?: { activateSaccoLoan?: boolean };
+        };
+        if (cancelled) return;
+        setCanActivateSaccoLoan(!!data.permissions?.activateSaccoLoan);
+      } catch {
+        // Best-effort; action buttons stay hidden without permissions.
+      }
+    }
+    void loadPermissions();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const patchLoanStatus = async (status: "Approved" | "Rejected") => {
-    if (!loanId) return
+    if (!loanId) return;
     try {
-      setStatusActionLoading(true)
+      setStatusActionLoading(true);
       const res = await fetch(`/api/institution/sacco-loans/${loanId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status }),
-      })
-      const body = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(typeof body?.error === "string" ? body.error : "Update failed")
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok)
+        throw new Error(
+          typeof body?.error === "string" ? body.error : "Update failed",
+        );
       toast({
         title: status === "Approved" ? "Loan approved" : "Loan rejected",
-      })
-      await load()
+      });
+      await load();
     } catch (e: unknown) {
-      const message = e instanceof Error ? e.message : "Please try again."
-      toast({ variant: "destructive", title: "Could not update loan", description: message })
+      const message = e instanceof Error ? e.message : "Please try again.";
+      toast({
+        variant: "destructive",
+        title: "Could not update loan",
+        description: message,
+      });
     } finally {
-      setStatusActionLoading(false)
+      setStatusActionLoading(false);
     }
-  }
+  };
 
   const repaymentColumns: DataTableColumn<RepaymentRow>[] = useMemo(
     () => [
@@ -205,14 +285,18 @@ export default function SaccoLoanDetailPage() {
         key: "due_date",
         header: "Due date",
         render: (row) => (
-          <span className="text-sm text-gray-700">{row.due_date ? formatDate(row.due_date) : "—"}</span>
+          <span className="text-sm text-gray-700">
+            {row.due_date ? formatDate(row.due_date) : "—"}
+          </span>
         ),
       },
       {
         key: "amount_paid",
         header: "Amount paid",
         render: (row) => (
-          <span className="text-sm font-medium text-gray-900 tabular-nums">{formatCurrency(row.amount_paid)}</span>
+          <span className="text-sm font-medium text-gray-900 tabular-nums">
+            {formatCurrency(row.amount_paid)}
+          </span>
         ),
       },
       {
@@ -234,31 +318,37 @@ export default function SaccoLoanDetailPage() {
             Partial: "bg-amber-100 text-amber-800 border border-amber-200",
             Due: "bg-red-100 text-red-700 border border-red-200",
             Overdue: "bg-red-100 text-red-700 border border-red-200",
-          }
+          };
           const dotStyles: Record<string, string> = {
             Paid: "bg-green-500",
             Pending: "bg-gray-400",
             Partial: "bg-amber-500",
             Due: "bg-red-500",
             Overdue: "bg-red-500",
-          }
+          };
           return (
             <span
               className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium ${
-                statusStyles[row.status] || "bg-gray-100 text-gray-700 border border-gray-200"
+                statusStyles[row.status] ||
+                "bg-gray-100 text-gray-700 border border-gray-200"
               }`}
             >
-              <span className={`h-1.5 w-1.5 rounded-full ${dotStyles[row.status] || "bg-gray-400"}`} />
+              <span
+                className={`h-1.5 w-1.5 rounded-full ${dotStyles[row.status] || "bg-gray-400"}`}
+              />
               {row.status}
             </span>
-          )
+          );
         },
       },
     ],
     [],
-  )
+  );
 
-  const pagedRepayments = repayments.slice(schedPage * schedRowsPerPage, (schedPage + 1) * schedRowsPerPage)
+  const pagedRepayments = repayments.slice(
+    schedPage * schedRowsPerPage,
+    (schedPage + 1) * schedRowsPerPage,
+  );
 
   if (!loan) {
     return (
@@ -290,27 +380,44 @@ export default function SaccoLoanDetailPage() {
           <div className="text-center py-20">
             <CreditCard className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
             <h1 className="text-2xl font-bold">Loan not found</h1>
-            <p className="text-muted-foreground mt-1">The requested Sacco loan could not be found.</p>
+            <p className="text-muted-foreground mt-1">
+              The requested Sacco loan could not be found.
+            </p>
             <Link href="/sacco-loans">
               <Button className="mt-6">Back to Sacco loans</Button>
             </Link>
           </div>
         )}
       </div>
-    )
+    );
   }
 
   const canApproveOrReject =
-    loan.status === "Applied" || loan.status === "Under Review" || loan.status === "Reviewed"
+    loan.status === "Applied" ||
+    loan.status === "Under Review" ||
+    loan.status === "Reviewed";
 
-  const statusStyle = getStatusStyle(loan.status)
+  const statusStyle = getStatusStyle(loan.status);
+  const repaymentTotal = Math.max(
+    Number(loan.total_amount || loan.principal_amount || 0),
+    1,
+  );
+  const amountRepaid = Math.max(
+    0,
+    repaymentTotal - Number(loan.outstanding_balance || 0),
+  );
   const repaymentProgress = Math.max(
     0,
-    Math.min(100, ((loan.principal_amount - loan.outstanding_balance) / Math.max(loan.principal_amount, 1)) * 100),
-  )
-  const monthlyPayment = Number(loan.monthly_payment || 0)
-  const remainingTenureMonths = loan.tenure_months
-  const titleProduct = loan.loan_product?.trim() || "Sacco loan"
+    Math.min(100, (amountRepaid / repaymentTotal) * 100),
+  );
+  const monthlyPayment = Number(loan.monthly_payment || 0);
+  const remainingTenureMonths = Number(
+    loan.remaining_tenure_months ?? loan.tenure_months ?? 0,
+  );
+  const agentId = loan.client_id || loan.third_party_agent_id || "";
+  const agentName =
+    loan.client_name || loan.third_party_agent_name || "Third party agent";
+  const titleProduct = loan.loan_product?.trim() || "Sacco loan";
 
   return (
     <>
@@ -323,8 +430,12 @@ export default function SaccoLoanDetailPage() {
             <ArrowLeft className="h-4 w-4" />
             Back to Sacco loans
           </Link>
-          {loan.status === "Fully Disbursed" && (
-            <Button type="button" size="sm" onClick={() => setActivateOpen(true)}>
+          {loan.status === "Fully Disbursed" && canActivateSaccoLoan && (
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => setActivateOpen(true)}
+            >
               <Zap className="h-4 w-4 mr-2" />
               Activate
             </Button>
@@ -340,16 +451,20 @@ export default function SaccoLoanDetailPage() {
               </div>
               <div className="flex-1 min-w-0 pt-1 sm:pt-2">
                 <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
-                  <h1 className="text-2xl font-bold tracking-tight truncate">{titleProduct}</h1>
+                  <h1 className="text-2xl font-bold tracking-tight truncate">
+                    {titleProduct}
+                  </h1>
                   <span
                     className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium w-fit ${statusStyle.bg}`}
                   >
-                    <span className={`h-1.5 w-1.5 rounded-full ${statusStyle.dot}`} />
+                    <span
+                      className={`h-1.5 w-1.5 rounded-full ${statusStyle.dot}`}
+                    />
                     {loan.status}
                   </span>
                 </div>
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-1.5 text-sm text-muted-foreground">
-                  <span>{loan.client_name || "Client"}</span>
+                  <span>{agentName}</span>
                 </div>
               </div>
               <div className="flex flex-wrap items-start justify-end gap-2 pt-2">
@@ -376,12 +491,6 @@ export default function SaccoLoanDetailPage() {
                     </Button>
                   </>
                 )}
-                <Link href="/clients">
-                  <Button variant="outline" size="sm">
-                    <User className="h-4 w-4 mr-2" />
-                    Clients
-                  </Button>
-                </Link>
               </div>
             </div>
           </div>
@@ -393,9 +502,13 @@ export default function SaccoLoanDetailPage() {
               <div className="p-1.5 rounded-lg bg-blue-100">
                 <Banknote className="h-4 w-4 text-blue-600" />
               </div>
-              <span className="text-xs font-medium text-muted-foreground">Principal</span>
+              <span className="text-xs font-medium text-muted-foreground">
+                Principal
+              </span>
             </div>
-            <div className="text-xl font-bold">{formatCurrency(loan.principal_amount)}</div>
+            <div className="text-xl font-bold">
+              {formatCurrency(loan.principal_amount)}
+            </div>
           </div>
 
           <div className="rounded-xl border bg-card p-4">
@@ -403,12 +516,18 @@ export default function SaccoLoanDetailPage() {
               <div className="p-1.5 rounded-lg bg-orange-100">
                 <TrendingDown className="h-4 w-4 text-orange-600" />
               </div>
-              <span className="text-xs font-medium text-muted-foreground">Outstanding</span>
+              <span className="text-xs font-medium text-muted-foreground">
+                Outstanding
+              </span>
             </div>
-            <div className="text-xl font-bold">{formatCurrency(loan.outstanding_balance)}</div>
+            <div className="text-xl font-bold">
+              {formatCurrency(loan.outstanding_balance)}
+            </div>
             <div className="mt-2">
               <Progress value={repaymentProgress} className="h-1.5" />
-              <p className="text-xs text-muted-foreground mt-1">{repaymentProgress.toFixed(0)}% repaid</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                {repaymentProgress.toFixed(0)}% repaid
+              </p>
             </div>
           </div>
 
@@ -417,11 +536,17 @@ export default function SaccoLoanDetailPage() {
               <div className="p-1.5 rounded-lg bg-green-100">
                 <DollarSign className="h-4 w-4 text-green-600" />
               </div>
-              <span className="text-xs font-medium text-muted-foreground">Monthly payment</span>
+              <span className="text-xs font-medium text-muted-foreground">
+                Monthly payment
+              </span>
             </div>
-            <div className="text-xl font-bold">{formatCurrency(monthlyPayment)}</div>
+            <div className="text-xl font-bold">
+              {formatCurrency(monthlyPayment)}
+            </div>
             {(loan.overdue_days ?? 0) > 0 && (
-              <p className="text-xs text-red-600 font-medium mt-1">{loan.overdue_days} days overdue</p>
+              <p className="text-xs text-red-600 font-medium mt-1">
+                {loan.overdue_days} days overdue
+              </p>
             )}
           </div>
 
@@ -430,10 +555,14 @@ export default function SaccoLoanDetailPage() {
               <div className="p-1.5 rounded-lg bg-purple-100">
                 <Percent className="h-4 w-4 text-purple-600" />
               </div>
-              <span className="text-xs font-medium text-muted-foreground">Interest rate</span>
+              <span className="text-xs font-medium text-muted-foreground">
+                Interest rate
+              </span>
             </div>
             <div className="text-xl font-bold">{loan.interest_rate}%</div>
-            <p className="text-xs text-muted-foreground mt-1">{remainingTenureMonths} months tenure</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              {remainingTenureMonths} of {loan.tenure_months} months remaining
+            </p>
           </div>
         </div>
 
@@ -449,11 +578,15 @@ export default function SaccoLoanDetailPage() {
               <div className="grid grid-cols-2 gap-x-6 gap-y-4">
                 <div>
                   <SectionLabel>Loan product</SectionLabel>
-                  <p className="text-sm font-medium mt-0.5">{loan.loan_product?.trim() || "—"}</p>
+                  <p className="text-sm font-medium mt-0.5">
+                    {loan.loan_product?.trim() || "—"}
+                  </p>
                 </div>
                 <div>
                   <SectionLabel>Interest rate</SectionLabel>
-                  <p className="text-sm font-medium mt-0.5">{loan.interest_rate}% per annum</p>
+                  <p className="text-sm font-medium mt-0.5">
+                    {loan.interest_rate}% per annum
+                  </p>
                 </div>
                 <div>
                   <SectionLabel>Loan type</SectionLabel>
@@ -463,12 +596,16 @@ export default function SaccoLoanDetailPage() {
                 </div>
                 <div>
                   <SectionLabel>Tenure</SectionLabel>
-                  <p className="text-sm font-medium mt-0.5">{loan.tenure_months} months</p>
+                  <p className="text-sm font-medium mt-0.5">
+                    {loan.tenure_months} months
+                  </p>
                 </div>
                 <div>
                   <SectionLabel>Application date</SectionLabel>
                   <p className="text-sm font-medium mt-0.5">
-                    {loan.application_date ? formatDate(loan.application_date) : "—"}
+                    {loan.application_date
+                      ? formatDate(loan.application_date)
+                      : "—"}
                   </p>
                 </div>
                 <div>
@@ -486,14 +623,18 @@ export default function SaccoLoanDetailPage() {
                 {loan.disbursement_date && (
                   <div>
                     <SectionLabel>Disbursement date</SectionLabel>
-                    <p className="text-sm font-medium mt-0.5">{formatDate(loan.disbursement_date)}</p>
+                    <p className="text-sm font-medium mt-0.5">
+                      {formatDate(loan.disbursement_date)}
+                    </p>
                   </div>
                 )}
                 <div>
                   <SectionLabel>Next payment date</SectionLabel>
                   <p className="text-sm font-medium mt-0.5 flex items-center gap-1.5">
                     <Clock className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                    {loan.next_payment_date ? formatDate(loan.next_payment_date) : "—"}
+                    {loan.next_payment_date
+                      ? formatDate(loan.next_payment_date)
+                      : "—"}
                   </p>
                 </div>
                 <div>
@@ -512,7 +653,9 @@ export default function SaccoLoanDetailPage() {
                 {loan.collateral_description && (
                   <div className="col-span-2">
                     <SectionLabel>Collateral</SectionLabel>
-                    <p className="text-sm font-medium mt-0.5 whitespace-pre-wrap">{loan.collateral_description}</p>
+                    <p className="text-sm font-medium mt-0.5 whitespace-pre-wrap">
+                      {loan.collateral_description}
+                    </p>
                   </div>
                 )}
               </div>
@@ -531,7 +674,7 @@ export default function SaccoLoanDetailPage() {
                 <div className="flex items-center gap-4 p-3 rounded-lg bg-muted/30">
                   <div className="h-10 w-10 shrink-0 rounded-full bg-primary/10 flex items-center justify-center">
                     <span className="text-sm font-bold text-primary">
-                      {loan.client_name
+                      {agentName
                         .split(" ")
                         .map((n) => n[0])
                         .join("")
@@ -540,7 +683,9 @@ export default function SaccoLoanDetailPage() {
                     </span>
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold truncate">{loan.client_name || "—"}</p>
+                    <p className="text-sm font-semibold truncate">
+                      {agentName || "—"}
+                    </p>
                   </div>
                 </div>
               </div>
@@ -561,21 +706,22 @@ export default function SaccoLoanDetailPage() {
             total: repayments.length,
             onPageChange: (_e, newPage) => setSchedPage(newPage),
             onRowsPerPageChange: (e: ChangeEvent<HTMLInputElement>) => {
-              setSchedRowsPerPage(parseInt(e.target.value, 10))
-              setSchedPage(0)
+              setSchedRowsPerPage(parseInt(e.target.value, 10));
+              setSchedPage(0);
             },
             rowsPerPageOptions: [6, 12, 18],
           }}
         />
 
         <div className="flex justify-end space-x-4 pt-6 border-t">
-          {(loan.status === "Approved" || loan.status === "Partially Disbursed") && (
+          {(loan.status === "Approved" ||
+            loan.status === "Partially Disbursed") && (
             <Button
               type="button"
               disabled={statusActionLoading}
               onClick={() => {
-                setRecordPaymentOpen(false)
-                setDisburseLoanOpen(true)
+                setRecordPaymentOpen(false);
+                setDisburseLoanOpen(true);
               }}
             >
               <DollarSign className="h-4 w-4 mr-2" />
@@ -588,8 +734,8 @@ export default function SaccoLoanDetailPage() {
               type="button"
               disabled={statusActionLoading}
               onClick={() => {
-                setDisburseLoanOpen(false)
-                setRecordPaymentOpen(true)
+                setDisburseLoanOpen(false);
+                setRecordPaymentOpen(true);
               }}
             >
               <DollarSign className="h-4 w-4 mr-2" />
@@ -603,7 +749,9 @@ export default function SaccoLoanDetailPage() {
         isOpen={recordPaymentOpen}
         onClose={() => setRecordPaymentOpen(false)}
         loanId={loanId}
-        initialNextPaymentDate={loan.next_payment_date ? String(loan.next_payment_date) : ""}
+        initialNextPaymentDate={
+          loan.next_payment_date ? String(loan.next_payment_date) : ""
+        }
         onSuccess={() => void load()}
       />
 
@@ -613,7 +761,6 @@ export default function SaccoLoanDetailPage() {
         loanId={loanId}
         completeDisbursementAmount={Number(loan.disbursement_balance ?? 0)}
         principalAmount={Number(loan.principal_amount ?? 0)}
-        loanType={String(loan.loan_type || "normal").replace(/_/g, " ")}
         onSuccess={() => void load()}
       />
 
@@ -621,13 +768,15 @@ export default function SaccoLoanDetailPage() {
         isOpen={activateOpen}
         onClose={() => setActivateOpen(false)}
         loanId={loanId}
-        tenureMonths={loan.tenure_months}
+        remainingTenureMonths={remainingTenureMonths}
         initialMonthlyPayment={Number(loan.monthly_payment ?? 0)}
         initialNextPaymentDate={
-          loan.next_payment_date ? String(loan.next_payment_date).slice(0, 10) : ""
+          loan.next_payment_date
+            ? String(loan.next_payment_date).slice(0, 10)
+            : ""
         }
         onSuccess={() => void load()}
       />
     </>
-  )
+  );
 }

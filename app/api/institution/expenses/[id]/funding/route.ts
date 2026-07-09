@@ -2,26 +2,16 @@ import { NextResponse } from "next/server";
 import { runWithAuth } from "@/lib/db";
 import { apiLog, getApiPath } from "@/lib/api/api-log";
 import { expenseFundingStatusBlock } from "@/lib/api/expense-funding-guard";
-import { auditFundingInsert, fundingSnapshot } from "@/lib/audit/expense-audit";
 import {
-  hasPermission,
-  isSuperAdmin,
-  requireStaffSession,
-  resolveActorContext,
-} from "@/lib/api/rbac";
-
-function singleExpenseWhere(
-  actor: NonNullable<Awaited<ReturnType<typeof resolveActorContext>>>,
-  expenseId: string,
-): { where: string; values: unknown[] } {
-  let where = `e.id = $1::uuid AND e.institution_id = $2::uuid`;
-  const values: unknown[] = [expenseId, actor.institution_id];
-  if (!isSuperAdmin(actor)) {
-    where += ` AND e.branch_id = $3::uuid`;
-    values.push(actor.branch_id);
-  }
-  return { where, values };
-}
+  createExpenseFundingSource,
+  isExpenseFundingSourceType,
+} from "@/lib/expenses/create-expense";
+import { requireStaffSession } from "@/lib/api/rbac";
+import {
+  assertExpenseWriteAccess,
+  expenseScopeWhere,
+  mapExpenseMutationErrorResponse,
+} from "@/lib/api/expense-access";
 
 export async function POST(
   req: Request,
@@ -50,9 +40,7 @@ export async function POST(
       ? String(loanIdRaw).trim()
       : null;
 
-  if (
-    !["savings", "shares", "reserves", "loan", "grant"].includes(sourceType)
-  ) {
+  if (!isExpenseFundingSourceType(sourceType)) {
     return NextResponse.json(
       { error: "invalid_funding_type" },
       { status: 400 },
@@ -78,15 +66,18 @@ export async function POST(
     }
 
     const result = await runWithAuth(sess.authUserId, async (client) => {
-      const actor = await resolveActorContext(client, sess.authUserId);
-      if (!actor?.institution_id) return { error: "user_not_linked" as const };
-      const allowed = await hasPermission(client, actor, "add_expense_funding");
-      if (!allowed)
-        return { error: "missing_permission:add_expense_funding" as const };
-      if (!isSuperAdmin(actor) && !actor.branch_id)
-        return { error: "actor_branch_missing" as const };
+      const access = await assertExpenseWriteAccess(client, sess.authUserId, "add_expense_funding");
+      if (!access.ok) {
+        return {
+          error: access.error,
+          message: access.message,
+          staffStatus: access.staffStatus,
+          branchStatus: access.branchStatus,
+        };
+      }
+      const { actor } = access;
 
-      const { where, values } = singleExpenseWhere(actor, expenseId);
+      const { where, values } = expenseScopeWhere(actor, expenseId);
       const ex = await client.query<{
         id: string;
         status: string;
@@ -111,64 +102,51 @@ export async function POST(
         if ((lr.rowCount ?? 0) === 0) return { error: "invalid_loan" as const };
       }
 
-      const ins = await client.query(
-        `INSERT INTO expense_funding_sources (expense_id, source_type, loan_id, amount)
-         VALUES ($1::uuid, $2, $3::uuid, $4)
-         RETURNING id, expense_id, source_type, loan_id, amount::float, created_at`,
-        [expenseId, sourceType, sourceType === "loan" ? loanId : null, amount],
-      );
-      const row = ins.rows[0] as Record<string, unknown> | undefined;
-      if (!row) return { error: "insert_failed" as const };
-
-      await auditFundingInsert(
-        client,
-        actor,
-        String(row.id),
-        fundingSnapshot(row),
-        expenseBranchId,
-      );
-
-      return {
-        id: String(row.id),
-        source_type: String(row.source_type || ""),
-        loan_id: row.loan_id != null ? String(row.loan_id) : null,
-        amount: Number(row.amount || 0),
-        created_at: row.created_at != null ? String(row.created_at) : "",
-      };
+      try {
+        const created = await createExpenseFundingSource(
+          client,
+          {
+            expenseId,
+            sourceType,
+            amount,
+            loanId: sourceType === "loan" ? loanId : null,
+          },
+          { actor, branchId: expenseBranchId },
+        )
+        return {
+          id: created.id,
+          source_type: created.sourceType,
+          loan_id: created.loanId,
+          amount: created.amount,
+          created_at: created.createdAt ?? "",
+        }
+      } catch {
+        return { error: "insert_failed" as const }
+      }
     });
 
     if (result && "error" in result) {
       const code = String(result.error || "");
-      const statusCode =
-        code === "missing_permission:add_expense_funding"
-          ? 403
-          : code === "user_not_linked"
-            ? 403
-            : code === "actor_branch_missing"
-              ? 400
-              : code === "not_found"
-                ? 404
-                : code === "expense_already_completed" ||
-                    code === "expense_already_rejected"
-                  ? 409
-                  : code === "invalid_loan"
-                    ? 400
-                    : 400;
+      const { status, body } = mapExpenseMutationErrorResponse(
+        {
+          error: code,
+          message: "message" in result ? String(result.message || "") : undefined,
+          staffStatus: "staffStatus" in result ? result.staffStatus : undefined,
+          branchStatus: "branchStatus" in result ? result.branchStatus : undefined,
+        },
+        {
+          expense_already_completed: 409,
+          expense_already_rejected: 409,
+          insert_failed: 500,
+        },
+      );
       apiLog("warn", "expenses.funding.create.denied", {
         method: "POST",
         apiPath,
-        status: statusCode,
+        status,
         error: code,
       });
-      const payload: { error: string; message?: string } = { error: code };
-      if (
-        "message" in result &&
-        typeof result.message === "string" &&
-        result.message.trim()
-      ) {
-        payload.message = result.message.trim();
-      }
-      return NextResponse.json(payload, { status: statusCode });
+      return NextResponse.json(body, { status });
     }
 
     apiLog("info", "expenses.funding.create.success", {

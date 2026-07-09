@@ -42,6 +42,25 @@ describe("renderEmailTemplate", () => {
     expect(out.html).toContain("receipt is attached")
   })
 
+  it("renders loan payment received with receipt attachment note", () => {
+    const out = renderEmailTemplate("loan.payment_received", {
+      institutionName: "Test SACCO",
+      memberName: "Jane",
+      memberNumber: "M-1",
+      applicationId: "LN-2024-001",
+      amount: 150_000,
+      balanceAfter: 850_000,
+      paymentDate: "2026-06-17",
+      currency: "UGX",
+      transactionNumber: "TXN-300",
+    })
+    expect(out.html).toContain("LN-2024-001")
+    expect(out.html).toContain("150,000")
+    expect(out.html).toContain("850,000")
+    expect(out.html).toContain("TXN-300")
+    expect(out.html).toContain("receipt is attached")
+  })
+
   it("renders share purchase with invoice, receipt, and attachment note", () => {
     const out = renderEmailTemplate("shares.purchased", {
       institutionName: "Test SACCO",
@@ -148,5 +167,174 @@ describe("renderEmailTemplate", () => {
     expect(out.html).toContain("not approved")
     expect(out.html).toContain("Image is blurry")
     expect(out.html).toContain("resubmit")
+  })
+
+  it("renders loan application submitted for member", () => {
+    const out = renderEmailTemplate("loan.application_submitted", {
+      institutionName: "Test SACCO",
+      memberName: "Jane Doe",
+      memberNumber: "M-001",
+      applicationId: "LN-1001",
+      principalAmount: 500000,
+      loanType: "Normal",
+      productName: "Salary Loan",
+      currency: "UGX",
+    })
+    expect(out.html).toContain("LN-1001")
+    expect(out.html).toContain("Salary Loan")
+    expect(out.text).toContain("Loan application submitted")
+  })
+
+  it("renders pending loan approval for staff", () => {
+    const out = renderEmailTemplate("loan.pending_approval", {
+      institutionName: "Test SACCO",
+      staffName: "Alex",
+      memberName: "Jane Doe",
+      memberNumber: "M-001",
+      applicationId: "LN-1001",
+      principalAmount: 500000,
+      loanType: "Top-up",
+      productName: "Salary Loan",
+      currency: "UGX",
+    })
+    expect(out.html).toContain("Alex")
+    expect(out.html).toContain("Jane Doe")
+    expect(out.html).toContain("Top-up")
+    expect(out.text).toContain("New loan application")
+  })
+
+  it("renders loan under review for member", () => {
+    const out = renderEmailTemplate("loan.under_review", {
+      institutionName: "Test SACCO",
+      memberName: "Jane Doe",
+      memberNumber: "M-001",
+      applicationId: "LN-1001",
+      principalAmount: 500000,
+      currency: "UGX",
+    })
+    expect(out.html).toContain("under review")
+    expect(out.html).toContain("LN-1001")
+    expect(out.text).toContain("Loan under review")
+  })
+
+  it("renders loan reviewed for member", () => {
+    const out = renderEmailTemplate("loan.reviewed", {
+      institutionName: "Test SACCO",
+      memberName: "Jane Doe",
+      memberNumber: "M-001",
+      applicationId: "LN-1001",
+      principalAmount: 500000,
+      currency: "UGX",
+    })
+    expect(out.html).toContain("has been reviewed")
+    expect(out.text).toContain("Loan review complete")
+  })
+
+  it("renders loan status change for member", () => {
+    const out = renderEmailTemplate("loan.status_change", {
+      institutionName: "Test SACCO",
+      memberName: "Jane Doe",
+      memberNumber: "M-001",
+      applicationId: "LN-1001",
+      principalAmount: 500000,
+      statusLabel: "Under Review",
+      currency: "UGX",
+    })
+    expect(out.html).toContain("Under Review")
+    expect(out.html).toContain("LN-1001")
+    expect(out.text).toContain("Loan status update")
+  })
+
+  it("renders loan partially disbursed for member", () => {
+    const out = renderEmailTemplate("loan.partially_disbursed", {
+      institutionName: "Test SACCO",
+      memberName: "Jane Doe",
+      memberNumber: "M-001",
+      applicationId: "LN-1001",
+      principalAmount: 500000,
+      currency: "UGX",
+    })
+    expect(out.html).toContain("partial disbursement")
+    expect(out.text).toContain("Loan partially disbursed")
+  })
+
+  it("renders loan approved for member", () => {
+    const out = renderEmailTemplate("loan.approved", {
+      institutionName: "Test SACCO",
+      memberName: "Jane Doe",
+      memberNumber: "M-001",
+      applicationId: "LN-1001",
+      principalAmount: 500000,
+      currency: "UGX",
+    })
+    expect(out.html).toContain("approved")
+    expect(out.text).toContain("Loan application approved")
+  })
+
+  it("renders loan rejected for member", () => {
+    const out = renderEmailTemplate("loan.rejected", {
+      institutionName: "Test SACCO",
+      memberName: "Jane Doe",
+      memberNumber: "M-001",
+      applicationId: "LN-1001",
+      principalAmount: 500000,
+      currency: "UGX",
+    })
+    expect(out.html).toContain("not approved")
+  })
+
+  it("renders loan disbursed for member", () => {
+    const out = renderEmailTemplate("loan.disbursed", {
+      institutionName: "Test SACCO",
+      memberName: "Jane Doe",
+      memberNumber: "M-001",
+      applicationId: "LN-1001",
+      principalAmount: 500000,
+      currency: "UGX",
+    })
+    expect(out.html).toContain("fully disbursed")
+  })
+
+  it("renders loan ready for approval for staff", () => {
+    const out = renderEmailTemplate("loan.ready_for_approval", {
+      institutionName: "Test SACCO",
+      staffName: "Alex",
+      memberName: "Jane Doe",
+      memberNumber: "M-001",
+      applicationId: "LN-1001",
+      principalAmount: 500000,
+      currency: "UGX",
+    })
+    expect(out.html).toContain("Alex")
+    expect(out.html).toContain("reviewed")
+    expect(out.text).toContain("Loan ready for approval")
+  })
+
+  it("renders loan under review for staff", () => {
+    const out = renderEmailTemplate("loan.under_review_staff", {
+      institutionName: "Test SACCO",
+      staffName: "Alex",
+      memberName: "Jane Doe",
+      memberNumber: "M-001",
+      applicationId: "LN-1001",
+      principalAmount: 500000,
+      currency: "UGX",
+    })
+    expect(out.html).toContain("under review")
+    expect(out.html).toContain("Alex")
+  })
+
+  it("renders loan fully disbursed for staff", () => {
+    const out = renderEmailTemplate("loan.fully_disbursed_staff", {
+      institutionName: "Test SACCO",
+      staffName: "Alex",
+      memberName: "Jane Doe",
+      memberNumber: "M-001",
+      applicationId: "LN-1001",
+      principalAmount: 500000,
+      currency: "UGX",
+    })
+    expect(out.html).toContain("fully disbursed")
+    expect(out.html).toContain("Alex")
   })
 })

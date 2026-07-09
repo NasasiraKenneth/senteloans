@@ -1,11 +1,12 @@
 "use client"
 
-import React, { useState } from "react"
+import React, { useState, useMemo } from "react"
 import { useForm, FormProvider, Controller } from "react-hook-form"
 import { Stepper, Step, StepLabel, Button, Box, Alert, Popover } from "@mui/material"
 import { FiCalendar, FiCreditCard, FiDollarSign, FiFileText, FiRepeat, FiUser } from "react-icons/fi"
 import DatePicker from "react-multi-date-picker"
 import StyledSelect from "@/components/newUI/styled_select"
+import { isBankRoutedPaymentMode } from "@/lib/finances/payment-mode"
 
 export interface TransactionFormData {
   member: string
@@ -15,6 +16,9 @@ export interface TransactionFormData {
   amount: number | ""
   transactionDate: string
   paymentMethod: string
+  bankAccountId: string
+  charges: number | ""
+  referenceNumber: string
   notes: string
 }
 
@@ -33,11 +37,20 @@ const transactionTypeOptions = [
 ]
 
 const paymentMethodOptions = [
-  { value: "cash", label: "Cash" },
-  { value: "bank", label: "Bank" },
-  { value: "mobile_money", label: "Mobile Money" },
-  { value: "card", label: "Card" },
+  { value: "Cash", label: "Cash" },
+  { value: "Bank Transfer", label: "Bank Transfer" },
+  { value: "Mobile Money", label: "Mobile Money" },
+  { value: "Card", label: "Card" },
+  { value: "Cheque", label: "Cheque" },
 ]
+
+function formatCurrency(amount: number): string {
+  return new Intl.NumberFormat("en-UG", {
+    style: "currency",
+    currency: "UGX",
+    minimumFractionDigits: 0,
+  }).format(amount)
+}
 
 const steps = ["Details", "Payment Details", "Review & Confirm"]
 
@@ -49,10 +62,16 @@ const DetailsStep = ({
   memberOptions,
   accountOptions,
   transferAccountOptions,
+  accountMetaById,
   loadingMembers,
   loadingAccounts,
   loadingTransferAccounts,
-}: any) => (
+}: any) => {
+  const selectedAccountId = String(watch("account") || "")
+  const transactionType = String(watch("transactionType") || "")
+  const selectedAccount = accountMetaById[selectedAccountId] || null
+
+  return (
   <div className="space-y-6">
     <div className="grid grid-cols-1 gap-4">
       <div>
@@ -95,6 +114,14 @@ const DetailsStep = ({
           )}
         />
         {errors.account && <p className="mt-1 text-xs text-red-500">{errors.account.message}</p>}
+        {selectedAccount && (
+          <p className="mt-1 text-xs text-gray-600">
+            Available balance:{" "}
+            <span className="font-medium text-gray-900">
+              {formatCurrency(Number(selectedAccount.availableBalance || 0))}
+            </span>
+          </p>
+        )}
       </div>
     </div>
 
@@ -176,7 +203,16 @@ const DetailsStep = ({
             {...register("amount", {
               required: "Amount is required",
               valueAsNumber: true,
-              validate: (v: number) => (v > 0 ? true : "Amount must be greater than 0"),
+              validate: (v: number) => {
+                if (!Number.isFinite(v) || v <= 0) return "Amount must be greater than 0"
+                if (transactionType === "withdrawal" || transactionType === "transfer") {
+                  const balance = Number(selectedAccount?.availableBalance ?? NaN)
+                  if (Number.isFinite(balance) && v > balance) {
+                    return `Amount exceeds available balance (${formatCurrency(balance)})`
+                  }
+                }
+                return true
+              },
             })}
           />
         </div>
@@ -210,9 +246,24 @@ const DetailsStep = ({
       </div>
     )}
   </div>
-)
+  )
+}
 
-const PaymentStep = ({ register, errors, control }: any) => (
+const PaymentStep = ({
+  register,
+  errors,
+  control,
+  watch,
+  bankAccountOptions,
+  loadingBankAccounts,
+}: any) => {
+  const paymentMethod = String(watch("paymentMethod") || "")
+  const transactionType = String(watch("transactionType") || "")
+  const showReference = paymentMethod && paymentMethod !== "Cash"
+  const showBankAccount = isBankRoutedPaymentMode(paymentMethod)
+  const showCharges = transactionType === "withdrawal" && paymentMethod && paymentMethod !== "Cash"
+
+  return (
   <div className="space-y-6">
     <div className="grid grid-cols-2 gap-4">
       <div>
@@ -327,6 +378,85 @@ const PaymentStep = ({ register, errors, control }: any) => (
       </div>
     </div>
 
+    {showBankAccount && (
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">
+          Bank Account <span className="text-red-500">*</span>
+        </label>
+        <Controller
+          name="bankAccountId"
+          control={control}
+          rules={{
+            validate: (value: string) =>
+              !isBankRoutedPaymentMode(paymentMethod) || !!value || "Bank account is required",
+          }}
+          render={({ field: { onChange, value } }) => (
+            <StyledSelect
+              value={value || ""}
+              onChange={onChange}
+              placeholder={loadingBankAccounts ? "Loading bank accounts..." : bankAccountOptions.length ? "Select bank account" : "No branch bank accounts"}
+              options={bankAccountOptions}
+              searchable
+            />
+          )}
+        />
+        {errors.bankAccountId && <p className="mt-1 text-xs text-red-500">{errors.bankAccountId.message}</p>}
+      </div>
+    )}
+
+    {(showCharges || showReference) && (
+      <div
+        className={`grid gap-4 ${showCharges && showReference ? "grid-cols-1 sm:grid-cols-2" : "grid-cols-1"}`}
+      >
+        {showCharges && (
+          <div>
+            <label htmlFor="charges" className="block text-sm font-medium text-gray-700 mb-1">
+              Transaction Charges
+            </label>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-gray-400">UGX</span>
+              <input
+                id="charges"
+                type="number"
+                min={0}
+                step="0.01"
+                placeholder="0"
+                className={`w-full pl-10 pr-3 py-2.5 text-sm rounded-md border transition-all duration-200 focus:ring-[1.5px] focus:ring-[#f08c2b] focus:border-transparent focus:outline-none ${
+                  errors.charges ? "border-red-500" : "border-gray-300 hover:border-gray-400"
+                }`}
+                {...register("charges", {
+                  valueAsNumber: true,
+                  validate: (v: number) => {
+                    if (v === undefined || v === null || Number.isNaN(v)) return true
+                    if (v < 0) return "Charges cannot be negative"
+                    return true
+                  },
+                })}
+              />
+            </div>
+            {errors.charges && <p className="mt-1 text-xs text-red-500">{errors.charges.message}</p>}
+            <p className="mt-1 text-xs text-gray-500">Optional fees for this {paymentMethod.toLowerCase()} withdrawal.</p>
+          </div>
+        )}
+
+        {showReference && (
+          <div>
+            <label htmlFor="referenceNumber" className="block text-sm font-medium text-gray-700 mb-1">
+              Reference number
+            </label>
+            <input
+              id="referenceNumber"
+              type="text"
+              placeholder="e.g. mobile money, bank transfer reference"
+              className="w-full px-3 py-2.5 text-sm rounded-md border border-gray-300 hover:border-gray-400 transition-all duration-200 focus:ring-[1.5px] focus:ring-[#f08c2b] focus:border-transparent focus:outline-none"
+              {...register("referenceNumber")}
+            />
+            <p className="mt-1 text-xs text-gray-500">Optional reference for this {paymentMethod.toLowerCase()} payment.</p>
+          </div>
+        )}
+      </div>
+    )}
+
     <div>
       <label htmlFor="notes" className="block text-sm font-medium text-gray-700 mb-1">
         Notes
@@ -340,26 +470,32 @@ const PaymentStep = ({ register, errors, control }: any) => (
       />
     </div>
   </div>
-)
+  )
+}
 
 const ReviewStep = ({
   watch,
   memberMetaById,
   accountMetaById,
   transferAccountMetaById,
+  bankAccountMetaById,
 }: any) => {
   const memberId = String(watch("member") || "")
   const accountId = String(watch("account") || "")
   const transferAccountId = String(watch("transferAccount") || "")
+  const bankAccountId = String(watch("bankAccountId") || "")
   const transactionType = String(watch("transactionType") || "")
   const paymentMethod = String(watch("paymentMethod") || "")
   const amount = watch("amount")
+  const charges = watch("charges")
   const transactionDate = String(watch("transactionDate") || "")
+  const referenceNumber = String(watch("referenceNumber") || "").trim()
   const notes = String(watch("notes") || "")
 
   const member = memberMetaById[memberId] || null
   const account = accountMetaById[accountId] || null
   const transferAccount = transferAccountMetaById[transferAccountId] || null
+  const bankAccount = bankAccountMetaById[bankAccountId] || null
 
   const typeLabel = transactionTypeOptions.find((o) => o.value === transactionType)?.label || "—"
   const methodLabel = paymentMethodOptions.find((o) => o.value === paymentMethod)?.label || "—"
@@ -388,7 +524,12 @@ const ReviewStep = ({
               <span className="font-medium">Account</span>
             </div>
             <p className="text-gray-900">{account?.accountNumber || "—"}</p>
-            <p className="text-xs text-gray-500">Type: {account?.accountType || "—"}</p>
+            <p className="text-xs text-gray-500">
+              Type: {account?.accountType || "—"}
+              {account?.availableBalance != null
+                ? ` • Balance: ${formatCurrency(Number(account.availableBalance))}`
+                : ""}
+            </p>
           </div>
 
           <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
@@ -436,6 +577,36 @@ const ReviewStep = ({
             <p className="text-gray-900">{methodLabel}</p>
           </div>
 
+          {bankAccount ? (
+            <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 md:col-span-2">
+              <div className="flex items-center gap-2 text-gray-700 mb-1">
+                <FiCreditCard className="h-4 w-4" />
+                <span className="font-medium">Bank Account</span>
+              </div>
+              <p className="text-gray-900">{bankAccount.label}</p>
+            </div>
+          ) : null}
+
+          {transactionType === "withdrawal" && paymentMethod !== "Cash" && charges !== "" && Number(charges) > 0 ? (
+            <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+              <div className="flex items-center gap-2 text-gray-700 mb-1">
+                <FiDollarSign className="h-4 w-4" />
+                <span className="font-medium">Charges</span>
+              </div>
+              <p className="text-gray-900">UGX {Number(charges).toLocaleString("en-UG")}</p>
+            </div>
+          ) : null}
+
+          {referenceNumber ? (
+            <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 md:col-span-2">
+              <div className="flex items-center gap-2 text-gray-700 mb-1">
+                <FiFileText className="h-4 w-4" />
+                <span className="font-medium">Reference</span>
+              </div>
+              <p className="text-gray-900">{referenceNumber}</p>
+            </div>
+          ) : null}
+
           <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 md:col-span-2">
             <div className="flex items-center gap-2 text-gray-700 mb-1">
               <FiFileText className="h-4 w-4" />
@@ -461,15 +632,19 @@ export default function TransactionForm({
   const [isSubmitted, setIsSubmitted] = useState(false)
   const [memberOptions, setMemberOptions] = useState<Array<{ value: string; label: string }>>([])
   const [accountOptions, setAccountOptions] = useState<Array<{ value: string; label: string }>>([])
-  const [transferAccountOptions, setTransferAccountOptions] = useState<Array<{ value: string; label: string }>>([])
+  const [allTransferAccounts, setAllTransferAccounts] = useState<
+    Array<{ id: string; account_number: string; account_type: string; client_name: string; status: string }>
+  >([])
+  const [bankAccountOptions, setBankAccountOptions] = useState<Array<{ value: string; label: string }>>([])
+  const [bankAccountMetaById, setBankAccountMetaById] = useState<Record<string, { label: string }>>({})
   const [memberMetaById, setMemberMetaById] = useState<Record<string, { name: string; memberNumber: string }>>({})
-  const [accountMetaById, setAccountMetaById] = useState<Record<string, { accountNumber: string; accountType: string }>>({})
-  const [transferAccountMetaById, setTransferAccountMetaById] = useState<
-    Record<string, { accountNumber: string; accountType: string; memberName: string }>
+  const [accountMetaById, setAccountMetaById] = useState<
+    Record<string, { accountNumber: string; accountType: string; availableBalance: number }>
   >({})
   const [loadingMembers, setLoadingMembers] = useState(false)
   const [loadingAccounts, setLoadingAccounts] = useState(false)
   const [loadingTransferAccounts, setLoadingTransferAccounts] = useState(false)
+  const [loadingBankAccounts, setLoadingBankAccounts] = useState(false)
 
   const methods = useForm<TransactionFormData>({
     defaultValues: {
@@ -480,6 +655,9 @@ export default function TransactionForm({
       amount: "",
       transactionDate: "",
       paymentMethod: "",
+      bankAccountId: "",
+      charges: "",
+      referenceNumber: "",
       notes: "",
       ...initialValues,
     },
@@ -537,6 +715,106 @@ export default function TransactionForm({
   }, [])
 
   const selectedMemberId = watch("member")
+  const selectedAccountId = watch("account")
+
+  const transferAccountOptions = useMemo(
+    () =>
+      allTransferAccounts
+        .filter((a) => a.status === "Active" && a.id !== String(selectedAccountId || ""))
+        .map((a) => ({
+          value: a.id,
+          label: `${a.account_number} - ${a.client_name}`,
+        })),
+    [allTransferAccounts, selectedAccountId],
+  )
+
+  const transferAccountMetaById = useMemo(
+    () =>
+      Object.fromEntries(
+        allTransferAccounts.map((a) => [
+          a.id,
+          {
+            accountNumber: a.account_number,
+            accountType: a.account_type,
+            memberName: a.client_name,
+          },
+        ]),
+      ),
+    [allTransferAccounts],
+  )
+
+  React.useEffect(() => {
+    const transfer = methods.getValues("transferAccount")
+    if (transfer && transfer === String(selectedAccountId || "")) {
+      methods.setValue("transferAccount", "")
+    }
+  }, [selectedAccountId, methods])
+
+  React.useEffect(() => {
+    let cancelled = false
+    async function loadBankAccounts(memberId: string) {
+      if (!memberId) {
+        setBankAccountOptions([])
+        setBankAccountMetaById({})
+        methods.setValue("bankAccountId", "")
+        return
+      }
+      setLoadingBankAccounts(true)
+      try {
+        const res = await fetch(`/api/institution/members/${memberId}/bank-accounts`, { cache: "no-store" })
+        const body = await res.json().catch(() => ({}))
+        if (!res.ok) throw new Error(body?.error || "Failed to load bank accounts")
+        if (!cancelled) {
+          const accounts = Array.isArray(body?.bankAccounts) ? body.bankAccounts : []
+          setBankAccountOptions(
+            accounts.map((ba: Record<string, unknown>) => {
+              const id = String(ba.id || "")
+              const label = `${String(ba.bank_name || "Bank")} — ${String(ba.bank_account_number || "")}`
+              return { value: id, label }
+            }),
+          )
+          setBankAccountMetaById(
+            Object.fromEntries(
+              accounts.map((ba: Record<string, unknown>) => {
+                const id = String(ba.id || "")
+                const label = `${String(ba.bank_name || "Bank")} — ${String(ba.bank_account_number || "")}`
+                return [id, { label }]
+              }),
+            ),
+          )
+          const selectedBank = methods.getValues("bankAccountId")
+          if (selectedBank && !accounts.some((ba: Record<string, unknown>) => String(ba.id) === selectedBank)) {
+            methods.setValue("bankAccountId", "")
+          }
+        }
+      } catch {
+        if (!cancelled) {
+          setBankAccountOptions([])
+          setBankAccountMetaById({})
+          methods.setValue("bankAccountId", "")
+        }
+      } finally {
+        if (!cancelled) setLoadingBankAccounts(false)
+      }
+    }
+    void loadBankAccounts(String(selectedMemberId || ""))
+    return () => {
+      cancelled = true
+    }
+  }, [selectedMemberId, methods])
+
+  const paymentMethod = watch("paymentMethod")
+  const transactionTypeWatch = watch("transactionType")
+
+  React.useEffect(() => {
+    if (!isBankRoutedPaymentMode(String(paymentMethod || ""))) {
+      methods.setValue("bankAccountId", "")
+    }
+    if (String(transactionTypeWatch || "") !== "withdrawal" || String(paymentMethod || "") === "Cash") {
+      methods.setValue("charges", "")
+    }
+  }, [paymentMethod, transactionTypeWatch, methods])
+
   React.useEffect(() => {
     let cancelled = false
     async function loadAccounts(memberId: string) {
@@ -553,7 +831,9 @@ export default function TransactionForm({
         const body = await res.json().catch(() => ({}))
         if (!res.ok) throw new Error(body?.error || "Failed to load accounts")
         if (!cancelled) {
-          const items = Array.isArray(body?.items) ? body.items : []
+          const items = (Array.isArray(body?.items) ? body.items : []).filter(
+            (a: Record<string, unknown>) => String(a.status || "Active") === "Active",
+          )
           const options = items.map((a: Record<string, unknown>) => ({
             value: String(a.id || ""),
             label: `${String(a.account_number || "Account")} - ${String(a.account_type || "Savings")}`,
@@ -566,17 +846,14 @@ export default function TransactionForm({
                 {
                   accountNumber: String(a.account_number || "Account"),
                   accountType: String(a.account_type || "Savings"),
+                  availableBalance: Number(a.available_balance || 0),
                 },
               ]),
             ),
           )
           const selectedAccount = methods.getValues("account")
-          const selectedTransfer = methods.getValues("transferAccount")
           if (selectedAccount && !options.some((o: { value: string; label: string }) => o.value === selectedAccount)) {
             methods.setValue("account", "")
-          }
-          if (selectedTransfer && !options.some((o: { value: string; label: string }) => o.value === selectedTransfer)) {
-            methods.setValue("transferAccount", "")
           }
         }
       } catch {
@@ -605,30 +882,20 @@ export default function TransactionForm({
         const body = await res.json().catch(() => ({}))
         if (!res.ok) throw new Error(body?.error || "Failed to load transfer accounts")
         if (!cancelled) {
-          const items = Array.isArray(body?.items) ? body.items : []
-          setTransferAccountOptions(
-            items.map((a: Record<string, unknown>) => ({
-              value: String(a.id || ""),
-              label: `${String(a.account_number || "Account")} - ${String(a.client_name || "Unknown member")}`,
-            })),
-          )
-          setTransferAccountMetaById(
-            Object.fromEntries(
-              items.map((a: Record<string, unknown>) => [
-                String(a.id || ""),
-                {
-                  accountNumber: String(a.account_number || "Account"),
-                  accountType: String(a.account_type || "Savings"),
-                  memberName: String(a.client_name || "Unknown member"),
-                },
-              ]),
-            ),
-          )
+          const items = (Array.isArray(body?.items) ? body.items : [])
+            .filter((a: Record<string, unknown>) => String(a.status || "Active") === "Active")
+            .map((a: Record<string, unknown>) => ({
+              id: String(a.id || ""),
+              account_number: String(a.account_number || "Account"),
+              account_type: String(a.account_type || "Savings"),
+              client_name: String(a.client_name || "Unknown member"),
+              status: String(a.status || "Active"),
+            }))
+          setAllTransferAccounts(items)
         }
       } catch {
         if (!cancelled) {
-          setTransferAccountOptions([])
-          setTransferAccountMetaById({})
+          setAllTransferAccounts([])
         }
       } finally {
         if (!cancelled) setLoadingTransferAccounts(false)
@@ -646,8 +913,16 @@ export default function TransactionForm({
         return watch("transactionType") === "transfer"
           ? ["member", "account", "transactionType", "transferAccount", "amount"]
           : ["member", "account", "transactionType", "amount"]
-      case 1:
-        return ["transactionDate", "paymentMethod"]
+      case 1: {
+        const fields: (keyof TransactionFormData)[] = ["transactionDate", "paymentMethod"]
+        if (isBankRoutedPaymentMode(String(watch("paymentMethod") || ""))) {
+          fields.push("bankAccountId")
+        }
+        if (String(watch("transactionType") || "") === "withdrawal" && String(watch("paymentMethod") || "") !== "Cash") {
+          fields.push("charges")
+        }
+        return fields
+      }
       case 2:
         return []
       default:
@@ -681,7 +956,12 @@ export default function TransactionForm({
 
   const handleFormSubmit = async (data: TransactionFormData) => {
     if (activeStep !== steps.length - 1) return
-    if (!(await validateStep(activeStep))) return
+    for (let step = 0; step < steps.length; step++) {
+      if (!(await validateStep(step))) {
+        setActiveStep(step)
+        return
+      }
+    }
     onSubmit(data)
     setIsSubmitted(true)
   }
@@ -719,18 +999,29 @@ export default function TransactionForm({
                 memberOptions={memberOptions}
                 accountOptions={accountOptions}
                 transferAccountOptions={transferAccountOptions}
+                accountMetaById={accountMetaById}
                 loadingMembers={loadingMembers}
                 loadingAccounts={loadingAccounts}
                 loadingTransferAccounts={loadingTransferAccounts}
               />
             )}
-            {activeStep === 1 && <PaymentStep register={register} errors={errors} control={control} />}
+            {activeStep === 1 && (
+              <PaymentStep
+                register={register}
+                errors={errors}
+                control={control}
+                watch={watch}
+                bankAccountOptions={bankAccountOptions}
+                loadingBankAccounts={loadingBankAccounts}
+              />
+            )}
             {activeStep === 2 && (
               <ReviewStep
                 watch={watch}
                 memberMetaById={memberMetaById}
                 accountMetaById={accountMetaById}
                 transferAccountMetaById={transferAccountMetaById}
+                bankAccountMetaById={bankAccountMetaById}
               />
             )}
           </Box>

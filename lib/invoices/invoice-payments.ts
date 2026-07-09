@@ -1,5 +1,7 @@
 import type { PoolClient } from "pg"
-import { auditLogger } from "@/lib/audit/audit-logger"
+import { auditInvoicePaymentInsert } from "@/lib/audit/invoice-audit"
+import { auditInvoiceUpdate } from "@/lib/audit/invoice-audit"
+import { normalizeInvoiceStatus } from "./status"
 
 export interface InvoicePaymentSummary {
   paid_amount: number
@@ -16,6 +18,12 @@ export interface RecordInvoicePaymentInput {
   processedBy: string
   transactionId?: string | null
   membershipFeeId?: string | null
+}
+
+export interface SyncInvoiceStatusAudit {
+  institutionId: string
+  branchId: string
+  userId: string
 }
 
 const round2 = (n: number): number =>
@@ -80,7 +88,7 @@ export async function findOpenMemberMembershipInvoice(
       WHERE i.institution_id = $1
         AND i.member_id = $2
         AND LOWER(i.invoice_type) = 'auto'
-        AND LOWER(i.status) NOT IN ('fully paid', 'cancelled')
+        AND LOWER(i.status) NOT IN ('fully paid', 'paid', 'cancelled')
         AND EXISTS (
           SELECT 1 FROM invoice_items it
            WHERE it.invoice_id = i.id
@@ -141,8 +149,13 @@ export async function recordInvoicePayment(
   const row = res.rows[0]
   if (!row) throw new Error("invoice_payment_insert_failed")
 
-  await auditLogger.logInsert(
-    "invoice_payments",
+  await auditInvoicePaymentInsert(
+    client,
+    {
+      id: input.processedBy,
+      institution_id: input.institutionId,
+      branch_id: input.branchId,
+    },
     row.id,
     {
       invoice_id: input.invoiceId,
@@ -152,10 +165,7 @@ export async function recordInvoicePayment(
       membership_fee_id: input.membershipFeeId ?? null,
       processed_by: input.processedBy,
     },
-    input.institutionId,
-    input.processedBy,
-    { branch_id: input.branchId },
-    client,
+    input.branchId,
   )
 
   return { id: row.id }
@@ -168,6 +178,7 @@ export async function recordInvoicePayment(
 export async function syncInvoiceStatusFromPayments(
   client: PoolClient,
   invoiceId: string,
+  audit?: SyncInvoiceStatusAudit,
 ): Promise<{ status: string; paid_amount: number; outstanding: number }> {
   const invRes = await client.query<{
     total_amount: string
@@ -180,6 +191,7 @@ export async function syncInvoiceStatusFromPayments(
   const inv = invRes.rows[0]
   if (!inv) throw new Error("invoice_not_found")
 
+  const previousStatus = normalizeInvoiceStatus(inv.status)
   const total = round2(Number(inv.total_amount))
   const summary = await getInvoicePaymentSummary(client, invoiceId, total)
 
@@ -195,10 +207,27 @@ export async function syncInvoiceStatusFromPayments(
     nextStatus = isOverdue ? "overdue" : "sent"
   }
 
-  await client.query(
-    `UPDATE invoices SET status = $1, updated_at = NOW() WHERE id = $2`,
-    [nextStatus, invoiceId],
-  )
+  if (nextStatus !== previousStatus) {
+    await client.query(
+      `UPDATE invoices SET status = $1, updated_at = NOW() WHERE id = $2`,
+      [nextStatus, invoiceId],
+    )
+
+    if (audit) {
+      await auditInvoiceUpdate(
+        client,
+        {
+          id: audit.userId,
+          institution_id: audit.institutionId,
+          branch_id: audit.branchId,
+        },
+        invoiceId,
+        { status: previousStatus },
+        { status: nextStatus },
+        audit.branchId,
+      )
+    }
+  }
 
   return {
     status: nextStatus,

@@ -4,7 +4,12 @@ import { authOptions } from "@/lib/auth"
 import { runWithAuth } from "@/lib/db"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
 import { auditLogger } from "@/lib/audit/audit-logger"
-import { hasInvestmentPermission, resolveInvestmentActor } from "@/lib/api/investment-rbac"
+import {
+  assertInvestmentWriteAccess,
+  investmentRouteDenialResponse,
+  isInvestmentRouteError,
+} from "@/lib/api/investment-access"
+import { hasPermission, isSuperAdmin, resolveActorContext } from "@/lib/api/rbac"
 
 const normalizeDate = (value: unknown): string | null => {
   if (typeof value !== "string" || !value.trim()) return null
@@ -21,37 +26,37 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     if (session.user.type !== "staff") return NextResponse.json({ error: "not_staff" }, { status: 403 })
 
     const result = await runWithAuth(session.user.authUserId, async (client) => {
-      const actor = await resolveInvestmentActor(client, session.user.authUserId as string)
+      const actor = await resolveActorContext(client, session.user.authUserId as string, { activeOnly: false })
       if (!actor?.institution_id) return { error: "user_not_linked" as const }
-      const allowed = await hasInvestmentPermission(client, actor, "view_investments")
+      const allowed = await hasPermission(client, actor, "view_investments")
       if (!allowed) return { error: "missing_permission:view_investments" as const }
-      const isSuperAdmin = String(actor.role || "").trim().toLowerCase() === "super_admin"
-      if (!isSuperAdmin && !actor.branch_id) return { error: "actor_branch_missing" as const }
+      const superAdmin = isSuperAdmin(actor)
+      if (!superAdmin && !actor.branch_id) return { error: "actor_branch_missing" as const }
 
       const invRes = await client.query(
         `SELECT
-           i.id, i.investment_number, i.provider_id, c.name AS provider_name, i.category, i.description,
+           i.id, i.investment_number, i.provider_id, tpa.name AS provider_name, i.category, i.description,
            i.initial_amount, i.current_value, i.expected_percentage, i.extracted_returns, i.risk_level,
            i.start_date, i.period_in_months, i.period_in_years, i.maturity_date, i.status,
            i.created_by, i.created_at, i.modified_by, i.updated_at,
            i.investment_name, i.address AS investment_address
          FROM investments i
-         LEFT JOIN clients c ON c.id = i.provider_id
+         LEFT JOIN third_party_agents tpa ON tpa.id = i.provider_id
          WHERE i.id = $1
            AND i.institution_id = $2
-           ${isSuperAdmin ? "" : "AND i.branch_id = $3"}
+           ${superAdmin ? "" : "AND i.branch_id = $3"}
          LIMIT 1`,
-        isSuperAdmin ? [id, actor.institution_id] : [id, actor.institution_id, actor.branch_id],
+        superAdmin ? [id, actor.institution_id] : [id, actor.institution_id, actor.branch_id],
       )
       if (invRes.rowCount === 0) return { error: "investment_not_found" as const }
       const investment = invRes.rows[0]
 
       const partnersRes = await client.query(
         `SELECT
-           p.id, p.counterparty_id, c.name AS counterparty_name, p.role, p.status,
+           p.id, p.counterparty_id, tpa.name AS counterparty_name, p.role, p.status,
            p.contribution_percentage, p.contribution_amount, p.ownership_percentage
          FROM investment_partners p
-         LEFT JOIN clients c ON c.id = p.counterparty_id
+         LEFT JOIN third_party_agents tpa ON tpa.id = p.counterparty_id
          WHERE p.investment_id = $1
          ORDER BY p.created_at ASC`,
         [id],
@@ -66,10 +71,10 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       )
 
       const latestValuationRes = await client.query(
-        `SELECT valuation_date, value
+        `SELECT valuation_date, opening_value, closing_value, created_at
          FROM investment_valuations
          WHERE investment_id = $1
-         ORDER BY valuation_date DESC, created_at DESC
+         ORDER BY created_at DESC
          LIMIT 1`,
         [id],
       )
@@ -78,9 +83,9 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       return { investment, partners: partnersRes.rows, funding: fundingRes.rows, latestValuation }
     })
 
-    if (result && "error" in result) {
-      const code = result.error === "investment_not_found" ? 404 : result.error === "actor_branch_missing" ? 400 : 403
-      return NextResponse.json({ error: result.error }, { status: code })
+    if (isInvestmentRouteError(result)) {
+      const { status, body } = investmentRouteDenialResponse(result)
+      return NextResponse.json(body, { status })
     }
     return NextResponse.json(result)
   } catch (e: unknown) {
@@ -132,12 +137,20 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     if (!["pending", "approved", "under_development", "active", "matured", "closed", "cancelled"].includes(status)) return NextResponse.json({ error: "invalid_status" }, { status: 400 })
 
     const result = await runWithAuth(session.user.authUserId, async (client) => {
-      const actor = await resolveInvestmentActor(client, session.user.authUserId as string)
-      if (!actor?.institution_id) return { error: "user_not_linked" as const }
-      const allowed = await hasInvestmentPermission(client, actor, "edit_investment")
-      if (!allowed) return { error: "missing_permission:edit_investment" as const }
-      const isSuperAdmin = String(actor.role || "").trim().toLowerCase() === "super_admin"
-      if (!isSuperAdmin && !actor.branch_id) return { error: "actor_branch_missing" as const }
+      const access = await assertInvestmentWriteAccess(
+        client,
+        session.user.authUserId as string,
+        "edit_investment",
+      )
+      if (!access.ok) {
+        return {
+          error: access.error,
+          message: access.message,
+          staffStatus: access.staffStatus,
+          branchStatus: access.branchStatus,
+        }
+      }
+      const { actor } = access
 
       await client.query("BEGIN")
       try {
@@ -148,10 +161,9 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
              risk_level, start_date, period_in_months, period_in_years, maturity_date, status,
              investment_name, address
            FROM investments
-           WHERE id = $1 AND institution_id = $2
-           ${isSuperAdmin ? "" : "AND branch_id = $3"}
+           WHERE id = $1 AND institution_id = $2 AND branch_id = $3
            LIMIT 1`,
-          isSuperAdmin ? [id, actor.institution_id] : [id, actor.institution_id, actor.branch_id],
+          [id, actor.institution_id, actor.branch_id],
         )
         if (existsRes.rowCount === 0) {
           await client.query("ROLLBACK")
@@ -257,9 +269,9 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       }
     })
 
-    if (result && "error" in result) {
-      const code = result.error === "investment_not_found" ? 404 : result.error === "actor_branch_missing" ? 400 : 403
-      return NextResponse.json({ error: result.error }, { status: code })
+    if (isInvestmentRouteError(result)) {
+      const { status, body } = investmentRouteDenialResponse(result)
+      return NextResponse.json(body, { status })
     }
     return NextResponse.json(result)
   } catch (e: unknown) {
@@ -284,20 +296,27 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     }
 
     const result = await runWithAuth(session.user.authUserId, async (client) => {
-      const actor = await resolveInvestmentActor(client, session.user.authUserId as string)
-      if (!actor?.institution_id) return { error: "user_not_linked" as const }
-      const allowed = await hasInvestmentPermission(client, actor, "edit_investment_status")
-      if (!allowed) return { error: "missing_permission:edit_investment_status" as const }
-      const isSuperAdmin = String(actor.role || "").trim().toLowerCase() === "super_admin"
-      if (!isSuperAdmin && !actor.branch_id) return { error: "actor_branch_missing" as const }
+      const access = await assertInvestmentWriteAccess(
+        client,
+        session.user.authUserId as string,
+        "edit_investment_status",
+      )
+      if (!access.ok) {
+        return {
+          error: access.error,
+          message: access.message,
+          staffStatus: access.staffStatus,
+          branchStatus: access.branchStatus,
+        }
+      }
+      const { actor } = access
 
       const prevRes = await client.query(
         `SELECT id, status, institution_id, branch_id
          FROM investments
-         WHERE id = $1 AND institution_id = $2
-         ${isSuperAdmin ? "" : "AND branch_id = $3"}
+         WHERE id = $1 AND institution_id = $2 AND branch_id = $3
          LIMIT 1`,
-        isSuperAdmin ? [id, actor.institution_id] : [id, actor.institution_id, actor.branch_id],
+        [id, actor.institution_id, actor.branch_id],
       )
       if (prevRes.rowCount === 0) return { error: "investment_not_found" as const }
       const prevStatus = String(prevRes.rows[0]?.status || "")
@@ -325,9 +344,9 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       return { ok: true, id }
     })
 
-    if (result && "error" in result) {
-      const code = result.error === "investment_not_found" ? 404 : result.error === "actor_branch_missing" ? 400 : 403
-      return NextResponse.json({ error: result.error }, { status: code })
+    if (isInvestmentRouteError(result)) {
+      const { status, body } = investmentRouteDenialResponse(result)
+      return NextResponse.json(body, { status })
     }
     return NextResponse.json(result)
   } catch (e: unknown) {

@@ -36,9 +36,9 @@ export default function AddPartner({ isOpen, onClose, onSuccess }: AddPartnerPro
     const loadProviders = async () => {
       try {
         setLoadingProviders(true)
-        const res = await fetch("/api/institution/clients?limit=200", { cache: "no-store" })
+        const res = await fetch("/api/institution/third-party-agents?limit=200", { cache: "no-store" })
         const body = await res.json().catch(() => ({}))
-        const list = Array.isArray(body) ? body : Array.isArray(body?.clients) ? body.clients : []
+        const list = Array.isArray(body) ? body : Array.isArray(body?.third_party_agents) ? body.third_party_agents : []
         if (cancelled) return
         setProviders(
           list.map((c: any) => ({

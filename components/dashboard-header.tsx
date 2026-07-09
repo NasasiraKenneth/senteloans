@@ -56,6 +56,7 @@ export function DashboardHeader() {
 
     const labels: Record<string, string> = {
       dashboard: "Dashboard",
+      members: "Members",
       users: "Members",
       staff: "Staff",
       loans: "Loans",
@@ -68,10 +69,15 @@ export function DashboardHeader() {
       edit: "Edit",
     }
 
-    // Override "users" label based on institution config
+    // Override people labels based on institution config
     const clientTerm = session?.institution?.config?.clientTerminology
-    if (clientTerm === "Client") labels.users = "Clients"
-    else if (clientTerm === "Borrower") labels.users = "Borrowers"
+    if (clientTerm === "Client") {
+      labels.users = "Clients"
+      labels.members = "Clients"
+    } else if (clientTerm === "Borrower") {
+      labels.users = "Borrowers"
+      labels.members = "Borrowers"
+    }
 
     return segments.map((segment, idx) => {
       const href = "/" + segments.slice(0, idx + 1).join("/")

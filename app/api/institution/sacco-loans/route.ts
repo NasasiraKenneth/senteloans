@@ -1,58 +1,14 @@
 import { NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
-import { runWithAuth } from "@/lib/db"
+import { runWithAuth, runWithoutAuth } from "@/lib/db"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
+import { assertBranchActive, type BranchStatus } from "@/lib/branches/branch-status"
+import { assertActorActive } from "@/lib/staff/staff-status"
+import { hasPermission, isSuperAdmin, resolveActorContext, scopeWhere, SUPER_ADMIN_WRITE_BLOCKED } from "@/lib/api/rbac"
 import { auditLogger } from "@/lib/audit/audit-logger"
-
-type ActorContext = {
-  id: string
-  institution_id: string
-  branch_id: string | null
-  role_id: string | null
-  role: string | null
-}
-
-async function resolveActorContext(client: any, authUserId: string): Promise<ActorContext | null> {
-  const actorRes = await client.query(
-    `SELECT
-       u.id,
-       u.institution_id,
-       u.branch_id,
-       u.role_id,
-       CASE
-         WHEN r.name = 'System Admin' THEN 'system_admin'
-         WHEN r.name = 'Super Admin' THEN 'super_admin'
-         WHEN r.name = 'Admin' THEN 'institution_admin'
-         WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
-         ELSE NULL
-       END AS role
-     FROM users u
-     LEFT JOIN roles r ON r.id = u.role_id
-     WHERE u.auth_id = $1
-     LIMIT 1`,
-    [authUserId],
-  )
-  return actorRes.rows[0] || null
-}
-
-async function hasPermission(client: any, actor: ActorContext, permission: string): Promise<boolean> {
-  const role = String(actor.role || "").trim().toLowerCase()
-  if (role === "super_admin") return true
-  if (!actor.role_id || !actor.branch_id) return false
-
-  const permRes = await client.query(
-    `SELECT 1
-     FROM role_permissions rp
-     JOIN permissions p ON p.id = rp.permission_id
-     WHERE rp.role_id = $1
-       AND rp.branch_id = $2
-       AND p.name = $3
-     LIMIT 1`,
-    [actor.role_id, actor.branch_id, permission],
-  )
-  return permRes.rowCount > 0
-}
+import { appendSaccoLoanListFilters } from "@/lib/sacco-loans/query-filters"
+import { notifySaccoLoanCreated } from "@/lib/notifications/sacco-loan-events"
 
 const VALID_STATUSES = new Set([
   "Applied",
@@ -88,43 +44,47 @@ export async function GET(req: Request) {
     const q = (url.searchParams.get("q") || "").trim()
     const statusRaw = (url.searchParams.get("status") || "").trim()
     const status = VALID_STATUSES.has(statusRaw) ? statusRaw : ""
+    const loanType = (url.searchParams.get("loan_type") || "").trim().toLowerCase()
+    const remainingTenure = (url.searchParams.get("remainingTenure") || "").trim()
+    const applicationDateStart = (url.searchParams.get("applicationDateStart") || "").trim()
+    const applicationDateEnd = (url.searchParams.get("applicationDateEnd") || "").trim()
+    const nextPaymentDateStart = (url.searchParams.get("nextPaymentDateStart") || "").trim()
+    const nextPaymentDateEnd = (url.searchParams.get("nextPaymentDateEnd") || "").trim()
+    const branchesRaw = (url.searchParams.get("branches") || "").trim()
+    const selectedBranchIds = branchesRaw
+      ? branchesRaw.split(",").map((v) => v.trim()).filter(Boolean)
+      : []
 
     const result = await runWithAuth(session.user.authUserId, async (client) => {
       const actor = await resolveActorContext(client, session.user.authUserId as string)
       if (!actor?.institution_id) return { error: "user_not_linked" as const }
       const allowed = await hasPermission(client, actor, "view_sacco_loans")
       if (!allowed) return { error: "missing_permission:view_sacco_loans" as const }
-      const isSuperAdmin = String(actor.role || "").trim().toLowerCase() === "super_admin"
-      if (!isSuperAdmin && !actor.branch_id) return { error: "actor_branch_missing" as const }
+      if (!isSuperAdmin(actor) && !actor.branch_id) return { error: "actor_branch_missing" as const }
 
-      let where = "l.institution_id = $1"
-      const params: unknown[] = [actor.institution_id]
-      let idx = 2
+      const scoped = scopeWhere({ tableAlias: "l", actor, selectedBranchIds, startIndex: 1 })
+      let where = scoped.where
+      let params = scoped.values
+      let idx = scoped.nextIndex
 
-      if (!isSuperAdmin) {
-        where += ` AND l.branch_id = $${idx++}`
-        params.push(actor.branch_id)
-      }
-
-      if (status) {
-        where += ` AND l.status = $${idx++}`
-        params.push(status)
-      }
-
-      if (q) {
-        where += ` AND (
-          COALESCE(c.name, '') ILIKE $${idx}
-          OR COALESCE(l.loan_product, '') ILIKE $${idx}
-          OR COALESCE(l.purpose, '') ILIKE $${idx}
-        )`
-        params.push(`%${q}%`)
-        idx++
-      }
+      ;({ where, params, idx } = appendSaccoLoanListFilters({
+        where,
+        params,
+        idx,
+        status,
+        loanType,
+        remainingTenure,
+        applicationDateStart,
+        applicationDateEnd,
+        nextPaymentDateStart,
+        nextPaymentDateEnd,
+        q,
+      }))
 
       const countRes = await client.query<{ c: number }>(
         `SELECT COUNT(*)::int AS c
          FROM institution_loans l
-         LEFT JOIN clients c ON c.id = l.client_id
+         LEFT JOIN third_party_agents tpa ON tpa.id = l.third_party_agent_id
          WHERE ${where}`,
         params,
       )
@@ -134,11 +94,12 @@ export async function GET(req: Request) {
       const dataRes = await client.query(
         `SELECT
            l.id,
-           l.client_id,
+           l.third_party_agent_id,
            l.loan_product,
            l.principal_amount,
            l.interest_rate,
            l.tenure_months,
+           l.remaining_tenure_months,
            l.monthly_payment,
            l.total_amount,
            l.outstanding_balance,
@@ -156,9 +117,9 @@ export async function GET(req: Request) {
            l.overdue_days,
            l.created_at,
            l.updated_at,
-           COALESCE(c.name, '') AS client_name
+           COALESCE(tpa.name, '') AS third_party_agent_name
          FROM institution_loans l
-         LEFT JOIN clients c ON c.id = l.client_id
+         LEFT JOIN third_party_agents tpa ON tpa.id = l.third_party_agent_id
          WHERE ${where}
          ORDER BY l.created_at DESC
          LIMIT $${idx} OFFSET $${idx + 1}`,
@@ -167,12 +128,13 @@ export async function GET(req: Request) {
 
       const items = dataRes.rows.map((row: Record<string, unknown>) => ({
         id: String(row.id || ""),
-        client_id: String(row.client_id || ""),
-        client_name: String(row.client_name || ""),
+        third_party_agent_id: String(row.third_party_agent_id || ""),
+        third_party_agent_name: String(row.third_party_agent_name || ""),
         loan_product: row.loan_product != null ? String(row.loan_product) : null,
         principal_amount: Number(row.principal_amount || 0),
         interest_rate: Number(row.interest_rate || 0),
         tenure_months: Number(row.tenure_months || 0),
+        remaining_tenure_months: Number(row.remaining_tenure_months ?? row.tenure_months ?? 0),
         monthly_payment: row.monthly_payment != null ? Number(row.monthly_payment) : null,
         total_amount: row.total_amount != null ? Number(row.total_amount) : null,
         outstanding_balance: Number(row.outstanding_balance || 0),
@@ -224,7 +186,7 @@ export async function POST(req: Request) {
     }
 
     const body = (await req.json().catch(() => ({}))) as Record<string, unknown>
-    const client_id = String(body.clientId ?? body.client_id ?? "").trim()
+    const third_party_agent_id = String(body.thirdPartyAgentId ?? body.third_party_agent_id ?? "").trim()
     const loan_product_raw =
       typeof body.loanProduct === "string"
         ? body.loanProduct
@@ -238,11 +200,15 @@ export async function POST(req: Request) {
     const total_raw = Number(body.totalAmount ?? body.total_amount)
     const total_amount =
       Number.isFinite(total_raw) && total_raw > 0 ? Math.round((total_raw + Number.EPSILON) * 100) / 100 : null
+    const interest_amount_raw = Number(body.interestAmount ?? body.interest_amount)
+    const interest_amount =
+      Number.isFinite(interest_amount_raw) && interest_amount_raw >= 0
+        ? Math.round((interest_amount_raw + Number.EPSILON) * 100) / 100
+        : null
     const monthly_raw = Number(body.monthlyPayment ?? body.monthly_payment)
     const monthly_payment =
       Number.isFinite(monthly_raw) && monthly_raw > 0 ? Math.round((monthly_raw + Number.EPSILON) * 100) / 100 : null
-    const status_raw = String(body.status ?? "Applied").trim()
-    const status = VALID_STATUSES.has(status_raw) ? status_raw : ""
+    const status = "Applied"
     const loan_type_raw = String(body.loanType ?? body.loan_type ?? "normal").trim().toLowerCase()
     const loan_type = VALID_LOAN_TYPES.has(loan_type_raw) ? loan_type_raw : "normal"
     const purpose = typeof body.purpose === "string" ? body.purpose.trim() : ""
@@ -251,8 +217,8 @@ export async function POST(req: Request) {
       typeof collateral_raw === "string" && collateral_raw.trim() ? collateral_raw.trim() : null
     const application_date = String(body.applicationDate ?? body.application_date ?? "").trim()
 
-    if (!UUID_REGEX.test(client_id)) {
-      return NextResponse.json({ error: "invalid_client_id" }, { status: 400 })
+    if (!UUID_REGEX.test(third_party_agent_id)) {
+      return NextResponse.json({ error: "invalid_third_party_agent_id" }, { status: 400 })
     }
     if (!Number.isFinite(principal_amount) || principal_amount <= 0) {
       return NextResponse.json({ error: "invalid_principal_amount" }, { status: 400 })
@@ -263,48 +229,74 @@ export async function POST(req: Request) {
     if (!Number.isFinite(tenure_months) || tenure_months <= 0) {
       return NextResponse.json({ error: "invalid_tenure_months" }, { status: 400 })
     }
-    if (!status) {
-      return NextResponse.json({ error: "invalid_status" }, { status: 400 })
+    if (!total_amount) {
+      return NextResponse.json({ error: "invalid_total_amount" }, { status: 400 })
+    }
+    if (interest_amount === null) {
+      return NextResponse.json({ error: "invalid_interest_amount" }, { status: 400 })
+    }
+    if (!monthly_payment) {
+      return NextResponse.json({ error: "invalid_monthly_payment" }, { status: 400 })
+    }
+    if (total_amount < principal_amount) {
+      return NextResponse.json({ error: "total_below_principal" }, { status: 400 })
+    }
+    if (Math.abs(total_amount - principal_amount - interest_amount) > 0.01) {
+      return NextResponse.json({ error: "repayment_breakdown_mismatch" }, { status: 400 })
     }
     if (!/^\d{4}-\d{2}-\d{2}$/.test(application_date)) {
       return NextResponse.json({ error: "invalid_application_date" }, { status: 400 })
     }
 
     const result = await runWithAuth(session.user.authUserId, async (client) => {
-      const actor = await resolveActorContext(client, session.user.authUserId as string)
+      const actor = await resolveActorContext(client, session.user.authUserId as string, { activeOnly: false })
       if (!actor?.institution_id) return { error: "user_not_linked" as const }
+      const staffCheck = await assertActorActive(client, actor)
+      if (!staffCheck.ok) {
+        return {
+          error: staffCheck.error,
+          staffStatus: staffCheck.error === "staff_inactive" ? staffCheck.status : undefined,
+        }
+      }
+      if (isSuperAdmin(actor)) return { error: SUPER_ADMIN_WRITE_BLOCKED }
       const allowed = await hasPermission(client, actor, "create_sacco_loan")
       if (!allowed) return { error: "missing_permission:create_sacco_loan" as const }
 
-      const isSuperAdmin = String(actor.role || "").trim().toLowerCase() === "super_admin"
-      if (!isSuperAdmin && !actor.branch_id) return { error: "actor_branch_missing" as const }
+      if (!actor.branch_id) return { error: "actor_branch_missing" as const }
+      const branchCheck = await assertBranchActive(client, actor.branch_id)
+      if (!branchCheck.ok) {
+        return {
+          error: branchCheck.error,
+          branchStatus: branchCheck.error === "branch_inactive" ? branchCheck.status : undefined,
+        }
+      }
 
-      const clientRes = await client.query(
-        `SELECT id, institution_id, branch_id, status
-         FROM clients
+      const agentRes = await client.query(
+        `SELECT id, institution_id, branch_id, status, name
+         FROM third_party_agents
          WHERE id = $1 AND institution_id = $2
          LIMIT 1`,
-        [client_id, actor.institution_id],
+        [third_party_agent_id, actor.institution_id],
       )
-      const crow = clientRes.rows[0] as { branch_id?: string } | undefined
-      if (!crow) return { error: "client_not_found" as const }
+      const crow = agentRes.rows[0] as { branch_id?: string; name?: string } | undefined
+      if (!crow) return { error: "third_party_agent_not_found" as const }
       const cBranch = String(crow.branch_id || "")
-      if (!isSuperAdmin && cBranch !== String(actor.branch_id)) {
+      if (!isSuperAdmin(actor) && cBranch !== String(actor.branch_id)) {
         return { error: "cross_branch_operation_forbidden" as const }
       }
-      if (!UUID_REGEX.test(cBranch)) return { error: "client_branch_missing" as const }
+      if (!UUID_REGEX.test(cBranch)) return { error: "third_party_agent_branch_missing" as const }
 
       const ins = await client.query(
         `INSERT INTO institution_loans (
-           institution_id, branch_id, client_id,
-           loan_product, principal_amount, interest_rate, tenure_months,
+           institution_id, branch_id, third_party_agent_id,
+           loan_product, principal_amount, interest_rate, tenure_months, remaining_tenure_months,
            monthly_payment, total_amount, outstanding_balance, status,
            loan_type, purpose, collateral_description, application_date,
            disbursement_balance,
            created_by
          ) VALUES (
            $1, $2, $3,
-           $4, $5, $6, $7,
+           $4, $5, $6, $7, $7,
            $8, $9, $10, $11,
            $12, $13, $14, $15,
            $16,
@@ -314,7 +306,7 @@ export async function POST(req: Request) {
         [
           actor.institution_id,
           cBranch,
-          client_id,
+          third_party_agent_id,
           loan_product,
           principal_amount,
           interest_rate,
@@ -337,7 +329,7 @@ export async function POST(req: Request) {
         "institution_loans",
         String(row.id),
         {
-          client_id,
+          third_party_agent_id,
           loan_product,
           principal_amount,
           interest_rate,
@@ -354,24 +346,51 @@ export async function POST(req: Request) {
         },
         actor.institution_id,
         actor.id,
-        undefined,
+        { branch_id: cBranch },
         client
       )
-      return { ok: true as const, id: String(row.id) }
+      return {
+        ok: true as const,
+        id: String(row.id),
+        postCommit: {
+          actorId: actor.id,
+          institutionId: actor.institution_id,
+          branchId: cBranch,
+          agent: {
+            id: third_party_agent_id,
+            name: String(crow.name || "").trim() || "External lender",
+          },
+          loan: {
+            id: String(row.id),
+            principal_amount,
+            loan_product,
+            loan_type,
+          },
+        },
+      }
     })
 
     if (result && "error" in result) {
       const err = result.error
       const statusCode =
-        err === "missing_permission:create_sacco_loan" || err === "cross_branch_operation_forbidden" || err === "user_not_linked"
+        err === "missing_permission:create_sacco_loan" ||
+        err === "cross_branch_operation_forbidden" ||
+        err === "user_not_linked" ||
+        err === "staff_inactive" ||
+        err === "branch_inactive" ||
+        err === "branch_not_found" ||
+        err === SUPER_ADMIN_WRITE_BLOCKED
           ? 403
-          : err === "client_not_found"
+          : err === "staff_not_found" || err === "client_not_found"
             ? 404
             : err === "insert_failed"
               ? 500
               : 400
       apiLog("warn", "sacco_loans.create.denied", { method: "POST", apiPath, status: statusCode, error: err })
-      return NextResponse.json({ error: err }, { status: statusCode })
+      const payload: Record<string, unknown> = { error: err }
+      if ("staffStatus" in result && result.staffStatus) payload.staff_status = result.staffStatus
+      if ("branchStatus" in result && result.branchStatus) payload.branch_status = result.branchStatus as BranchStatus
+      return NextResponse.json(payload, { status: statusCode })
     }
 
     apiLog("info", "sacco_loans.create.success", {
@@ -381,7 +400,48 @@ export async function POST(req: Request) {
       loanId: result.id,
       authUserId: session.user.authUserId,
     })
-    return NextResponse.json(result, { status: 201 })
+
+    const ctx = result && "postCommit" in result ? result.postCommit : null
+    if (ctx) {
+      try {
+        const notifyRes = await runWithoutAuth((notifyClient) =>
+          notifySaccoLoanCreated({
+            client: notifyClient,
+            actor: {
+              id: ctx.actorId,
+              institution_id: ctx.institutionId,
+              branch_id: ctx.branchId,
+            },
+            agent: ctx.agent,
+            loan: ctx.loan,
+          }),
+        )
+        apiLog(
+          notifyRes.ok ? "info" : "warn",
+          notifyRes.ok
+            ? "sacco_loans.create.notifications_dispatched"
+            : "sacco_loans.create.notifications_partial",
+          {
+            method: "POST",
+            apiPath,
+            status: 201,
+            loanId: result.id,
+            staffNotifications: notifyRes.staffNotifications,
+            ...(notifyRes.errors.length ? { errors: notifyRes.errors } : {}),
+          },
+        )
+      } catch (notifyErr) {
+        apiLog("error", "sacco_loans.create.notifications_failed", {
+          method: "POST",
+          apiPath,
+          status: 201,
+          loanId: result.id,
+          error: (notifyErr as Error)?.message || "notify_failed",
+        })
+      }
+    }
+
+    return NextResponse.json({ ok: true, id: result.id }, { status: 201 })
   } catch (e: unknown) {
     const err = e as Error
     apiLog("error", "sacco_loans.create.error", {

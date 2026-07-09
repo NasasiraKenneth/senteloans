@@ -23,7 +23,7 @@ export default function AddNewInvoice({ isOpen, onClose, onSuccess }: AddNewInvo
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           member_id: data.targetType === "member" ? data.memberId : null,
-          client_id: data.clientId,
+          third_party_agent_id: data.thirdPartyAgentId ?? null,
           invoice_date: data.invoiceDate,
           invoice_due: data.dueDate,
           invoice_type: data.invoiceType,
@@ -42,7 +42,6 @@ export default function AddNewInvoice({ isOpen, onClose, onSuccess }: AddNewInvo
         }),
       })
       const body = await res.json()
-      console.log("Manual Invoice from frontend:", body)
       if (!res.ok) {
         throw new Error(body.error || "Failed to create invoice")
       }

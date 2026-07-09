@@ -46,7 +46,7 @@ export default function FinancesTabNavigation({
     {
       id: "grants",
       label: "Grants",
-      description: "Client grant balances",
+      description: "Third-party agent grant balances",
       icon: HandCoins,
       count: counts.grants,
     },

@@ -47,6 +47,8 @@ import {
   readInstitutionConfigModuleEnabled,
   readInstitutionCurrency,
 } from "@/lib/institution-branch-config"
+import TooltipButton from "@/components/newUI/tooltip_button"
+import { Tooltip } from "@mui/material"
 
 const tabPanelMotion = {
   initial: { opacity: 0, y: 10 },
@@ -299,23 +301,25 @@ export default function UserProfilePage() {
     return () => { cancelled = true }
   }, [user?.id])
 
-  // Fetch active loans count and total outstanding balance for this client
+  // Fetch active loans count and outstanding balance from server summary
   useEffect(() => {
     let cancelled = false
     async function loadLoansData() {
       if (!user?.id) return
       try {
-        const res = await fetch(`/api/institution/loans?client_id=${encodeURIComponent(user.id)}&limit=100`, { cache: "no-store" })
+        const params = new URLSearchParams({
+          member_id: user.id,
+          include_summary: "true",
+          page: "1",
+          pageSize: "1",
+        })
+        const res = await fetch(`/api/institution/loans?${params.toString()}`, { cache: "no-store" })
         const data = await res.json()
         if (!res.ok) throw new Error(data?.error || "Failed to load loans")
-        const loans = data.items || []
-        // Count active loans (Active, Disbursed, Under Review, Approved statuses)
-        const activeStatuses = ["Active", "Disbursed", "Under Review", "Approved"]
-        const activeLoans = loans.filter((loan: any) => activeStatuses.includes(loan.status))
-        const totalOutstanding = activeLoans.reduce((sum: number, loan: any) => sum + (parseFloat(loan.outstanding_balance) || 0), 0)
+        const summary = data.summary
         if (!cancelled) {
-          setActiveLoansCount(activeLoans.length)
-          setOutstandingBalance(totalOutstanding)
+          setActiveLoansCount(Number(summary?.activeLoans || 0))
+          setOutstandingBalance(Number(summary?.totalOutstanding || 0))
         }
       } catch (_e) {
         if (!cancelled) {
@@ -449,6 +453,7 @@ export default function UserProfilePage() {
 
   const currency = readInstitutionCurrency(session?.institution?.config)
   const formatCurrency = (amount: number) => fmtCurrency(amount, currency)
+  const formatLoanMoney = (amount: number) => fmtCurrency(amount, currency, { fractionDigits: 2 })
 
   const refreshMembershipFee = async () => {
     if (!user?.id) return
@@ -626,10 +631,16 @@ export default function UserProfilePage() {
                       </Button>
                     )}
                     {showShares && (
-                      <Button variant="outline" size="sm" onClick={() => setShowSharesCalculator(true)}>
-                        <Calculator className="mr-2 h-4 w-4" />
-                        Calculator
-                      </Button>
+                      <Tooltip title="Shares Calculator" arrow placement="top">
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          onClick={() => setShowSharesCalculator(true)}
+                          aria-label="Loan Calculator"
+                        >
+                          <Calculator className="h-4 w-4" />
+                        </Button>
+                      </Tooltip>
                     )}
                   </div>
                 </div>
@@ -794,7 +805,7 @@ export default function UserProfilePage() {
                     : []),
                   { key: "monthly", label: "Monthly Savings", value: formatCurrency(user.monthlySavings || 0), icon: PiggyBank, accent: "text-sky-600", chip: "bg-sky-100" },
                   { key: "loans", label: "Active Loans", value: String(activeLoansCount), icon: CreditCard, accent: "text-blue-600", chip: "bg-blue-100" },
-                  { key: "outstanding", label: "Outstanding Balance", value: formatCurrency(outstandingBalance), icon: DollarSign, accent: "text-amber-600", chip: "bg-amber-100" },
+                  { key: "outstanding", label: "Outstanding Balance", value: formatLoanMoney(outstandingBalance), icon: DollarSign, accent: "text-amber-600", chip: "bg-amber-100" },
                 ] as Array<{ key: string; label: string; value: string; sub?: string; icon: typeof TrendingUp; accent: string; chip: string }>).map((s) => (
                   <motion.div
                     key={s.key}
@@ -1028,7 +1039,7 @@ export default function UserProfilePage() {
                     </div>
                     <div className="rounded-lg border border-border bg-muted/30 p-4">
                       <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Outstanding Balance</p>
-                      <p className="mt-1 text-xl font-bold tracking-tight text-amber-600">{formatCurrency(outstandingBalance)}</p>
+                      <p className="mt-1 text-xl font-bold tracking-tight text-amber-600">{formatLoanMoney(outstandingBalance)}</p>
                     </div>
                   </div>
                 </motion.div>

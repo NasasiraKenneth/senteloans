@@ -20,6 +20,11 @@ export interface AdminRecipient {
   branch_id: string | null
 }
 
+export interface StaffRecipientWithContact extends AdminRecipient {
+  email: string | null
+  full_name: string | null
+}
+
 export interface GetAdminRecipientsOptions {
   /** Exclude a user id from the result (typically the actor that triggered the event). */
   excludeUserId?: string | null
@@ -150,6 +155,45 @@ export async function getInstitutionRecipientsWithPermission(
 
   const res = await client.query<AdminRecipient>(
     `SELECT u.id, u.branch_id
+       FROM users u
+       JOIN roles r ON r.id = u.role_id
+      WHERE ${where}`,
+    params,
+  )
+  return res.rows
+}
+
+/**
+ * Active staff with a permission plus contact fields for email fan-out.
+ */
+export async function getInstitutionStaffRecipientsWithPermission(
+  client: PoolClient,
+  institutionId: string,
+  permission: string,
+  opts: GetRecipientsWithPermissionOptions = {},
+): Promise<StaffRecipientWithContact[]> {
+  const params: unknown[] = [institutionId, permission]
+  let where = `u.institution_id = $1
+       AND u.status = 'Active'
+       AND (
+         r.name = 'Super Admin'
+         OR EXISTS (
+           SELECT 1
+             FROM role_permissions rp
+             JOIN permissions p ON p.id = rp.permission_id
+            WHERE rp.role_id = u.role_id
+              AND rp.branch_id = u.branch_id
+              AND p.name = $2
+         )
+       )`
+
+  if (opts.excludeUserId) {
+    params.push(opts.excludeUserId)
+    where += ` AND u.id != $${params.length}`
+  }
+
+  const res = await client.query<StaffRecipientWithContact>(
+    `SELECT u.id, u.branch_id, u.email, u.full_name
        FROM users u
        JOIN roles r ON r.id = u.role_id
       WHERE ${where}`,

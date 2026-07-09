@@ -29,14 +29,100 @@ export function channelForMode(mode: string): FinanceChannel {
 
 type ActorForFinance = Pick<ActorContext, "id" | "institution_id" | "branch_id">
 
+type ChannelBalances = {
+  mobile_money_amount: number
+  cash_amount: number
+}
+
+type TodayDailyFinanceRow = ChannelBalances & {
+  id: string
+  bank_total_amount: number
+  total_amount: number
+  available_balance: number
+  branch_id: string
+}
+
 export interface DailyFinanceEntryParams {
   institutionId: string
   branchId: string
-  /** Amount moved by this operation (e.g. total share value). */
+  /** Signed or unsigned delta for the mode's channel (negative = outflow). */
   amount: number
-  /** Payment mode used; determines which channel column is incremented. */
+  /** Payment mode used; determines which channel column is adjusted. */
   mode: string
   actor: ActorForFinance
+}
+
+async function loadTodayDailyFinanceRow(
+  client: PoolClient,
+  institutionId: string,
+  branchId: string,
+): Promise<TodayDailyFinanceRow | null> {
+  const todayRes = await client.query(
+    `SELECT id, bank_total_amount, mobile_money_amount, cash_amount, total_amount, available_balance, branch_id
+       FROM daily_finances
+      WHERE institution_id = $1 AND branch_id = $2 AND created_at::date = CURRENT_DATE
+      ORDER BY created_at DESC
+      LIMIT 1`,
+    [institutionId, branchId],
+  )
+  const row = todayRes.rows[0] as Record<string, unknown> | undefined
+  if (!row) return null
+  return {
+    id: String(row.id),
+    bank_total_amount: Number(row.bank_total_amount ?? 0),
+    mobile_money_amount: Number(row.mobile_money_amount ?? 0),
+    cash_amount: Number(row.cash_amount ?? 0),
+    total_amount: Number(row.total_amount ?? 0),
+    available_balance: Number(row.available_balance ?? 0),
+    branch_id: String(row.branch_id || branchId),
+  }
+}
+
+async function loadPriorChannelBalances(
+  client: PoolClient,
+  institutionId: string,
+  branchId: string,
+): Promise<ChannelBalances> {
+  const prevRes = await client.query(
+    `SELECT mobile_money_amount, cash_amount
+       FROM daily_finances
+      WHERE institution_id = $1 AND branch_id = $2 AND created_at::date < CURRENT_DATE
+      ORDER BY created_at DESC
+      LIMIT 1`,
+    [institutionId, branchId],
+  )
+  const prev = prevRes.rows[0] as Record<string, unknown> | undefined
+  return {
+    mobile_money_amount: Number(prev?.mobile_money_amount ?? 0),
+    cash_amount: Number(prev?.cash_amount ?? 0),
+  }
+}
+
+function channelBalance(channel: FinanceChannel, balances: ChannelBalances): number {
+  if (channel === "mobile_money") return balances.mobile_money_amount
+  if (channel === "cash") return balances.cash_amount
+  return 0
+}
+
+/**
+ * Effective cash or mobile-money balance for a payment mode on the posting day.
+ * Uses today's `daily_finances` row when present, otherwise carries forward
+ * the most recent prior day's channel balances.
+ */
+export async function getDailyFinanceChannelBalance(
+  client: PoolClient,
+  params: { institutionId: string; branchId: string; mode: string },
+): Promise<{ channel: FinanceChannel; balance: number }> {
+  const channel = channelForMode(params.mode)
+  if (channel === "bank") return { channel, balance: 0 }
+
+  const today = await loadTodayDailyFinanceRow(client, params.institutionId, params.branchId)
+  if (today) {
+    return { channel, balance: channelBalance(channel, today) }
+  }
+
+  const prior = await loadPriorChannelBalances(client, params.institutionId, params.branchId)
+  return { channel, balance: channelBalance(channel, prior) }
 }
 
 /**
@@ -52,8 +138,8 @@ export interface DailyFinanceEntryParams {
  *    bank_accounts.total_amount (so bank-routed payments are picked up once the
  *    caller has already credited the bank account).
  *  - The mode's channel column (`mobile_money_amount` / `cash_amount`) is
- *    incremented by `amount`. Bank-routed modes add nothing here because the
- *    money is already captured by `bank_total_amount`.
+ *    adjusted by `amount` (negative allowed for outflows). Bank-routed modes add
+ *    nothing here because the money is already captured by `bank_total_amount`.
  *  - `total_amount` and `available_balance` are kept equal to the sum of the
  *    three channels.
  *  - If today's row exists -> UPDATE it.
@@ -70,8 +156,6 @@ export async function applyDailyFinanceEntry(
   const mmAdd = channel === "mobile_money" ? amount : 0
   const cashAdd = channel === "cash" ? amount : 0
 
-  // Live total across the branch's bank accounts (already includes any credit
-  // the caller applied earlier in this transaction).
   const bankRes = await client.query<{ bank_total: string }>(
     `SELECT COALESCE(SUM(total_amount), 0)::numeric AS bank_total
        FROM bank_accounts
@@ -80,20 +164,11 @@ export async function applyDailyFinanceEntry(
   )
   const bankTotal = Number(bankRes.rows[0]?.bank_total || 0)
 
-  // Today's ledger row (actual posting day), if one exists.
-  const todayRes = await client.query(
-    `SELECT id, bank_total_amount, mobile_money_amount, cash_amount, total_amount, available_balance, branch_id
-       FROM daily_finances
-      WHERE institution_id = $1 AND branch_id = $2 AND created_at::date = CURRENT_DATE
-      ORDER BY created_at DESC
-      LIMIT 1`,
-    [institutionId, branchId],
-  )
+  const today = await loadTodayDailyFinanceRow(client, institutionId, branchId)
 
-  if (todayRes.rows[0]) {
-    const today = todayRes.rows[0] as Record<string, unknown>
-    const newMm = Number(today.mobile_money_amount ?? 0) + mmAdd
-    const newCash = Number(today.cash_amount ?? 0) + cashAdd
+  if (today) {
+    const newMm = today.mobile_money_amount + mmAdd
+    const newCash = today.cash_amount + cashAdd
     const newTotal = bankTotal + newMm + newCash
 
     const updRes = await client.query(
@@ -113,26 +188,17 @@ export async function applyDailyFinanceEntry(
     await auditDailyFinanceUpdate(
       client,
       actor,
-      String(today.id),
+      today.id,
       dailyFinanceSnapshot(today),
       dailyFinanceSnapshot(updated),
-      (today.branch_id as string | null | undefined) ?? branchId,
+      today.branch_id ?? branchId,
     )
     return
   }
 
-  // No row today: carry forward the most recent prior day's channel balances.
-  const prevRes = await client.query(
-    `SELECT mobile_money_amount, cash_amount
-       FROM daily_finances
-      WHERE institution_id = $1 AND branch_id = $2 AND created_at::date < CURRENT_DATE
-      ORDER BY created_at DESC
-      LIMIT 1`,
-    [institutionId, branchId],
-  )
-  const prev = prevRes.rows[0] as Record<string, unknown> | undefined
-  const newMm = Number(prev?.mobile_money_amount ?? 0) + mmAdd
-  const newCash = Number(prev?.cash_amount ?? 0) + cashAdd
+  const prior = await loadPriorChannelBalances(client, institutionId, branchId)
+  const newMm = prior.mobile_money_amount + mmAdd
+  const newCash = prior.cash_amount + cashAdd
   const newTotal = bankTotal + newMm + newCash
 
   const insRes = await client.query(

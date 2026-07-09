@@ -2,52 +2,8 @@ import { NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { runWithAuth } from "@/lib/db"
-
-type ActorContext = {
-  institution_id: string
-  branch_id: string | null
-  role_id: string | null
-  role: string | null
-}
-
-async function resolveActorContext(client: any, authUserId: string): Promise<ActorContext | null> {
-  const actorRes = await client.query(
-    `SELECT
-       u.institution_id,
-       u.branch_id,
-       u.role_id,
-       CASE
-         WHEN r.name = 'System Admin' THEN 'system_admin'
-         WHEN r.name = 'Super Admin' THEN 'super_admin'
-         WHEN r.name = 'Admin' THEN 'institution_admin'
-         WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
-         ELSE NULL
-       END AS role
-     FROM users u
-     LEFT JOIN roles r ON r.id = u.role_id
-     WHERE u.auth_id = $1
-     LIMIT 1`,
-    [authUserId]
-  )
-  return actorRes.rows[0] || null
-}
-
-async function hasPermission(client: any, actor: ActorContext, permission: string): Promise<boolean> {
-  const role = String(actor.role || "").trim().toLowerCase()
-  if (role === "super_admin") return true
-  if (!actor.role_id || !actor.branch_id) return false
-  const permRes = await client.query(
-    `SELECT 1
-     FROM role_permissions rp
-     JOIN permissions p ON p.id = rp.permission_id
-     WHERE rp.role_id = $1
-       AND rp.branch_id = $2
-       AND p.name = $3
-     LIMIT 1`,
-    [actor.role_id, actor.branch_id, permission]
-  )
-  return permRes.rowCount > 0
-}
+import { hasPermission, isSuperAdmin, resolveActorContext } from "@/lib/api/rbac"
+import { expandStatusFilter, isPaidInvoiceStatus } from "@/lib/invoices/status"
 
 export async function GET(req: Request) {
   try {
@@ -77,15 +33,14 @@ export async function GET(req: Request) {
       const allowed = await hasPermission(client, actor, "view_invoices")
       if (!allowed) return { error: "missing_permission:view_invoices" as const }
 
-      const role = String(actor.role || "").trim().toLowerCase()
-      const isSuperAdmin = role === "super_admin"
-      if (!isSuperAdmin && !actor.branch_id) return { error: "actor_branch_missing" as const }
+      const isSuperAdminActor = isSuperAdmin(actor)
+      if (!isSuperAdminActor && !actor.branch_id) return { error: "actor_branch_missing" as const }
 
       let where = "i.institution_id = $1"
       const params: unknown[] = [actor.institution_id]
       let idx = 2
 
-      if (!isSuperAdmin) {
+      if (!isSuperAdminActor) {
         where += ` AND i.branch_id = $${idx++}`
         params.push(actor.branch_id)
       } else if (selectedBranchIds.length > 0) {
@@ -93,21 +48,27 @@ export async function GET(req: Request) {
         params.push(selectedBranchIds)
       }
       if (status && status !== "all") {
-        where += ` AND lower(i.status) = $${idx++}`
-        params.push(status)
+        const statusValues = expandStatusFilter(status)
+        if (statusValues.length === 1) {
+          where += ` AND lower(i.status) = lower($${idx++})`
+          params.push(statusValues[0])
+        } else if (statusValues.length > 1) {
+          where += ` AND lower(i.status) = ANY($${idx++}::text[])`
+          params.push(statusValues.map((s) => s.toLowerCase()))
+        }
       }
       if (invoiceType && invoiceType !== "all") {
         where += ` AND lower(i.invoice_type) = lower($${idx++})`
         params.push(invoiceType)
       }
       if (targetType === "member") where += " AND i.member_id IS NOT NULL"
-      if (targetType === "client") where += " AND i.client_id IS NOT NULL"
+      if (targetType === "client") where += " AND i.third_party_agent_id IS NOT NULL"
       if (memberIds.length > 0) {
         where += ` AND i.member_id = ANY($${idx++}::uuid[])`
         params.push(memberIds)
       }
       if (clientIds.length > 0) {
-        where += ` AND i.client_id = ANY($${idx++}::uuid[])`
+        where += ` AND i.third_party_agent_id = ANY($${idx++}::uuid[])`
         params.push(clientIds)
       }
       if (invoiceDateStart) {
@@ -144,7 +105,7 @@ export async function GET(req: Request) {
          FROM invoices i
          LEFT JOIN branches b ON b.id = i.branch_id
          LEFT JOIN members m ON m.id = i.member_id
-         LEFT JOIN clients c ON c.id = i.client_id
+         LEFT JOIN third_party_agents c ON c.id = i.third_party_agent_id
          WHERE ${where}
          ORDER BY i.invoice_date DESC
          LIMIT $${idx}`,
@@ -168,7 +129,7 @@ export async function GET(req: Request) {
 
       const total = items.length
       const totalAmount = items.reduce((s, i) => s + Number(i.total_amount || 0), 0)
-      const paidCount = items.filter((i) => String(i.status || "").toLowerCase() === "paid").length
+      const paidCount = items.filter((i) => isPaidInvoiceStatus(i.status)).length
       const overdueCount = items.filter((i) => String(i.status || "").toLowerCase() === "overdue").length
       const pendingCount = items.filter((i) => {
         const st = String(i.status || "").toLowerCase()

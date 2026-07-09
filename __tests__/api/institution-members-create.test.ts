@@ -238,6 +238,61 @@ describe("POST /api/institution/members", () => {
       expect(res.status).toBe(400)
       expect(body.error).toBe("invalid_email")
     })
+
+    it("returns 400 when Fixed account has no monthly savings", async () => {
+      setupHappyPath()
+
+      const res = await POST(
+        postRequest({
+          ...validBody,
+          savingsAccountType: "Fixed",
+        }),
+      )
+      const body = await res.json()
+
+      expect(res.status).toBe(400)
+      expect(body.error).toBe("monthly_savings_required_for_fixed_account")
+      expect(insertWithPrefixedNumberRetryMock).not.toHaveBeenCalled()
+    })
+
+    it("stores monthly savings on the savings account for Fixed accounts", async () => {
+      const client = setupHappyPath()
+      const capturedSavingsParams: unknown[][] = []
+      insertWithPrefixedNumberRetryMock.mockReset()
+      insertWithPrefixedNumberRetryMock
+        .mockImplementationOnce(async (queryFn: (n: string) => Promise<unknown>) => {
+          await queryFn("M-TEST-0001")
+          return { row: { id: MEMBER_ID, member_number: "M-TEST-0001" } }
+        })
+        .mockImplementationOnce(async (queryFn: (n: string) => Promise<unknown>) => {
+          const originalQuery = client.query
+          client.query = jest.fn().mockImplementation(async (sql: string, params?: unknown[]) => {
+            if (normalizeSql(sql).includes("insert into savings_accounts") && params) {
+              capturedSavingsParams.push(params)
+            }
+            return originalQuery(sql, params)
+          }) as typeof client.query
+          await queryFn("SA-TEST-0001")
+          return { row: { id: "sav-1", account_number: "SA-TEST-0001" } }
+        })
+
+      const res = await POST(
+        postRequest({
+          ...validBody,
+          savingsAccountType: "Fixed",
+          monthlySavings: 75_000,
+        }),
+      )
+      const body = await res.json()
+
+      expect(res.status).toBe(201)
+      expect(body.savings_account).toEqual({
+        account_number: "SA-TEST-0001",
+        account_type: "Fixed",
+      })
+      expect(capturedSavingsParams[0]?.[5]).toBe(75_000)
+      expect(capturedSavingsParams[0]?.[4]).toBe("Fixed")
+    })
   })
 
   describe("auth", () => {

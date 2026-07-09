@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from "react"
 import Popover from "@mui/material/Popover"
-import { getSession } from "@/lib/session"
+import { getInstitutionCurrency } from "@/lib/session"
 import { FaTrash } from "react-icons/fa"
 
 export interface LoanProductFormData {
@@ -84,8 +84,7 @@ export default function LoanProductForm({
   const [statusAnchor, setStatusAnchor] = useState<HTMLElement | null>(null)
 
   useEffect(() => {
-    const s = getSession()
-    if (s?.institution?.config?.currency) setCurrency(s.institution.config.currency)
+    setCurrency(getInstitutionCurrency("UGX"))
   }, [])
 
   const set = (field: keyof LoanProductFormData, value: string | boolean) => {
@@ -209,7 +208,7 @@ export default function LoanProductForm({
             <input
               type="number"
               min="0"
-              step="any"
+              step="0.01"
               placeholder="e.g. 50000"
               className={inputClass(!!errors.minimum_amount)}
               value={form.minimum_amount}
@@ -224,7 +223,7 @@ export default function LoanProductForm({
             <input
               type="number"
               min="0"
-              step="any"
+              step="0.01"
               placeholder="e.g. 5000000"
               className={inputClass(!!errors.maximum_amount)}
               value={form.maximum_amount}

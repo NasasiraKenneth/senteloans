@@ -36,9 +36,11 @@ import { useToast } from "@/components/ui/toast";
 import Disburse from "../components/add/Disburse";
 import NewPayment from "../components/add/newPayment";
 import SellOff from "../components/add/sellOff";
+import SettlePrevious from "../components/add/settlePrevious";
 import TooltipButton from "@/components/newUI/tooltip_button";
 import { BsFileEarmarkPdf } from "react-icons/bs";
 import { downloadRepaymentScheduleExport } from "./export/repayment-schedule-export";
+import { formatCurrency } from "@/lib/format-currency";
 
 type LoanUI = {
   id: string;
@@ -49,6 +51,7 @@ type LoanUI = {
   loanProduct: string;
   interestRate: number;
   tenure: number;
+  remainingTenure: number;
   principalAmount: number;
   monthlyPayment: number;
   outstandingBalance: number;
@@ -122,6 +125,7 @@ type LoanDetailApiRow = {
   product_name?: string;
   interest_rate?: number;
   tenure_months?: number;
+  remaining_tenure_months?: number;
   principal_amount?: number;
   monthly_payment?: number;
   outstanding_balance?: number;
@@ -165,6 +169,7 @@ function mapLoanFromApi(l: LoanDetailApiRow): LoanUI {
     loanProduct: l.product_name || "",
     interestRate: Number(l.interest_rate || 0),
     tenure: Number(l.tenure_months || 0),
+    remainingTenure: Number(l.remaining_tenure_months ?? l.tenure_months ?? 0),
     principalAmount: Number(l.principal_amount || 0),
     monthlyPayment: Number(l.monthly_payment || 0),
     outstandingBalance: Number(l.outstanding_balance || 0),
@@ -247,6 +252,7 @@ export default function LoanDetailsPage() {
   const [recordPaymentOpen, setRecordPaymentOpen] = useState<boolean>(false);
   const [disburseLoanOpen, setDisburseLoanOpen] = useState<boolean>(false);
   const [sellOffOpen, setSellOffOpen] = useState<boolean>(false);
+  const [settlePreviousOpen, setSettlePreviousOpen] = useState<boolean>(false);
   const [reviewEditMode, setReviewEditMode] = useState<boolean>(false);
   const [schedPage, setSchedPage] = useState(0);
   const [schedRowsPerPage, setSchedRowsPerPage] = useState(6);
@@ -382,14 +388,6 @@ export default function LoanDetailsPage() {
       </div>
     );
   }
-
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat("en-UG", {
-      style: "currency",
-      currency: "UGX",
-      minimumFractionDigits: 0,
-    }).format(amount);
-  };
 
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString("en-UG", {
@@ -604,11 +602,7 @@ export default function LoanDetailsPage() {
   );
 
   const monthlyPayment = Number(loan.monthlyPayment || 0);
-  const remainingInstallments = repaymentSchedule.filter(
-    (r) => r.status !== "Paid",
-  ).length;
-  const remainingTenureMonths =
-    repaymentSchedule.length > 0 ? remainingInstallments : loan.tenure;
+  const remainingTenureMonths = loan.remainingTenure;
   const canEditLoanReview = loan.status === "Under Review";
   /** Verified review PDF is only meaningful once review is complete (Reviewed → lifecycle end). */
   const canShowVerifiedReviewPdf = [
@@ -837,36 +831,7 @@ export default function LoanDetailsPage() {
                   type="button"
                   variant="outline"
                   size="sm"
-                  disabled={actionLoading}
-                  onClick={async () => {
-                    try {
-                      setActionLoading(true);
-                      const res = await fetch(
-                        `/api/institution/loans/${loan.id}/settle-previous`,
-                        {
-                          method: "POST",
-                        },
-                      );
-                      const data = await res.json().catch(() => ({}));
-                      if (!res.ok)
-                        throw new Error(
-                          data?.error || "Failed to settle previous loan",
-                        );
-                      await refetchLoanAndRepayments();
-                      toast({
-                        variant: "success",
-                        title: "Previous loan settled",
-                      });
-                    } catch (e: any) {
-                      toast({
-                        variant: "destructive",
-                        title: "Action failed",
-                        description: e?.message || "Please try again",
-                      });
-                    } finally {
-                      setActionLoading(false);
-                    }
-                  }}
+                  onClick={() => setSettlePreviousOpen(true)}
                 >
                   Settle Previous Loan
                 </Button>
@@ -1404,6 +1369,7 @@ export default function LoanDetailsPage() {
           isOpen={disburseLoanOpen}
           onClose={() => setDisburseLoanOpen(false)}
           loanId={loan.id}
+          memberId={loan.memberId || ""}
           completeDisbursementAmount={Number(
             loan.disbursementPreview?.remainingDisbursementBalance || 0,
           )}
@@ -1424,13 +1390,29 @@ export default function LoanDetailsPage() {
           isOpen={recordPaymentOpen}
           onClose={() => setRecordPaymentOpen(false)}
           loanId={loan.id}
+          memberId={loan.memberId || ""}
           onSuccess={refetchLoanAndRepayments}
         />
         <SellOff
           isOpen={sellOffOpen}
           onClose={() => setSellOffOpen(false)}
           loanId={loan.id}
+          memberId={loan.memberId || ""}
           outstandingBalance={Number(loan.outstandingBalance || 0)}
+          onSuccess={refetchLoanAndRepayments}
+        />
+        <SettlePrevious
+          isOpen={settlePreviousOpen}
+          onClose={() => setSettlePreviousOpen(false)}
+          loanId={loan.id}
+          memberId={loan.memberId || ""}
+          settlementAmount={Number(
+            loan.settlement?.settlementAmount ||
+              loan.disbursementPreview?.settlementAmount ||
+              0,
+          )}
+          settledApplicationId={loan.settlement?.settledApplicationId}
+          loanType={loan.loanType}
           onSuccess={refetchLoanAndRepayments}
         />
 
@@ -1516,7 +1498,7 @@ export default function LoanDetailsPage() {
               </Button>
             </>
           )}
-          {(loan.status === "Approved" ||
+          {((loan.loanType === "normal" && loan.status === "Approved") ||
             loan.status === "Partially Disbursed") && (
             <Button
               disabled={actionLoading}

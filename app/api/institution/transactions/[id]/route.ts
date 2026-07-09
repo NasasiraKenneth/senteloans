@@ -96,7 +96,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
            t.id,
            t.institution_id,
            t.member_id,
-           t.client_id,
+           t.third_party_agent_id,
            t.staff_id,
            t.account_id,
            t.loan_id,

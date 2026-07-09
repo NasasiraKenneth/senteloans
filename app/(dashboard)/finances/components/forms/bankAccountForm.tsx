@@ -1,17 +1,18 @@
 "use client"
 
-import { useEffect, useState } from "react"
-import { Building2, Hash, Landmark } from "lucide-react"
+import { useEffect, useMemo, useState } from "react"
+import { Hash } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import StyledSelect from "@/components/newUI/styled_select"
 
 export type BankAccountFormData = {
-  bank_name: string
+  third_party_agent_id: string
   bank_account_number: string
-  total_amount: string
   branch_id: string
 }
 
 type BranchOption = { value: string; label: string }
+type AgentOption = { value: string; label: string; branch_id: string }
 
 interface BankAccountFormProps {
   onSubmit: (data: BankAccountFormData) => void
@@ -19,15 +20,16 @@ interface BankAccountFormProps {
   loading?: boolean
   showBranchPicker: boolean
   branchOptions: BranchOption[]
+  agentOptions: AgentOption[]
+  agentsLoading?: boolean
   mode?: "create" | "edit"
   initialValues?: Partial<BankAccountFormData>
   formDisabled?: boolean
 }
 
 const defaultValues: BankAccountFormData = {
-  bank_name: "",
+  third_party_agent_id: "",
   bank_account_number: "",
-  total_amount: "",
   branch_id: "",
 }
 
@@ -36,12 +38,16 @@ const inputClass = (hasError: boolean) =>
     hasError ? "border-red-500" : "border-gray-300 hover:border-gray-400"
   }`
 
+const selectWrap = (hasError: boolean) => (hasError ? "rounded-md ring-1 ring-red-500" : "")
+
 export default function BankAccountForm({
   onSubmit,
   onCancel,
   loading = false,
   showBranchPicker,
   branchOptions,
+  agentOptions,
+  agentsLoading = false,
   mode = "create",
   initialValues,
   formDisabled = false,
@@ -61,36 +67,36 @@ export default function BankAccountForm({
     if (mode !== "edit" || !initialValues) return
     setForm({
       ...defaultValues,
-      bank_name: initialValues.bank_name ?? "",
+      third_party_agent_id: initialValues.third_party_agent_id ?? "",
       bank_account_number: initialValues.bank_account_number ?? "",
-      total_amount: initialValues.total_amount ?? "",
       branch_id: initialValues.branch_id ?? "",
     })
     setErrors({})
   }, [mode, initialValues])
 
+  const filteredAgentOptions = useMemo(() => {
+    if (!showBranchPicker || !form.branch_id.trim()) {
+      return agentOptions
+    }
+    return agentOptions.filter((a) => a.branch_id === form.branch_id)
+  }, [agentOptions, form.branch_id, showBranchPicker])
+
   const set = (field: keyof BankAccountFormData, value: string) => {
-    setForm((prev) => ({ ...prev, [field]: value }))
+    setForm((prev) => {
+      const next = { ...prev, [field]: value }
+      if (field === "branch_id") {
+        next.third_party_agent_id = ""
+      }
+      return next
+    })
     if (errors[field]) setErrors((prev) => ({ ...prev, [field]: undefined }))
   }
 
   const validate = (): boolean => {
     const e: Partial<Record<keyof BankAccountFormData, string>> = {}
-    if (!form.bank_name.trim()) e.bank_name = "Bank name is required"
-    if (!form.bank_account_number.trim()) e.bank_account_number = "Account number is required"
     if (showBranchPicker && !form.branch_id.trim()) e.branch_id = "Select a branch"
-
-    if (mode !== "edit") {
-      const amountRaw = form.total_amount.trim()
-      if (amountRaw === "") {
-        e.total_amount = "Opening balance is required"
-      } else {
-        const amount = Number(amountRaw)
-        if (!Number.isFinite(amount) || amount < 0) {
-          e.total_amount = "Enter a valid amount (0 or greater)"
-        }
-      }
-    }
+    if (!form.third_party_agent_id.trim()) e.third_party_agent_id = "Select a third party agent"
+    if (!form.bank_account_number.trim()) e.bank_account_number = "Account number is required"
 
     setErrors(e)
     return Object.keys(e).length === 0
@@ -101,12 +107,19 @@ export default function BankAccountForm({
     if (disabled) return
     if (!validate()) return
     onSubmit({
-      bank_name: form.bank_name.trim(),
+      third_party_agent_id: form.third_party_agent_id.trim(),
       bank_account_number: form.bank_account_number.trim(),
-      total_amount: mode === "edit" ? "" : form.total_amount.trim(),
       branch_id: form.branch_id.trim(),
     })
   }
+
+  const agentPlaceholder = agentsLoading
+    ? "Loading third party agents…"
+    : showBranchPicker && !form.branch_id.trim()
+      ? "Select a branch first"
+      : filteredAgentOptions.length === 0
+        ? "No third party agents for this branch"
+        : "Select third party agent"
 
   return (
     <form onSubmit={handleSubmit} className="flex max-h-[calc(100vh-12rem)] flex-col gap-4 overflow-y-auto p-4">
@@ -132,21 +145,22 @@ export default function BankAccountForm({
 
       <div>
         <label className="mb-1 block text-sm font-medium text-gray-700">
-          Bank name <span className="text-red-500">*</span>
+          Third party agent <span className="text-red-500">*</span>
         </label>
-        <div className="relative">
-          <Landmark className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-          <input
-            type="text"
-            className={inputClass(!!errors.bank_name)}
-            value={form.bank_name}
-            onChange={(ev) => set("bank_name", ev.target.value)}
-            placeholder="e.g. Equity Bank"
-            disabled={disabled}
-            autoComplete="off"
+        <div
+          className={`${selectWrap(!!errors.third_party_agent_id)} ${disabled || agentsLoading || (showBranchPicker && !form.branch_id.trim()) ? "pointer-events-none opacity-60" : ""}`}
+        >
+          <StyledSelect
+            value={form.third_party_agent_id}
+            onChange={(v) => set("third_party_agent_id", v)}
+            placeholder={agentPlaceholder}
+            options={filteredAgentOptions.map((a) => ({ value: a.value, label: a.label }))}
+            searchable
           />
         </div>
-        {errors.bank_name ? <p className="mt-1 text-xs text-red-600">{errors.bank_name}</p> : null}
+        {errors.third_party_agent_id ? (
+          <p className="mt-1 text-xs text-red-600">{errors.third_party_agent_id}</p>
+        ) : null}
       </div>
 
       <div>
@@ -169,31 +183,6 @@ export default function BankAccountForm({
           <p className="mt-1 text-xs text-red-600">{errors.bank_account_number}</p>
         ) : null}
       </div>
-
-      {mode !== "edit" && (
-        <div>
-          <label className="mb-1 block text-sm font-medium text-gray-700">
-            Opening / total amount <span className="text-red-500">*</span>
-          </label>
-          <div className="relative">
-            <Building2 className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-            <input
-              type="number"
-              min={0}
-              step="0.01"
-              className={inputClass(!!errors.total_amount)}
-              value={form.total_amount}
-              onChange={(ev) => set("total_amount", ev.target.value)}
-              placeholder="0.00"
-              disabled={disabled}
-            />
-          </div>
-          {errors.total_amount ? <p className="mt-1 text-xs text-red-600">{errors.total_amount}</p> : null}
-          <p className="mt-1 text-xs text-muted-foreground">
-            Ledger balance held in this account at registration. This cannot be edited later.
-          </p>
-        </div>
-      )}
 
       <div className="flex justify-end gap-2 border-t border-gray-100 pt-4">
         <Button type="button" variant="outline" onClick={onCancel} disabled={disabled}>

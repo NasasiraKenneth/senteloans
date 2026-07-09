@@ -197,7 +197,7 @@ export default function UnclaimedDepositExpandableContent({ deposit }: Props) {
             <Link2 className="mt-0.5 h-4 w-4 shrink-0 text-gray-400" />
             <p>
               No transaction is linked to this deposit yet. Use the <strong>Claim</strong> action to
-              assign it to a member or client and optionally link a transaction.
+              assign it to a member or third party agent and optionally link a transaction.
             </p>
           </div>
         </div>

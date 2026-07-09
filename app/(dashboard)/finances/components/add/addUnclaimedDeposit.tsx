@@ -14,6 +14,8 @@ interface AddUnclaimedDepositProps {
 const ERROR_MESSAGES: Record<string, string> = {
   invalid_amount: "Enter an amount greater than zero.",
   invalid_payment_mode: "Select a valid payment mode.",
+  bank_account_required: "Select a bank account for bank transfer deposits.",
+  invalid_bank_account: "The selected bank account is invalid for this branch.",
   "missing_permission:add_unclaimed_deposit": "You do not have permission to add unclaimed deposits.",
   branch_id_required: "Select a branch for this deposit.",
   invalid_branch: "The selected branch is invalid.",
@@ -31,6 +33,7 @@ function toApiBody(data: UnclaimedFormData) {
     mode: data.mode,
     date: data.date || null,
     transaction_number: data.transaction_number || null,
+    bank_account_id: data.bank_account_id || null,
     notes: data.notes || null,
     branch_id: data.branch_id || null,
   }

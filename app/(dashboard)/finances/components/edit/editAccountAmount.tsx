@@ -18,7 +18,18 @@ interface EditAccountAmountProps {
 const ERROR_MESSAGES: Record<string, string> = {
   invalid_amount: "Enter a valid amount greater than zero.",
   invalid_direction: "Choose either Deposit or Withdraw.",
+  invalid_date: "Select a valid date.",
+  invalid_mode: "Select a valid transfer mode.",
+  invalid_transaction_charges: "Enter a valid charge amount (0 or greater).",
+  invalid_bank_account: "Choose a different bank account for this transfer.",
+  reference_number_required: "Reference number is required.",
+  mode_reference_number_required: "Reference number is required for this transfer mode.",
+  bank_account_required: "Select the bank account to transfer from.",
+  bank_account_not_found: "The selected bank account no longer exists.",
   insufficient_balance: "Withdrawal exceeds the current balance.",
+  insufficient_bank_balance: "The source bank account has insufficient funds.",
+  insufficient_cash_balance: "Insufficient cash float for this transfer.",
+  insufficient_mobile_money_balance: "Insufficient mobile money float for this transfer.",
   balance_changed: "The account balance changed since this form was opened. Reload and try again.",
   "missing_permission:edit_bank_amount": "You do not have permission to update bank balances.",
   not_found: "This bank account no longer exists.",
@@ -60,6 +71,7 @@ export default function EditAccountAmount({
 
         const a = body?.account
         setSummary({
+          id: String(a?.id || accountId),
           bank_name: String(a?.bank_name || ""),
           bank_account_number: String(a?.bank_account_number || ""),
           branch_name: String(a?.branch_name || ""),
@@ -92,13 +104,28 @@ export default function EditAccountAmount({
         body: JSON.stringify({
           amount: Number(data.amount),
           direction: data.direction,
+          date: data.date,
+          mode: data.mode,
+          bank_account_id: data.bank_account_id || undefined,
+          reference_number: data.reference_number || undefined,
+          mode_reference_number: data.mode_reference_number || undefined,
+          transaction_charges:
+            data.transaction_charges.trim() !== ""
+              ? Number(data.transaction_charges)
+              : undefined,
         }),
       })
       const body = await res.json().catch(() => ({}))
       if (!res.ok) {
         const errCode = String(body?.error || "")
         const errMessage = typeof body?.message === "string" ? body.message : undefined
-        const warningCodes = new Set(["insufficient_balance", "balance_changed"])
+        const warningCodes = new Set([
+          "insufficient_balance",
+          "insufficient_bank_balance",
+          "insufficient_cash_balance",
+          "insufficient_mobile_money_balance",
+          "balance_changed",
+        ])
         toast({
           title:
             errCode === "insufficient_balance"

@@ -71,10 +71,11 @@ export async function GET(req: Request) {
       if (!actor) return null
       const role = String(actor.role || "").trim().toLowerCase()
 
-      const [viewSavings, viewAccount, createTransaction, editAccount, generateAccountStatements] = await Promise.all([
+      const [viewSavings, viewAccount, createTransaction, addAccount, editAccount, generateAccountStatements] = await Promise.all([
         hasPermission(client, actor, "view_savings"),
         hasPermission(client, actor, "view_account"),
         hasPermission(client, actor, "create_transaction"),
+        hasPermission(client, actor, "add_account"),
         hasPermission(client, actor, "edit_account"),
         hasPermission(client, actor, "generate_account_statements"),
       ])
@@ -96,6 +97,7 @@ export async function GET(req: Request) {
         viewSavings,
         viewAccount,
         createTransaction,
+        addAccount,
         editAccount,
         generateAccountStatements,
         isSuperAdmin: role === "super_admin",

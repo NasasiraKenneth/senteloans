@@ -1,9 +1,52 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { runWithAuth } from "@/lib/db";
+import { runWithAuth, runWithoutAuth } from "@/lib/db";
 import { apiLog, getApiPath } from "@/lib/api/api-log";
-import { insertWithInvoiceNumberRetry } from "@/lib/invoices/invoice-number-retry";
+import {
+  assertNotSuperAdmin,
+  hasPermission,
+  isSuperAdmin,
+  resolveActorContext,
+} from "@/lib/api/rbac";
+import { enqueueInvoiceSentEmail } from "@/lib/email/invoice-emails";
+import { createInvoiceWithItems } from "@/lib/invoices/create-invoice";
+import { resolveInvoiceBranchId } from "@/lib/invoices/resolve-invoice-branch";
+import {
+  expandStatusFilter,
+  isAllowedInvoiceStatus,
+  normalizeInvoiceStatus,
+  normalizeTargetTypeFilter,
+} from "@/lib/invoices/status";
+import { notifyInvoiceCreated } from "@/lib/notifications/invoice-events";
+import { assertBranchActive } from "@/lib/branches/branch-status"
+import { assertActorActive } from "@/lib/staff/staff-status"
+
+type InvoiceCreatePostCommit = {
+  actorId: string;
+  institutionId: string;
+  branchId: string;
+  institutionName: string;
+  currency: string;
+  status: string;
+  invoice: {
+    id: string;
+    invoice_number: string;
+    total_amount: number;
+    invoice_due: string | null;
+    status: string;
+  };
+  member?: {
+    id: string;
+    full_name: string;
+    member_number: string;
+    email: string;
+  } | null;
+  thirdPartyAgent?: {
+    id: string;
+    name: string;
+  } | null;
+};
 
 type InvoiceRow = {
   id: string;
@@ -37,54 +80,17 @@ type InvoiceItemRow = {
   vatinclusive: boolean;
 };
 
-type ActorContext = {
+type InvoicePaymentListRow = {
   id: string;
-  institution_id: string;
-  branch_id: string | null;
-  role_id: string | null;
-  role: string | null;
+  invoice_id: string;
+  amount: string | number;
+  payment_date: string;
+  transaction_number: string | null;
+  mode: string | null;
+  reference_number: string | null;
+  processed_by_name: string | null;
+  source: string;
 };
-
-async function resolveActorContext(client: any, authUserId: string): Promise<ActorContext | null> {
-  const actorRes = await client.query(
-    `SELECT
-       u.id,
-       u.institution_id,
-       u.branch_id,
-       u.role_id,
-       CASE
-         WHEN r.name = 'System Admin' THEN 'system_admin'
-         WHEN r.name = 'Super Admin' THEN 'super_admin'
-         WHEN r.name = 'Admin' THEN 'institution_admin'
-         WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
-         ELSE NULL
-       END AS role
-     FROM users u
-     LEFT JOIN roles r ON r.id = u.role_id
-     WHERE u.auth_id = $1
-     LIMIT 1`,
-    [authUserId],
-  );
-  return actorRes.rows[0] || null;
-}
-
-async function hasPermission(client: any, actor: ActorContext, permission: string): Promise<boolean> {
-  const role = String(actor.role || "").trim().toLowerCase();
-  if (role === "super_admin") return true;
-  if (!actor.role_id || !actor.branch_id) return false;
-
-  const permRes = await client.query(
-    `SELECT 1
-     FROM role_permissions rp
-     JOIN permissions p ON p.id = rp.permission_id
-     WHERE rp.role_id = $1
-       AND rp.branch_id = $2
-       AND p.name = $3
-     LIMIT 1`,
-    [actor.role_id, actor.branch_id, permission],
-  );
-  return permRes.rowCount > 0;
-}
 
 const normalizeDate = (value: unknown): string | null => {
   if (typeof value !== "string" || !value.trim()) return null;
@@ -95,10 +101,6 @@ const normalizeDate = (value: unknown): string | null => {
 
 const round2 = (value: number): number =>
   Math.round((value + Number.EPSILON) * 100) / 100;
-
-const normalizeStatusInput = (value: unknown): string => String(value || "draft").trim().toLowerCase()
-const allowedStatuses = new Set(["draft", "sent", "paid", "overdue", "cancelled"])
-
 
 export async function GET(req: Request) {
   const apiPath = getApiPath(req);
@@ -121,9 +123,9 @@ export async function GET(req: Request) {
     );
     const status = (url.searchParams.get("status") || "").trim();
     const invoiceType = (url.searchParams.get("invoice_type") || "").trim();
-    const targetType = (url.searchParams.get("target_type") || "").trim().toLowerCase();
+    const targetType = normalizeTargetTypeFilter(url.searchParams.get("target_type") || "");
     const search = (url.searchParams.get("search") || "").trim();
-    const clientId = (url.searchParams.get("client_id") || "").trim();
+    const thirdPartyAgentId = (url.searchParams.get("third_party_agent_id") || "").trim();
     const invoiceId = (url.searchParams.get("invoice_id") || "").trim();
     const dateFrom = (url.searchParams.get("date_from") || "").trim();
     const dateTo = (url.searchParams.get("date_to") || "").trim();
@@ -142,6 +144,9 @@ export async function GET(req: Request) {
     const includeItems =
       (url.searchParams.get("include_items") || "").trim().toLowerCase() ===
         "true" || !!invoiceId;
+    const includePayments =
+      (url.searchParams.get("include_payments") || "").trim().toLowerCase() ===
+      "true";
 
     const result = await runWithAuth(
       session.user.authUserId,
@@ -150,15 +155,15 @@ export async function GET(req: Request) {
         if (!actor?.institution_id) return { error: "user_not_linked" as const };
         const allowed = await hasPermission(client, actor, "view_invoices");
         if (!allowed) return { error: "missing_permission:view_invoices" as const };
-        const isSuperAdmin = String(actor.role || "").trim().toLowerCase() === "super_admin";
-        if (!isSuperAdmin && !actor.branch_id) return { error: "actor_branch_missing" as const };
+        const isSuperAdminActor = isSuperAdmin(actor);
+        if (!isSuperAdminActor && !actor.branch_id) return { error: "actor_branch_missing" as const };
 
         let where =
           "i.institution_id = $1";
         const params: unknown[] = [actor.institution_id];
         let idx = 2;
 
-        if (!isSuperAdmin) {
+        if (!isSuperAdminActor) {
           where += ` AND i.branch_id = $${idx++}`;
           params.push(actor.branch_id);
         } else if (selectedBranchIds.length > 0) {
@@ -170,23 +175,29 @@ export async function GET(req: Request) {
           where += ` AND i.id = $${idx++}`;
           params.push(invoiceId);
         }
-        if (clientId) {
-          where += ` AND (i.member_id = $${idx} OR i.client_id = $${idx})`;
-          params.push(clientId);
+        if (thirdPartyAgentId) {
+          where += ` AND (i.member_id = $${idx} OR i.third_party_agent_id = $${idx})`;
+          params.push(thirdPartyAgentId);
           idx++;
         }
         if (status) {
-          where += ` AND LOWER(i.status) = LOWER($${idx++})`;
-          params.push(status);
+          const statusValues = expandStatusFilter(status);
+          if (statusValues.length === 1) {
+            where += ` AND LOWER(i.status) = LOWER($${idx++})`;
+            params.push(statusValues[0]);
+          } else if (statusValues.length > 1) {
+            where += ` AND LOWER(i.status) = ANY($${idx++}::text[])`;
+            params.push(statusValues.map((s) => s.toLowerCase()));
+          }
         }
         if (invoiceType) {
           where += ` AND LOWER(i.invoice_type) = LOWER($${idx++})`;
           params.push(invoiceType);
         }
         if (targetType === "member") {
-          where += ` AND i.member_id IS NOT NULL AND i.client_id IS NULL`;
-        } else if (targetType === "client") {
-          where += ` AND i.client_id IS NOT NULL AND i.member_id IS NULL`;
+          where += ` AND i.member_id IS NOT NULL AND i.third_party_agent_id IS NULL`;
+        } else if (targetType === "third_party_agent") {
+          where += ` AND i.third_party_agent_id IS NOT NULL AND i.member_id IS NULL`;
         }
         if (dateFrom) {
           where += ` AND i.invoice_date >= (($${idx}::timestamp AT TIME ZONE 'Africa/Nairobi')::date)`;
@@ -224,7 +235,7 @@ export async function GET(req: Request) {
           `SELECT COUNT(*)::int AS c
          FROM invoices i
          LEFT JOIN members m ON m.id = i.member_id
-         LEFT JOIN clients c ON c.id = i.client_id
+         LEFT JOIN third_party_agents c ON c.id = i.third_party_agent_id
          WHERE ${where}`,
           params,
         );
@@ -234,12 +245,12 @@ export async function GET(req: Request) {
         const dataParams = [...params, pageSize, from];
         const dataRes = await client.query<InvoiceRow>(
           `SELECT
-          i.id, i.institution_id, i.member_id, i.client_id, i.branch_id, i.invoice_number, i.invoice_date, i.invoice_due,
+          i.id, i.institution_id, i.member_id, i.third_party_agent_id, i.branch_id, i.invoice_number, i.invoice_date, i.invoice_due,
           i.subtotal, i.vat, i.total_amount, i.inwords, i.invoice_type, i.status,
           i.created_by, i.created_at, i.modified_by, i.updated_at
          FROM invoices i
          LEFT JOIN members m ON m.id = i.member_id
-         LEFT JOIN clients c ON c.id = i.client_id
+         LEFT JOIN third_party_agents c ON c.id = i.third_party_agent_id
          LEFT JOIN users u ON u.id = i.created_by
          WHERE ${where}
          ORDER BY i.created_at DESC
@@ -273,11 +284,11 @@ export async function GET(req: Request) {
           );
         }
 
-        const externalClientIds = [...new Set(invoices.map((i) => i.client_id).filter(Boolean))];
+        const externalClientIds = [...new Set(invoices.map((i) => i.third_party_agent_id).filter(Boolean))];
         let externalClientMap: Record<string, { name: string }> = {};
         if (externalClientIds.length > 0) {
           const extClientsRes = await client.query<{ id: string; name: string }>(
-            `SELECT id, name FROM clients WHERE id = ANY($1::uuid[])`,
+            `SELECT id, name FROM third_party_agents WHERE id = ANY($1::uuid[])`,
             [externalClientIds],
           );
           externalClientMap = Object.fromEntries(
@@ -333,20 +344,60 @@ export async function GET(req: Request) {
           );
         }
 
+        let paymentsMap: Record<string, InvoicePaymentListRow[]> = {};
+        if (includePayments && invoiceIds.length > 0) {
+          const paymentsRes = await client.query<InvoicePaymentListRow>(
+            `SELECT
+               ip.id,
+               ip.invoice_id,
+               ip.amount,
+               ip.payment_date,
+               COALESCE(t.transaction_number, mt.transaction_number) AS transaction_number,
+               COALESCE(t.mode, mt.mode) AS mode,
+               COALESCE(t.reference_number, mt.reference_number) AS reference_number,
+               u.full_name AS processed_by_name,
+               CASE
+                 WHEN ip.membership_fee_id IS NOT NULL THEN 'membership_fee'
+                 ELSE 'transaction'
+               END AS source
+             FROM invoice_payments ip
+             LEFT JOIN transactions t ON t.id = ip.transaction_id
+             LEFT JOIN membership_fees mf ON mf.id = ip.membership_fee_id
+             LEFT JOIN transactions mt ON mt.id = mf.transaction_id AND ip.transaction_id IS NULL
+             LEFT JOIN users u ON u.id = ip.processed_by
+             WHERE ip.invoice_id = ANY($1::uuid[])
+             ORDER BY ip.payment_date ASC, ip.created_at ASC`,
+            [invoiceIds],
+          );
+          paymentsMap = paymentsRes.rows.reduce<Record<string, InvoicePaymentListRow[]>>(
+            (acc, row) => {
+              if (!acc[row.invoice_id]) acc[row.invoice_id] = [];
+              acc[row.invoice_id].push(row);
+              return acc;
+            },
+            {},
+          );
+        }
+
         const mapped = invoices.map((row) => {
           const total = Number(row.total_amount || 0);
           const paid_amount = paidMap[row.id] ?? 0;
           const outstanding = Math.max(total - paid_amount, 0);
+          const customerName = row.member_id
+            ? clientMap[row.member_id]?.name || ""
+            : externalClientMap[row.third_party_agent_id || ""]?.name || "";
           return {
           id: row.id,
           institution_id: row.institution_id,
-          client_id: row.client_id,
+          third_party_agent_id: row.third_party_agent_id,
           member_id: row.member_id,
-          target_type: row.member_id ? "member" : "client",
-          client_name: row.member_id
-            ? clientMap[row.member_id]?.name || ""
-            : externalClientMap[row.client_id || ""]?.name || "",
-          client_number: clientMap[row.member_id]?.client_number || null,
+          target_type: row.member_id ? "member" : "third_party_agent",
+          customer_name: customerName,
+          client_name: customerName,
+          third_party_agent_name: row.member_id
+            ? ""
+            : externalClientMap[row.third_party_agent_id || ""]?.name || "",
+          client_number: row.member_id ? clientMap[row.member_id]?.client_number || null : null,
           staff_name: userMap[row.created_by]?.full_name || "",
           invoice_number: row.invoice_number,
           invoice_date: row.invoice_date,
@@ -373,6 +424,18 @@ export async function GET(req: Request) {
                 unit_price: Number(it.unit_price || 0),
                 total_price: Number(it.total_price || 0),
                 vatinclusive: Boolean(it.vatinclusive),
+              }))
+            : undefined,
+          payments: includePayments
+            ? (paymentsMap[row.id] || []).map((p) => ({
+                id: p.id,
+                amount: Number(p.amount || 0),
+                payment_date: p.payment_date,
+                transaction_number: p.transaction_number,
+                mode: p.mode,
+                reference_number: p.reference_number,
+                processed_by_name: p.processed_by_name,
+                source: p.source,
               }))
             : undefined,
         };
@@ -419,13 +482,13 @@ export async function POST(req: Request) {
       unknown
     >;
     const memberId = String(body.member_id || "").trim();
-    const clientId = String(body.client_id || "").trim();
+    const thirdPartyAgentId = String(body.third_party_agent_id || "").trim();
     const invoiceDate = normalizeDate(body.invoice_date);
     const invoiceDue = normalizeDate(body.invoice_due);
-    const status = normalizeStatusInput(body.status);
-    if (!allowedStatuses.has(status)) {
+    if (!isAllowedInvoiceStatus(body.status)) {
       return NextResponse.json({ error: "invalid_status" }, { status: 400 });
     }
+    const status = normalizeInvoiceStatus(body.status);
     const inwords = typeof body.inwords === "string" ? body.inwords.trim() : "";
     const invoiceType =
       typeof body.invoice_type === "string" ? body.invoice_type.trim() : "";
@@ -433,9 +496,9 @@ export async function POST(req: Request) {
       ? (body.items as Array<Record<string, unknown>>)
       : [];
 
-    if ((memberId ? 1 : 0) + (clientId ? 1 : 0) !== 1)
+    if ((memberId ? 1 : 0) + (thirdPartyAgentId ? 1 : 0) !== 1)
       return NextResponse.json(
-        { error: "exactly_one_of_member_id_or_client_id_required" },
+        { error: "exactly_one_of_member_id_or_third_party_agent_id_required" },
         { status: 400 },
       );
     if (!invoiceDate)
@@ -456,22 +519,69 @@ export async function POST(req: Request) {
       async (client) => {
         const actor = await resolveActorContext(client, session.user.authUserId as string);
         if (!actor) return { error: "user_not_linked" as const };
+
+        const staffCheck = await assertActorActive(client, actor)
+        if (!staffCheck.ok) {
+          return {
+            error: staffCheck.error,
+            staffStatus: staffCheck.error === "staff_inactive" ? staffCheck.status : undefined,
+          }
+        }
+
+        const writeGuard = assertNotSuperAdmin(actor);
+        if (!writeGuard.ok) {
+          return { error: writeGuard.error, message: writeGuard.message };
+        }
+
         const allowed = await hasPermission(client, actor, "add_invoice");
         if (!allowed) return { error: "missing_permission:add_invoice" as const };
-        if (!actor.branch_id) return { error: "actor_branch_missing" as const };
+
+        let memberRow: {
+          id: string;
+          full_name: string;
+          member_number: string;
+          email: string | null;
+        } | null = null;
+        let thirdPartyAgentRow: { id: string; name: string } | null = null;
 
         if (memberId) {
-          const memberRes = await client.query<{ id: string }>(
-            `SELECT id FROM members WHERE id = $1 AND institution_id = $2`,
+          const memberRes = await client.query<{
+            id: string;
+            full_name: string;
+            member_number: string;
+            email: string | null;
+          }>(
+            `SELECT id, full_name, member_number, email
+             FROM members WHERE id = $1 AND institution_id = $2`,
             [memberId, actor.institution_id],
           );
           if (memberRes.rows.length === 0) return { error: "member_not_found" as const };
+          memberRow = memberRes.rows[0];
         } else {
-          const extClientRes = await client.query<{ id: string }>(
-            `SELECT id FROM clients WHERE id = $1 AND institution_id = $2`,
-            [clientId, actor.institution_id],
+          const extClientRes = await client.query<{ id: string; name: string }>(
+            `SELECT id, name FROM third_party_agents WHERE id = $1 AND institution_id = $2`,
+            [thirdPartyAgentId, actor.institution_id],
           );
-          if (extClientRes.rows.length === 0) return { error: "client_not_found" as const };
+          if (extClientRes.rows.length === 0) return { error: "third_party_agent_not_found" as const };
+          thirdPartyAgentRow = extClientRes.rows[0];
+        }
+
+        const branchId = await resolveInvoiceBranchId(
+          client,
+          actor.institution_id,
+          actor.branch_id,
+          memberId || undefined,
+          thirdPartyAgentId || undefined,
+        );
+        if (!branchId) return { error: "actor_branch_missing" as const };
+
+        const branchCheck = await assertBranchActive(client, branchId)
+        if (!branchCheck.ok) {
+          return {
+            error: branchCheck.error as "branch_not_found" | "branch_inactive",
+            branchStatus:
+              branchCheck.error === "branch_inactive" ? branchCheck.status : undefined,
+          }
         }
 
         const normalizedItems = items
@@ -503,118 +613,99 @@ export async function POST(req: Request) {
         if (normalizedItems.length === 0)
           return { error: "invalid_items" as const };
 
-        const computedSubtotal = round2(
-          normalizedItems.reduce(
-            (sum, item) => sum + Number(item.total_price || 0),
-            0,
-          ),
-        );
         const vat = Math.max(0, Number(body.vat || 0));
-        const totalAmount = round2(
-          Number(
-            body.total_amount || body.totalAmount || computedSubtotal + vat,
-          ),
-        );
 
         await client.query("BEGIN");
         try {
-          const inserted = await insertWithInvoiceNumberRetry(
-            (invoiceNumber) =>
-              client.query<{ id: string; invoice_number: string }>(
-                `INSERT INTO invoices (
-                  institution_id, branch_id, member_id, client_id, invoice_number, invoice_date, invoice_due,
-                  subtotal, vat, total_amount, inwords, invoice_type, status,
-                  created_by
-                ) VALUES (
-                  $1, $2, $3, $4, $5, $6,
-                  $7, $8, $9, $10, $11, $12,
-                  $13, $14
-                ) RETURNING id, invoice_number`,
-                [
-                  actor.institution_id,
-                  actor.branch_id,
-                  memberId || null,
-                  clientId || null,
-                  invoiceNumber,
-                  invoiceDate,
-                  invoiceDue,
-                  computedSubtotal,
-                  round2(vat),
-                  totalAmount,
-                  inwords,
-                  invoiceType,
-                  status,
-                  actor.id,
-                ],
-              ),
-            { client },
-          );
-          if (!inserted) {
-            await client.query("ROLLBACK");
-            return { error: "invoice_number_generation_failed" as const };
-          }
-          const invoice = inserted.row;
-          for (const item of normalizedItems) {
-            await client.query(
-              `INSERT INTO invoice_items (
-              invoice_id, unit, description, quantity, unit_price, total_price, vatinclusive
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-              [
-                invoice.id,
-                item.unit || null,
-                item.description,
-                item.quantity,
-                item.unit_price,
-                item.total_price,
-                item.vatinclusive,
-              ],
+          const invoice = await createInvoiceWithItems(client, {
+            institutionId: actor.institution_id,
+            branchId,
+            createdBy: actor.id,
+            invoiceDate,
+            invoiceDue,
+            invoiceType,
+            status,
+            inwords: inwords || undefined,
+            vat,
+            items: normalizedItems,
+            target: memberId
+              ? { member_id: memberId }
+              : { third_party_agent_id: thirdPartyAgentId },
+          });
+
+          let postCommit: InvoiceCreatePostCommit | null = null;
+
+          if (status === "draft" || status === "sent") {
+            const instRes = await client.query<{ name: string }>(
+              `SELECT name FROM institutions WHERE id = $1`,
+              [actor.institution_id],
             );
+            const currencyRes = await client.query<{ currency: string | null }>(
+              `SELECT currency FROM config WHERE branch_id = $1 LIMIT 1`,
+              [branchId],
+            );
+            postCommit = {
+              actorId: actor.id,
+              institutionId: actor.institution_id,
+              branchId,
+              institutionName: instRes.rows[0]?.name || "",
+              currency: currencyRes.rows[0]?.currency || "UGX",
+              status,
+              invoice: {
+                id: invoice.id,
+                invoice_number: invoice.invoice_number,
+                total_amount: invoice.total_amount,
+                invoice_due: invoice.invoice_due,
+                status,
+              },
+              member: memberRow
+                ? {
+                    id: memberRow.id,
+                    full_name: String(memberRow.full_name || ""),
+                    member_number: String(memberRow.member_number || ""),
+                    email: memberRow.email ? String(memberRow.email) : "",
+                  }
+                : null,
+              thirdPartyAgent: thirdPartyAgentRow
+                ? {
+                    id: thirdPartyAgentRow.id,
+                    name: String(thirdPartyAgentRow.name || ""),
+                  }
+                : null,
+            };
           }
 
           await client.query("COMMIT");
-          await client.query(
-            `INSERT INTO audit_logs
-              (institution_id, branch_id, user_id, table_name, category, operation, record_id, new_values)
-             VALUES ($1, $2, $3, 'invoices', 'invoices', 'INSERT', $4, $5)`,
-            [
-              actor.institution_id,
-              actor.branch_id,
-              actor.id,
-              invoice.id,
-              JSON.stringify({
-                member_id: memberId || null,
-                client_id: clientId || null,
-                invoice_number: invoice.invoice_number,
-                invoice_date: invoiceDate,
-                invoice_due: invoiceDue,
-                status,
-                invoice_type: invoiceType,
-                subtotal: computedSubtotal,
-                vat: round2(vat),
-                total_amount: totalAmount,
-                item_count: normalizedItems.length,
-              }),
-            ],
-          );
           return {
             ok: true,
             id: invoice.id,
             invoice_number: invoice.invoice_number,
+            postCommit,
           };
         } catch (error) {
           await client.query("ROLLBACK");
+          const message = error instanceof Error ? error.message : "";
+          if (message === "invoice_number_generation_failed") {
+            return { error: "invoice_number_generation_failed" as const };
+          }
+          if (message === "invoice_items_invalid" || message === "invoice_items_required") {
+            return { error: "invalid_items" as const };
+          }
           throw error;
         }
       },
     );
 
     if (result && "error" in result) {
+      const errorCode = String(result.error || "")
       const statusCode =
-        result.error === "member_not_found" || result.error === "client_not_found"
+        errorCode === "member_not_found" || errorCode === "third_party_agent_not_found"
           ? 404
-          : result.error === "user_not_linked" || result.error === "missing_permission:add_invoice"
+          : errorCode === "user_not_linked" ||
+              errorCode === "missing_permission:add_invoice" ||
+              errorCode === "super_admin_write_blocked"
             ? 403
-            : result.error === "invoice_number_generation_failed"
+            : errorCode === "invoice_number_generation_failed"
               ? 500
               : 400;
       apiLog(
@@ -626,7 +717,102 @@ export async function POST(req: Request) {
     }
 
     apiLog("info", "invoices.create.success", { method: "POST", apiPath, status: 201, invoiceId: result.id, authUserId: session.user.authUserId });
-    return NextResponse.json(result, { status: 201 });
+
+    const ctx = "postCommit" in result ? result.postCommit : null;
+    if (ctx) {
+      try {
+        const notifyRes = await runWithoutAuth((notifyClient) =>
+          notifyInvoiceCreated({
+            client: notifyClient,
+            actor: {
+              id: ctx.actorId,
+              institution_id: ctx.institutionId,
+              branch_id: ctx.branchId,
+            },
+            invoice: ctx.invoice,
+            member: ctx.member
+              ? {
+                  id: ctx.member.id,
+                  full_name: ctx.member.full_name,
+                  member_number: ctx.member.member_number,
+                }
+              : null,
+            thirdPartyAgent: ctx.thirdPartyAgent,
+            currency: ctx.currency,
+          }),
+        );
+        apiLog(
+          notifyRes.ok ? "info" : "warn",
+          notifyRes.ok
+            ? "invoices.create.notifications_dispatched"
+            : "invoices.create.notifications_partial",
+          {
+            method: "POST",
+            apiPath,
+            status: 201,
+            invoiceId: result.id,
+            memberNotifications: notifyRes.memberNotifications,
+            staffNotifications: notifyRes.staffNotifications,
+            ...(notifyRes.errors.length ? { errors: notifyRes.errors } : {}),
+          },
+        );
+      } catch (notifyErr) {
+        apiLog("error", "invoices.create.notifications_failed", {
+          method: "POST",
+          apiPath,
+          status: 201,
+          invoiceId: result.id,
+          error: (notifyErr as Error)?.message || "notify_failed",
+        });
+      }
+
+      if (ctx.invoice.status === "sent" && ctx.member) {
+        try {
+          const emailRes = await enqueueInvoiceSentEmail({
+            member: ctx.member,
+            institutionName: ctx.institutionName,
+            currency: ctx.currency,
+            invoice: {
+              id: ctx.invoice.id,
+              invoice_number: ctx.invoice.invoice_number,
+              total_amount: ctx.invoice.total_amount,
+              invoice_due: ctx.invoice.invoice_due,
+            },
+            context: {
+              institutionId: ctx.institutionId,
+              branchId: ctx.branchId,
+              actorId: ctx.actorId,
+            },
+          });
+          apiLog(
+            emailRes.errors.length ? "warn" : "info",
+            emailRes.errors.length
+              ? "invoices.create.email_enqueue_partial"
+              : "invoices.create.email_enqueued",
+            {
+              method: "POST",
+              apiPath,
+              status: 201,
+              invoiceId: result.id,
+              enqueued: emailRes.enqueued,
+              skipped: emailRes.skipped,
+              ...(emailRes.errors.length ? { errors: emailRes.errors } : {}),
+            },
+          );
+        } catch (emailErr) {
+          apiLog("error", "invoices.create.email_enqueue_failed", {
+            method: "POST",
+            apiPath,
+            status: 201,
+            invoiceId: result.id,
+            error: (emailErr as Error)?.message || "email_enqueue_failed",
+          });
+        }
+      }
+    }
+
+    const { postCommit: _postCommit, ...responseBody } = result;
+    return NextResponse.json(responseBody, { status: 201 });
   } catch (e: unknown) {
     const err = e as Error;
     if (

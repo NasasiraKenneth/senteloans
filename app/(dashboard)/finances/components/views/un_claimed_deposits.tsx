@@ -176,7 +176,7 @@ export default function UnclaimedDepositsView({ refreshKey = 0, onRefresh }: Unc
         options: [
           { value: "", label: "All" },
           { value: "Member", label: "Members" },
-          { value: "Client", label: "Clients" },
+          { value: "Third Party Agent", label: "Third Party Agents" },
         ],
         multiple: false,
         type: "select",

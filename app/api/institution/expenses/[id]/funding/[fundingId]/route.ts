@@ -3,17 +3,12 @@ import { runWithAuth } from "@/lib/db"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
 import { expenseFundingStatusBlock } from "@/lib/api/expense-funding-guard"
 import { auditFundingDelete, auditFundingUpdate, fundingSnapshot } from "@/lib/audit/expense-audit"
-import { hasPermission, isSuperAdmin, requireStaffSession, resolveActorContext } from "@/lib/api/rbac"
-
-function singleExpenseWhere(actor: NonNullable<Awaited<ReturnType<typeof resolveActorContext>>>, expenseId: string): { where: string; values: unknown[] } {
-  let where = `e.id = $1::uuid AND e.institution_id = $2::uuid`
-  const values: unknown[] = [expenseId, actor.institution_id]
-  if (!isSuperAdmin(actor)) {
-    where += ` AND e.branch_id = $3::uuid`
-    values.push(actor.branch_id)
-  }
-  return { where, values }
-}
+import { requireStaffSession } from "@/lib/api/rbac"
+import {
+  assertExpenseWriteAccess,
+  expenseScopeWhere,
+  mapExpenseMutationErrorResponse,
+} from "@/lib/api/expense-access"
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string; fundingId: string }> }) {
   const apiPath = getApiPath(req)
@@ -52,13 +47,18 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     }
 
     const result = await runWithAuth(sess.authUserId, async (client) => {
-      const actor = await resolveActorContext(client, sess.authUserId)
-      if (!actor?.institution_id) return { error: "user_not_linked" as const }
-      const allowed = await hasPermission(client, actor, "edit_expense_funding")
-      if (!allowed) return { error: "missing_permission:edit_expense_funding" as const }
-      if (!isSuperAdmin(actor) && !actor.branch_id) return { error: "actor_branch_missing" as const }
+      const access = await assertExpenseWriteAccess(client, sess.authUserId, "edit_expense_funding")
+      if (!access.ok) {
+        return {
+          error: access.error,
+          message: access.message,
+          staffStatus: access.staffStatus,
+          branchStatus: access.branchStatus,
+        }
+      }
+      const { actor } = access
 
-      const { where, values } = singleExpenseWhere(actor, expenseId)
+      const { where, values } = expenseScopeWhere(actor, expenseId)
       const ex = await client.query<{ id: string; status: string; branch_id: string }>(
         `SELECT e.id, e.status, e.branch_id FROM expenses e WHERE ${where} LIMIT 1`,
         values,
@@ -79,10 +79,6 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         if ((lr.rowCount ?? 0) === 0) return { error: "invalid_loan" as const }
       }
 
-      const prevBranchJoin = isSuperAdmin(actor) ? "" : " AND e.branch_id = $4::uuid"
-      const prevParams: unknown[] = isSuperAdmin(actor)
-        ? [fundingId, expenseId, actor.institution_id]
-        : [fundingId, expenseId, actor.institution_id, actor.branch_id]
       const prev = await client.query(
         `SELECT f.id, f.expense_id, f.source_type, f.loan_id, f.amount
          FROM expense_funding_sources f
@@ -90,24 +86,13 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
          WHERE f.id = $1::uuid
            AND f.expense_id = $2::uuid
            AND e.institution_id = $3::uuid
-           ${prevBranchJoin}
+           AND e.branch_id = $4::uuid
          LIMIT 1`,
-        prevParams,
+        [fundingId, expenseId, actor.institution_id, actor.branch_id],
       )
       const prevRow = prev.rows[0] as Record<string, unknown> | undefined
       if (!prevRow) return { error: "funding_not_found" as const }
       const oldFunding = fundingSnapshot(prevRow)
-
-      const branchJoin = isSuperAdmin(actor) ? "" : " AND e.branch_id = $7::uuid"
-      const updParams: unknown[] = [
-        sourceType,
-        sourceType === "loan" ? loanId : null,
-        amount,
-        fundingId,
-        expenseId,
-        actor.institution_id,
-      ]
-      if (!isSuperAdmin(actor)) updParams.push(actor.branch_id)
 
       const upd = await client.query(
         `UPDATE expense_funding_sources f
@@ -119,9 +104,9 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
            AND f.expense_id = $5::uuid
            AND e.id = f.expense_id
            AND e.institution_id = $6::uuid
-           ${branchJoin}
+           AND e.branch_id = $7::uuid
          RETURNING f.id, f.expense_id, f.source_type, f.loan_id, f.amount::float, f.created_at`,
-        updParams,
+        [sourceType, sourceType === "loan" ? loanId : null, amount, fundingId, expenseId, actor.institution_id, actor.branch_id],
       )
       if ((upd.rowCount ?? 0) === 0) return { error: "funding_not_found" as const }
       const row = upd.rows[0] as Record<string, unknown>
@@ -137,21 +122,20 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
     if (result && "error" in result) {
       const code = String(result.error || "")
-      const statusCode =
-        code === "missing_permission:edit_expense_funding" ? 403
-        : code === "user_not_linked" ? 403
-        : code === "actor_branch_missing" ? 400
-        : code === "not_found" ? 404
-        : code === "funding_not_found" ? 404
-        : code === "expense_already_completed" || code === "expense_already_rejected" ? 409
-        : code === "invalid_loan" ? 400
-        : 400
-      apiLog("warn", "expenses.funding.update.denied", { method: "PATCH", apiPath, status: statusCode, error: code })
-      const payload: { error: string; message?: string } = { error: code }
-      if ("message" in result && typeof result.message === "string" && result.message.trim()) {
-        payload.message = result.message.trim()
-      }
-      return NextResponse.json(payload, { status: statusCode })
+      const { status, body } = mapExpenseMutationErrorResponse(
+        {
+          error: code,
+          message: "message" in result ? String(result.message || "") : undefined,
+          staffStatus: "staffStatus" in result ? result.staffStatus : undefined,
+          branchStatus: "branchStatus" in result ? result.branchStatus : undefined,
+        },
+        {
+          expense_already_completed: 409,
+          expense_already_rejected: 409,
+        },
+      )
+      apiLog("warn", "expenses.funding.update.denied", { method: "PATCH", apiPath, status, error: code })
+      return NextResponse.json(body, { status })
     }
 
     apiLog("info", "expenses.funding.update.success", { method: "PATCH", apiPath, status: 200 })
@@ -178,13 +162,18 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
     }
 
     const result = await runWithAuth(sess.authUserId, async (client) => {
-      const actor = await resolveActorContext(client, sess.authUserId)
-      if (!actor?.institution_id) return { error: "user_not_linked" as const }
-      const allowed = await hasPermission(client, actor, "delete_expense_funding")
-      if (!allowed) return { error: "missing_permission:delete_expense_funding" as const }
-      if (!isSuperAdmin(actor) && !actor.branch_id) return { error: "actor_branch_missing" as const }
+      const access = await assertExpenseWriteAccess(client, sess.authUserId, "delete_expense_funding")
+      if (!access.ok) {
+        return {
+          error: access.error,
+          message: access.message,
+          staffStatus: access.staffStatus,
+          branchStatus: access.branchStatus,
+        }
+      }
+      const { actor } = access
 
-      const { where, values } = singleExpenseWhere(actor, expenseId)
+      const { where, values } = expenseScopeWhere(actor, expenseId)
       const ex = await client.query<{ id: string; status: string; branch_id: string }>(
         `SELECT e.id, e.status, e.branch_id FROM expenses e WHERE ${where} LIMIT 1`,
         values,
@@ -195,10 +184,7 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
       const blocked = expenseFundingStatusBlock(String(expense.status || ""))
       if (blocked) return blocked
 
-      const branchJoin = isSuperAdmin(actor) ? "" : " AND e.branch_id = $4::uuid"
-      const delParams: unknown[] = isSuperAdmin(actor)
-        ? [fundingId, expenseId, actor.institution_id]
-        : [fundingId, expenseId, actor.institution_id, actor.branch_id]
+      const delParams: unknown[] = [fundingId, expenseId, actor.institution_id, actor.branch_id]
 
       const prev = await client.query(
         `SELECT f.id, f.expense_id, f.source_type, f.loan_id, f.amount
@@ -207,7 +193,7 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
          WHERE f.id = $1::uuid
            AND f.expense_id = $2::uuid
            AND e.institution_id = $3::uuid
-           ${branchJoin}
+           AND e.branch_id = $4::uuid
          LIMIT 1`,
         delParams,
       )
@@ -222,7 +208,7 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
            AND f.expense_id = $2::uuid
            AND e.id = f.expense_id
            AND e.institution_id = $3::uuid
-           ${branchJoin}
+           AND e.branch_id = $4::uuid
          RETURNING f.id`,
         delParams,
       )
@@ -233,20 +219,20 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
 
     if (result && "error" in result) {
       const code = String(result.error || "")
-      const statusCode =
-        code === "missing_permission:delete_expense_funding" ? 403
-        : code === "user_not_linked" ? 403
-        : code === "actor_branch_missing" ? 400
-        : code === "not_found" ? 404
-        : code === "funding_not_found" ? 404
-        : code === "expense_already_completed" || code === "expense_already_rejected" ? 409
-        : 400
-      apiLog("warn", "expenses.funding.delete.denied", { method: "DELETE", apiPath, status: statusCode, error: code })
-      const payload: { error: string; message?: string } = { error: code }
-      if ("message" in result && typeof result.message === "string" && result.message.trim()) {
-        payload.message = result.message.trim()
-      }
-      return NextResponse.json(payload, { status: statusCode })
+      const { status, body } = mapExpenseMutationErrorResponse(
+        {
+          error: code,
+          message: "message" in result ? String(result.message || "") : undefined,
+          staffStatus: "staffStatus" in result ? result.staffStatus : undefined,
+          branchStatus: "branchStatus" in result ? result.branchStatus : undefined,
+        },
+        {
+          expense_already_completed: 409,
+          expense_already_rejected: 409,
+        },
+      )
+      apiLog("warn", "expenses.funding.delete.denied", { method: "DELETE", apiPath, status, error: code })
+      return NextResponse.json(body, { status })
     }
 
     apiLog("info", "expenses.funding.delete.success", { method: "DELETE", apiPath, status: 200 })

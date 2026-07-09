@@ -3,7 +3,10 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { runWithAuth } from "@/lib/db"
 import { auditLogger } from "@/lib/audit/audit-logger"
-import { hasInvestmentPermission, resolveInvestmentActor } from "@/lib/api/investment-rbac"
+import {
+  assertInvestmentWriteAccess,
+  investmentRouteDenialResponse,
+} from "@/lib/api/investment-access"
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string; partnerId: string }> }) {
   const { id, partnerId } = await params
@@ -19,13 +22,16 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   const status = requestedStatus === "inactive" ? "Inactive" : "Active"
 
   return runWithAuth(session.user.authUserId, async (client) => {
-    const actor = await resolveInvestmentActor(client, session.user.authUserId as string)
-    if (!actor?.institution_id) return NextResponse.json({ error: "user_not_linked" }, { status: 403 })
-    const allowed = await hasInvestmentPermission(client, actor, "edit_investment")
-    if (!allowed) return NextResponse.json({ error: "missing_permission:edit_investment" }, { status: 403 })
-
-    const isSuperAdmin = String(actor.role || "").trim().toLowerCase() === "super_admin"
-    if (!isSuperAdmin && !actor.branch_id) return NextResponse.json({ error: "actor_branch_missing" }, { status: 400 })
+    const access = await assertInvestmentWriteAccess(
+      client,
+      session.user.authUserId as string,
+      "edit_investment",
+    )
+    if (!access.ok) {
+      const { status: httpStatus, body: denialBody } = investmentRouteDenialResponse(access)
+      return NextResponse.json(denialBody, { status: httpStatus })
+    }
+    const { actor } = access
 
     const partnerRes = await client.query(
       `SELECT p.id, p.status, i.branch_id
@@ -34,13 +40,13 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
        WHERE p.id = $1
          AND p.investment_id = $2
          AND i.institution_id = $3
-         ${isSuperAdmin ? "" : "AND i.branch_id = $4"}
+         AND i.branch_id = $4
        LIMIT 1`,
-      isSuperAdmin ? [partnerId, id, actor.institution_id] : [partnerId, id, actor.institution_id, actor.branch_id],
+      [partnerId, id, actor.institution_id, actor.branch_id],
     )
     if (partnerRes.rowCount === 0) return NextResponse.json({ error: "partner_not_found" }, { status: 404 })
     const prevStatus = String(partnerRes.rows[0]?.status || "")
-    const investmentBranchId = String(partnerRes.rows[0]?.branch_id || actor.branch_id || "")
+    const investmentBranchId = String(partnerRes.rows[0]?.branch_id || actor.branch_id)
 
     await client.query(
       `UPDATE investment_partners

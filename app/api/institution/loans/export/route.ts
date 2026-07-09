@@ -1,54 +1,10 @@
 import { NextResponse } from "next/server"
-import { getServerSession } from "next-auth"
-import { authOptions } from "@/lib/auth"
 import { runWithAuth } from "@/lib/db"
 import { addExcelTitleAndHeaders, createExcelWorkbook, formatIsoDateForExcel, toSafeExcelSheetName } from "@/lib/export/server-excel"
 import { renderLoansPdfBuffer } from "./loans-pdf"
-
-type ActorContext = {
-  id: string
-  institution_id: string
-  branch_id: string | null
-  role_id: string | null
-  role: string | null
-}
+import { hasPermission, isSuperAdmin, requireStaffSession, resolveActorContext } from "@/lib/api/rbac"
 
 type BranchScope = { id: string; name: string }
-
-async function resolveActorContext(client: any, authUserId: string): Promise<ActorContext | null> {
-  const actorRes = await client.query(
-    `SELECT
-       u.id, u.institution_id, u.branch_id, u.role_id,
-       CASE
-         WHEN r.name = 'System Admin' THEN 'system_admin'
-         WHEN r.name = 'Super Admin' THEN 'super_admin'
-         WHEN r.name = 'Admin' THEN 'institution_admin'
-         WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
-         ELSE NULL
-       END AS role
-     FROM users u
-     LEFT JOIN roles r ON r.id = u.role_id
-     WHERE u.auth_id = $1
-     LIMIT 1`,
-    [authUserId]
-  )
-  return actorRes.rows[0] || null
-}
-
-async function hasPermission(client: any, actor: ActorContext, permission: string): Promise<boolean> {
-  const role = String(actor.role || "").trim().toLowerCase()
-  if (role === "super_admin") return true
-  if (!actor.role_id || !actor.branch_id) return false
-  const permRes = await client.query(
-    `SELECT 1
-     FROM role_permissions rp
-     JOIN permissions p ON p.id = rp.permission_id
-     WHERE rp.role_id = $1 AND rp.branch_id = $2 AND p.name = $3
-     LIMIT 1`,
-    [actor.role_id, actor.branch_id, permission]
-  )
-  return permRes.rowCount > 0
-}
 
 function titleCaseLoanType(v: string): string {
   return v
@@ -96,9 +52,8 @@ function buildTitle(input: {
 
 export async function GET(req: Request) {
   try {
-    const session = await getServerSession(authOptions)
-    if (!session?.user?.authUserId) return NextResponse.json({ error: "unauthorized" }, { status: 401 })
-    if (session.user.type !== "staff") return NextResponse.json({ error: "no_app_user_profile" }, { status: 403 })
+    const sess = await requireStaffSession()
+    if (!sess.ok) return NextResponse.json({ error: sess.error }, { status: sess.status })
 
     const url = new URL(req.url)
     const q = (url.searchParams.get("q") || "").trim()
@@ -115,17 +70,15 @@ export async function GET(req: Request) {
     const selectedBranchIds = branchesRaw.split(",").map((v) => v.trim()).filter(Boolean)
     const selectedProductIds = productRaw.split(",").map((v) => v.trim()).filter(Boolean)
 
-    const result = await runWithAuth(session.user.authUserId, async (client) => {
-      const actor = await resolveActorContext(client, session.user.authUserId as string)
+    const result = await runWithAuth(sess.authUserId, async (client) => {
+      const actor = await resolveActorContext(client, sess.authUserId)
       if (!actor?.institution_id) return { error: "user_not_linked" as const }
       const allowed = await hasPermission(client, actor, "view_loans")
       if (!allowed) return { error: "missing_permission:view_loans" as const }
-      const role = String(actor.role || "").trim().toLowerCase()
-      const isSuperAdmin = role === "super_admin"
-      if (!isSuperAdmin && !actor.branch_id) return { error: "actor_branch_missing" as const }
+      if (!isSuperAdmin(actor) && !actor.branch_id) return { error: "actor_branch_missing" as const }
 
       let branchScopes: BranchScope[] = []
-      if (isSuperAdmin) {
+      if (isSuperAdmin(actor)) {
         const branchRes = await client.query(`SELECT id, name FROM branches WHERE institution_id = $1 ORDER BY name ASC`, [actor.institution_id])
         const allBranches = branchRes.rows as BranchScope[]
         branchScopes = selectedBranchIds.length > 0 ? allBranches.filter((b) => selectedBranchIds.includes(b.id)) : allBranches
@@ -164,11 +117,11 @@ export async function GET(req: Request) {
         if (loanType) { where += ` AND lower(l.loan_type) = $${idx++}`; params.push(loanType) }
         if (selectedProductIds.length === 1) { where += ` AND l.loan_product_id = $${idx++}`; params.push(selectedProductIds[0]) }
         else if (selectedProductIds.length > 1) { where += ` AND l.loan_product_id = ANY($${idx}::uuid[])`; params.push(selectedProductIds); idx++ }
-        if (remainingTenure === "eq1") where += ` AND l.tenure_months = 1`
-        else if (remainingTenure === "lte3") where += ` AND l.tenure_months <= 3`
-        else if (remainingTenure === "lte6") where += ` AND l.tenure_months <= 6`
-        else if (remainingTenure === "lte12") where += ` AND l.tenure_months <= 12`
-        else if (remainingTenure === "gt12") where += ` AND l.tenure_months > 12`
+        if (remainingTenure === "eq1") where += ` AND l.remaining_tenure_months = 1`
+        else if (remainingTenure === "lte3") where += ` AND l.remaining_tenure_months <= 3`
+        else if (remainingTenure === "lte6") where += ` AND l.remaining_tenure_months <= 6`
+        else if (remainingTenure === "lte12") where += ` AND l.remaining_tenure_months <= 12`
+        else if (remainingTenure === "gt12") where += ` AND l.remaining_tenure_months > 12`
         if (applicationDateStart) { where += ` AND l.application_date >= (($${idx}::timestamp AT TIME ZONE 'Africa/Nairobi')::date)`; params.push(applicationDateStart); idx++ }
         if (applicationDateEnd) { where += ` AND l.application_date <= (($${idx}::timestamp AT TIME ZONE 'Africa/Nairobi')::date)`; params.push(applicationDateEnd); idx++ }
         if (nextPaymentDateStart) { where += ` AND l.next_payment_date IS NOT NULL AND l.next_payment_date >= (($${idx}::timestamp AT TIME ZONE 'Africa/Nairobi')::date)`; params.push(nextPaymentDateStart); idx++ }
@@ -186,7 +139,7 @@ export async function GET(req: Request) {
 
         const loanRes = await client.query(
           `SELECT l.application_id, COALESCE(m.full_name, '') AS member_name, COALESCE(p.product_name, '') AS product_name,
-                  l.status, l.loan_type, l.principal_amount, l.tenure_months, l.outstanding_balance, l.application_date, l.next_payment_date
+                  l.status, l.loan_type, l.principal_amount, l.tenure_months, l.remaining_tenure_months, l.outstanding_balance, l.application_date, l.next_payment_date
            FROM loans l
            LEFT JOIN members m ON m.id = l.member_id
            LEFT JOIN loan_products p ON p.id = l.loan_product_id
@@ -208,7 +161,7 @@ export async function GET(req: Request) {
     const date = new Date().toISOString().slice(0, 10)
     if (format === "excel") {
       const workbook = await createExcelWorkbook()
-      const headers = ["Application", "Member", "Product", "Status", "Loan Type", "Amount", "Tenure", "Outstanding", "Applied", "Next Payment"]
+      const headers = ["Application", "Member", "Product", "Status", "Loan Type", "Amount", "Remaining Tenure", "Outstanding", "Applied", "Next Payment"]
       for (const sheet of result.sheets || []) {
         const ws = workbook.addWorksheet(toSafeExcelSheetName(sheet.branch_name))
         addExcelTitleAndHeaders(ws, result.title || "Loans Report", headers, "A1:J1")
@@ -224,7 +177,7 @@ export async function GET(req: Request) {
             row.status || "",
             row.loan_type || "",
             Number(row.principal_amount || 0),
-            Number(row.tenure_months || 0),
+            Number(row.remaining_tenure_months ?? row.tenure_months ?? 0),
             Number(row.outstanding_balance || 0),
             row.application_date ? formatIsoDateForExcel(row.application_date) : "",
             row.next_payment_date ? formatIsoDateForExcel(row.next_payment_date) : "",

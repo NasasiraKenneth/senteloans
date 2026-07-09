@@ -97,9 +97,9 @@ export async function GET(req: Request) {
       if (assignedTo === "staff") {
         where += ` AND t.staff_id IS NOT NULL AND su.id IS NOT NULL`
       } else if (assignedTo === "clients") {
-        where += ` AND (t.client_id IS NOT NULL OR COALESCE(c.name, '') <> '')`
+        where += ` AND (t.third_party_agent_id IS NOT NULL OR COALESCE(c.name, '') <> '')`
       } else {
-        where += ` AND t.member_id IS NOT NULL AND t.client_id IS NULL AND t.staff_id IS NULL AND m.id IS NOT NULL`
+        where += ` AND t.member_id IS NOT NULL AND t.third_party_agent_id IS NULL AND t.staff_id IS NULL AND m.id IS NOT NULL`
       }
       if (memberId) {
         where += ` AND t.member_id = $${idx++}`
@@ -109,10 +109,10 @@ export async function GET(req: Request) {
         params.push(memberIds)
       }
       if (clientId) {
-        where += ` AND t.client_id = $${idx++}`
+        where += ` AND t.third_party_agent_id = $${idx++}`
         params.push(clientId)
       } else if (clientIds.length > 0) {
-        where += ` AND t.client_id = ANY($${idx++}::uuid[])`
+        where += ` AND t.third_party_agent_id = ANY($${idx++}::uuid[])`
         params.push(clientIds)
       }
       if (staffId) {
@@ -161,7 +161,7 @@ export async function GET(req: Request) {
            t.balance_after,
            t.transaction_date,
            t.member_id,
-           t.client_id,
+           t.third_party_agent_id,
            t.staff_id,
            t.account_id,
            t.loan_id,
@@ -174,7 +174,7 @@ export async function GET(req: Request) {
            sa.account_number
          FROM transactions t
          LEFT JOIN members m ON m.id = t.member_id
-         LEFT JOIN clients c ON c.id = t.client_id
+         LEFT JOIN third_party_agents c ON c.id = t.third_party_agent_id
          LEFT JOIN users su ON su.id = t.staff_id
          LEFT JOIN savings_accounts sa ON sa.id = t.account_id
          WHERE ${where}

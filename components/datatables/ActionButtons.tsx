@@ -7,6 +7,7 @@ interface TableAction<T> {
   variant?: 'danger' | 'primary' | 'view' | 'pdf' | string;
   icon?: React.ReactNode;
   disabled?: boolean | ((row: T) => boolean);
+  disabledTooltip?: string;
 }
 
 interface ActionButtonsProps<T> {
@@ -38,7 +39,7 @@ export function ActionButtons<T>({ actions, row }: ActionButtonsProps<T>) {
           return (
         <TooltipButton
           key={index}
-          tooltip={isDisabled ? `${action.label} (No permission)` : action.label}
+          tooltip={isDisabled ? (action.disabledTooltip ?? `${action.label} (No permission)`) : action.label}
           disabled={isDisabled}
           onClick={(e) => {
             e.stopPropagation();

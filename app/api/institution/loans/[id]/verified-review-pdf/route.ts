@@ -1,73 +1,23 @@
 import { NextResponse } from "next/server"
-import { getServerSession } from "next-auth"
-import { authOptions } from "@/lib/auth"
 import { runWithAuth } from "@/lib/db"
 import { renderVerifiedLoanReviewPdfBuffer } from "./verified-review-pdf"
-
-type ActorContext = {
-  institution_id: string
-  branch_id: string | null
-  role_id: string | null
-  role: string | null
-}
-
-async function resolveActorContext(client: any, authUserId: string): Promise<ActorContext | null> {
-  const actorRes = await client.query(
-    `SELECT
-       u.institution_id,
-       u.branch_id,
-       u.role_id,
-       CASE
-         WHEN r.name = 'System Admin' THEN 'system_admin'
-         WHEN r.name = 'Super Admin' THEN 'super_admin'
-         WHEN r.name = 'Admin' THEN 'institution_admin'
-         WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
-         ELSE NULL
-       END AS role
-     FROM users u
-     LEFT JOIN roles r ON r.id = u.role_id
-     WHERE u.auth_id = $1
-       AND u.status = 'Active'
-     LIMIT 1`,
-    [authUserId],
-  )
-  return actorRes.rows[0] || null
-}
-
-async function hasPermission(client: any, actor: ActorContext, permission: string): Promise<boolean> {
-  const role = String(actor.role || "").trim().toLowerCase()
-  if (role === "super_admin") return true
-  if (!actor.role_id || !actor.branch_id) return false
-  const permRes = await client.query(
-    `SELECT 1
-     FROM role_permissions rp
-     JOIN permissions p ON p.id = rp.permission_id
-     WHERE rp.role_id = $1
-       AND rp.branch_id = $2
-       AND p.name = $3
-     LIMIT 1`,
-    [actor.role_id, actor.branch_id, permission],
-  )
-  return permRes.rowCount > 0
-}
+import { hasPermission, isSuperAdmin, requireStaffSession, resolveActorContext } from "@/lib/api/rbac"
 
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params
     if (!id) return NextResponse.json({ error: "missing_loan_id" }, { status: 400 })
 
-    const session = await getServerSession(authOptions)
-    if (!session?.user?.authUserId) return NextResponse.json({ error: "unauthorized" }, { status: 401 })
-    if (session.user.type !== "staff") return NextResponse.json({ error: "no_app_user_profile" }, { status: 403 })
+    const sess = await requireStaffSession()
+    if (!sess.ok) return NextResponse.json({ error: sess.error }, { status: sess.status })
 
-    const result = await runWithAuth(session.user.authUserId, async (client) => {
-      const actor = await resolveActorContext(client, session.user.authUserId as string)
-      if (!actor?.institution_id) return { error: "no_app_user_profile" as const }
+    const result = await runWithAuth(sess.authUserId, async (client) => {
+      const actor = await resolveActorContext(client, sess.authUserId)
+      if (!actor?.institution_id) return { error: "user_not_linked" as const }
       const allowed = await hasPermission(client, actor, "review_loan")
       if (!allowed) return { error: "missing_permission:review_loan" as const }
 
-      const isSuperAdmin = String(actor.role || "").trim().toLowerCase() === "super_admin"
-      if (!isSuperAdmin && !actor.branch_id) return { error: "actor_branch_missing" as const }
+      if (!isSuperAdmin(actor) && !actor.branch_id) return { error: "actor_branch_missing" as const }
 
       const loanRes = await client.query(
         `SELECT
@@ -95,9 +45,9 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
          LEFT JOIN roles rr ON rr.id = ru.role_id
          WHERE l.id = $1
            AND l.institution_id = $2
-           ${isSuperAdmin ? "" : "AND l.branch_id = $3"}
+           ${isSuperAdmin(actor) ? "" : "AND l.branch_id = $3"}
          LIMIT 1`,
-        isSuperAdmin ? [id, actor.institution_id] : [id, actor.institution_id, actor.branch_id],
+        isSuperAdmin(actor) ? [id, actor.institution_id] : [id, actor.institution_id, actor.branch_id],
       )
       const loan = loanRes.rows[0]
       if (!loan) return { error: "not_found" as const }
@@ -142,7 +92,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       const status =
         code === "not_found" ? 404 :
         code.startsWith("missing_permission:") ? 403 :
-        code === "no_app_user_profile" ? 403 : 400
+        code === "user_not_linked" ? 403 : 400
       return NextResponse.json({ error: code }, { status })
     }
 

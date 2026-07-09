@@ -12,7 +12,7 @@ import DataTable from "@/components/datatables/DataTable"
 import { DataTableColumn } from "@/components/datatables/DataTable"
 import { FilterField } from "@/components/datatables/TableFilter"
 import { ActionButtons } from "@/components/datatables/ActionButtons"
-import { getSession } from "@/lib/session"
+import { getInstitutionCurrency } from "@/lib/session"
 import { withBranchFilterFirst } from "@/lib/filters/branch-first-filter"
 import { downloadLoanProductsExport } from "./export/export"
 import AddNewLoanProduct from "./components/add/addNewLoanProduct"
@@ -66,8 +66,7 @@ export default function LoanProductsPage() {
   const permissionToastShown = useRef(false)
 
   useEffect(() => {
-    const s = getSession()
-    if (s?.institution?.config?.currency) setCurrency(s.institution.config.currency)
+    setCurrency(getInstitutionCurrency("UGX"))
   }, [])
 
   const toggleRowExpand = (rowId: string | number) => {

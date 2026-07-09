@@ -44,13 +44,13 @@ const sectionMeta = {
   },
   unclaimed: {
     title: "Unclaimed deposits",
-    description: "Record deposits before they are linked to a member or client.",
+    description: "Record deposits before they are linked to a member or third party agent.",
     addLabel: "Add unclaimed deposit",
     icon: Inbox,
   },
   grants: {
     title: "Grants",
-    description: "Allocate and monitor grant pools per client organization.",
+    description: "Allocate and monitor grant pools per third party agent.",
     addLabel: "Add grant",
     icon: HandCoins,
   },

@@ -2,32 +2,22 @@ import { NextResponse } from "next/server"
 import { runWithAuth } from "@/lib/db"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
 import { auditCashflowUpdate, auditExpenseUpdate, cashflowSnapshot, expenseSnapshot } from "@/lib/audit/expense-audit"
-import { hasPermission, isSuperAdmin, requireStaffSession, resolveActorContext } from "@/lib/api/rbac"
-
-function singleExpenseWhere(actor: NonNullable<Awaited<ReturnType<typeof resolveActorContext>>>, expenseId: string): { where: string; values: unknown[] } {
-  let where = `e.id = $1::uuid AND e.institution_id = $2::uuid`
-  const values: unknown[] = [expenseId, actor.institution_id]
-  if (!isSuperAdmin(actor)) {
-    where += ` AND e.branch_id = $3::uuid`
-    values.push(actor.branch_id)
-  }
-  return { where, values }
-}
+import { requireStaffSession } from "@/lib/api/rbac"
+import {
+  assertExpenseWriteAccess,
+  expenseScopeWhere,
+  mapExpenseMutationErrorResponse,
+} from "@/lib/api/expense-access"
 
 /** WHERE clause placeholders start at `paramStart` (use 2 when SET already uses $1). */
 function expenseUpdateWhere(
-  actor: NonNullable<Awaited<ReturnType<typeof resolveActorContext>>>,
+  actor: { institution_id: string; branch_id: string },
   expenseId: string,
   paramStart = 1,
 ): { where: string; params: unknown[] } {
-  const params: unknown[] = [expenseId, actor.institution_id]
-  let idx = paramStart
-  let where = `e.id = $${idx}::uuid AND e.institution_id = $${idx + 1}::uuid`
-  idx += 2
-  if (!isSuperAdmin(actor)) {
-    where += ` AND e.branch_id = $${idx}::uuid`
-    params.push(actor.branch_id)
-  }
+  const params: unknown[] = [expenseId, actor.institution_id, actor.branch_id]
+  const idx = paramStart
+  const where = `e.id = $${idx}::uuid AND e.institution_id = $${idx + 1}::uuid AND e.branch_id = $${idx + 2}::uuid`
   return { where, params }
 }
 
@@ -74,15 +64,20 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     }
 
     const result = await runWithAuth(sess.authUserId, async (client) => {
-      const actor = await resolveActorContext(client, sess.authUserId)
-      if (!actor?.institution_id) return { error: "user_not_linked" as const }
-      const allowed = await hasPermission(client, actor, "edit_expense_status")
-      if (!allowed) return { error: "missing_permission:edit_expense_status" as const }
-      if (!isSuperAdmin(actor) && !actor.branch_id) return { error: "actor_branch_missing" as const }
+      const access = await assertExpenseWriteAccess(client, sess.authUserId, "edit_expense_status")
+      if (!access.ok) {
+        return {
+          error: access.error,
+          message: access.message,
+          staffStatus: access.staffStatus,
+          branchStatus: access.branchStatus,
+        }
+      }
+      const { actor } = access
 
-      const { where, values } = singleExpenseWhere(actor, expenseId)
+      const { where, values } = expenseScopeWhere(actor, expenseId)
       const existing = await client.query(
-        `SELECT e.id, e.expense_number, e.name, e.description, e.status, e.type, e.category_id, e.branch_id,
+        `SELECT e.id, e.expense_number, e.name, e.description, e.status, e.type, e.branch_id,
                 e.approved_by, e.approved_at, e.rejected_by, e.rejected_at, e.completed_by, e.completed_at
          FROM expenses e WHERE ${where} LIMIT 1`,
         values,
@@ -131,7 +126,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
                  rejected_at = NULL,
                  updated_at = NOW()
              WHERE ${updWhere}
-             RETURNING e.id, e.expense_number, e.name, e.description, e.status, e.type, e.category_id, e.branch_id,
+             RETURNING e.id, e.expense_number, e.name, e.description, e.status, e.type, e.branch_id,
                        e.approved_by, e.approved_at, e.rejected_by, e.rejected_at, e.completed_by, e.completed_at, e.updated_at`,
             updParams,
           )
@@ -166,7 +161,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
                  completed_at = NOW(),
                  updated_at = NOW()
              WHERE ${updWhere}
-             RETURNING e.id, e.expense_number, e.name, e.description, e.status, e.type, e.category_id, e.branch_id,
+             RETURNING e.id, e.expense_number, e.name, e.description, e.status, e.type, e.branch_id,
                        e.approved_by, e.approved_at, e.rejected_by, e.rejected_at, e.completed_by, e.completed_at, e.updated_at`,
             updParams,
           )
@@ -197,7 +192,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
                approved_at = NULL,
                updated_at = NOW()
            WHERE ${updWhere}
-           RETURNING e.id, e.expense_number, e.name, e.description, e.status, e.type, e.category_id, e.branch_id,
+           RETURNING e.id, e.expense_number, e.name, e.description, e.status, e.type, e.branch_id,
                      e.approved_by, e.approved_at, e.rejected_by, e.rejected_at, e.completed_by, e.completed_at, e.updated_at`,
           updParams,
         )
@@ -209,11 +204,11 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         // Cancel is only allowed while expense is Pending or Approved; completing a cashflow
         // moves Approved → Active, so only pending lines should exist at cancel time.
         const pendingCf = await client.query(
-          `SELECT id, expense_id, staff_id, client_id, payment_method::text AS payment_method, amount,
+          `SELECT id, expense_id, staff_id, third_party_agent_id, payment_method::text AS payment_method, amount,
                   description, status, date::text AS date, transaction_id, completed_by, completed_at
            FROM expense_cashflows
            WHERE expense_id = $1::uuid
-             AND LOWER(TRIM(COALESCE(status::text, ''))) = 'pending'
+             AND LOWER(TRIM(COALESCE(status::text, ''))) IN ('pending', 'unpaid')
            FOR UPDATE`,
           [expenseId],
         )
@@ -226,8 +221,8 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
                  completed_by = $2::uuid,
                  completed_at = NOW()
              WHERE expense_id = $1::uuid
-               AND LOWER(TRIM(COALESCE(status::text, ''))) = 'pending'
-             RETURNING id, expense_id, staff_id, client_id, payment_method::text AS payment_method, amount,
+               AND LOWER(TRIM(COALESCE(status::text, ''))) IN ('pending', 'unpaid')
+             RETURNING id, expense_id, staff_id, third_party_agent_id, payment_method::text AS payment_method, amount,
                        description, status, date::text AS date, transaction_id, completed_by, completed_at`,
             [expenseId, actor.id],
           )
@@ -270,23 +265,22 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
     if (result && "error" in result) {
       const code = String(result.error || "")
-      const statusCode =
-        code === "missing_permission:edit_expense_status" ? 403
-        : code === "user_not_linked" ? 403
-        : code === "actor_branch_missing" ? 400
-        : code === "not_found" ? 404
-        : code === "expense_not_pending" ||
-            code === "expense_not_pending_or_approved" ||
-            code === "expense_not_active"
-          ? 409
-        : code === "update_failed" ? 500
-        : 400
-      apiLog("warn", "expenses.status.patch.denied", { method: "PATCH", apiPath, status: statusCode, error: code })
-      const payload: { error: string; message?: string } = { error: code }
-      if ("message" in result && typeof result.message === "string" && result.message.trim()) {
-        payload.message = result.message.trim()
-      }
-      return NextResponse.json(payload, { status: statusCode })
+      const { status, body } = mapExpenseMutationErrorResponse(
+        {
+          error: code,
+          message: "message" in result ? String(result.message || "") : undefined,
+          staffStatus: "staffStatus" in result ? result.staffStatus : undefined,
+          branchStatus: "branchStatus" in result ? result.branchStatus : undefined,
+        },
+        {
+          expense_not_pending: 409,
+          expense_not_pending_or_approved: 409,
+          expense_not_active: 409,
+          update_failed: 500,
+        },
+      )
+      apiLog("warn", "expenses.status.patch.denied", { method: "PATCH", apiPath, status, error: code })
+      return NextResponse.json(body, { status })
     }
 
     apiLog("info", "expenses.status.patch.success", { method: "PATCH", apiPath, status: 200 })

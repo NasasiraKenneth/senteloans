@@ -3,7 +3,10 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { runWithAuth } from "@/lib/db"
 import { auditLogger } from "@/lib/audit/audit-logger"
-import { hasInvestmentPermission, resolveInvestmentActor } from "@/lib/api/investment-rbac"
+import {
+  assertInvestmentWriteAccess,
+  investmentRouteDenialResponse,
+} from "@/lib/api/investment-access"
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
@@ -19,22 +22,25 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   }
   if (Number.isNaN(amount) || amount < 0) return NextResponse.json({ error: "invalid_amount" }, { status: 400 })
   return runWithAuth(session.user.authUserId, async (client) => {
-    const actor = await resolveInvestmentActor(client, session.user.authUserId as string)
-    if (!actor?.institution_id) return NextResponse.json({ error: "user_not_linked" }, { status: 403 })
-    const allowed = await hasInvestmentPermission(client, actor, "edit_investment_funding")
-    if (!allowed) return NextResponse.json({ error: "missing_permission:edit_investment_funding" }, { status: 403 })
-
-    const isSuperAdmin = String(actor.role || "").trim().toLowerCase() === "super_admin"
-    if (!isSuperAdmin && !actor.branch_id) return NextResponse.json({ error: "actor_branch_missing" }, { status: 400 })
+    const access = await assertInvestmentWriteAccess(
+      client,
+      session.user.authUserId as string,
+      "edit_investment_funding",
+    )
+    if (!access.ok) {
+      const { status, body } = investmentRouteDenialResponse(access)
+      return NextResponse.json(body, { status })
+    }
+    const { actor } = access
 
     const investmentRes = await client.query(
       `SELECT i.id, i.branch_id
        FROM investments i
        WHERE i.id = $1
          AND i.institution_id = $2
-         ${isSuperAdmin ? "" : "AND i.branch_id = $3"}
+         AND i.branch_id = $3
        LIMIT 1`,
-      isSuperAdmin ? [id, actor.institution_id] : [id, actor.institution_id, actor.branch_id],
+      [id, actor.institution_id, actor.branch_id],
     )
     if (investmentRes.rowCount === 0) return NextResponse.json({ error: "investment_not_found" }, { status: 404 })
     const investmentBranchId = String(investmentRes.rows[0]?.branch_id || actor.branch_id || "")

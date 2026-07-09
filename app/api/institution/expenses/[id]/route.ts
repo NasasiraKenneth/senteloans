@@ -1,18 +1,18 @@
 import { NextResponse } from "next/server"
-import { runWithAuth } from "@/lib/db"
+import { runWithAuth, runWithoutAuth } from "@/lib/db"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
 import { auditExpenseUpdate, expenseSnapshot } from "@/lib/audit/expense-audit"
-import { hasPermission, isSuperAdmin, requireStaffSession, resolveActorContext } from "@/lib/api/rbac"
-
-function singleExpenseWhere(actor: NonNullable<Awaited<ReturnType<typeof resolveActorContext>>>, expenseId: string): { where: string; values: unknown[] } {
-  let where = `e.id = $1::uuid AND e.institution_id = $2::uuid`
-  const values: unknown[] = [expenseId, actor.institution_id]
-  if (!isSuperAdmin(actor)) {
-    where += ` AND e.branch_id = $3::uuid`
-    values.push(actor.branch_id)
-  }
-  return { where, values }
-}
+import { hasPermission, requireStaffSession } from "@/lib/api/rbac"
+import {
+  assertExpenseReadAccess,
+  assertExpenseWriteAccess,
+  expenseScopeWhere,
+  mapExpenseMutationErrorResponse,
+  mapExpenseReadErrorResponse,
+} from "@/lib/api/expense-access"
+import { isValidExpenseType } from "@/lib/expenses/expense-types"
+import { computeExpenseCashflowPaymentTotals } from "@/lib/expenses/expense-cashflow-payment-totals"
+import { notifyExpenseUpdated } from "@/lib/notifications/expense-events"
 
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const apiPath = getApiPath(req)
@@ -29,14 +29,17 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     }
 
     const result = await runWithAuth(sess.authUserId, async (client) => {
-      const actor = await resolveActorContext(client, sess.authUserId)
-      if (!actor?.institution_id) return { error: "user_not_linked" as const }
-      const canView = await hasPermission(client, actor, "view_expenses")
+      const access = await assertExpenseReadAccess(client, sess.authUserId, ["view_expenses", "edit_expense"])
+      if (!access.ok) {
+        return {
+          error: access.error,
+          staffStatus: access.staffStatus,
+        }
+      }
+      const { actor } = access
       const canEditExpense = await hasPermission(client, actor, "edit_expense")
-      if (!canView && !canEditExpense) return { error: "missing_permission:view_expenses" as const }
-      if (!isSuperAdmin(actor) && !actor.branch_id) return { error: "actor_branch_missing" as const }
 
-      const { where, values } = singleExpenseWhere(actor, expenseId)
+      const { where, values } = expenseScopeWhere(actor, expenseId)
       const res = await client.query(
         `SELECT
            e.id,
@@ -45,8 +48,6 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
            e.description,
            e.type,
            e.status,
-           e.category_id,
-           c.category AS category_name,
            e.branch_id,
            b.name AS branch_name,
            e.created_at,
@@ -54,7 +55,6 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
            e.approved_at,
            u.full_name AS created_by_name
          FROM expenses e
-         JOIN expense_categories c ON c.id = e.category_id
          LEFT JOIN branches b ON b.id = e.branch_id
          JOIN users u ON u.id = e.created_by
          WHERE ${where}
@@ -93,15 +93,20 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
            cf.payment_method::text AS payment_method,
            cf.created_at,
            cf.staff_id,
-           cf.client_id,
+           cf.third_party_agent_id,
            cf.completed_by,
            cf.completed_at,
+           COALESCE((
+             SELECT SUM(p.amount)::float
+             FROM expense_cashflows_payments p
+             WHERE p.expense_cashflow_id = cf.id
+           ), 0) AS paid_amount,
            su.full_name AS staff_name,
            c.name AS client_name,
            u.full_name AS completed_by_name
          FROM expense_cashflows cf
          LEFT JOIN users su ON su.id = cf.staff_id
-         LEFT JOIN clients c ON c.id = cf.client_id
+         LEFT JOIN third_party_agents c ON c.id = cf.third_party_agent_id
          LEFT JOIN users u ON u.id = cf.completed_by
          WHERE cf.expense_id = $1::uuid
          ORDER BY cf.created_at DESC`,
@@ -109,17 +114,17 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       )
       const cashflows = cashRes.rows.map((cf: Record<string, unknown>) => {
         const staffId = cf.staff_id != null ? String(cf.staff_id) : null
-        const clientId = cf.client_id != null ? String(cf.client_id) : null
+        const thirdPartyAgentId = cf.third_party_agent_id != null ? String(cf.third_party_agent_id) : null
         const staffName = cf.staff_name != null ? String(cf.staff_name).trim() : ""
-        const clientName = cf.client_name != null ? String(cf.client_name).trim() : ""
+        const agentName = cf.client_name != null ? String(cf.client_name).trim() : ""
         let assigned_type: "staff" | "client" | null = null
         let assigned_name: string | null = null
         if (staffId) {
           assigned_type = "staff"
           assigned_name = staffName || "Staff"
-        } else if (clientId) {
+        } else if (thirdPartyAgentId) {
           assigned_type = "client"
-          assigned_name = clientName || "Client"
+          assigned_name = agentName || "Third Party Agent"
         }
         return {
           id: String(cf.id),
@@ -130,14 +135,87 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
           payment_method: cf.payment_method != null ? String(cf.payment_method) : null,
           created_at: cf.created_at != null ? String(cf.created_at) : "",
           staff_id: staffId,
-          client_id: clientId,
+          third_party_agent_id: thirdPartyAgentId,
           assigned_type,
           assigned_name,
           completed_by: cf.completed_by != null ? String(cf.completed_by) : null,
           completed_at: cf.completed_at != null ? String(cf.completed_at) : null,
           completed_by_name: cf.completed_by_name != null ? String(cf.completed_by_name).trim() : null,
+          ...computeExpenseCashflowPaymentTotals(Number(cf.amount || 0), Number(cf.paid_amount || 0)),
         }
       })
+
+      const cashflowIds = cashflows.map((cf) => cf.id)
+      let paymentsMap: Record<
+        string,
+        Array<{
+          id: string
+          expense_cashflow_id: string
+          amount: number
+          payment_date: string
+          transaction_number: string | null
+          mode: string | null
+          reference_number: string | null
+          processed_by_name: string | null
+        }>
+      > = {}
+
+      if (cashflowIds.length > 0) {
+        const paymentsRes = await client.query<{
+          id: string
+          expense_cashflow_id: string
+          amount: string
+          payment_date: string
+          transaction_number: string | null
+          mode: string | null
+          reference_number: string | null
+          processed_by_name: string | null
+        }>(
+          `SELECT
+             p.id,
+             p.expense_cashflow_id,
+             p.amount,
+             COALESCE(p.created_at, p.date::timestamptz)::text AS payment_date,
+             t.transaction_number,
+             COALESCE(t.mode::text, p.payment_method::text) AS mode,
+             t.reference_number,
+             u.full_name AS processed_by_name
+           FROM expense_cashflows_payments p
+           LEFT JOIN transactions t ON t.id = p.transaction_id
+           LEFT JOIN users u ON u.id = p.created_by
+           WHERE p.expense_cashflow_id = ANY($1::uuid[])
+           ORDER BY p.date ASC NULLS LAST, p.created_at ASC`,
+          [cashflowIds],
+        )
+        paymentsMap = paymentsRes.rows.reduce<typeof paymentsMap>((acc, row) => {
+          const key = String(row.expense_cashflow_id)
+          if (!acc[key]) acc[key] = []
+          acc[key].push({
+            id: String(row.id),
+            expense_cashflow_id: key,
+            amount: Number(row.amount || 0),
+            payment_date: String(row.payment_date || ""),
+            transaction_number: row.transaction_number != null ? String(row.transaction_number) : null,
+            mode: row.mode != null ? String(row.mode) : null,
+            reference_number: row.reference_number != null ? String(row.reference_number) : null,
+            processed_by_name: row.processed_by_name != null ? String(row.processed_by_name).trim() : null,
+          })
+          return acc
+        }, {})
+      }
+
+      const cashflowsWithPayments = cashflows.map((cf) => ({
+        ...cf,
+        payments: (paymentsMap[cf.id] || []).map((p) => ({
+          id: p.id,
+          amount: p.amount,
+          payment_date: p.payment_date,
+          transaction_number: p.transaction_number,
+          mode: p.mode,
+          reference_number: p.reference_number,
+          processed_by_name: p.processed_by_name,
+        })),
+      }))
 
       const fundingTotal = funding.reduce((s, r) => s + r.amount, 0)
       const cashflowsTotal = cashflows.reduce((s, r) => s + r.amount, 0)
@@ -148,10 +226,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
           expense_number: String(row.expense_number || ""),
           name: String(row.name || ""),
           description: row.description != null ? String(row.description) : null,
-          type: String(row.type || "Short-term"),
+          type: String(row.type || ""),
           status: statusRaw,
-          category_id: String(row.category_id || ""),
-          category_name: String(row.category_name || ""),
           branch_id: row.branch_id != null ? String(row.branch_id) : "",
           branch_name: String(row.branch_name || ""),
           created_at: row.created_at != null ? String(row.created_at) : "",
@@ -163,20 +239,22 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
           cashflows_total: cashflowsTotal,
         },
         funding,
-        cashflows,
+        cashflows: cashflowsWithPayments,
       }
     })
 
     if (result && "error" in result) {
       const code = String(result.error || "")
-      const statusCode =
-        code === "missing_permission:view_expenses" ? 403
-        : code === "user_not_linked" ? 403
-        : code === "actor_branch_missing" ? 400
-        : code === "not_found" ? 404
-        : 400
-      apiLog("warn", "expenses.detail.denied", { method: "GET", apiPath, status: statusCode, error: code })
-      return NextResponse.json({ error: result.error }, { status: statusCode })
+      if (code === "not_found") {
+        apiLog("warn", "expenses.detail.denied", { method: "GET", apiPath, status: 404, error: code })
+        return NextResponse.json({ error: code }, { status: 404 })
+      }
+      const { status, body } = mapExpenseReadErrorResponse({
+        error: code,
+        staffStatus: "staffStatus" in result ? result.staffStatus : undefined,
+      })
+      apiLog("warn", "expenses.detail.denied", { method: "GET", apiPath, status, error: code })
+      return NextResponse.json(body, { status })
     }
 
     apiLog("info", "expenses.detail.success", { method: "GET", apiPath, status: 200 })
@@ -208,16 +286,16 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     descriptionRaw === null || descriptionRaw === undefined || String(descriptionRaw).trim() === ""
       ? null
       : String(descriptionRaw).trim()
-  const category_id = String(body.category_id ?? "").trim()
-  const typeRaw = body.type != null ? String(body.type).trim() : ""
-  const expense_type = typeRaw || "Short-term"
-  const branch_id_input = body.branch_id != null && String(body.branch_id).trim() !== "" ? String(body.branch_id).trim() : null
+  const expense_type = String(body.type ?? "").trim()
 
   if (!name) {
     return NextResponse.json({ error: "name_required" }, { status: 400 })
   }
-  if (!category_id) {
-    return NextResponse.json({ error: "category_id_required" }, { status: 400 })
+  if (!expense_type) {
+    return NextResponse.json({ error: "type_required" }, { status: 400 })
+  }
+  if (!isValidExpenseType(expense_type)) {
+    return NextResponse.json({ error: "invalid_type" }, { status: 400 })
   }
   if (expense_type.length > 30) {
     return NextResponse.json({ error: "type_too_long" }, { status: 400 })
@@ -231,15 +309,20 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     }
 
     const result = await runWithAuth(sess.authUserId, async (client) => {
-      const actor = await resolveActorContext(client, sess.authUserId)
-      if (!actor?.institution_id) return { error: "user_not_linked" as const }
-      const allowed = await hasPermission(client, actor, "edit_expense")
-      if (!allowed) return { error: "missing_permission:edit_expense" as const }
-      if (!isSuperAdmin(actor) && !actor.branch_id) return { error: "actor_branch_missing" as const }
+      const access = await assertExpenseWriteAccess(client, sess.authUserId, "edit_expense")
+      if (!access.ok) {
+        return {
+          error: access.error,
+          message: access.message,
+          staffStatus: access.staffStatus,
+          branchStatus: access.branchStatus,
+        }
+      }
+      const { actor } = access
 
-      const { where, values } = singleExpenseWhere(actor, expenseId)
+      const { where, values } = expenseScopeWhere(actor, expenseId)
       const existing = await client.query(
-        `SELECT e.id, e.expense_number, e.name, e.description, e.status, e.type, e.category_id, e.branch_id,
+        `SELECT e.id, e.expense_number, e.name, e.description, e.status, e.type, e.branch_id,
                 e.approved_by, e.approved_at, e.rejected_by, e.rejected_at, e.completed_by, e.completed_at
          FROM expenses e WHERE ${where} LIMIT 1`,
         values,
@@ -253,39 +336,20 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         }
       }
 
-      const cat = await client.query(`SELECT id FROM expense_categories WHERE id = $1::uuid LIMIT 1`, [category_id])
-      if ((cat.rowCount ?? 0) === 0) return { error: "invalid_category" as const }
-
-      let nextBranchId: string = String(ex.branch_id || "")
-      if (isSuperAdmin(actor) && branch_id_input) {
-        const br = await client.query(
-          `SELECT id FROM branches WHERE id = $1::uuid AND institution_id = $2::uuid LIMIT 1`,
-          [branch_id_input, actor.institution_id],
-        )
-        if ((br.rowCount ?? 0) === 0) return { error: "invalid_branch" as const }
-        nextBranchId = branch_id_input
-      }
-
-      const setParams: unknown[] = [name, description, category_id, expense_type, nextBranchId]
-      let w = `e.id = $6::uuid AND e.institution_id = $7::uuid`
-      setParams.push(expenseId, actor.institution_id)
-      if (!isSuperAdmin(actor)) {
-        w += ` AND e.branch_id = $8::uuid`
-        setParams.push(actor.branch_id)
-      }
+      const nextBranchId = String(ex.branch_id || "")
 
       const upd = await client.query(
         `UPDATE expenses e
          SET name = $1,
              description = $2,
-             category_id = $3::uuid,
-             type = $4,
-             branch_id = $5::uuid,
+             type = $3,
              updated_at = NOW()
-         WHERE ${w}
-         RETURNING e.id, e.expense_number, e.name, e.description, e.type, e.status, e.category_id, e.branch_id,
+         WHERE e.id = $4::uuid
+           AND e.institution_id = $5::uuid
+           AND e.branch_id = $6::uuid
+         RETURNING e.id, e.expense_number, e.name, e.description, e.type, e.status, e.branch_id,
                    e.approved_by, e.approved_at, e.rejected_by, e.rejected_at, e.completed_by, e.completed_at, e.updated_at`,
-        setParams,
+        [name, description, expense_type, expenseId, actor.institution_id, actor.branch_id],
       )
 
       const row = upd.rows[0] as Record<string, unknown> | undefined
@@ -307,29 +371,82 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         type: String(row.type || ""),
         status: String(row.status || ""),
         updated_at: row.updated_at != null ? String(row.updated_at) : "",
+        postCommit: {
+          actorId: actor.id,
+          institutionId: actor.institution_id,
+          branchId: actor.branch_id,
+          expense: {
+            id: expenseId,
+            name: String(row.name || ""),
+            expense_number: String(row.expense_number || ""),
+            type: String(row.type || ""),
+            status: String(row.status || ""),
+          },
+        },
       }
     })
 
     if (result && "error" in result) {
       const code = String(result.error || "")
-      const statusCode =
-        code === "missing_permission:edit_expense" ? 403
-        : code === "user_not_linked" ? 403
-        : code === "actor_branch_missing" ? 400
-        : code === "not_found" ? 404
-        : code === "expense_not_editable" ? 409
-        : code === "invalid_category" || code === "invalid_branch" ? 400
-        : 400
-      apiLog("warn", "expenses.update.denied", { method: "PATCH", apiPath, status: statusCode, error: code })
-      const payload: { error: string; message?: string } = { error: code }
-      if ("message" in result && typeof result.message === "string" && result.message.trim()) {
-        payload.message = result.message.trim()
-      }
-      return NextResponse.json(payload, { status: statusCode })
+      const { status, body } = mapExpenseMutationErrorResponse(
+        {
+          error: code,
+          message: "message" in result ? String(result.message || "") : undefined,
+          staffStatus: "staffStatus" in result ? result.staffStatus : undefined,
+          branchStatus: "branchStatus" in result ? result.branchStatus : undefined,
+        },
+        {
+          expense_not_editable: 409,
+          update_failed: 500,
+        },
+      )
+      apiLog("warn", "expenses.update.denied", { method: "PATCH", apiPath, status, error: code })
+      return NextResponse.json(body, { status })
     }
 
     apiLog("info", "expenses.update.success", { method: "PATCH", apiPath, status: 200 })
-    return NextResponse.json(result)
+
+    const ctx = result && "postCommit" in result ? result.postCommit : null
+    if (ctx) {
+      try {
+        const notifyRes = await runWithoutAuth((notifyClient) =>
+          notifyExpenseUpdated({
+            client: notifyClient,
+            actor: {
+              id: ctx.actorId,
+              institution_id: ctx.institutionId,
+              branch_id: ctx.branchId,
+            },
+            expense: ctx.expense,
+          }),
+        )
+        apiLog(
+          notifyRes.ok ? "info" : "warn",
+          notifyRes.ok
+            ? "expenses.update.notifications_dispatched"
+            : "expenses.update.notifications_partial",
+          {
+            method: "PATCH",
+            apiPath,
+            status: 200,
+            expenseId: result.id,
+            staffNotifications: notifyRes.staffNotifications,
+            ...(notifyRes.errors.length ? { errors: notifyRes.errors } : {}),
+          },
+        )
+      } catch (notifyErr) {
+        apiLog("error", "expenses.update.notifications_failed", {
+          method: "PATCH",
+          apiPath,
+          status: 200,
+          expenseId: result.id,
+          error: (notifyErr as Error)?.message || "notify_failed",
+        })
+      }
+    }
+
+    const { postCommit: _postCommit, ...payload } = result
+    return NextResponse.json(payload)
   } catch (e: unknown) {
     const err = e as Error
     apiLog("error", "expenses.update.error", { method: "PATCH", apiPath, status: 500, error: err?.message || "Unexpected error" })

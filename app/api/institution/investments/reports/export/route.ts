@@ -8,7 +8,7 @@ import {
   formatIsoDateForExcel,
   toSafeExcelSheetName,
 } from "@/lib/export/server-excel"
-import { hasInvestmentPermission, resolveInvestmentActor } from "@/lib/api/investment-rbac"
+import { hasPermission, isSuperAdmin, resolveActorContext } from "@/lib/api/rbac"
 import {
   renderInvestmentReportsPdfBuffer,
   type InvestmentReportExportRow,
@@ -191,16 +191,16 @@ export async function GET(req: Request) {
     }
 
     const result = await runWithAuth(session.user.authUserId, async (client) => {
-      const actor = await resolveInvestmentActor(client, session.user.authUserId as string)
+      const actor = await resolveActorContext(client, session.user.authUserId as string, { activeOnly: false })
       if (!actor?.institution_id) return { error: "user_not_linked" as const }
-      const allowed = await hasInvestmentPermission(client, actor, "view_investment_reports")
+      const allowed = await hasPermission(client, actor, "view_investment_reports")
       if (!allowed) return { error: "missing_permission:view_investment_reports" as const }
 
-      const actorRole = String(actor.role || "").trim().toLowerCase()
-      if (actorRole !== "super_admin" && !actor.branch_id) return { error: "actor_branch_missing" as const }
+      const superAdmin = isSuperAdmin(actor)
+      if (!superAdmin && !actor.branch_id) return { error: "actor_branch_missing" as const }
 
       let branchScopes: BranchScope[] = []
-      if (actorRole === "super_admin") {
+      if (superAdmin) {
         const branchRes = await client.query(
           `SELECT id, name
            FROM branches

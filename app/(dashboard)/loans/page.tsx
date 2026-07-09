@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 
-import { Plus, Eye, CheckCircle, XCircle, Clock, AlertTriangle, DollarSign, Calendar, Activity, Lock } from "lucide-react"
+import { Plus, Eye, CheckCircle, XCircle, Clock, AlertTriangle, DollarSign, Calendar, Activity, Lock, Calculator } from "lucide-react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import Tooltip from "@mui/material/Tooltip"
@@ -17,7 +17,9 @@ import { withBranchFilterFirst } from "@/lib/filters/branch-first-filter"
 import { Filter } from "@/types"
 import { useToast } from "@/components/ui/toast"
 import AddNewLoan from "./components/add/newLoan"
+import LoanCalculatorModal from "./components/calculator"
 import { downloadLoansExport } from "./export/export"
+import { formatCurrency } from "@/lib/format-currency"
 
 type LoanUI = {
   id: string
@@ -26,7 +28,7 @@ type LoanUI = {
   memberNumber?: string
   loanProduct: string
   interestRate: number
-  tenure: number
+  remainingTenure: number
   principalAmount: number
   status: string
   outstandingBalance: number
@@ -59,6 +61,7 @@ export default function LoansPage() {
   const [page, setPage] = useState(0)
   const [rowsPerPage, setRowsPerPage] = useState(10)
   const [isAddOpen, setIsAddOpen] = useState(false)
+  const [showCalculator, setShowCalculator] = useState(false)
   const [activeFilters, setActiveFilters] = useState<Record<string, string>>({})
   const [exporting, setExporting] = useState<"excel" | "pdf" | null>(null)
 
@@ -66,14 +69,6 @@ export default function LoansPage() {
   const onRowsPerPageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setPage(0)
     setRowsPerPage(parseInt(e.target.value, 10))
-  }
-
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat("en-UG", {
-      style: "currency",
-      currency: "UGX",
-      minimumFractionDigits: 0,
-    }).format(amount)
   }
 
   const getStatusIcon = (status: string) => {
@@ -108,7 +103,7 @@ export default function LoansPage() {
     let ignore = false
     async function loadProducts() {
       try {
-        const res = await fetch(`/api/institution/loan-products?status=Active&limit=200`)
+        const res = await fetch(`/api/institution/loan-products?status=Active&pageSize=200`)
         if (!res.ok) return
         const json = await res.json()
         if (ignore) return
@@ -158,7 +153,7 @@ export default function LoansPage() {
         memberNumber: row.memberNumber || "",
         loanProduct: row.productName || "",
         interestRate: Number(row.interest_rate || 0),
-        tenure: Number(row.tenure_months || 0),
+        remainingTenure: Number(row.remaining_tenure_months ?? row.tenure_months ?? 0),
         principalAmount: Number(row.principal_amount || 0),
         status: String(row.status || "Applied"),
         outstandingBalance: Number(row.outstanding_balance || 0),
@@ -376,10 +371,10 @@ export default function LoansPage() {
       ),
     },
     {
-      key: "tenure",
+      key: "remainingTenure",
       header: "Remaining Tenure",
       render: (row) => (
-        <div className="font-medium text-muted-foreground">{row.tenure} months</div>
+        <div className="font-medium text-muted-foreground">{row.remainingTenure} months</div>
       ),
     },
     {
@@ -507,25 +502,37 @@ export default function LoansPage() {
                   Manage loan applications, approvals, disbursements, and repayments.
                 </p>
               </div>
-              <Tooltip
-                title={loanPermissions.createLoan ? "" : "You do not have permission to create loans"}
-                arrow
-                placement="top"
-              >
-                <span className="inline-flex">
-                  {loanPermissions.createLoan ? (
-                      <Button onClick={() => setIsAddOpen(true)} disabled={!loanPermissions.createLoan}>
+              <div className="flex items-center gap-2">
+                <Tooltip title="Loan Calculator" arrow placement="top">
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={() => setShowCalculator(true)}
+                    aria-label="Loan Calculator"
+                  >
+                    <Calculator className="h-4 w-4" />
+                  </Button>
+                </Tooltip>
+                <Tooltip
+                  title={loanPermissions.createLoan ? "" : "You do not have permission to create loans"}
+                  arrow
+                  placement="top"
+                >
+                  <span className="inline-flex">
+                    {loanPermissions.createLoan ? (
+                        <Button onClick={() => setIsAddOpen(true)} disabled={!loanPermissions.createLoan}>
+                          <Plus className="h-4 w-4 mr-2" />
+                          New Loan Application
+                        </Button>
+                    ) : (
+                      <Button disabled>
                         <Plus className="h-4 w-4 mr-2" />
                         New Loan Application
                       </Button>
-                  ) : (
-                    <Button disabled>
-                      <Plus className="h-4 w-4 mr-2" />
-                      New Loan Application
-                    </Button>
-                  )}
-                </span>
-              </Tooltip>
+                    )}
+                  </span>
+                </Tooltip>
+              </div>
             </div>
 
             {/* Stats Cards */}
@@ -579,6 +586,8 @@ export default function LoansPage() {
                 onPdf: () => void downloadExport("pdf"),
                 excelDisabled: loading || loans.length === 0 || exporting !== null || !loanPermissions.viewLoans,
                 pdfDisabled: loading || loans.length === 0 || exporting !== null || !loanPermissions.viewLoans,
+                excelLoading: exporting === "excel",
+                pdfLoading: exporting === "pdf",
               }}
               tabularFilters={filters}
               tabularFilterField="status"
@@ -598,6 +607,18 @@ export default function LoansPage() {
               isOpen={isAddOpen}
               onClose={() => setIsAddOpen(false)}
               onSuccess={() => loadLoans()}
+            />
+            <LoanCalculatorModal
+              isOpen={showCalculator}
+              onClose={() => setShowCalculator(false)}
+              onApplyLoan={
+                loanPermissions.createLoan
+                  ? () => {
+                      setShowCalculator(false)
+                      setIsAddOpen(true)
+                    }
+                  : undefined
+              }
             />
           </div>
     </>

@@ -1,12 +1,18 @@
 import { NextResponse } from "next/server"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
-import { hasPermission, isSuperAdmin, requireStaffSession, resolveActorContext } from "@/lib/api/rbac"
+import { hasPermission, isSuperAdmin, requireStaffSession, type ActorContext } from "@/lib/api/rbac"
+import {
+  assertFinanceBranchScope,
+  assertFinanceMutationAccess,
+  assertFinanceReadAccess,
+  financeAccessErrorResponseOrNull,
+} from "@/lib/api/finance-access"
 import { runWithAuth } from "@/lib/db"
 import { auditGrantUpdate, grantSnapshot } from "@/lib/audit/finances-audit"
 import { FINANCE_PERMISSIONS } from "@/lib/finances/permissions"
 
 function singleGrantWhere(
-  actor: NonNullable<Awaited<ReturnType<typeof resolveActorContext>>>,
+  actor: ActorContext,
   grantId: string,
 ): { where: string; values: unknown[] } {
   let where = `g.id = $1::uuid AND g.institution_id = $2::uuid`
@@ -32,20 +38,26 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     }
 
     const result = await runWithAuth(sess.authUserId, async (client) => {
-      const actor = await resolveActorContext(client, sess.authUserId)
-      if (!actor?.institution_id) return { error: "user_not_linked" as const }
-
-      const canView = await hasPermission(client, actor, FINANCE_PERMISSIONS.viewGrants)
+      const access = await assertFinanceReadAccess(client, sess.authUserId, [
+        FINANCE_PERMISSIONS.viewGrants,
+        FINANCE_PERMISSIONS.editGrant,
+      ])
+      if (!access.ok) {
+        return {
+          error: access.error,
+          staffStatus: access.staffStatus,
+          branchStatus: access.branchStatus,
+        }
+      }
+      const { actor } = access
       const canEdit = await hasPermission(client, actor, FINANCE_PERMISSIONS.editGrant)
-      if (!canView && !canEdit) return { error: "missing_permission:view_grants" as const }
-      if (!isSuperAdmin(actor) && !actor.branch_id) return { error: "actor_branch_missing" as const }
 
       const { where, values } = singleGrantWhere(actor, grantId)
       const res = await client.query(
         `SELECT
            g.id,
-           g.client_id,
-           c.name AS client_name,
+           g.third_party_agent_id,
+           tpa.name AS third_party_agent_name,
            COALESCE(g.total_amount, 0)::numeric AS total_amount,
            COALESCE(g.available_balance, 0)::numeric AS available_balance,
            GREATEST(COALESCE(g.total_amount, 0) - COALESCE(g.available_balance, 0), 0)::numeric AS remaining_amount,
@@ -59,7 +71,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
            g.created_at,
            g.updated_at
          FROM grants g
-         JOIN clients c ON c.id = g.client_id
+         JOIN third_party_agents tpa ON tpa.id = g.third_party_agent_id
          LEFT JOIN branches b ON b.id = g.branch_id
          WHERE ${where}
          LIMIT 1`,
@@ -72,8 +84,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       return {
         grant: {
           id: String(row.id),
-          client_id: row.client_id ? String(row.client_id) : "",
-          client_name: String(row.client_name || ""),
+          third_party_agent_id: row.third_party_agent_id ? String(row.third_party_agent_id) : "",
+          third_party_agent_name: String(row.third_party_agent_name || ""),
           total_amount: Number(row.total_amount || 0),
           available_balance: Number(row.available_balance || 0),
           remaining_amount: Number(row.remaining_amount || 0),
@@ -88,8 +100,11 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     })
 
     if (result && "error" in result) {
-      const status =
-        result.error === "not_found" ? 404 : result.error === "actor_branch_missing" ? 400 : 403
+      const accessResponse = financeAccessErrorResponseOrNull(result)
+      if (accessResponse) {
+        return NextResponse.json(accessResponse.body, { status: accessResponse.status })
+      }
+      const status = result.error === "not_found" ? 404 : 403
       return NextResponse.json({ error: result.error }, { status })
     }
 
@@ -115,13 +130,13 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     }
 
     const body = await req.json().catch(() => ({}))
-    const clientId = String(body?.client_id || "").trim()
+    const thirdPartyAgentId = String(body?.third_party_agent_id || "").trim()
     const totalAmount = Number(body?.total_amount)
     const availableBalanceRaw = body?.available_balance
     const branchId = String(body?.branch_id || "").trim()
 
-    if (!clientId) {
-      return NextResponse.json({ error: "client_id_required" }, { status: 400 })
+    if (!thirdPartyAgentId) {
+      return NextResponse.json({ error: "third_party_agent_id_required" }, { status: 400 })
     }
     if (!Number.isFinite(totalAmount) || totalAmount < 0) {
       return NextResponse.json({ error: "invalid_total_amount" }, { status: 400 })
@@ -137,15 +152,19 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     }
 
     const updated = await runWithAuth(sess.authUserId, async (client) => {
-      const actor = await resolveActorContext(client, sess.authUserId)
-      if (!actor?.institution_id) return { error: "user_not_linked" as const }
-      const allowed = await hasPermission(client, actor, FINANCE_PERMISSIONS.editGrant)
-      if (!allowed) return { error: "missing_permission:edit_grant" as const }
-      if (!isSuperAdmin(actor) && !actor.branch_id) return { error: "actor_branch_missing" as const }
+      const access = await assertFinanceMutationAccess(client, sess.authUserId, FINANCE_PERMISSIONS.editGrant)
+      if (!access.ok) {
+        return {
+          error: access.error,
+          staffStatus: access.staffStatus,
+          branchStatus: access.branchStatus,
+        }
+      }
+      const { actor } = access
 
       const { where, values } = singleGrantWhere(actor, grantId)
       const existing = await client.query(
-        `SELECT id, branch_id, client_id,
+        `SELECT id, branch_id, third_party_agent_id,
                 COALESCE(total_amount, 0)::numeric AS total_amount,
                 COALESCE(available_balance, 0)::numeric AS available_balance
          FROM grants g
@@ -160,25 +179,24 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         ? branchId || String(oldRow.branch_id || "")
         : String(oldRow.branch_id || actor.branch_id)
 
-      if (!targetBranchId) return { error: "branch_id_required" as const }
-
-      if (isSuperAdmin(actor) && branchId) {
-        const branchCheck = await client.query(
-          `SELECT 1 FROM branches WHERE id = $1::uuid AND institution_id = $2::uuid LIMIT 1`,
-          [targetBranchId, actor.institution_id],
-        )
-        if ((branchCheck.rowCount ?? 0) === 0) return { error: "invalid_branch" as const }
+      const branchScope = await assertFinanceBranchScope(client, actor, targetBranchId)
+      if (!branchScope.ok) {
+        return {
+          error: branchScope.error,
+          staffStatus: branchScope.staffStatus,
+          branchStatus: branchScope.branchStatus,
+        }
       }
 
-      const clientCheck = await client.query(
-        `SELECT 1 FROM clients
+      const agentCheck = await client.query(
+        `SELECT 1 FROM third_party_agents
          WHERE id = $1::uuid AND institution_id = $2::uuid AND branch_id = $3::uuid
          LIMIT 1`,
-        [clientId, actor.institution_id, targetBranchId],
+        [thirdPartyAgentId, actor.institution_id, branchScope.branchId],
       )
-      if ((clientCheck.rowCount ?? 0) === 0) return { error: "invalid_client" as const }
+      if ((agentCheck.rowCount ?? 0) === 0) return { error: "invalid_third_party_agent" as const }
 
-      const setParams: unknown[] = [clientId, totalAmount, availableBalance, targetBranchId]
+      const setParams: unknown[] = [thirdPartyAgentId, totalAmount, availableBalance, branchScope.branchId]
       let scopedWhere = `g.id = $5::uuid AND g.institution_id = $6::uuid`
       setParams.push(grantId, actor.institution_id)
       if (!isSuperAdmin(actor)) {
@@ -188,13 +206,13 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
       const updateRes = await client.query(
         `UPDATE grants g
-         SET client_id = $1::uuid,
+         SET third_party_agent_id = $1::uuid,
              total_amount = $2,
              available_balance = $3,
              branch_id = $4::uuid,
              updated_at = NOW()
          WHERE ${scopedWhere}
-         RETURNING id, client_id, total_amount, available_balance, branch_id`,
+         RETURNING id, third_party_agent_id, total_amount, available_balance, branch_id`,
         setParams,
       )
 
@@ -207,19 +225,21 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         grantId,
         grantSnapshot(oldRow),
         grantSnapshot(newRow),
-        (newRow.branch_id as string | null | undefined) ?? targetBranchId,
+        (newRow.branch_id as string | null | undefined) ?? branchScope.branchId,
       )
 
       return { id: String(newRow.id || "") }
     })
 
     if (updated && "error" in updated) {
+      const accessResponse = financeAccessErrorResponseOrNull(updated)
+      if (accessResponse) {
+        return NextResponse.json(accessResponse.body, { status: accessResponse.status })
+      }
       const status =
         updated.error === "not_found"
           ? 404
-          : updated.error === "branch_id_required" ||
-              updated.error === "invalid_branch" ||
-              updated.error === "invalid_client"
+          : updated.error === "invalid_third_party_agent"
             ? 400
             : 403
       return NextResponse.json({ error: updated.error }, { status })

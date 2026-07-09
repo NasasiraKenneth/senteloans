@@ -104,7 +104,7 @@ export async function GET(req: Request) {
       params.push(product.toLowerCase())
     }
     if (clientIds.length > 0) {
-      where += ` AND l.client_id = ANY($${idx++}::uuid[])`
+      where += ` AND l.third_party_agent_id = ANY($${idx++}::uuid[])`
       params.push(clientIds)
     }
     if (applicationDateStart) {
@@ -136,7 +136,7 @@ export async function GET(req: Request) {
     const rowsRes = await client.query(
       `SELECT
          l.id,
-         l.client_id,
+         l.third_party_agent_id,
          l.loan_product,
          l.principal_amount,
          l.interest_rate,
@@ -152,7 +152,7 @@ export async function GET(req: Request) {
          c.name AS client_name,
          c.phone AS client_phone
        FROM institution_loans l
-       LEFT JOIN clients c ON c.id = l.client_id
+       LEFT JOIN third_party_agents c ON c.id = l.third_party_agent_id
        WHERE ${where}
        ORDER BY l.application_date DESC, l.created_at DESC
        LIMIT $${idx}`,

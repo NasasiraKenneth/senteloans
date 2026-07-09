@@ -16,7 +16,8 @@ interface ActivateFormProps {
   onSubmit: (data: ActivateFormData) => Promise<void> | void
   onCancel: () => void
   loading?: boolean
-  tenureMonths: number
+  /** Remaining tenure months used to compute maturity from next payment date. */
+  remainingTenureMonths: number
   initialNextPaymentDate?: string
   initialMonthlyPayment?: number
 }
@@ -47,7 +48,7 @@ export default function ActivateForm({
   onSubmit,
   onCancel,
   loading = false,
-  tenureMonths,
+  remainingTenureMonths,
   initialNextPaymentDate = "",
   initialMonthlyPayment = 0,
 }: ActivateFormProps) {
@@ -66,8 +67,11 @@ export default function ActivateForm({
   }, [initialMonthlyPayment])
 
   const maturityDate = useMemo(
-    () => (nextPaymentDate.trim() ? addCalendarMonths(nextPaymentDate.trim(), tenureMonths) : ""),
-    [nextPaymentDate, tenureMonths],
+    () =>
+      nextPaymentDate.trim()
+        ? addCalendarMonths(nextPaymentDate.trim(), remainingTenureMonths)
+        : "",
+    [nextPaymentDate, remainingTenureMonths],
   )
 
   const parsedNext = parseDateOnly(nextPaymentDate)
@@ -153,7 +157,8 @@ export default function ActivateForm({
           aria-readonly
         />
         <p className="mt-1 text-xs text-gray-500">
-          From next payment date plus {tenureMonths} month{tenureMonths === 1 ? "" : "s"} tenure (read-only).
+          From next payment date plus {remainingTenureMonths} remaining month
+          {remainingTenureMonths === 1 ? "" : "s"} (read-only).
         </p>
       </div>
 

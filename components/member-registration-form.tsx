@@ -213,6 +213,21 @@ export function MemberRegistrationForm({ onClose }: MemberRegistrationFormProps)
     if (formData.email && !emailRe.test(formData.email)) {
       setError("Enter a valid email address"); scrollToError(); return false
     }
+    if (formData.savingsAccountType === "Fixed") {
+      const amount = Number(formData.monthlySavings)
+      if (!formData.monthlySavings.trim() || !Number.isFinite(amount) || amount <= 0) {
+        setError("Monthly savings amount is required for Fixed accounts")
+        scrollToError()
+        return false
+      }
+    } else if (formData.monthlySavings.trim()) {
+      const amount = Number(formData.monthlySavings)
+      if (!Number.isFinite(amount) || amount < 0) {
+        setError("Enter a valid monthly savings amount")
+        scrollToError()
+        return false
+      }
+    }
     return true
   }
 
@@ -307,7 +322,14 @@ export function MemberRegistrationForm({ onClose }: MemberRegistrationFormProps)
       return null
     }
     if (!res.ok) {
-      setError(data?.error || "Failed to create member")
+      const apiError = typeof data?.error === "string" ? data.error : ""
+      const msg =
+        apiError === "monthly_savings_required_for_fixed_account"
+          ? "Monthly savings amount is required for Fixed accounts"
+          : apiError === "invalid_monthly_savings"
+            ? "Enter a valid monthly savings amount"
+            : apiError || "Failed to create member"
+      setError(msg)
       scrollToError()
       return null
     }
@@ -661,11 +683,15 @@ export function MemberRegistrationForm({ onClose }: MemberRegistrationFormProps)
           <CardContent>
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
-                <Label htmlFor="monthlySavings">Monthly Savings Amount ({currency})</Label>
+                <Label htmlFor="monthlySavings">
+                  Monthly Savings Amount ({currency})
+                  {formData.savingsAccountType === "Fixed" ? " *" : ""}
+                </Label>
                 <input
                   id="monthlySavings"
                   type="number"
                   min={0}
+                  required={formData.savingsAccountType === "Fixed"}
                   value={formData.monthlySavings}
                   onChange={(e) => handleInputChange("monthlySavings", e.target.value)}
                   placeholder="e.g., 50,000"

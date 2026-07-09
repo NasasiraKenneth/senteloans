@@ -13,24 +13,13 @@ interface AddNewExpenseProps {
 
 export default function AddNewExpense({ isOpen, onClose, onSuccess }: AddNewExpenseProps) {
   const [loading, setLoading] = useState(false)
-  const [categories, setCategories] = useState<Array<{ id: string; category: string }>>([])
   const [branchOptions, setBranchOptions] = useState<Array<{ value: string; label: string }>>([])
   const [isSuperAdmin, setIsSuperAdmin] = useState(false)
   const { toast } = useToast()
 
   const loadMeta = useCallback(async () => {
     try {
-      const [expRes, permRes] = await Promise.all([
-        fetch("/api/institution/expenses?page=1&pageSize=1", { cache: "no-store" }),
-        fetch("/api/institution/expenses/permissions", { cache: "no-store" }),
-      ])
-      if (expRes.ok) {
-        const expBody = await expRes.json().catch(() => ({}))
-        const cats = Array.isArray(expBody?.categories) ? expBody.categories : []
-        setCategories(cats.map((c: Record<string, unknown>) => ({ id: String(c.id), category: String(c.category || "") })))
-      } else {
-        setCategories([])
-      }
+      const permRes = await fetch("/api/institution/expenses/permissions", { cache: "no-store" })
       if (permRes.ok) {
         const permBody = await permRes.json().catch(() => ({}))
         const p = permBody?.permissions
@@ -41,7 +30,6 @@ export default function AddNewExpense({ isOpen, onClose, onSuccess }: AddNewExpe
         setBranchOptions([])
       }
     } catch {
-      setCategories([])
       setBranchOptions([])
       setIsSuperAdmin(false)
     }
@@ -61,13 +49,12 @@ export default function AddNewExpense({ isOpen, onClose, onSuccess }: AddNewExpe
         body: JSON.stringify({
           name: data.name,
           description: data.description.trim() ? data.description.trim() : null,
-          category_id: data.category_id,
           type: data.type,
           branch_id: data.branch_id || null,
         }),
       })
-      const body = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(body?.error || "Failed to create expense")
+      const body = await res.json().catch(() => ({})) as Record<string, unknown>
+      if (!res.ok) throw new Error(String(body?.code ?? body?.error ?? "Failed to create expense"))
 
       const num = String(body?.expense_number || "")
       toast({
@@ -87,10 +74,26 @@ export default function AddNewExpense({ isOpen, onClose, onSuccess }: AddNewExpe
         })
         return
       }
+      if (message === "super_admin_write_blocked") {
+        toast({
+          title: "Access denied",
+          description: "Super admins cannot create expenses.",
+          variant: "warning",
+        })
+        return
+      }
       if (message === "expense_number_generation_failed") {
         toast({
           title: "Could not assign expense number",
           description: "Please try again in a moment.",
+          variant: "destructive",
+        })
+        return
+      }
+      if (message === "type_required" || message === "invalid_type") {
+        toast({
+          title: "Invalid expense type",
+          description: "Select a valid expense type.",
           variant: "destructive",
         })
         return
@@ -110,7 +113,6 @@ export default function AddNewExpense({ isOpen, onClose, onSuccess }: AddNewExpe
       <ExpenseForm
         onSubmit={handleCreate}
         loading={loading}
-        categories={categories}
         showBranchPicker={isSuperAdmin && branchOptions.length > 0}
         branchOptions={branchOptions}
       />

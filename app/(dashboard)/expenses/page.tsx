@@ -25,7 +25,6 @@ type ExpenseRow = {
   status: string
   created_at: string
   approved_at: string | null
-  category_name: string
   created_by_name: string
   approved_by_name: string | null
   cashflows_total: number
@@ -79,7 +78,6 @@ export default function ExpensesPage() {
   const [rows, setRows] = useState<ExpenseRow[]>([])
   const [totalRows, setTotalRows] = useState(0)
   const [summary, setSummary] = useState({ pendingCount: 0, fundingTotal: 0, cashflowsTotal: 0 })
-  const [categories, setCategories] = useState<Array<{ id: string; category: string }>>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
   const [page, setPage] = useState(0)
@@ -129,11 +127,10 @@ export default function ExpensesPage() {
             expense_number: String(item.expense_number || "—"),
             name: String(item.name || ""),
             description: item.description != null && String(item.description) !== "" ? String(item.description) : null,
-            type: String(item.type || "Short-term"),
+            type: String(item.type || ""),
             status: formatStatusLabel(String(item.status || "Pending")),
             created_at: String(item.created_at || ""),
             approved_at: item.approved_at != null ? String(item.approved_at) : null,
-            category_name: String(item.category_name || "—"),
             created_by_name: String(item.created_by_name || ""),
             approved_by_name: item.approved_by_name != null ? String(item.approved_by_name) : null,
             cashflows_total: Number(item.cashflows_total || 0),
@@ -146,8 +143,6 @@ export default function ExpensesPage() {
           fundingTotal: Number(s?.fundingTotal ?? 0),
           cashflowsTotal: Number(s?.cashflowsTotal ?? 0),
         })
-        const cats = Array.isArray(body?.categories) ? body.categories : []
-        setCategories(cats.map((c: Record<string, unknown>) => ({ id: String(c.id), category: String(c.category || "") })))
       } catch (e: unknown) {
         const message = (e as Error)?.message || "Failed to load expenses"
         setError(message)
@@ -279,7 +274,6 @@ export default function ExpensesPage() {
         <span className="line-clamp-2 max-w-[220px] text-sm font-medium text-gray-900">{row.name?.trim() || "—"}</span>
       ),
     },
-    { key: "category_name", header: "Category", render: (row) => row.category_name || "—" },
     {
       key: "type",
       header: "Type",
@@ -382,19 +376,12 @@ export default function ExpensesPage() {
           { value: "Operating-expenses", label: "Operating-expenses" },
         ],
       },
-      {
-        field: "category_id",
-        label: "Category",
-        type: "select",
-        multiple: false,
-        options: categories.map((c) => ({ value: c.id, label: c.category })),
-      },
     ]
     return withBranchFilterFirst(fields, {
       isSuperAdmin: expensePermissions.isSuperAdmin,
       branchOptions: expensePermissions.branches,
     })
-  }, [expensePermissions.isSuperAdmin, expensePermissions.branches, categories])
+  }, [expensePermissions.isSuperAdmin, expensePermissions.branches])
 
   const filters: Filter[] = [
     { label: "All", value: "" },

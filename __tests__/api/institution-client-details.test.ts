@@ -1,647 +1,331 @@
-import { GET, PATCH } from '@/app/api/institution/clients/[id]/route'
-import { POST } from '@/app/api/institution/clients/[id]/auth/route'
-import { createMockSupabaseClient } from '../utils/supabase-mock'
-import { testFactories } from '../utils/test-factories'
+import { GET, PATCH } from "@/app/api/institution/third-party-agents/[id]/route"
+import { mockNextRequest } from "@/__tests__/utils/api-test-helpers"
 
-// Mock the Supabase client
-jest.mock('@/lib/supabase/server', () => ({
-  createClient: jest.fn(),
-  createServiceClient: jest.fn(),
+jest.mock("next-auth", () => ({
+  getServerSession: jest.fn(),
 }))
 
-const { createClient, createServiceClient } = require('@/lib/supabase/server')
+jest.mock("@/lib/auth", () => ({ authOptions: {} }))
 
-describe('GET /api/institution/clients/[id]', () => {
-  let mockSupabase: any
-  let mockServiceClient: any
+jest.mock("@/lib/db", () => ({
+  runWithAuth: jest.fn(),
+  runWithoutAuth: jest.fn(),
+}))
 
+jest.mock("@/lib/api/rbac", () => {
+  const actual = jest.requireActual("@/lib/api/rbac")
+  return {
+    ...actual,
+    resolveActorContext: jest.fn(),
+    hasPermission: jest.fn(),
+    assertNotSuperAdmin: jest.fn(),
+    isSuperAdmin: jest.fn(),
+  }
+})
+
+jest.mock("@/lib/branches/branch-status", () => ({
+  assertBranchActive: jest.fn(),
+}))
+
+jest.mock("@/lib/audit/audit-logger", () => ({
+  auditLogger: {
+    logUpdate: jest.fn().mockResolvedValue(undefined),
+  },
+}))
+
+jest.mock("@/lib/notifications/third-party-agent-events", () => ({
+  notifyThirdPartyAgentUpdated: jest.fn().mockResolvedValue({
+    ok: true,
+    staffNotifications: 1,
+    errors: [],
+  }),
+}))
+
+import { getServerSession } from "next-auth"
+import { runWithAuth, runWithoutAuth } from "@/lib/db"
+import {
+  assertNotSuperAdmin,
+  hasPermission,
+  isSuperAdmin,
+  resolveActorContext,
+  SUPER_ADMIN_WRITE_BLOCKED,
+} from "@/lib/api/rbac"
+import { assertBranchActive } from "@/lib/branches/branch-status"
+import { notifyThirdPartyAgentUpdated } from "@/lib/notifications/third-party-agent-events"
+
+const getServerSessionMock = getServerSession as jest.Mock
+const runWithAuthMock = runWithAuth as jest.Mock
+const runWithoutAuthMock = runWithoutAuth as jest.Mock
+const resolveActorContextMock = resolveActorContext as jest.Mock
+const hasPermissionMock = hasPermission as jest.Mock
+const assertNotSuperAdminMock = assertNotSuperAdmin as jest.Mock
+const isSuperAdminMock = isSuperAdmin as jest.Mock
+const assertBranchActiveMock = assertBranchActive as jest.Mock
+const notifyThirdPartyAgentUpdatedMock = notifyThirdPartyAgentUpdated as jest.Mock
+
+const AGENT_ID = "agent-1"
+const INSTITUTION_ID = "11111111-1111-1111-1111-111111111111"
+const BRANCH_ID = "22222222-2222-2222-2222-222222222222"
+const STAFF_ID = "staff-1"
+const AUTH_USER_ID = "auth-user-1"
+
+const staffSession = {
+  user: { authUserId: AUTH_USER_ID, type: "staff" },
+}
+
+const actor = {
+  id: STAFF_ID,
+  institution_id: INSTITUTION_ID,
+  branch_id: BRANCH_ID,
+  role_id: "role-1",
+  role: "Manager",
+  status: "Active",
+}
+
+const existingAgent = {
+  id: AGENT_ID,
+  branch_id: BRANCH_ID,
+  name: "Acme Finance",
+  status: "Active",
+  email: "acme@example.com",
+  address: "Kampala",
+  phone: "+256700000000",
+}
+
+const updatedAgent = {
+  ...existingAgent,
+  institution_id: INSTITUTION_ID,
+  status: "Inactive",
+  modified_by: STAFF_ID,
+  created_by: STAFF_ID,
+  created_at: "2026-01-01T00:00:00.000Z",
+  updated_at: "2026-01-02T00:00:00.000Z",
+}
+
+function setupAuth() {
+  getServerSessionMock.mockResolvedValue(staffSession)
+  resolveActorContextMock.mockResolvedValue(actor)
+  assertNotSuperAdminMock.mockReturnValue({ ok: true })
+  isSuperAdminMock.mockReturnValue(false)
+  assertBranchActiveMock.mockResolvedValue({ ok: true })
+  hasPermissionMock.mockImplementation(async (_client, _actor, permission: string) => {
+    if (permission === "view_third_party_agents") return true
+    if (permission === "edit_third_party_agent") return true
+    return false
+  })
+  runWithoutAuthMock.mockImplementation(async (fn) => fn({ query: jest.fn() }))
+}
+
+describe("GET /api/institution/third-party-agents/[id]", () => {
   beforeEach(() => {
-    mockSupabase = createMockSupabaseClient()
-    mockServiceClient = createMockSupabaseClient()
-    createClient.mockResolvedValue(mockSupabase)
-    createServiceClient.mockReturnValue(mockServiceClient)
-  })
-
-  afterEach(() => {
     jest.clearAllMocks()
+    setupAuth()
   })
 
-  describe('Authentication & Authorization', () => {
-    it('should return 401 if user is not authenticated', async () => {
-      mockSupabase.auth.getUser.mockResolvedValue({
-        data: { user: null },
-        error: null,
-      })
+  it("returns 401 when unauthenticated", async () => {
+    getServerSessionMock.mockResolvedValue(null)
 
-      const request = new Request('http://localhost:3000/api/institution/clients/client-1')
-      const response = await GET(request, { params: { id: 'client-1' } })
-      const body = await response.json()
+    const req = mockNextRequest(`http://localhost/api/institution/third-party-agents/${AGENT_ID}`)
+    const res = await GET(req, { params: Promise.resolve({ id: AGENT_ID }) })
 
-      expect(response.status).toBe(401)
-      expect(body.error).toBe('Unauthorized')
-    })
+    expect(res.status).toBe(401)
+    expect(runWithAuthMock).not.toHaveBeenCalled()
+  })
 
-    it('should return 403 if app user is not found', async () => {
-      const mockUser = { id: 'user-123', email: 'admin@institution.com' }
+  it("returns 404 when the agent is not found", async () => {
+    runWithAuthMock.mockImplementation(async (_authUserId, fn) =>
+      fn({
+        query: jest.fn().mockResolvedValueOnce({ rows: [] }),
+      }),
+    )
 
-      mockSupabase.auth.getUser.mockResolvedValue({
-        data: { user: mockUser },
-        error: null,
-      })
+    const req = mockNextRequest(`http://localhost/api/institution/third-party-agents/${AGENT_ID}`)
+    const res = await GET(req, { params: Promise.resolve({ id: AGENT_ID }) })
+    const body = await res.json()
 
-      mockServiceClient.from.mockReturnValue({
-        select: jest.fn().mockReturnThis(),
-        eq: jest.fn().mockReturnThis(),
-        single: jest.fn().mockResolvedValue({
-          data: null,
-          error: { message: 'No rows found' },
+    expect(res.status).toBe(404)
+    expect(body.error).toBe("third_party_agent_not_found")
+  })
+
+  it("returns the agent when found", async () => {
+    runWithAuthMock.mockImplementation(async (_authUserId, fn) =>
+      fn({
+        query: jest.fn().mockResolvedValueOnce({
+          rows: [{ ...existingAgent, branch_name: "Main Branch" }],
         }),
-      })
+      }),
+    )
 
-      const request = new Request('http://localhost:3000/api/institution/clients/client-1')
-      const response = await GET(request, { params: { id: 'client-1' } })
-      const body = await response.json()
+    const req = mockNextRequest(`http://localhost/api/institution/third-party-agents/${AGENT_ID}`)
+    const res = await GET(req, { params: Promise.resolve({ id: AGENT_ID }) })
+    const body = await res.json()
 
-      expect(response.status).toBe(403)
-      expect(body.error).toContain('lookup_by_uid')
-    })
-  })
-
-  describe('Successful Fetch', () => {
-    const mockUser = { id: 'user-123', email: 'admin@institution.com' }
-    const mockAppUser = testFactories.user({
-      auth_id: 'user-123',
-      institution_id: 'inst-123',
-    })
-    const mockClient = testFactories.client({
-      id: 'client-1',
-      institution_id: 'inst-123',
-      full_name: 'John Doe',
-      kyc_status: 'Approved',
-    })
-
-    it('should fetch single client by ID with shares', async () => {
-      mockSupabase.auth.getUser.mockResolvedValue({
-        data: { user: mockUser },
-        error: null,
-      })
-
-      let callCount = 0
-      mockServiceClient.from.mockImplementation((table: string) => {
-        callCount++
-        if (callCount === 1 && table === 'users') {
-          return {
-            select: jest.fn().mockReturnThis(),
-            eq: jest.fn().mockReturnThis(),
-            single: jest.fn().mockResolvedValue({
-              data: mockAppUser,
-              error: null,
-            }),
-          }
-        }
-        if (callCount === 2 && table === 'senteloans_clients') {
-          return {
-            select: jest.fn().mockReturnThis(),
-            eq: jest.fn().mockReturnThis(),
-            single: jest.fn().mockResolvedValue({
-              data: mockClient,
-              error: null,
-            }),
-          }
-        }
-        if (callCount === 3 && table === 'senteloans_client_shares') {
-          return {
-            select: jest.fn().mockReturnThis(),
-            eq: jest.fn().mockResolvedValue({
-              data: [
-                { number_of_shares: 10, share_value: 10000, total_value: 100000 },
-                { number_of_shares: 5, share_value: 10000, total_value: 50000 },
-              ],
-              error: null,
-            }),
-          }
-        }
-        return {}
-      })
-
-      const request = new Request('http://localhost:3000/api/institution/clients/client-1')
-      const response = await GET(request, { params: { id: 'client-1' } })
-      const body = await response.json()
-
-      expect(response.status).toBe(200)
-      expect(body.client.full_name).toBe('John Doe')
-      expect(body.client.kyc_status).toBe('Approved')
-      expect(body.client.number_of_shares).toBe(15)
-      expect(body.client.total_share_value).toBe(150000)
-    })
-
-    it('should return 404 for non-existent client', async () => {
-      mockSupabase.auth.getUser.mockResolvedValue({
-        data: { user: mockUser },
-        error: null,
-      })
-
-      let callCount = 0
-      mockServiceClient.from.mockImplementation((table: string) => {
-        callCount++
-        if (callCount === 1 && table === 'users') {
-          return {
-            select: jest.fn().mockReturnThis(),
-            eq: jest.fn().mockReturnThis(),
-            single: jest.fn().mockResolvedValue({
-              data: mockAppUser,
-              error: null,
-            }),
-          }
-        }
-        if (callCount === 2 && table === 'senteloans_clients') {
-          return {
-            select: jest.fn().mockReturnThis(),
-            eq: jest.fn().mockReturnThis(),
-            single: jest.fn().mockResolvedValue({
-              data: null,
-              error: { message: 'Not found' },
-            }),
-          }
-        }
-        return {}
-      })
-
-      const request = new Request('http://localhost:3000/api/institution/clients/non-existent')
-      const response = await GET(request, { params: { id: 'non-existent' } })
-      const body = await response.json()
-
-      expect(response.status).toBe(400)
-      expect(body.error).toContain('client_query')
-    })
+    expect(res.status).toBe(200)
+    expect(body.third_party_agent.name).toBe("Acme Finance")
   })
 })
 
-describe('PATCH /api/institution/clients/[id]', () => {
-  let mockSupabase: any
-  let mockServiceClient: any
-
+describe("PATCH /api/institution/third-party-agents/[id]", () => {
   beforeEach(() => {
-    mockSupabase = createMockSupabaseClient()
-    mockServiceClient = createMockSupabaseClient()
-    createClient.mockResolvedValue(mockSupabase)
-    createServiceClient.mockReturnValue(mockServiceClient)
-  })
-
-  afterEach(() => {
     jest.clearAllMocks()
+    setupAuth()
   })
 
-  describe('Validation', () => {
-    it('should return 400 if no updatable fields provided', async () => {
-      const request = new Request('http://localhost:3000/api/institution/clients/client-1', {
-        method: 'PATCH',
-        body: JSON.stringify({}),
-        headers: { 'Content-Type': 'application/json' },
-      })
-
-      const response = await PATCH(request, { params: { id: 'client-1' } })
-      const body = await response.json()
-
-      expect(response.status).toBe(400)
-      expect(body.error).toBe('no_updatable_fields')
+  it("returns 400 when no updatable fields are provided", async () => {
+    const req = mockNextRequest(`http://localhost/api/institution/third-party-agents/${AGENT_ID}`, {
+      method: "PATCH",
+      body: {},
     })
+
+    const res = await PATCH(req, { params: Promise.resolve({ id: AGENT_ID }) })
+    const body = await res.json()
+
+    expect(res.status).toBe(400)
+    expect(body.error).toBe("no_updatable_fields")
+    expect(runWithAuthMock).not.toHaveBeenCalled()
   })
 
-  describe('Authentication & Authorization', () => {
-    const mockUser = { id: 'user-123', email: 'admin@institution.com' }
-    const mockAppUser = testFactories.user({
-      auth_id: 'user-123',
-      institution_id: 'inst-123',
+  it("applies a partial update when only status is provided", async () => {
+    const queryMock = jest.fn()
+    queryMock
+      .mockResolvedValueOnce({ rows: [existingAgent] })
+      .mockResolvedValueOnce({ rows: [updatedAgent] })
+
+    runWithAuthMock.mockImplementation(async (_authUserId, fn) => fn({ query: queryMock }))
+
+    const req = mockNextRequest(`http://localhost/api/institution/third-party-agents/${AGENT_ID}`, {
+      method: "PATCH",
+      body: { status: "Inactive" },
     })
 
-    it('should return 403 if client belongs to different institution', async () => {
-      mockSupabase.auth.getUser.mockResolvedValue({
-        data: { user: mockUser },
-        error: null,
-      })
+    const res = await PATCH(req, { params: Promise.resolve({ id: AGENT_ID }) })
+    const body = await res.json()
 
-      let callCount = 0
-      mockServiceClient.from.mockImplementation((table: string) => {
-        callCount++
-        if (callCount === 1 && table === 'users') {
-          return {
-            select: jest.fn().mockReturnThis(),
-            eq: jest.fn().mockReturnThis(),
-            single: jest.fn().mockResolvedValue({
-              data: mockAppUser,
-              error: null,
-            }),
-          }
-        }
-        if (callCount === 2 && table === 'senteloans_clients') {
-          return {
-            select: jest.fn().mockReturnThis(),
-            eq: jest.fn().mockReturnThis(),
-            single: jest.fn().mockResolvedValue({
-              data: { id: 'client-1', institution_id: 'different-inst' },
-              error: null,
-            }),
-          }
-        }
-        return {}
-      })
+    expect(res.status).toBe(200)
+    expect(body.third_party_agent.status).toBe("Inactive")
 
-      const request = new Request('http://localhost:3000/api/institution/clients/client-1', {
-        method: 'PATCH',
-        body: JSON.stringify({ fullName: 'Updated Name' }),
-        headers: { 'Content-Type': 'application/json' },
-      })
-
-      const response = await PATCH(request, { params: { id: 'client-1' } })
-      const body = await response.json()
-
-      expect(response.status).toBe(403)
-      expect(body.error).toContain('forbidden')
-    })
+    const updateCall = queryMock.mock.calls.find(
+      (call: unknown[]) => typeof call[0] === "string" && call[0].startsWith("UPDATE third_party_agents"),
+    )
+    expect(updateCall).toBeDefined()
+    expect(updateCall![0]).toContain("status = $")
+    expect(updateCall![0]).not.toContain("name = $")
   })
 
-  describe('Successful Update', () => {
-    const mockUser = { id: 'user-123', email: 'admin@institution.com' }
-    const mockAppUser = testFactories.user({
-      auth_id: 'user-123',
-      institution_id: 'inst-123',
+  it("returns 403 when super admin attempts to edit", async () => {
+    assertNotSuperAdminMock.mockReturnValue({
+      ok: false,
+      error: SUPER_ADMIN_WRITE_BLOCKED,
+      message: "Super admins are not allowed to edit or modify data.",
     })
 
-    it('should update client with valid data', async () => {
-      mockSupabase.auth.getUser.mockResolvedValue({
-        data: { user: mockUser },
-        error: null,
-      })
+    runWithAuthMock.mockImplementation(async (_authUserId, fn) => fn({ query: jest.fn() }))
 
-      let callCount = 0
-      mockServiceClient.from.mockImplementation((table: string) => {
-        callCount++
-        if (callCount === 1 && table === 'users') {
-          return {
-            select: jest.fn().mockReturnThis(),
-            eq: jest.fn().mockReturnThis(),
-            single: jest.fn().mockResolvedValue({
-              data: mockAppUser,
-              error: null,
-            }),
-          }
-        }
-        if (callCount === 2 && table === 'senteloans_clients') {
-          return {
-            select: jest.fn().mockReturnThis(),
-            eq: jest.fn().mockReturnThis(),
-            single: jest.fn().mockResolvedValue({
-              data: { id: 'client-1', institution_id: 'inst-123' },
-              error: null,
-            }),
-          }
-        }
-        return {}
-      })
-
-      mockSupabase.from.mockReturnValue({
-        update: jest.fn().mockReturnThis(),
-        eq: jest.fn().mockReturnThis(),
-        select: jest.fn().mockReturnThis(),
-        maybeSingle: jest.fn().mockResolvedValue({
-          data: { id: 'client-1' },
-          error: null,
-        }),
-      })
-
-      const request = new Request('http://localhost:3000/api/institution/clients/client-1', {
-        method: 'PATCH',
-        body: JSON.stringify({
-          fullName: 'Updated Name',
-          phoneNumber: '+256700111111',
-          occupation: 'Farmer',
-        }),
-        headers: { 'Content-Type': 'application/json' },
-      })
-
-      const response = await PATCH(request, { params: { id: 'client-1' } })
-      const body = await response.json()
-
-      expect(response.status).toBe(200)
-      expect(body.ok).toBe(true)
-      expect(body.id).toBe('client-1')
+    const req = mockNextRequest(`http://localhost/api/institution/third-party-agents/${AGENT_ID}`, {
+      method: "PATCH",
+      body: { status: "Inactive" },
     })
 
-    it('should return 404 if client not found after update', async () => {
-      mockSupabase.auth.getUser.mockResolvedValue({
-        data: { user: mockUser },
-        error: null,
-      })
+    const res = await PATCH(req, { params: Promise.resolve({ id: AGENT_ID }) })
+    const body = await res.json()
 
-      let callCount = 0
-      mockServiceClient.from.mockImplementation((table: string) => {
-        callCount++
-        if (callCount === 1 && table === 'users') {
-          return {
-            select: jest.fn().mockReturnThis(),
-            eq: jest.fn().mockReturnThis(),
-            single: jest.fn().mockResolvedValue({
-              data: mockAppUser,
-              error: null,
-            }),
-          }
-        }
-        if (callCount === 2 && table === 'senteloans_clients') {
-          return {
-            select: jest.fn().mockReturnThis(),
-            eq: jest.fn().mockReturnThis(),
-            single: jest.fn().mockResolvedValue({
-              data: { id: 'client-1', institution_id: 'inst-123' },
-              error: null,
-            }),
-          }
-        }
-        return {}
-      })
-
-      mockSupabase.from.mockReturnValue({
-        update: jest.fn().mockReturnThis(),
-        eq: jest.fn().mockReturnThis(),
-        select: jest.fn().mockReturnThis(),
-        maybeSingle: jest.fn().mockResolvedValue({
-          data: null,
-          error: null,
-        }),
-      })
-
-      const request = new Request('http://localhost:3000/api/institution/clients/client-1', {
-        method: 'PATCH',
-        body: JSON.stringify({ fullName: 'Updated Name' }),
-        headers: { 'Content-Type': 'application/json' },
-      })
-
-      const response = await PATCH(request, { params: { id: 'client-1' } })
-      const body = await response.json()
-
-      expect(response.status).toBe(404)
-      expect(body.error).toBe('not_updated_or_not_found')
-    })
-  })
-})
-
-describe('POST /api/institution/clients/[id]/auth', () => {
-  let mockSupabase: any
-  let mockServiceClient: any
-
-  beforeEach(() => {
-    mockSupabase = createMockSupabaseClient()
-    mockServiceClient = createMockSupabaseClient()
-    createClient.mockResolvedValue(mockSupabase)
-    createServiceClient.mockReturnValue(mockServiceClient)
+    expect(res.status).toBe(403)
+    expect(body.code).toBe(SUPER_ADMIN_WRITE_BLOCKED)
   })
 
-  afterEach(() => {
-    jest.clearAllMocks()
+  it("returns 403 when branch is inactive", async () => {
+    assertBranchActiveMock.mockResolvedValue({
+      ok: false,
+      error: "branch_inactive",
+      status: "Inactive",
+    })
+
+    const queryMock = jest.fn().mockResolvedValueOnce({ rows: [existingAgent] })
+    runWithAuthMock.mockImplementation(async (_authUserId, fn) => fn({ query: queryMock }))
+
+    const req = mockNextRequest(`http://localhost/api/institution/third-party-agents/${AGENT_ID}`, {
+      method: "PATCH",
+      body: { phone: "+256711111111" },
+    })
+
+    const res = await PATCH(req, { params: Promise.resolve({ id: AGENT_ID }) })
+    const body = await res.json()
+
+    expect(res.status).toBe(403)
+    expect(body.code).toBe("branch_inactive")
+    expect(body.branch_status).toBe("Inactive")
   })
 
-  describe('Validation', () => {
-    it('should return 400 if email is missing', async () => {
-      const request = new Request('http://localhost:3000/api/institution/clients/client-1/auth', {
-        method: 'POST',
-        body: JSON.stringify({ password: 'password123' }),
-        headers: { 'Content-Type': 'application/json' },
-      })
+  it("returns 403 when editing a non-status field on an inactive agent", async () => {
+    const inactiveAgent = { ...existingAgent, status: "Inactive" }
+    const queryMock = jest.fn().mockResolvedValueOnce({ rows: [inactiveAgent] })
+    runWithAuthMock.mockImplementation(async (_authUserId, fn) => fn({ query: queryMock }))
 
-      const response = await POST(request, { params: { id: 'client-1' } })
-      const body = await response.json()
-
-      expect(response.status).toBe(400)
-      expect(body.error).toBe('email_required')
+    const req = mockNextRequest(`http://localhost/api/institution/third-party-agents/${AGENT_ID}`, {
+      method: "PATCH",
+      body: { phone: "+256711111111" },
     })
+
+    const res = await PATCH(req, { params: Promise.resolve({ id: AGENT_ID }) })
+    const body = await res.json()
+
+    expect(res.status).toBe(403)
+    expect(body.code).toBe("third_party_agent_inactive")
+    expect(body.agent_status).toBe("Inactive")
   })
 
-  describe('Authentication & Authorization', () => {
-    const mockUser = { id: 'user-123', email: 'admin@institution.com' }
+  it("allows status-only PATCH to reactivate an inactive agent", async () => {
+    const inactiveAgent = { ...existingAgent, status: "Inactive" }
+    const reactivated = { ...updatedAgent, status: "Active" }
+    const queryMock = jest.fn()
+    queryMock
+      .mockResolvedValueOnce({ rows: [inactiveAgent] })
+      .mockResolvedValueOnce({ rows: [reactivated] })
 
-    it('should return 401 if user is not authenticated', async () => {
-      mockSupabase.auth.getUser.mockResolvedValue({
-        data: { user: null },
-        error: null,
-      })
+    runWithAuthMock.mockImplementation(async (_authUserId, fn) => fn({ query: queryMock }))
 
-      const request = new Request('http://localhost:3000/api/institution/clients/client-1/auth', {
-        method: 'POST',
-        body: JSON.stringify({ email: 'client@test.com', password: 'password123' }),
-        headers: { 'Content-Type': 'application/json' },
-      })
-
-      const response = await POST(request, { params: { id: 'client-1' } })
-      const body = await response.json()
-
-      expect(response.status).toBe(401)
-      expect(body.error).toBe('unauthorized')
+    const req = mockNextRequest(`http://localhost/api/institution/third-party-agents/${AGENT_ID}`, {
+      method: "PATCH",
+      body: { status: "Active" },
     })
 
-    it('should return 403 if user is not elevated (admin/manager)', async () => {
-      mockSupabase.auth.getUser.mockResolvedValue({
-        data: { user: mockUser },
-        error: null,
-      })
+    const res = await PATCH(req, { params: Promise.resolve({ id: AGENT_ID }) })
+    const body = await res.json()
 
-      mockSupabase.from.mockReturnValue({
-        select: jest.fn().mockReturnThis(),
-        eq: jest.fn().mockReturnThis(),
-        maybeSingle: jest.fn().mockResolvedValue({
-          data: { id: 'user-123', institution_id: 'inst-123', role: 'loan_officer' },
-          error: null,
-        }),
-      })
-
-      const request = new Request('http://localhost:3000/api/institution/clients/client-1/auth', {
-        method: 'POST',
-        body: JSON.stringify({ email: 'client@test.com', password: 'password123' }),
-        headers: { 'Content-Type': 'application/json' },
-      })
-
-      const response = await POST(request, { params: { id: 'client-1' } })
-      const body = await response.json()
-
-      expect(response.status).toBe(403)
-      expect(body.error).toBe('forbidden')
-    })
-
-    it('should return 403 for cross-tenant operation', async () => {
-      mockSupabase.auth.getUser.mockResolvedValue({
-        data: { user: mockUser },
-        error: null,
-      })
-
-      let callCount = 0
-      mockSupabase.from.mockImplementation((table: string) => {
-        callCount++
-        if (callCount === 1 && table === 'users') {
-          return {
-            select: jest.fn().mockReturnThis(),
-            eq: jest.fn().mockReturnThis(),
-            maybeSingle: jest.fn().mockResolvedValue({
-              data: { id: 'user-123', institution_id: 'inst-123', role: 'institution_admin' },
-              error: null,
-            }),
-          }
-        }
-        if (callCount === 2 && table === 'senteloans_clients') {
-          return {
-            select: jest.fn().mockReturnThis(),
-            eq: jest.fn().mockReturnThis(),
-            maybeSingle: jest.fn().mockResolvedValue({
-              data: { id: 'client-1', institution_id: 'different-inst', auth_id: null },
-              error: null,
-            }),
-          }
-        }
-        return {}
-      })
-
-      const request = new Request('http://localhost:3000/api/institution/clients/client-1/auth', {
-        method: 'POST',
-        body: JSON.stringify({ email: 'client@test.com', password: 'password123' }),
-        headers: { 'Content-Type': 'application/json' },
-      })
-
-      const response = await POST(request, { params: { id: 'client-1' } })
-      const body = await response.json()
-
-      expect(response.status).toBe(403)
-      expect(body.error).toBe('cross_tenant_operation_forbidden')
-    })
+    expect(res.status).toBe(200)
+    expect(body.third_party_agent.status).toBe("Active")
   })
 
-  describe('Successful Auth User Creation', () => {
-    const mockUser = { id: 'user-123', email: 'admin@institution.com' }
+  it("dispatches update notifications after a successful save", async () => {
+    const queryMock = jest.fn()
+    queryMock
+      .mockResolvedValueOnce({ rows: [existingAgent] })
+      .mockResolvedValueOnce({ rows: [updatedAgent] })
 
-    it('should create Supabase Auth user for client', async () => {
-      mockSupabase.auth.getUser.mockResolvedValue({
-        data: { user: mockUser },
-        error: null,
-      })
+    runWithAuthMock.mockImplementation(async (_authUserId, fn) => fn({ query: queryMock }))
 
-      mockServiceClient.auth = {
-        admin: {
-          createUser: jest.fn().mockResolvedValue({
-            data: { user: { id: 'new-auth-user-id' } },
-            error: null,
-          }),
+    const req = mockNextRequest(`http://localhost/api/institution/third-party-agents/${AGENT_ID}`, {
+      method: "PATCH",
+      body: { status: "Inactive" },
+    })
+
+    const res = await PATCH(req, { params: Promise.resolve({ id: AGENT_ID }) })
+
+    expect(res.status).toBe(200)
+    expect(runWithoutAuthMock).toHaveBeenCalled()
+    expect(notifyThirdPartyAgentUpdatedMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actor: {
+          id: STAFF_ID,
+          institution_id: INSTITUTION_ID,
+          branch_id: BRANCH_ID,
         },
-      }
-
-      let callCount = 0
-      mockSupabase.from.mockImplementation((table: string) => {
-        callCount++
-        if (callCount === 1 && table === 'users') {
-          return {
-            select: jest.fn().mockReturnThis(),
-            eq: jest.fn().mockReturnThis(),
-            maybeSingle: jest.fn().mockResolvedValue({
-              data: { id: 'user-123', institution_id: 'inst-123', role: 'institution_admin' },
-              error: null,
-            }),
-          }
-        }
-        if (callCount === 2 && table === 'senteloans_clients') {
-          return {
-            select: jest.fn().mockReturnThis(),
-            eq: jest.fn().mockReturnThis(),
-            maybeSingle: jest.fn().mockResolvedValue({
-              data: { id: 'client-1', institution_id: 'inst-123', auth_id: null },
-              error: null,
-            }),
-          }
-        }
-        if (callCount === 3 && table === 'senteloans_clients') {
-          return {
-            update: jest.fn().mockReturnThis(),
-            eq: jest.fn().mockResolvedValue({
-              error: null,
-            }),
-          }
-        }
-        if (callCount === 4 && table === 'senteloans_audit_logs') {
-          return {
-            insert: jest.fn().mockResolvedValue({
-              error: null,
-            }),
-          }
-        }
-        return {}
-      })
-
-      const request = new Request('http://localhost:3000/api/institution/clients/client-1/auth', {
-        method: 'POST',
-        body: JSON.stringify({ email: 'client@test.com', password: 'password123' }),
-        headers: { 'Content-Type': 'application/json' },
-      })
-
-      const response = await POST(request, { params: { id: 'client-1' } })
-      const body = await response.json()
-
-      expect(response.status).toBe(200)
-      expect(body.ok).toBe(true)
-      expect(body.email).toBe('client@test.com')
-      expect(body.password).toBe('password123')
-    })
-
-    it('should reset password for existing auth user', async () => {
-      mockSupabase.auth.getUser.mockResolvedValue({
-        data: { user: mockUser },
-        error: null,
-      })
-
-      mockServiceClient.auth = {
-        admin: {
-          updateUserById: jest.fn().mockResolvedValue({
-            error: null,
-          }),
+        agent: {
+          id: AGENT_ID,
+          name: "Acme Finance",
         },
-      }
-
-      let callCount = 0
-      mockSupabase.from.mockImplementation((table: string) => {
-        callCount++
-        if (callCount === 1 && table === 'users') {
-          return {
-            select: jest.fn().mockReturnThis(),
-            eq: jest.fn().mockReturnThis(),
-            maybeSingle: jest.fn().mockResolvedValue({
-              data: { id: 'user-123', institution_id: 'inst-123', role: 'institution_admin' },
-              error: null,
-            }),
-          }
-        }
-        if (callCount === 2 && table === 'senteloans_clients') {
-          return {
-            select: jest.fn().mockReturnThis(),
-            eq: jest.fn().mockReturnThis(),
-            maybeSingle: jest.fn().mockResolvedValue({
-              data: { id: 'client-1', institution_id: 'inst-123', auth_id: 'existing-auth-id' },
-              error: null,
-            }),
-          }
-        }
-        return {}
-      })
-
-      const request = new Request('http://localhost:3000/api/institution/clients/client-1/auth', {
-        method: 'POST',
-        body: JSON.stringify({ email: 'client@test.com', password: 'newpassword123' }),
-        headers: { 'Content-Type': 'application/json' },
-      })
-
-      const response = await POST(request, { params: { id: 'client-1' } })
-      const body = await response.json()
-
-      expect(response.status).toBe(200)
-      expect(body.ok).toBe(true)
-      expect(body.password).toBe('newpassword123')
-      expect(mockServiceClient.auth.admin.updateUserById).toHaveBeenCalledWith('existing-auth-id', {
-        email_confirm: true,
-        password: 'newpassword123',
-      })
-    })
+        updatedFields: ["status"],
+      }),
+    )
   })
 })

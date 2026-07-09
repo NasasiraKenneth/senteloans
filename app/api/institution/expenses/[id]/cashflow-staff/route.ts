@@ -1,19 +1,14 @@
 import { NextResponse } from "next/server"
 import { runWithAuth } from "@/lib/db"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
-import { hasPermission, isSuperAdmin, requireStaffSession, resolveActorContext } from "@/lib/api/rbac"
+import { requireStaffSession } from "@/lib/api/rbac"
+import {
+  assertExpenseReadAccess,
+  expenseScopeWhere,
+  mapExpenseReadErrorResponse,
+} from "@/lib/api/expense-access"
 
-function singleExpenseWhere(actor: NonNullable<Awaited<ReturnType<typeof resolveActorContext>>>, expenseId: string): { where: string; values: unknown[] } {
-  let where = `e.id = $1::uuid AND e.institution_id = $2::uuid`
-  const values: unknown[] = [expenseId, actor.institution_id]
-  if (!isSuperAdmin(actor)) {
-    where += ` AND e.branch_id = $3::uuid`
-    values.push(actor.branch_id)
-  }
-  return { where, values }
-}
-
-/** Staff in the expense's branch, for cashflow assignee pickers (record/edit cashflow permission). */
+/** Staff in the expense's branch, for cashflow assignee pickers (record cashflow permission). */
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const apiPath = getApiPath(req)
   const { id: expenseId } = await params
@@ -29,14 +24,16 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     }
 
     const result = await runWithAuth(sess.authUserId, async (client) => {
-      const actor = await resolveActorContext(client, sess.authUserId)
-      if (!actor?.institution_id) return { error: "user_not_linked" as const }
-      const canRecord = await hasPermission(client, actor, "record_cashflow")
-      const canEdit = await hasPermission(client, actor, "edit_cashflow")
-      if (!canRecord && !canEdit) return { error: "missing_permission:record_or_edit_cashflow" as const }
-      if (!isSuperAdmin(actor) && !actor.branch_id) return { error: "actor_branch_missing" as const }
+      const access = await assertExpenseReadAccess(client, sess.authUserId, ["record_cashflow"])
+      if (!access.ok) {
+        return {
+          error: access.error,
+          staffStatus: access.staffStatus,
+        }
+      }
+      const { actor } = access
 
-      const { where, values } = singleExpenseWhere(actor, expenseId)
+      const { where, values } = expenseScopeWhere(actor, expenseId)
       const exRes = await client.query<{ branch_id: string }>(
         `SELECT e.branch_id FROM expenses e WHERE ${where} LIMIT 1`,
         values,
@@ -67,15 +64,20 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
 
     if (result && "error" in result) {
       const code = String(result.error || "")
-      const statusCode =
-        code === "missing_permission:record_or_edit_cashflow" ? 403
-        : code === "user_not_linked" ? 403
-        : code === "actor_branch_missing" ? 400
-        : code === "not_found" ? 404
-        : code === "expense_branch_missing" ? 400
-        : 400
-      apiLog("warn", "expenses.cashflow_staff.denied", { method: "GET", apiPath, status: statusCode, error: code })
-      return NextResponse.json({ error: result.error }, { status: statusCode })
+      if (code === "not_found") {
+        apiLog("warn", "expenses.cashflow_staff.denied", { method: "GET", apiPath, status: 404, error: code })
+        return NextResponse.json({ error: code }, { status: 404 })
+      }
+      if (code === "expense_branch_missing") {
+        apiLog("warn", "expenses.cashflow_staff.denied", { method: "GET", apiPath, status: 400, error: code })
+        return NextResponse.json({ error: code }, { status: 400 })
+      }
+      const { status, body } = mapExpenseReadErrorResponse({
+        error: code,
+        staffStatus: "staffStatus" in result ? result.staffStatus : undefined,
+      })
+      apiLog("warn", "expenses.cashflow_staff.denied", { method: "GET", apiPath, status, error: code })
+      return NextResponse.json(body, { status })
     }
 
     apiLog("info", "expenses.cashflow_staff.success", { method: "GET", apiPath, status: 200 })

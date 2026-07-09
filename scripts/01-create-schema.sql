@@ -19,7 +19,7 @@ DECLARE
         {"name": "kyc_status_type", "values": ["Pending", "Verified", "Rejected"]},
         {"name": "loan_status_type", "values": ["Applied", "Under Review", "Reviewed", "Approved", "Partially Disbursed", "Fully Disbursed", "Active", "Closed", "Defaulted", "Rejected"]},
         {"name": "account_type", "values": ["Voluntary", "Fixed", "Shares", "Current"]},
-        {"name": "transaction_type", "values": ["Deposit", "Withdrawal", "Transfer", "Loan Disbursement", "Loan Repayment", "Interest Payment", "Expense Payment", "Fee Payment", "Shares Purchase","Shares Dividend","Investment Deposit","Investment Withdrawal"]},
+        {"name": "transaction_type", "values": ["Deposit", "Withdrawal", "Transfer", "Loan Disbursement", "Loan Repayment", "External Loan Payment", "Interest Payment", "Expense Payment", "Fee Payment", "Invoice Payment", "Shares Purchase","Shares Dividend","Investment Deposit","Investment Withdrawal","In Sacco Transfer","Grant"]},
         {"name": "payment_mode", "values": ["Cash", "Mobile Money", "Bank Transfer", "Cheque", "Card"]},
         {"name": "transaction_status", "values": ["Pending", "Completed", "Failed", "Reversed"]},
         {"name": "settlement_status", "values": ["Pending", "Completed", "Failed", "Reversed"]},
@@ -119,25 +119,6 @@ CREATE TABLE IF NOT EXISTS config (
     modified_by UUID,
     updated_at TIMESTAMPTZ,
     UNIQUE (branch_id)
-);
-
-CREATE TABLE IF NOT EXISTS bank_accounts (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    institution_id UUID NOT NULL
-        REFERENCES institutions(id) ON DELETE CASCADE,
-    branch_id UUID NOT NULL
-        REFERENCES branches(id) ON DELETE CASCADE,
-    bank_name TEXT NOT NULL,
-    bank_account_number TEXT NOT NULL,
-    available_balance DECIMAL(15,2) DEFAULT 0 CHECK (available_balance >= 0),
-    total_amount DECIMAL(15,2),
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    -- Added as plain UUID first to avoid forward-reference before users exists.
-    modified_by UUID,
-    updated_at TIMESTAMPTZ DEFAULT NOW(),
-    CONSTRAINT chk_bank_accounts_name_not_blank CHECK (btrim(bank_name) <> ''),
-    CONSTRAINT chk_bank_accounts_number_not_blank CHECK (btrim(bank_account_number) <> ''),
-    CONSTRAINT uk_bank_account_per_institution UNIQUE (institution_id, bank_name, bank_account_number)
 );
 
 -- provider ENUM(
@@ -269,6 +250,24 @@ CREATE TABLE IF NOT EXISTS third_party_agents (
 CREATE INDEX IF NOT EXISTS idx_third_party_agents_institution_branch ON third_party_agents(institution_id, branch_id);
 CREATE INDEX IF NOT EXISTS idx_third_party_agents_status ON third_party_agents(status);
 
+CREATE TABLE IF NOT EXISTS bank_accounts (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    institution_id UUID NOT NULL
+        REFERENCES institutions(id) ON DELETE CASCADE,
+    branch_id UUID NOT NULL
+        REFERENCES branches(id) ON DELETE CASCADE,
+    third_party_agent_id UUID NOT NULL REFERENCES third_party_agents(id) ON DELETE RESTRICT,
+    bank_account_number TEXT NOT NULL,
+    available_balance DECIMAL(15,2) DEFAULT 0 CHECK (available_balance >= 0),
+    total_amount DECIMAL(15,2),
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    -- Added as plain UUID first to avoid forward-reference before users exists.
+    modified_by UUID,
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    CONSTRAINT chk_bank_accounts_number_not_blank CHECK (btrim(bank_account_number) <> ''),
+    CONSTRAINT uk_bank_account_per_institution UNIQUE (institution_id, bank_account_number)
+);
+
 CREATE TABLE IF NOT EXISTS grants (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     institution_id UUID NOT NULL REFERENCES institutions(id) ON DELETE RESTRICT,
@@ -314,7 +313,6 @@ CREATE TABLE IF NOT EXISTS members (
     village VARCHAR(100),
     occupation VARCHAR(100),
     monthly_income DECIMAL(15,2),
-    monthly_savings DECIMAL(15,2) DEFAULT 0 CHECK (monthly_savings >= 0),
     notes TEXT,
     -- Payout details (single-table approach)
     mobile_money_provider TEXT,
@@ -409,6 +407,7 @@ CREATE TABLE IF NOT EXISTS loans (
     principal_amount DECIMAL(15,2) NOT NULL CHECK (principal_amount > 0),
     interest_rate DECIMAL(5,2) NOT NULL CHECK (interest_rate >= 0),
     tenure_months INTEGER NOT NULL CHECK (tenure_months > 0),
+    remaining_tenure_months INTEGER NOT NULL CHECK (remaining_tenure_months >= 0),
     monthly_payment DECIMAL(15,2),
     total_amount DECIMAL(15,2),
     outstanding_balance DECIMAL(15,2) NOT NULL DEFAULT 0,
@@ -553,6 +552,7 @@ CREATE TABLE IF NOT EXISTS savings_accounts (
     member_id UUID NOT NULL REFERENCES members(id) ON DELETE RESTRICT,
     account_number VARCHAR(50) NOT NULL,
     account_type account_type NOT NULL,
+    monthly_savings DECIMAL(15,2),
     available_balance DECIMAL(15,2) DEFAULT 0 CHECK (available_balance >= 0),
     total_balance DECIMAL(15,2) DEFAULT 0 CHECK (total_balance >= 0),
     status status_type DEFAULT 'Active',
@@ -885,7 +885,7 @@ CREATE TABLE IF NOT EXISTS investments (
     period_in_months NUMERIC(18,2),
     period_in_years NUMERIC(18,2),
     maturity_date DATE,
-    status VARCHAR(15) NOT NULL DEFAULT 'pending'
+    status VARCHAR(30) NOT NULL DEFAULT 'pending'
         CHECK (status IN ('pending', 'approved', 'under_development', 'active', 'matured', 'closed', 'cancelled')),
     created_by UUID REFERENCES users(id) NOT NULL,
     created_at TIMESTAMPTZ DEFAULT NOW(),
@@ -923,26 +923,6 @@ CREATE INDEX IF NOT EXISTS idx_investment_partners_investment_id
 CREATE INDEX IF NOT EXISTS idx_investment_partners_counterparty_id
   ON investment_partners(counterparty_id);
 
-CREATE TABLE IF NOT EXISTS investment_reports (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    investment_id UUID NOT NULL
-        REFERENCES investments(id) ON DELETE RESTRICT,
-    report_number VARCHAR(50) NOT NULL,
-    report_period VARCHAR(25) NOT NULL, -- use month (e.g. march-2026)
-    opening_value NUMERIC(18,2) NOT NULL CHECK (opening_value >= 0),
-    capital_inflow NUMERIC(18,2) NOT NULL DEFAULT 0 CHECK (capital_inflow >= 0),
-    capital_outflow NUMERIC(18,2) NOT NULL DEFAULT 0 CHECK (capital_outflow >= 0),
-    income NUMERIC(18,2) NOT NULL DEFAULT 0 CHECK (income >= 0),
-    expenses NUMERIC(18,2) NOT NULL DEFAULT 0 CHECK (expenses >= 0),
-    closing_value NUMERIC(18,2) NOT NULL CHECK (closing_value >= 0),
-    notes TEXT,
-    created_by UUID REFERENCES users(id) NOT NULL,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    modified_by UUID REFERENCES users(id) NOT NULL,
-    updated_at TIMESTAMPTZ,
-    -- prevent duplicate monthly reports
-    CONSTRAINT unique_investment_period UNIQUE (investment_id, report_period)
-);
 
 CREATE TABLE IF NOT EXISTS investment_cashflows (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -950,8 +930,6 @@ CREATE TABLE IF NOT EXISTS investment_cashflows (
         REFERENCES investments(id) ON DELETE RESTRICT,
     transaction_id UUID
         REFERENCES transactions(id) ON DELETE RESTRICT,
-    report_id UUID
-        REFERENCES investment_reports(id) ON DELETE RESTRICT,
     type TEXT NOT NULL CHECK (type IN ('inflow', 'outflow')),
     category TEXT NOT NULL CHECK (
         category IN ('capital', 'income', 'expense', 'adjustment')
@@ -967,10 +945,9 @@ CREATE TABLE IF NOT EXISTS investment_valuations (
     investment_id UUID NOT NULL
         REFERENCES investments(id) ON DELETE CASCADE,
     valuation_date DATE NOT NULL,
-    value NUMERIC(18,2) NOT NULL CHECK (value >= 0),
-    notes TEXT,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    CONSTRAINT unique_valuation UNIQUE (investment_id, valuation_date)
+    opening_value NUMERIC(18,2) NOT NULL CHECK (opening_value >= 0),
+    closing_value NUMERIC(18,2) NOT NULL CHECK (closing_value >= 0),
+    created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 COMMENT ON COLUMN institution_loans.disbursement_balance IS 'UGX remaining to disburse to the third_party_agent; reduced each disbursement until zero when Fully Disbursed.';
@@ -1045,10 +1022,24 @@ CREATE TABLE IF NOT EXISTS expense_cashflows (
     payment_method payment_mode,
     amount NUMERIC(18,2) NOT NULL CHECK (amount > 0),
     description TEXT,
-    status VARCHAR(10) DEFAULT 'Pending',
+    status VARCHAR(30) DEFAULT 'Pending',
     date DATE,
     completed_by UUID,
     completed_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS expense_cashflows_payments (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    expense_id UUID NOT NULL
+        REFERENCES expenses(id) ON DELETE RESTRICT,
+    transaction_id UUID
+        REFERENCES transactions(id) ON DELETE RESTRICT,
+    expense_cashflow_id UUID REFERENCES expense_cashflows(id) ON DELETE CASCADE,
+    payment_method payment_mode,
+    amount NUMERIC(18,2) NOT NULL CHECK (amount > 0),
+    date DATE,
+    created_by UUID,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -1088,20 +1079,14 @@ CREATE INDEX IF NOT EXISTS idx_investments_maturity_date
 CREATE INDEX IF NOT EXISTS idx_investments_created_by
   ON investments(created_by);
 
-CREATE INDEX IF NOT EXISTS idx_investment_reports_investment_period
-  ON investment_reports(investment_id, report_period);
-CREATE INDEX IF NOT EXISTS idx_investment_reports_created_by
-  ON investment_reports(created_by);
 
 CREATE INDEX IF NOT EXISTS idx_investment_cashflows_investment_date
   ON investment_cashflows(investment_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_investment_cashflows_report_id
-  ON investment_cashflows(report_id);
 CREATE INDEX IF NOT EXISTS idx_investment_cashflows_type_category
   ON investment_cashflows(type, category);
 
 CREATE INDEX IF NOT EXISTS idx_investment_valuations_investment_date
-  ON investment_valuations(investment_id, valuation_date DESC);
+  ON investment_valuations(investment_id, created_at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_investment_funding_sources_investment_id
   ON investment_funding_sources(investment_id);

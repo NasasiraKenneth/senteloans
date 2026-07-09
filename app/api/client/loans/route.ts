@@ -156,8 +156,8 @@ export async function POST(req: Request) {
       }
 
       const loanRes = await client.query(
-        `INSERT INTO loans (institution_id, branch_id, member_id, loan_product_id, application_id, principal_amount, interest_rate, tenure_months, purpose, monthly_payment, total_amount, outstanding_balance, collateral_description, application_date, status)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'Applied')
+        `INSERT INTO loans (institution_id, branch_id, member_id, loan_product_id, application_id, principal_amount, interest_rate, tenure_months, remaining_tenure_months, purpose, monthly_payment, total_amount, outstanding_balance, collateral_description, application_date, status)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8, $9, $10, $11, $12, $13, $14, 'Applied')
          RETURNING id, application_id`,
         [
           loanInsert.institution_id,
@@ -202,7 +202,13 @@ export async function POST(req: Request) {
         roles: ["institution_admin", "manager", "loan_officer"],
       })
       if (admins.length > 0) {
-        const notif = NotificationTemplates.pendingLoanApproval(clientRow.full_name, principal, loan.id)
+        const notif = NotificationTemplates.pendingLoanApproval(
+          clientRow.full_name,
+          principal,
+          loan.id,
+          loan.application_id,
+          product.product_name,
+        )
         await notificationService.createBulk(
           admins.map((a) => ({
             institutionId: clientRow.institution_id,
@@ -213,13 +219,25 @@ export async function POST(req: Request) {
             title: notif.title,
             message: notif.message,
             actionUrl: notif.actionUrl,
-            metadata: { member_id: clientRow.id, member_name: clientRow.full_name, loan_id: loan.id, amount: principal },
+            metadata: {
+              member_id: clientRow.id,
+              member_name: clientRow.full_name,
+              loan_id: loan.id,
+              application_id: loan.application_id,
+              amount: principal,
+              product_name: product.product_name,
+            },
           })),
           client
         )
       }
 
-      const submittedTpl = NotificationTemplates.loanApplicationSubmitted(loan.id, principal)
+      const submittedTpl = NotificationTemplates.loanApplicationSubmitted(
+        loan.id,
+        principal,
+        loan.application_id,
+        product.product_name,
+      )
       await notificationService
         .create(
           {
@@ -231,7 +249,12 @@ export async function POST(req: Request) {
             title: submittedTpl.title,
             message: submittedTpl.message,
             actionUrl: submittedTpl.actionUrl,
-            metadata: { loan_id: loan.id, amount: principal },
+            metadata: {
+              loan_id: loan.id,
+              application_id: loan.application_id,
+              amount: principal,
+              product_name: product.product_name,
+            },
           },
           client
         )

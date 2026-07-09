@@ -9,7 +9,7 @@ interface ActivateProps {
   isOpen: boolean
   onClose: () => void
   loanId: string
-  tenureMonths: number
+  remainingTenureMonths: number
   initialNextPaymentDate?: string
   initialMonthlyPayment?: number
   onSuccess?: () => void | Promise<void>
@@ -19,7 +19,7 @@ export default function Activate({
   isOpen,
   onClose,
   loanId,
-  tenureMonths,
+  remainingTenureMonths,
   initialNextPaymentDate = "",
   initialMonthlyPayment = 0,
   onSuccess,
@@ -62,7 +62,7 @@ export default function Activate({
         onSubmit={handleSubmit}
         onCancel={onClose}
         loading={loading}
-        tenureMonths={tenureMonths}
+        remainingTenureMonths={remainingTenureMonths}
         initialNextPaymentDate={initialNextPaymentDate}
         initialMonthlyPayment={initialMonthlyPayment}
       />

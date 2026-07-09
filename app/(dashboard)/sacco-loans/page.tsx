@@ -18,12 +18,13 @@ import AddSaccoLoan from "./components/add/add"
 
 type SaccoLoanRow = {
   id: string
-  client_id: string
-  client_name: string
+  third_party_agent_id: string
+  third_party_agent_name: string
   loan_product: string | null
   principal_amount: number
   interest_rate: number
   tenure_months: number
+  remaining_tenure_months: number
   monthly_payment: number | null
   total_amount: number | null
   outstanding_balance: number
@@ -112,12 +113,13 @@ export default function SaccoLoansPage() {
         setRows(
           items.map((item: Record<string, unknown>) => ({
             id: String(item.id || ""),
-            client_id: String(item.client_id || ""),
-            client_name: String(item.client_name || ""),
+            third_party_agent_id: String(item.third_party_agent_id || ""),
+            third_party_agent_name: String(item.third_party_agent_name || ""),
             loan_product: item.loan_product != null ? String(item.loan_product) : null,
             principal_amount: Number(item.principal_amount || 0),
             interest_rate: Number(item.interest_rate || 0),
             tenure_months: Number(item.tenure_months || 0),
+            remaining_tenure_months: Number(item.remaining_tenure_months || 0),
             monthly_payment: item.monthly_payment != null ? Number(item.monthly_payment) : null,
             total_amount: item.total_amount != null ? Number(item.total_amount) : null,
             outstanding_balance: Number(item.outstanding_balance || 0),
@@ -339,14 +341,14 @@ export default function SaccoLoansPage() {
   const columns: DataTableColumn<SaccoLoanRow>[] = useMemo(
     () => [
       {
-        key: "client_name",
+        key: "third_party_agent_name",
         header: "Client",
         render: (row) => (
           <div className="flex items-center gap-3">
             <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#f7e6d3]">
-              <span className="text-xs font-semibold text-[#f08c2b]">{getInitials(row.client_name || "?")}</span>
+              <span className="text-xs font-semibold text-[#f08c2b]">{getInitials(row.third_party_agent_name || "?")}</span>
             </div>
-            <span className="font-medium text-gray-900">{row.client_name || "—"}</span>
+            <span className="font-medium text-gray-900">{row.third_party_agent_name || "—"}</span>
           </div>
         ),
       },
@@ -361,7 +363,7 @@ export default function SaccoLoansPage() {
         header: "Rate %",
         render: (r) => <span className="tabular-nums">{Number(r.interest_rate || 0).toFixed(2)}%</span>,
       },
-      { key: "tenure_months", header: "Tenure (mo)", render: (r) => <span className="tabular-nums">{r.tenure_months}</span> },
+      { key: "remaining_tenure_months", header: "Tenure (months)", render: (r) => <span className="tabular-nums">{r.remaining_tenure_months}</span> },
       {
         key: "outstanding_balance",
         header: "Outstanding",

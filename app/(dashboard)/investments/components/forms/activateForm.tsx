@@ -1,14 +1,20 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import StyledSelect from "@/components/newUI/styled_select"
 import ReeveDatePicker from "@/components/newUI/date_picker"
+import { isBankRoutedPaymentMode, PAYMENT_MODE_OPTIONS } from "@/lib/finances/payment-mode"
+
+type BankAccount = { id: string; bank_name: string; bank_account_number: string }
 
 export interface ActivateFormData {
   principalAmount: number
   transactionMode: string
+  bankAccountId?: string
+  referenceNumber?: string
+  transactionCharges?: number
   periodValue: number
   periodUnit: "months" | "years"
   startDate: string
@@ -33,12 +39,48 @@ const toYmd = (value: unknown): string => {
 
 export default function ActivateForm({ initialValues, onClose, onSubmit, loading = false }: ActivateFormProps) {
   const [form, setForm] = useState<ActivateFormData>(initialValues)
+  const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([])
+  const [bankAccountId, setBankAccountId] = useState("")
+  const [referenceNumber, setReferenceNumber] = useState("")
+  const [transactionChargesInput, setTransactionChargesInput] = useState("")
   const [errors, setErrors] = useState<Record<string, string>>({})
 
   useEffect(() => {
     setForm(initialValues)
+    setBankAccountId("")
+    setReferenceNumber("")
+    setTransactionChargesInput("")
     setErrors({})
   }, [initialValues])
+
+  useEffect(() => {
+    let cancelled = false
+    async function loadBankAccounts() {
+      try {
+        const res = await fetch("/api/institution/finances/bank-accounts?rowsPerPage=100", { cache: "no-store" })
+        if (!res.ok) return
+        const data = (await res.json()) as {
+          rows?: BankAccount[]
+          items?: BankAccount[]
+          bankAccounts?: BankAccount[]
+        }
+        const rows = Array.isArray(data.rows)
+          ? data.rows
+          : Array.isArray(data.items)
+            ? data.items
+            : Array.isArray(data.bankAccounts)
+              ? data.bankAccounts
+              : []
+        if (!cancelled) setBankAccounts(rows)
+      } catch {
+        // Best-effort; select shows empty if load fails.
+      }
+    }
+    void loadBankAccounts()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   useEffect(() => {
     const startDate = String(form.startDate || "").trim()
@@ -57,16 +99,13 @@ export default function ActivateForm({ initialValues, onClose, onSubmit, loading
     setForm((prev) => ({ ...prev, endDate: nextEndDate }))
   }, [form.startDate, form.periodValue, form.periodUnit, form.endDate])
 
-  const modeOptions = useMemo(
-    () => [
-      { value: "Cash", label: "Cash" },
-      { value: "Mobile Money", label: "Mobile Money" },
-      { value: "Bank Transfer", label: "Bank Transfer" },
-      { value: "Cheque", label: "Cheque" },
-      { value: "Card", label: "Card" },
-    ],
-    [],
-  )
+  const isCashMode = form.transactionMode === "Cash"
+  const isBankRoutedMode = isBankRoutedPaymentMode(form.transactionMode)
+  const chargesNumber = transactionChargesInput.trim() === "" ? 0 : Number(transactionChargesInput)
+  const invalidCharges =
+    !isCashMode &&
+    transactionChargesInput.trim() !== "" &&
+    (!Number.isFinite(chargesNumber) || chargesNumber < 0)
 
   const validate = () => {
     const nextErrors: Record<string, string> = {}
@@ -74,13 +113,31 @@ export default function ActivateForm({ initialValues, onClose, onSubmit, loading
     if (!form.startDate) nextErrors.startDate = "Start date is required"
     if (!form.endDate) nextErrors.endDate = "End date is required"
     if (!(Number(form.periodValue || 0) > 0)) nextErrors.periodValue = "Period value must be greater than zero"
+    if (!isCashMode && form.transactionMode && !referenceNumber.trim()) {
+      nextErrors.referenceNumber = `Reference number is required for ${form.transactionMode} payments`
+    }
+    if (isBankRoutedMode && !bankAccountId) {
+      nextErrors.bankAccountId = "Please select a bank account"
+    }
+    if (invalidCharges) nextErrors.transactionCharges = "Transaction charges must be zero or greater"
     setErrors(nextErrors)
     return Object.keys(nextErrors).length === 0
   }
 
   const handleSubmit = async () => {
     if (!validate()) return
-    await onSubmit(form)
+    await onSubmit({
+      ...form,
+      bankAccountId: isBankRoutedMode ? bankAccountId : undefined,
+      referenceNumber: !isCashMode ? referenceNumber.trim() : undefined,
+      transactionCharges:
+        !isCashMode &&
+        transactionChargesInput.trim() !== "" &&
+        Number.isFinite(chargesNumber) &&
+        chargesNumber > 0
+          ? chargesNumber
+          : undefined,
+    })
   }
 
   return (
@@ -100,13 +157,99 @@ export default function ActivateForm({ initialValues, onClose, onSubmit, loading
           value={form.transactionMode}
           onChange={(value) => {
             setForm((prev) => ({ ...prev, transactionMode: value }))
-            setErrors((prev) => ({ ...prev, transactionMode: "" }))
+            if (value === "Cash") {
+              setBankAccountId("")
+              setReferenceNumber("")
+              setTransactionChargesInput("")
+            } else if (!isBankRoutedPaymentMode(value)) {
+              setBankAccountId("")
+            }
+            setErrors((prev) => ({
+              ...prev,
+              transactionMode: "",
+              bankAccountId: "",
+              referenceNumber: "",
+              transactionCharges: "",
+            }))
           }}
-          options={modeOptions}
+          options={PAYMENT_MODE_OPTIONS}
           placeholder="Select mode"
         />
         {errors.transactionMode ? <p className="text-xs text-red-600">{errors.transactionMode}</p> : null}
       </div>
+
+      {isBankRoutedMode ? (
+        <div className="space-y-1.5">
+          <Label>
+            Bank account <span className="text-red-500">*</span>
+          </Label>
+          <StyledSelect
+            value={bankAccountId}
+            onChange={(value) => {
+              setBankAccountId(value)
+              setErrors((prev) => ({ ...prev, bankAccountId: "" }))
+            }}
+            placeholder={bankAccounts.length ? "Select bank account" : "No branch bank accounts"}
+            options={bankAccounts.map((account) => ({
+              value: account.id,
+              label: `${account.bank_name} — ${account.bank_account_number}`,
+            }))}
+          />
+          {errors.bankAccountId ? (
+            <p className="text-xs text-red-600">{errors.bankAccountId}</p>
+          ) : null}
+        </div>
+      ) : null}
+
+      {!isCashMode && form.transactionMode ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="space-y-1.5">
+            <Label>
+              Transaction charges
+            </Label>
+            <input
+              type="number"
+              min={0}
+              step="any"
+              value={transactionChargesInput}
+              onChange={(e) => {
+                setTransactionChargesInput(e.target.value)
+                setErrors((prev) => ({ ...prev, transactionCharges: "" }))
+              }}
+              placeholder="0"
+              className={`w-full px-3 py-2.5 text-sm border rounded-md ${
+                invalidCharges ? "border-red-500" : "border-gray-300"
+              }`}
+            />
+            {errors.transactionCharges ? (
+              <p className="text-xs text-red-600">{errors.transactionCharges}</p>
+            ) : (
+              <p className="text-xs text-gray-500">Optional fees for {form.transactionMode} payments.</p>
+            )}
+          </div>
+          <div className="space-y-1.5">
+            <Label>
+              Reference number <span className="text-red-500">*</span>
+            </Label>
+            <input
+              value={referenceNumber}
+              onChange={(e) => {
+                setReferenceNumber(e.target.value)
+                setErrors((prev) => ({ ...prev, referenceNumber: "" }))
+              }}
+              placeholder="e.g. transaction id"
+              className={`w-full px-3 py-2.5 text-sm border rounded-md ${
+                errors.referenceNumber ? "border-red-500" : "border-gray-300"
+              }`}
+            />
+            {errors.referenceNumber ? (
+              <p className="text-xs text-red-600">{errors.referenceNumber}</p>
+            ) : (
+              <p className="text-xs text-gray-500">Required for {form.transactionMode} payments.</p>
+            )}
+          </div>
+        </div>
+      ) : null}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <div className="space-y-1.5">

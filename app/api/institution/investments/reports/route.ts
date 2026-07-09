@@ -3,7 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { runWithAuth } from "@/lib/db"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
-import { hasInvestmentPermission, resolveInvestmentActor } from "@/lib/api/investment-rbac"
+import { hasPermission, isSuperAdmin, resolveActorContext } from "@/lib/api/rbac"
 
 const ALLOWED_PERIOD_MONTHS = new Set([
   "january",
@@ -53,18 +53,18 @@ export async function GET(req: Request) {
     const selectedBranchIds = branchesRaw ? branchesRaw.split(",").map((v) => v.trim()).filter(Boolean) : []
 
     const result = await runWithAuth(session.user.authUserId, async (client) => {
-      const actor = await resolveInvestmentActor(client, session.user.authUserId as string)
+      const actor = await resolveActorContext(client, session.user.authUserId as string, { activeOnly: false })
       if (!actor?.institution_id) return { error: "user_not_linked" as const }
-      const allowed = await hasInvestmentPermission(client, actor, "view_investment_reports")
+      const allowed = await hasPermission(client, actor, "view_investment_reports")
       if (!allowed) return { error: "missing_permission:view_investment_reports" as const }
-      const isSuperAdmin = String(actor.role || "").trim().toLowerCase() === "super_admin"
-      if (!isSuperAdmin && !actor.branch_id) return { error: "actor_branch_missing" as const }
+      const superAdmin = isSuperAdmin(actor)
+      if (!superAdmin && !actor.branch_id) return { error: "actor_branch_missing" as const }
 
       let where = "i.institution_id = $1"
       const params: unknown[] = [actor.institution_id]
       let idx = 2
 
-      if (!isSuperAdmin) {
+      if (!superAdmin) {
         where += ` AND i.branch_id = $${idx++}`
         params.push(actor.branch_id)
       } else if (selectedBranchIds.length > 0) {
@@ -77,7 +77,7 @@ export async function GET(req: Request) {
           r.report_number ILIKE $${idx}
           OR i.investment_number ILIKE $${idx}
           OR COALESCE(i.investment_name, '') ILIKE $${idx}
-          OR COALESCE(c.name, '') ILIKE $${idx}
+          OR COALESCE(tpa.name, '') ILIKE $${idx}
         )`
         params.push(`%${q}%`)
         idx++
@@ -107,7 +107,7 @@ export async function GET(req: Request) {
         `SELECT COUNT(*)::int AS c
          FROM investment_reports r
          INNER JOIN investments i ON i.id = r.investment_id
-         LEFT JOIN clients c ON c.id = i.provider_id
+         LEFT JOIN third_party_agents tpa ON tpa.id = i.provider_id
          WHERE ${where}`,
         params,
       )
@@ -120,7 +120,7 @@ export async function GET(req: Request) {
            r.investment_id,
            i.investment_number,
            COALESCE(i.investment_name, '') AS investment_name,
-           COALESCE(c.name, '') AS provider_name,
+           COALESCE(tpa.name, '') AS provider_name,
            r.report_number,
            r.report_period,
            r.opening_value,
@@ -135,7 +135,7 @@ export async function GET(req: Request) {
            u.full_name AS created_by_name
          FROM investment_reports r
          INNER JOIN investments i ON i.id = r.investment_id
-         LEFT JOIN clients c ON c.id = i.provider_id
+         LEFT JOIN third_party_agents tpa ON tpa.id = i.provider_id
          LEFT JOIN users u ON u.id = r.created_by
          WHERE ${where}
          ORDER BY r.created_at DESC

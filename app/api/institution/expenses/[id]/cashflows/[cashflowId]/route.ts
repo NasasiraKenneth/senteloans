@@ -9,19 +9,20 @@ import {
 import { insertTransactionInsertAuditLog } from "@/lib/audit/transaction-insert-audit"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
 import { insertWithTransactionNumberRetry } from "@/lib/transactions/transaction-number-retry"
-import { hasPermission, isSuperAdmin, requireStaffSession, resolveActorContext } from "@/lib/api/rbac"
+import {
+  isEditableExpenseCashflowStatus,
+} from "@/lib/expenses/record-expense-cashflow-payment"
+import { requireStaffSession } from "@/lib/api/rbac"
+import {
+  assertExpenseReadAccess,
+  assertExpenseWriteAccess,
+  expenseScopeWhere,
+  mapExpenseMutationErrorResponse,
+  mapExpenseReadErrorResponse,
+} from "@/lib/api/expense-access"
+import { computeExpenseCashflowPaymentTotals } from "@/lib/expenses/expense-cashflow-payment-totals"
 
 const PAYMENT_MODES = ["Cash", "Mobile Money", "Bank Transfer", "Cheque", "Card"] as const
-
-function singleExpenseWhere(actor: NonNullable<Awaited<ReturnType<typeof resolveActorContext>>>, expenseId: string): { where: string; values: unknown[] } {
-  let where = `e.id = $1::uuid AND e.institution_id = $2::uuid`
-  const values: unknown[] = [expenseId, actor.institution_id]
-  if (!isSuperAdmin(actor)) {
-    where += ` AND e.branch_id = $3::uuid`
-    values.push(actor.branch_id)
-  }
-  return { where, values }
-}
 
 function normalizeCashflowStatus(s: string): string {
   return String(s || "").trim().toLowerCase()
@@ -31,7 +32,7 @@ function normalizeExpenseStatus(s: string): string {
   return String(s || "").trim().toLowerCase()
 }
 
-/** When a cashflow row is not pending (shared by PATCH status + PUT edit). */
+/** When a cashflow row is not editable (PATCH status changes). */
 function cashflowNonPendingError(currentNorm: string): { error: string; message: string } {
   if (currentNorm === "completed") {
     return {
@@ -48,6 +49,89 @@ function cashflowNonPendingError(currentNorm: string): { error: string; message:
   return {
     error: "cashflow_not_editable",
     message: "This cashflow cannot be edited because it is not pending.",
+  }
+}
+
+export async function GET(
+  req: Request,
+  { params }: { params: Promise<{ id: string; cashflowId: string }> },
+) {
+  const apiPath = getApiPath(req)
+  const { id: expenseId, cashflowId } = await params
+  if (!expenseId || !cashflowId) {
+    return NextResponse.json({ error: "id_required" }, { status: 400 })
+  }
+
+  try {
+    const sess = await requireStaffSession()
+    if (!sess.ok) {
+      apiLog("warn", "expenses.cashflows.get.denied", { method: "GET", apiPath, status: sess.status, error: sess.error })
+      return NextResponse.json({ error: sess.error }, { status: sess.status })
+    }
+
+    const result = await runWithAuth(sess.authUserId, async (client) => {
+      const access = await assertExpenseReadAccess(client, sess.authUserId, ["view_expenses", "record_cashflow"])
+      if (!access.ok) {
+        return {
+          error: access.error,
+          staffStatus: access.staffStatus,
+        }
+      }
+      const { actor } = access
+      const { where, values } = expenseScopeWhere(actor, expenseId)
+      const res = await client.query<{
+        id: string
+        amount: string | number
+        paid_amount: string | number
+      }>(
+        `SELECT
+           cf.id,
+           cf.amount::float AS amount,
+           COALESCE((
+             SELECT SUM(p.amount)::float
+             FROM expense_cashflows_payments p
+             WHERE p.expense_cashflow_id = cf.id
+           ), 0) AS paid_amount
+         FROM expense_cashflows cf
+         JOIN expenses e ON e.id = cf.expense_id
+         WHERE cf.id = $${values.length + 1}::uuid
+           AND ${where}
+         LIMIT 1`,
+        [...values, cashflowId],
+      )
+      const row = res.rows[0]
+      if (!row) return { error: "cashflow_not_found" as const }
+
+      const amount = Number(row.amount || 0)
+      const totals = computeExpenseCashflowPaymentTotals(amount, Number(row.paid_amount || 0))
+      return {
+        cashflow_id: String(row.id),
+        amount,
+        paid_amount: totals.paid_amount,
+        outstanding: totals.outstanding,
+      }
+    })
+
+    if (result && "error" in result) {
+      const code = String(result.error || "")
+      if (code === "cashflow_not_found") {
+        apiLog("warn", "expenses.cashflows.get.denied", { method: "GET", apiPath, status: 404, error: code })
+        return NextResponse.json({ error: code }, { status: 404 })
+      }
+      const { status, body } = mapExpenseReadErrorResponse({
+        error: code,
+        staffStatus: "staffStatus" in result ? result.staffStatus : undefined,
+      })
+      apiLog("warn", "expenses.cashflows.get.denied", { method: "GET", apiPath, status, error: code })
+      return NextResponse.json(body, { status })
+    }
+
+    apiLog("info", "expenses.cashflows.get.success", { method: "GET", apiPath, status: 200 })
+    return NextResponse.json(result)
+  } catch (e: unknown) {
+    const err = e as Error
+    apiLog("error", "expenses.cashflows.get.error", { method: "GET", apiPath, status: 500, error: err?.message || "Unexpected error" })
+    return NextResponse.json({ error: err?.message || "Unexpected error" }, { status: 500 })
   }
 }
 
@@ -82,15 +166,20 @@ export async function PATCH(
     }
 
     const result = await runWithAuth(sess.authUserId, async (client) => {
-      const actor = await resolveActorContext(client, sess.authUserId)
-      if (!actor?.institution_id) return { error: "user_not_linked" as const }
-      const allowed = await hasPermission(client, actor, "edit_cashflow_status")
-      if (!allowed) return { error: "missing_permission:edit_cashflow_status" as const }
-      if (!isSuperAdmin(actor) && !actor.branch_id) return { error: "actor_branch_missing" as const }
+      const access = await assertExpenseWriteAccess(client, sess.authUserId, "edit_cashflow_status")
+      if (!access.ok) {
+        return {
+          error: access.error,
+          message: access.message,
+          staffStatus: access.staffStatus,
+          branchStatus: access.branchStatus,
+        }
+      }
+      const { actor } = access
 
-      const { where, values } = singleExpenseWhere(actor, expenseId)
+      const { where, values } = expenseScopeWhere(actor, expenseId)
       const ex = await client.query(
-        `SELECT e.id, e.expense_number, e.name, e.description, e.status, e.type, e.category_id, e.branch_id,
+        `SELECT e.id, e.expense_number, e.name, e.description, e.status, e.type, e.branch_id,
                 e.approved_by, e.approved_at, e.rejected_by, e.rejected_at, e.completed_by, e.completed_at
          FROM expenses e WHERE ${where} LIMIT 1`,
         values,
@@ -119,7 +208,7 @@ export async function PATCH(
           description: string | null
           date: string | null
           payment_method: string | null
-          client_id: string | null
+          third_party_agent_id: string | null
           staff_id: string | null
           transaction_id: string | null
           completed_by: string | null
@@ -129,7 +218,7 @@ export async function PATCH(
           institution_id: string
         }>(
           `SELECT cf.id, cf.expense_id, cf.status, cf.amount, cf.description, cf.date::text AS date,
-                  cf.payment_method::text AS payment_method, cf.client_id, cf.staff_id, cf.transaction_id,
+                  cf.payment_method::text AS payment_method, cf.third_party_agent_id, cf.staff_id, cf.transaction_id,
                   cf.completed_by, cf.completed_at, e.expense_number, e.branch_id, e.institution_id
            FROM expense_cashflows cf
            JOIN expenses e ON e.id = cf.expense_id
@@ -143,7 +232,7 @@ export async function PATCH(
         }
         const oldCashflow = cashflowSnapshot(cf as unknown as Record<string, unknown>)
         const current = normalizeCashflowStatus(String(cf.status || ""))
-        if (current !== "pending") {
+        if (!isEditableExpenseCashflowStatus(current)) {
           return cashflowNonPendingError(current)
         }
 
@@ -164,6 +253,25 @@ export async function PATCH(
           nameRes.rows[0]?.full_name != null ? String(nameRes.rows[0].full_name).trim() : null
 
         if (nextRaw === "rejected") {
+          const linkedTransactionId =
+            cf.transaction_id != null && String(cf.transaction_id).trim() !== ""
+              ? String(cf.transaction_id).trim()
+              : null
+
+          if (linkedTransactionId) {
+            const txUpd = await client.query<{ id: string; status: string }>(
+              `UPDATE transactions t
+               SET status = 'Failed'
+               WHERE t.id = $1::uuid
+                 AND t.institution_id = $2::uuid
+               RETURNING t.id, t.status::text AS status`,
+              [linkedTransactionId, String(cf.institution_id)],
+            )
+            if ((txUpd.rowCount ?? 0) === 0) {
+              return { error: "transaction_not_found" as const }
+            }
+          }
+
           const upd = await client.query(
             `UPDATE expense_cashflows
              SET status = $1,
@@ -171,7 +279,7 @@ export async function PATCH(
                  completed_at = NOW()
              WHERE id = $3::uuid AND expense_id = $4::uuid
              RETURNING id, expense_id, status, amount, description, date::text AS date,
-                       payment_method::text AS payment_method, staff_id, client_id, transaction_id,
+                       payment_method::text AS payment_method, staff_id, third_party_agent_id, transaction_id,
                        completed_by, completed_at`,
             [nextLabel, actor.id, cashflowId, expenseId],
           )
@@ -189,7 +297,12 @@ export async function PATCH(
               completed_at: out.completed_at != null ? String(out.completed_at) : null,
               completed_by: out.completed_by != null ? String(out.completed_by) : actor.id,
               completed_by_name,
+              transaction_id: out.transaction_id != null ? String(out.transaction_id) : linkedTransactionId,
             },
+            transaction:
+              linkedTransactionId != null
+                ? { id: linkedTransactionId, status: "Failed" as const }
+                : undefined,
           }
         }
 
@@ -206,7 +319,7 @@ export async function PATCH(
         const modeRaw = cf.payment_method != null ? String(cf.payment_method).trim() : ""
         const mode = (PAYMENT_MODES as readonly string[]).includes(modeRaw) ? modeRaw : "Cash"
 
-        const cid = cf.client_id != null ? String(cf.client_id) : null
+        const cid = cf.third_party_agent_id != null ? String(cf.third_party_agent_id) : null
         const sid = cf.staff_id != null ? String(cf.staff_id) : null
         if (!cid && !sid) {
           return { error: "cashflow_assignee_missing" as const }
@@ -218,7 +331,7 @@ export async function PATCH(
           (transaction_number) =>
             client.query<{ id: string }>(
               `INSERT INTO transactions (
-                 institution_id, branch_id, member_id, client_id, staff_id, account_id, transferred_to_id, loan_id, sacco_loan_id,
+                 institution_id, branch_id, member_id, third_party_agent_id, staff_id, account_id, transferred_to_id, loan_id, sacco_loan_id,
                  transaction_number, type, amount, mode, description, reference_number,
                  balance_before, balance_after, processed_by, transaction_date, status
                ) VALUES (
@@ -258,7 +371,7 @@ export async function PATCH(
             transaction_number: transactionNumber,
             type: "Expense Payment",
             amount: Number(cf.amount || 0),
-            client_id: cid,
+            third_party_agent_id: cid,
             staff_id: sid,
             expense_cashflow_id: cashflowId,
             expense_id: expenseId,
@@ -273,7 +386,7 @@ export async function PATCH(
                transaction_id = $3::uuid
            WHERE id = $4::uuid AND expense_id = $5::uuid
            RETURNING id, expense_id, status, amount, description, date::text AS date,
-                     payment_method::text AS payment_method, staff_id, client_id, transaction_id,
+                     payment_method::text AS payment_method, staff_id, third_party_agent_id, transaction_id,
                      completed_by, completed_at`,
           [nextLabel, actor.id, txRow.id, cashflowId, expenseId],
         )
@@ -290,7 +403,7 @@ export async function PATCH(
              WHERE e.id = $1::uuid
                AND e.institution_id = $2::uuid
                AND LOWER(TRIM(COALESCE(e.status::text, ''))) = 'approved'
-             RETURNING e.id, e.expense_number, e.name, e.description, e.status, e.type, e.category_id, e.branch_id,
+             RETURNING e.id, e.expense_number, e.name, e.description, e.status, e.type, e.branch_id,
                        e.approved_by, e.approved_at, e.rejected_by, e.rejected_at, e.completed_by, e.completed_at`,
             [expenseId, actor.institution_id],
           )
@@ -332,27 +445,25 @@ export async function PATCH(
 
     if (result && "error" in result) {
       const code = String(result.error || "")
-      const statusCode =
-        code === "missing_permission:edit_cashflow_status" ? 403
-        : code === "user_not_linked" ? 403
-        : code === "actor_branch_missing" ? 400
-        : code === "not_found" ? 404
-        : code === "cashflow_not_found" ? 404
-        : code === "expense_not_approved_or_active" ? 409
-        : code === "cashflow_already_completed" ||
-            code === "cashflow_already_rejected" ||
-            code === "cashflow_not_editable"
-          ? 409
-        : code === "cashflow_assignee_missing" ? 400
-        : code === "transaction_insert_failed" ? 500
-        : code === "update_failed" ? 500
-        : 400
-      apiLog("warn", "expenses.cashflows.patch.denied", { method: "PATCH", apiPath, status: statusCode, error: code })
-      const payload: { error: string; message?: string } = { error: code }
-      if ("message" in result && typeof result.message === "string" && result.message.trim()) {
-        payload.message = result.message.trim()
-      }
-      return NextResponse.json(payload, { status: statusCode })
+      const { status, body } = mapExpenseMutationErrorResponse(
+        {
+          error: code,
+          message: "message" in result ? String(result.message || "") : undefined,
+          staffStatus: "staffStatus" in result ? result.staffStatus : undefined,
+          branchStatus: "branchStatus" in result ? result.branchStatus : undefined,
+        },
+        {
+          expense_not_approved_or_active: 409,
+          cashflow_already_completed: 409,
+          cashflow_already_rejected: 409,
+          cashflow_not_editable: 409,
+          transaction_not_found: 404,
+          transaction_insert_failed: 500,
+          update_failed: 500,
+        },
+      )
+      apiLog("warn", "expenses.cashflows.patch.denied", { method: "PATCH", apiPath, status, error: code })
+      return NextResponse.json(body, { status })
     }
 
     apiLog("info", "expenses.cashflows.patch.success", { method: "PATCH", apiPath, status: 200 })
@@ -364,209 +475,6 @@ export async function PATCH(
   } catch (e: unknown) {
     const err = e as Error
     apiLog("error", "expenses.cashflows.patch.error", { method: "PATCH", apiPath, status: 500, error: err?.message || "Unexpected error" })
-    return NextResponse.json({ error: err?.message || "Unexpected error" }, { status: 500 })
-  }
-}
-
-export async function PUT(req: Request, { params }: { params: Promise<{ id: string; cashflowId: string }> }) {
-  const apiPath = getApiPath(req)
-  const { id: expenseId, cashflowId } = await params
-  if (!expenseId || !cashflowId) {
-    return NextResponse.json({ error: "id_required" }, { status: 400 })
-  }
-
-  let body: Record<string, unknown>
-  try {
-    body = (await req.json()) as Record<string, unknown>
-  } catch {
-    return NextResponse.json({ error: "invalid_json" }, { status: 400 })
-  }
-
-  const assigneeRaw = String(body.assignee_type ?? body.type ?? "").trim().toLowerCase()
-  const staffIdRaw = body.staff_id ?? body.staffId
-  const clientIdRaw = body.client_id ?? body.clientId
-  const staffId = staffIdRaw != null && String(staffIdRaw).trim() !== "" ? String(staffIdRaw).trim() : ""
-  const clientId = clientIdRaw != null && String(clientIdRaw).trim() !== "" ? String(clientIdRaw).trim() : ""
-
-  const amount = Number(body.amount ?? 0)
-  const descriptionRaw = body.description
-  const description =
-    descriptionRaw === null || descriptionRaw === undefined || String(descriptionRaw).trim() === ""
-      ? null
-      : String(descriptionRaw).trim()
-  const date = String(body.date ?? "").trim()
-  const modeRaw = String(body.mode ?? body.payment_method ?? body.transactionMode ?? "").trim()
-  const mode = modeRaw || null
-
-  if (assigneeRaw !== "staff" && assigneeRaw !== "clients") {
-    return NextResponse.json({ error: "invalid_assignee_type" }, { status: 400 })
-  }
-  if (assigneeRaw === "staff" && !staffId) {
-    return NextResponse.json({ error: "staff_id_required" }, { status: 400 })
-  }
-  if (assigneeRaw === "clients" && !clientId) {
-    return NextResponse.json({ error: "client_id_required" }, { status: 400 })
-  }
-  if (assigneeRaw === "staff" && clientId) {
-    return NextResponse.json({ error: "client_id_not_allowed_for_staff_cashflow" }, { status: 400 })
-  }
-  if (assigneeRaw === "clients" && staffId) {
-    return NextResponse.json({ error: "staff_id_not_allowed_for_client_cashflow" }, { status: 400 })
-  }
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-    return NextResponse.json({ error: "invalid_date" }, { status: 400 })
-  }
-  if (mode && !PAYMENT_MODES.includes(mode as (typeof PAYMENT_MODES)[number])) {
-    return NextResponse.json({ error: "invalid_payment_method" }, { status: 400 })
-  }
-  if (Number.isNaN(amount) || amount <= 0) {
-    return NextResponse.json({ error: "invalid_amount" }, { status: 400 })
-  }
-
-  try {
-    const sess = await requireStaffSession()
-    if (!sess.ok) {
-      apiLog("warn", "expenses.cashflows.put.denied", { method: "PUT", apiPath, status: sess.status, error: sess.error })
-      return NextResponse.json({ error: sess.error }, { status: sess.status })
-    }
-
-    const result = await runWithAuth(sess.authUserId, async (client) => {
-      const actor = await resolveActorContext(client, sess.authUserId)
-      if (!actor?.institution_id) return { error: "user_not_linked" as const }
-      const allowed = await hasPermission(client, actor, "edit_cashflow")
-      if (!allowed) return { error: "missing_permission:edit_cashflow" as const }
-      if (!isSuperAdmin(actor) && !actor.branch_id) return { error: "actor_branch_missing" as const }
-
-      const { where, values } = singleExpenseWhere(actor, expenseId)
-      const exRes = await client.query<{ id: string; branch_id: string }>(
-        `SELECT e.id, e.branch_id FROM expenses e WHERE ${where} LIMIT 1`,
-        values,
-      )
-      const expense = exRes.rows[0]
-      if (!expense) return { error: "not_found" as const }
-
-      const cur = await client.query(
-        `SELECT id, expense_id, staff_id, client_id, payment_method::text AS payment_method, amount,
-                description, status, date::text AS date, transaction_id, completed_by, completed_at
-         FROM expense_cashflows WHERE id = $1::uuid AND expense_id = $2::uuid LIMIT 1`,
-        [cashflowId, expenseId],
-      )
-      const cfRow = cur.rows[0] as Record<string, unknown> | undefined
-      if (!cfRow) return { error: "cashflow_not_found" as const }
-      const oldCashflow = cashflowSnapshot(cfRow)
-      const statusNorm = normalizeCashflowStatus(String(cfRow.status || ""))
-      if (statusNorm !== "pending") {
-        return cashflowNonPendingError(statusNorm)
-      }
-
-      const branchId = String(expense.branch_id || "")
-      const instId = actor.institution_id
-
-      if (assigneeRaw === "staff") {
-        const s = await client.query(
-          `SELECT u.id FROM users u
-           WHERE u.id = $1::uuid AND u.institution_id = $2::uuid AND u.branch_id = $3::uuid
-           LIMIT 1`,
-          [staffId, instId, branchId],
-        )
-        if ((s.rowCount ?? 0) === 0) return { error: "invalid_staff" as const }
-      } else {
-        const cWhere = isSuperAdmin(actor)
-          ? `id = $1::uuid AND institution_id = $2::uuid`
-          : `id = $1::uuid AND institution_id = $2::uuid AND branch_id = $3::uuid`
-        const cParams = isSuperAdmin(actor) ? [clientId, instId] : [clientId, instId, branchId]
-        const c = await client.query(`SELECT id FROM clients WHERE ${cWhere} LIMIT 1`, cParams)
-        if ((c.rowCount ?? 0) === 0) return { error: "invalid_client" as const }
-      }
-
-      const upd = await client.query(
-        `UPDATE expense_cashflows
-         SET staff_id = $1::uuid,
-             client_id = $2::uuid,
-             payment_method = $3::payment_mode,
-             amount = $4,
-             description = $5,
-             date = $6::date
-         WHERE id = $7::uuid AND expense_id = $8::uuid
-         RETURNING id, expense_id, amount::float, description, status, date::text AS date,
-                   payment_method::text AS payment_method, staff_id, client_id, transaction_id,
-                   completed_by, completed_at`,
-        [
-          assigneeRaw === "staff" ? staffId : null,
-          assigneeRaw === "clients" ? clientId : null,
-          mode,
-          amount,
-          description,
-          date,
-          cashflowId,
-          expenseId,
-        ],
-      )
-      const out = upd.rows[0] as Record<string, unknown> | undefined
-      if (!out) return { error: "update_failed" as const }
-
-      await auditCashflowUpdate(client, actor, cashflowId, oldCashflow, cashflowSnapshot(out), branchId)
-
-      const sid = out.staff_id != null ? String(out.staff_id) : null
-      const cid = out.client_id != null ? String(out.client_id) : null
-      let assigned_type: "staff" | "client" | null = null
-      if (sid) assigned_type = "staff"
-      else if (cid) assigned_type = "client"
-
-      let assigned_name: string | null = null
-      if (sid) {
-        const nr = await client.query(`SELECT full_name FROM users WHERE id = $1::uuid LIMIT 1`, [sid])
-        assigned_name =
-          nr.rows[0]?.full_name != null ? String(nr.rows[0].full_name).trim() || "Staff" : "Staff"
-      } else if (cid) {
-        const nr = await client.query(`SELECT name FROM clients WHERE id = $1::uuid LIMIT 1`, [cid])
-        assigned_name = nr.rows[0]?.name != null ? String(nr.rows[0].name).trim() || "Client" : "Client"
-      }
-
-      return {
-        cashflow: {
-          id: String(out.id),
-          amount: Number(out.amount || 0),
-          description: out.description != null ? String(out.description) : null,
-          status: String(out.status || "Pending"),
-          date: out.date != null ? String(out.date) : null,
-          payment_method: out.payment_method != null ? String(out.payment_method) : null,
-          staff_id: sid,
-          client_id: cid,
-          assigned_type,
-          assigned_name,
-        },
-      }
-    })
-
-    if (result && "error" in result) {
-      const code = String(result.error || "")
-      const statusCode =
-        code === "missing_permission:edit_cashflow" ? 403
-        : code === "user_not_linked" ? 403
-        : code === "actor_branch_missing" ? 400
-        : code === "not_found" ? 404
-        : code === "cashflow_not_found" ? 404
-        : code === "cashflow_already_completed" ||
-            code === "cashflow_already_rejected" ||
-            code === "cashflow_not_editable"
-          ? 409
-        : code === "invalid_staff" || code === "invalid_client" ? 400
-        : code === "update_failed" ? 500
-        : 400
-      apiLog("warn", "expenses.cashflows.put.denied", { method: "PUT", apiPath, status: statusCode, error: code })
-      const payload: { error: string; message?: string } = { error: code }
-      if ("message" in result && typeof result.message === "string" && result.message.trim()) {
-        payload.message = result.message.trim()
-      }
-      return NextResponse.json(payload, { status: statusCode })
-    }
-
-    apiLog("info", "expenses.cashflows.put.success", { method: "PUT", apiPath, status: 200 })
-    return NextResponse.json({ ok: true, ...result })
-  } catch (e: unknown) {
-    const err = e as Error
-    apiLog("error", "expenses.cashflows.put.error", { method: "PUT", apiPath, status: 500, error: err?.message || "Unexpected error" })
     return NextResponse.json({ error: err?.message || "Unexpected error" }, { status: 500 })
   }
 }

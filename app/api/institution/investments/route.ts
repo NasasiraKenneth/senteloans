@@ -1,10 +1,18 @@
 import { NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
-import { runWithAuth } from "@/lib/db"
+import { runWithAuth, runWithoutAuth } from "@/lib/db"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
 import { auditLogger } from "@/lib/audit/audit-logger"
-import { hasInvestmentPermission, resolveInvestmentActor } from "@/lib/api/investment-rbac"
+import {
+  assertInvestmentWriteAccess,
+  investmentRouteDenialResponse,
+  investmentWriteAccessHttpStatus,
+  isInvestmentRouteError,
+  isInvestmentWriteAccessError,
+} from "@/lib/api/investment-access"
+import { hasPermission, isSuperAdmin, resolveActorContext } from "@/lib/api/rbac"
+import { notifyInvestmentCreated } from "@/lib/notifications/investment-events"
 
 const normalizeDate = (value: unknown): string | null => {
   if (typeof value !== "string" || !value.trim()) return null
@@ -57,12 +65,12 @@ export async function GET(req: Request) {
     const selectedBranchIds = branchesRaw ? branchesRaw.split(",").map((v) => v.trim()).filter(Boolean) : []
 
     const result = await runWithAuth(session.user.authUserId, async (client) => {
-      const actor = await resolveInvestmentActor(client, session.user.authUserId as string)
+      const actor = await resolveActorContext(client, session.user.authUserId as string, { activeOnly: false })
       if (!actor?.institution_id) return { error: "user_not_linked" as const }
-      const allowed = await hasInvestmentPermission(client, actor, "view_investments")
+      const allowed = await hasPermission(client, actor, "view_investments")
       if (!allowed) return { error: "missing_permission:view_investments" as const }
-      const isSuperAdmin = String(actor.role || "").trim().toLowerCase() === "super_admin"
-      if (!isSuperAdmin && !actor.branch_id) return { error: "actor_branch_missing" as const }
+      const superAdmin = isSuperAdmin(actor)
+      if (!superAdmin && !actor.branch_id) return { error: "actor_branch_missing" as const }
 
       let where = "i.institution_id = $1"
       const params: unknown[] = [actor.institution_id]
@@ -106,7 +114,7 @@ export async function GET(req: Request) {
       if (q) {
         where += ` AND (
           i.investment_number ILIKE $${idx}
-          OR c.name ILIKE $${idx}
+          OR tpa.name ILIKE $${idx}
           OR i.investment_name ILIKE $${idx}
           OR i.address ILIKE $${idx}
           OR i.description ILIKE $${idx}
@@ -118,7 +126,7 @@ export async function GET(req: Request) {
       const countRes = await client.query<{ c: number }>(
         `SELECT COUNT(*)::int AS c
          FROM investments i
-         LEFT JOIN clients c ON c.id = i.provider_id
+         LEFT JOIN third_party_agents tpa ON tpa.id = i.provider_id
          WHERE ${where}`,
         params,
       )
@@ -130,7 +138,7 @@ export async function GET(req: Request) {
            i.id,
            i.investment_number,
            i.provider_id,
-           c.name AS provider_name,
+           tpa.name AS provider_name,
            i.investment_name,
            i.address,
            i.category,
@@ -149,7 +157,7 @@ export async function GET(req: Request) {
            u.full_name AS created_by_name,
            i.created_at
          FROM investments i
-         LEFT JOIN clients c ON c.id = i.provider_id
+         LEFT JOIN third_party_agents tpa ON tpa.id = i.provider_id
          LEFT JOIN users u ON u.id = i.created_by
          WHERE ${where}
          ORDER BY i.created_at DESC
@@ -307,18 +315,29 @@ export async function POST(req: Request) {
     }
 
     const result = await runWithAuth(session.user.authUserId, async (client) => {
-      const actor = await resolveInvestmentActor(client, session.user.authUserId as string)
-      if (!actor?.institution_id) return { error: "user_not_linked" as const }
-      const allowed = await hasInvestmentPermission(client, actor, "add_investment")
-      if (!allowed) return { error: "missing_permission:add_investment" as const }
-      if (!actor.branch_id) return { error: "actor_branch_missing" as const }
+      const access = await assertInvestmentWriteAccess(
+        client,
+        session.user.authUserId as string,
+        "add_investment",
+      )
+      if (!access.ok) {
+        return {
+          error: access.error,
+          message: access.message,
+          staffStatus: access.staffStatus,
+          branchStatus: access.branchStatus,
+        }
+      }
+      const { actor } = access
 
+      let providerName: string | null = null
       if (providerId) {
-        const clientRes = await client.query(
-          `SELECT id FROM clients WHERE id = $1 AND institution_id = $2`,
+        const clientRes = await client.query<{ id: string; name: string | null }>(
+          `SELECT id, name FROM third_party_agents WHERE id = $1 AND institution_id = $2`,
           [providerId, actor.institution_id],
         )
         if (clientRes.rowCount === 0) return { error: "client_not_found" as const }
+        providerName = String(clientRes.rows[0].name || "").trim() || null
       }
 
       await client.query("BEGIN")
@@ -389,7 +408,7 @@ export async function POST(req: Request) {
             if (!counterpartyId) continue
 
             const cpRes = await client.query(
-              `SELECT id FROM clients WHERE id = $1 AND institution_id = $2`,
+              `SELECT id FROM third_party_agents WHERE id = $1 AND institution_id = $2`,
               [counterpartyId, actor.institution_id],
             )
             if (cpRes.rowCount === 0) {
@@ -491,6 +510,21 @@ export async function POST(req: Request) {
           ok: true,
           id: investmentId,
           investment_number: createRes.rows[0].investment_number,
+          postCommit: {
+            actorId: actor.id,
+            institutionId: actor.institution_id,
+            branchId: actor.branch_id,
+            investment: {
+              id: investmentId,
+              investment_name: investmentName,
+              investment_number: createRes.rows[0].investment_number,
+              initial_amount: initialAmount,
+              category,
+              provider_id: providerId,
+              provider_name: providerName,
+              status,
+            },
+          },
         }
       } catch (error) {
         await client.query("ROLLBACK")
@@ -498,22 +532,23 @@ export async function POST(req: Request) {
       }
     })
 
-    if (result && "error" in result) {
+    if (isInvestmentRouteError(result)) {
       const statusCode =
         result.error === "client_not_found"
           ? 404
-          : result.error === "actor_branch_missing"
-            ? 400
-            : result.error === "investment_number_conflict"
-              ? 409
-              : result.error.startsWith("invalid_partner_") ||
-                  result.error === "invalid_funding_source_type" ||
-                  result.error === "invalid_funding_amount" ||
-                  result.error === "loan_id_required_for_funding_type_loan"
-                ? 400
+          : result.error === "investment_number_conflict"
+            ? 409
+            : result.error.startsWith("invalid_partner_") ||
+                result.error === "invalid_funding_source_type" ||
+                result.error === "invalid_funding_amount" ||
+                result.error === "loan_id_required_for_funding_type_loan"
+              ? 400
+              : isInvestmentWriteAccessError(result.error)
+                ? investmentWriteAccessHttpStatus({ ok: false, error: result.error as never })
                 : 403
       apiLog("warn", "investments.create.denied", { method: "POST", apiPath, status: statusCode, error: result.error, authUserId: session.user.authUserId })
-      return NextResponse.json({ error: result.error }, { status: statusCode })
+      const { body } = investmentRouteDenialResponse(result)
+      return NextResponse.json(body, { status: statusCode })
     }
 
     apiLog("info", "investments.create.success", {
@@ -524,7 +559,57 @@ export async function POST(req: Request) {
       investmentNumber: result.investment_number,
       authUserId: session.user.authUserId,
     })
-    return NextResponse.json(result, { status: 201 })
+
+    const ctx = result && "postCommit" in result ? result.postCommit : null
+    if (ctx) {
+      try {
+        const notifyRes = await runWithoutAuth((notifyClient) =>
+          notifyInvestmentCreated({
+            client: notifyClient,
+            actor: {
+              id: ctx.actorId,
+              institution_id: ctx.institutionId,
+              branch_id: ctx.branchId,
+            },
+            investment: {
+              id: ctx.investment.id,
+              investment_name: ctx.investment.investment_name,
+              investment_number: ctx.investment.investment_number,
+              initial_amount: ctx.investment.initial_amount,
+              category: ctx.investment.category,
+              provider_id: ctx.investment.provider_id,
+              provider_name: ctx.investment.provider_name,
+              status: ctx.investment.status,
+            },
+          }),
+        )
+        apiLog(
+          notifyRes.ok ? "info" : "warn",
+          notifyRes.ok
+            ? "investments.create.notifications_dispatched"
+            : "investments.create.notifications_partial",
+          {
+            method: "POST",
+            apiPath,
+            status: 201,
+            investmentId: result.id,
+            staffNotifications: notifyRes.staffNotifications,
+            ...(notifyRes.errors.length ? { errors: notifyRes.errors } : {}),
+          },
+        )
+      } catch (notifyErr) {
+        apiLog("error", "investments.create.notifications_failed", {
+          method: "POST",
+          apiPath,
+          status: 201,
+          investmentId: result.id,
+          error: (notifyErr as Error)?.message || "notify_failed",
+        })
+      }
+    }
+
+    const { postCommit: _postCommit, ...payload } = result
+    return NextResponse.json(payload, { status: 201 })
   } catch (e: unknown) {
     const err = e as Error
     apiLog("error", "investments.create.error", { method: "POST", apiPath, status: 500, error: err?.message || "Unexpected error" })

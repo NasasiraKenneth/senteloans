@@ -36,7 +36,7 @@ export type UnclaimedDepositRow = {
   date: string
   status: string
   assigned_to: string
-  assigned_type: "Member" | "Client" | "—"
+  assigned_type: "Member" | "Third Party Agent" | "—"
   notes: string
   branch_name: string
   created_at: string
@@ -48,7 +48,7 @@ export type UnclaimedDepositRow = {
 
 export type GrantRow = {
   id: string
-  client_name: string
+  third_party_agent_name: string
   total_amount: number
   available_balance: number
   remaining_amount: number

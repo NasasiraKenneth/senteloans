@@ -60,10 +60,10 @@ export default function EditInvoice({ isOpen, invoiceId, onClose, onSuccess }: E
             })
 
             setInitialValues({
-            targetType: i.target_type ?? (i.member_id ? "member" : "client"),
+            targetType: i.target_type ?? (i.member_id ? "member" : "third_party_agent"),
             memberId: i.member_id ?? null,
-            clientId: i.client_id ?? null,
-            customerName: i.customer_name ?? i.member_name ?? i.client_name ?? "",
+            thirdPartyAgentId: i.third_party_agent_id ?? null,
+            customerName: i.customer_name ?? i.member_name ?? i.third_party_agent_name ?? "",
             invoiceNo: i.invoice_number ?? null,
             invoiceDate: i.invoice_date ?? "",
             dueDate: i.invoice_due ?? "",
@@ -100,7 +100,7 @@ export default function EditInvoice({ isOpen, invoiceId, onClose, onSuccess }: E
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           member_id: data.targetType === "member" ? data.memberId : null,
-          client_id: data.clientId,
+          third_party_agent_id: data.thirdPartyAgentId,
           invoice_date: data.invoiceDate,
           invoice_due: data.dueDate,
           invoice_type: data.invoiceType,
@@ -120,7 +120,7 @@ export default function EditInvoice({ isOpen, invoiceId, onClose, onSuccess }: E
       })
       const body = await res.json()
       if (!res.ok) {
-        throw new Error(body.error || "Failed to update invoice")
+        throw new Error(body.message || body.error || "Failed to update invoice")
       }
       toast({
         title: "Invoice updated",

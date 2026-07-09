@@ -17,9 +17,9 @@ import { formatCurrency, numberToWords } from "@/lib/invoices/utils";
 import ReeveDatePicker from "@/components/newUI/date_picker";
 import StyledSelect from "@/components/newUI/styled_select";
 
-interface Client {
+interface ThirdPartyAgentOption {
   id: string;
-  clientName: string;
+  name: string;
 }
 
 interface Member {
@@ -38,9 +38,9 @@ export interface InvoiceItemForm {
 }
 
 export interface InvoiceFormData {
-  targetType: "member" | "client";
+  targetType: "member" | "third_party_agent";
   memberId: string | null;
-  clientId: string | null;
+  thirdPartyAgentId: string | null;
   customerName: string;
   invoiceNo: string | null;
   invoiceDate: string;
@@ -93,14 +93,14 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({
   loading = false,
   editMode = false,
 }) => {
-  const [clients, setClients] = useState<Client[]>([]);
+  const [thirdPartyAgents, setThirdPartyAgents] = useState<ThirdPartyAgentOption[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
-  const [loadingClients, setLoadingClients] = useState(false);
+  const [loadingThirdPartyAgents, setLoadingThirdPartyAgents] = useState(false);
   const [invoicePeriodDays, setInvoicePeriodDays] = useState<number>(30);
   const [currencyInWords, setCurrencyInWords] = useState("Ugandan shillings only");
 
   const [formData, setFormData] = useState<InvoiceFormData>({
-    clientId: null,
+    thirdPartyAgentId: null,
     memberId: null,
     targetType: "member",
     customerName: "",
@@ -123,42 +123,42 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({
   useEffect(() => {
     const fetchInitialData = async () => {
       try {
-        setLoadingClients(true);
+        setLoadingThirdPartyAgents(true);
 
-        const [clientsRes, membersRes, settingsRes] = await Promise.all([
-          fetch("/api/institution/clients?limit=200", { cache: "no-store" }),
-          fetch("/api/institution/members?limit=200", { cache: "no-store" }),
+        const [agentsRes, membersRes, settingsRes] = await Promise.all([
+          fetch("/api/institution/third-party-agents?limit=200&status=Active", { cache: "no-store" }),
+          fetch("/api/institution/members?limit=200&status=Active", { cache: "no-store" }),
           fetch("/api/institution/settings", { cache: "no-store" }),
         ]);
 
-        if (clientsRes.ok) {
-          const data = await clientsRes.json();
+        if (agentsRes.ok) {
+          const data = await agentsRes.json();
           const clientArray = Array.isArray(data)
             ? data
-            : (data?.clients ?? data?.items ?? []);
+            : (data?.third_party_agents ?? data?.items ?? []);
 
-          const mapped: Client[] = clientArray.map((c: any) => ({
+          const mapped: ThirdPartyAgentOption[] = clientArray.map((c: any) => ({
             id: String(c?.id || ""),
-            clientName: String(
+            name: String(
               c?.name ||
                 c?.full_name ||
-                c?.clientName ||
+                c?.name ||
                 c?.client_name ||
                 c?.email ||
                 c?.phone ||
                 c?.id ||
                 "",
             ),
-          })).filter((c) => c.id);
+          })).filter((c: { id: string }) => c.id);
 
-          setClients(mapped);
+          setThirdPartyAgents(mapped);
         }
 
         if (membersRes.ok) {
           const data = await membersRes.json();
           const memberArray = Array.isArray(data)
             ? data
-            : (data?.members ?? data?.clients ?? []);
+            : (data?.members ?? data?.third_party_agents ?? []);
           const mappedMembers: Member[] = memberArray.map((m: any) => ({
             id: String(m.id || ""),
             memberName: String(m.full_name || m.memberName || ""),
@@ -184,7 +184,7 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({
           }));
         }
       } finally {
-        setLoadingClients(false);
+        setLoadingThirdPartyAgents(false);
       }
     };
 
@@ -256,19 +256,19 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({
       setFormData((prev) => ({
         ...prev,
         memberId: member.id,
-        clientId: null,
+        thirdPartyAgentId: null,
         customerName: member.memberName,
       }));
       return;
     }
 
-    const client = clients.find((c) => c.id === idStr);
+    const client = thirdPartyAgents.find((c) => c.id === idStr);
     if (!client) return;
     setFormData((prev) => ({
       ...prev,
-      clientId: client.id,
+      thirdPartyAgentId: client.id,
       memberId: null,
-      customerName: client.clientName,
+      customerName: client.name,
     }));
   };
 
@@ -344,8 +344,8 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({
     if (formData.targetType === "member" && !formData.memberId) {
       nextErrors.memberId = "Member is required";
     }
-    if (formData.targetType === "client" && !formData.clientId) {
-      nextErrors.clientId = "Client is required";
+    if (formData.targetType === "third_party_agent" && !formData.thirdPartyAgentId) {
+      nextErrors.thirdPartyAgentId = "Third party agent is required";
     }
 
     if (!formData.invoiceDate) {
@@ -383,32 +383,32 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({
                 onChange={(value) =>
                   setFormData((prev) => ({
                     ...prev,
-                    targetType: value === "client" ? "client" : "member",
+                    targetType: value === "third_party_agent" ? "third_party_agent" : "member",
                     memberId: null,
-                    clientId: null,
+                    thirdPartyAgentId: null,
                     customerName: "",
                   }))
                 }
                 placeholder="Select target type"
                 options={[
                   { value: "member", label: "Member" },
-                  { value: "client", label: "Client" },
+                  { value: "third_party_agent", label: "Third party agent" },
                 ]}
               />
             </div>
 
             <div className="space-y-2">
-              <Label>{formData.targetType === "member" ? "Member" : "Client"} *</Label>
+              <Label>{formData.targetType === "member" ? "Member" : "Third party agent"} *</Label>
 
               <StyledSelect
-                value={formData.targetType === "member" ? formData.memberId || "" : formData.clientId || ""}
+                value={formData.targetType === "member" ? formData.memberId || "" : formData.thirdPartyAgentId || ""}
                 onChange={handleCustomerChange}
                 placeholder={
-                  loadingClients
+                  loadingThirdPartyAgents
                     ? "Loading..."
                     : formData.targetType === "member"
                       ? "Select member"
-                      : "Select client"
+                      : "Select third party agent"
                 }
                 options={
                   formData.targetType === "member"
@@ -416,18 +416,18 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({
                         value: member.id,
                         label: member.memberName,
                       }))
-                    : clients.map((client) => ({
+                    : thirdPartyAgents.map((client) => ({
                         value: client.id,
-                        label: client.clientName,
+                        label: client.name,
                       }))
                 }
                 searchable // enable search box
               />
 
-              {(errors.clientId || errors.memberId) && (
+              {(errors.thirdPartyAgentId || errors.memberId) && (
                 <p className="text-xs text-red-600 flex items-center gap-1">
                   <FaExclamationTriangle className="w-3 h-3" />
-                  {errors.memberId || errors.clientId}
+                  {errors.memberId || errors.thirdPartyAgentId}
                 </p>
               )}
             </div>
@@ -476,9 +476,6 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({
                 options={[
                   { value: "draft", label: "Draft" },
                   { value: "sent", label: "Sent" },
-                  { value: "paid", label: "Paid" },
-                  { value: "overdue", label: "Overdue" },
-                  { value: "cancelled", label: "Cancelled" },
                 ]}
               />
             </div>

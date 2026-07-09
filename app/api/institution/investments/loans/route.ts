@@ -3,7 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { runWithAuth } from "@/lib/db"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
-import { hasInvestmentPermission, resolveInvestmentActor } from "@/lib/api/investment-rbac"
+import { hasPermission, isSuperAdmin, resolveActorContext } from "@/lib/api/rbac"
 
 export async function GET(req: Request) {
   const apiPath = getApiPath(req)
@@ -22,12 +22,12 @@ export async function GET(req: Request) {
     const pageSize = Math.min(Math.max(parseInt(url.searchParams.get("pageSize") || "200", 10), 1), 500)
 
     const result = await runWithAuth(session.user.authUserId, async (client) => {
-      const actor = await resolveInvestmentActor(client, session.user.authUserId as string)
+      const actor = await resolveActorContext(client, session.user.authUserId as string, { activeOnly: false })
       if (!actor?.institution_id) return { error: "user_not_linked" as const }
-      const allowed = await hasInvestmentPermission(client, actor, "view_investments")
+      const allowed = await hasPermission(client, actor, "view_investments")
       if (!allowed) return { error: "missing_permission:view_investments" as const }
-      const isSuperAdmin = String(actor.role || "").trim().toLowerCase() === "super_admin"
-      if (!isSuperAdmin && !actor.branch_id) return { error: "actor_branch_missing" as const }
+      const superAdmin = isSuperAdmin(actor)
+      if (!superAdmin && !actor.branch_id) return { error: "actor_branch_missing" as const }
 
       const rowsRes = await client.query(
         `SELECT
@@ -36,14 +36,14 @@ export async function GET(req: Request) {
            l.principal_amount,
            l.status,
            l.created_at,
-           c.name AS client_name
+           tpa.name AS client_name
          FROM institution_loans l
-         LEFT JOIN clients c ON c.id = l.client_id
+         LEFT JOIN third_party_agents tpa ON tpa.id = l.third_party_agent_id
          WHERE l.institution_id = $1
-           ${isSuperAdmin ? "" : "AND l.branch_id = $2"}
+           ${superAdmin ? "" : "AND l.branch_id = $2"}
          ORDER BY l.created_at DESC
-         LIMIT $${isSuperAdmin ? 2 : 3}`,
-        isSuperAdmin ? [actor.institution_id, pageSize] : [actor.institution_id, actor.branch_id, pageSize],
+         LIMIT $${superAdmin ? 2 : 3}`,
+        superAdmin ? [actor.institution_id, pageSize] : [actor.institution_id, actor.branch_id, pageSize],
       )
 
       return {

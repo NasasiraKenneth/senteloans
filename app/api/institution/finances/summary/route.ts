@@ -1,8 +1,11 @@
 import { NextResponse } from "next/server"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
-import { isSuperAdmin, requireStaffSession, resolveActorContext, scopeWhere } from "@/lib/api/rbac"
+import { requireStaffSession, scopeWhere } from "@/lib/api/rbac"
+import {
+  assertFinanceSummaryReadAccess,
+  financeAccessErrorResponseOrNull,
+} from "@/lib/api/finance-access"
 import { runWithAuth } from "@/lib/db"
-import { canViewAnyFinanceModule } from "@/lib/finances/permissions"
 
 export async function GET(req: Request) {
   const apiPath = getApiPath(req)
@@ -17,11 +20,15 @@ export async function GET(req: Request) {
     const selectedBranchIds = branchesRaw ? branchesRaw.split(",").map((v) => v.trim()).filter(Boolean) : []
 
     const payload = await runWithAuth(sess.authUserId, async (client) => {
-      const actor = await resolveActorContext(client, sess.authUserId)
-      if (!actor?.institution_id) return { error: "user_not_linked" as const }
-      const allowed = await canViewAnyFinanceModule(client, actor)
-      if (!allowed) return { error: "missing_permission:view_finances" as const }
-      if (!isSuperAdmin(actor) && !actor.branch_id) return { error: "actor_branch_missing" as const }
+      const access = await assertFinanceSummaryReadAccess(client, sess.authUserId)
+      if (!access.ok) {
+        return {
+          error: access.error,
+          staffStatus: access.staffStatus,
+          branchStatus: access.branchStatus,
+        }
+      }
+      const { actor } = access
 
       const bankScope = scopeWhere({ tableAlias: "ba", actor, selectedBranchIds })
       const unclaimedScope = scopeWhere({ tableAlias: "ud", actor, selectedBranchIds })
@@ -109,8 +116,11 @@ export async function GET(req: Request) {
     })
 
     if (payload && "error" in payload) {
-      const statusCode = payload.error === "actor_branch_missing" ? 400 : 403
-      return NextResponse.json({ error: payload.error }, { status: statusCode })
+      const accessResponse = financeAccessErrorResponseOrNull(payload)
+      if (accessResponse) {
+        return NextResponse.json(accessResponse.body, { status: accessResponse.status })
+      }
+      return NextResponse.json({ error: payload.error }, { status: 403 })
     }
 
     apiLog("info", "finances.summary.success", { method: "GET", apiPath, status: 200 })

@@ -97,6 +97,7 @@ export const testFactories = {
     principal_amount: 1000000,
     interest_rate: 15,
     tenure_months: 12,
+    remaining_tenure_months: 12,
     monthly_payment: 90000,
     total_amount: 1150000,
     outstanding_balance: 1150000,

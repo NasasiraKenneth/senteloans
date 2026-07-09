@@ -5,7 +5,9 @@ import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import StyledSelect from "@/components/newUI/styled_select"
 import ReeveDatePicker, { parseDateOnly } from "@/components/newUI/date_picker"
-import { Circle, CircleDot } from "lucide-react"
+import { AlertCircle, Circle, CircleDot } from "lucide-react"
+import { BANK_ROUTED_PAYMENT_MODES, PAYMENT_MODE_OPTIONS } from "@/lib/finances/payment-mode"
+import { formatCurrency } from "@/lib/format-currency"
 
 export type DisburseFormData = {
   disbursement_type: "complete" | "partial"
@@ -14,7 +16,11 @@ export type DisburseFormData = {
   balance: number | undefined
   disbursement_mode: string
   disbursement_date: string
+  reference_number?: string
+  bank_account_id?: string
 }
+
+type BankAccount = { id: string; bank_name: string; bank_account_number: string }
 
 interface DisburseFormProps {
   onSubmit: (data: DisburseFormData) => Promise<void> | void
@@ -23,15 +29,9 @@ interface DisburseFormProps {
   completeDisbursementAmount?: number
   /** When disbursement_balance is 0, complete disbursement uses principal as the required transaction amount. */
   principalAmount?: number
-  processingFeeAmount?: number
-  processingFeePercentage?: number
-  settlementOutstandingBalance?: number
-  loanType?: "normal" | "top up" | "buy off" | string
   initialMode?: string
   initialDate?: string
 }
-
-const PAYMENT_MODES = ["Cash", "Mobile Money", "Bank Transfer", "Cheque", "Card"] as const
 
 export default function DisburseForm({
   onSubmit,
@@ -39,10 +39,6 @@ export default function DisburseForm({
   loading = false,
   completeDisbursementAmount = 0,
   principalAmount = 0,
-  processingFeeAmount = 0,
-  processingFeePercentage = 0,
-  settlementOutstandingBalance = 0,
-  loanType = "normal",
   initialMode = "Cash",
   initialDate = "",
 }: DisburseFormProps) {
@@ -63,11 +59,11 @@ export default function DisburseForm({
   const [balanceInput, setBalanceInput] = useState("")
   const [mode, setMode] = useState(initialMode)
   const [disbursementDate, setDisbursementDate] = useState(initialDate)
+  const [referenceNumber, setReferenceNumber] = useState("")
+  const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([])
+  const [bankAccountId, setBankAccountId] = useState("")
+  const [error, setError] = useState<string | null>(null)
   const [submitAttempted, setSubmitAttempted] = useState(false)
-  const modeOptions = useMemo(
-    () => PAYMENT_MODES.map((m) => ({ value: m, label: m })),
-    [],
-  )
 
   useEffect(() => {
     if (disbursementType === "complete") {
@@ -77,6 +73,7 @@ export default function DisburseForm({
 
   useEffect(() => {
     setSubmitAttempted(false)
+    setError(null)
     if (disbursementType === "partial") {
       setAmountInput("")
       setBalanceInput("")
@@ -84,6 +81,35 @@ export default function DisburseForm({
       setBalanceInput("")
     }
   }, [disbursementType])
+
+  useEffect(() => {
+    let cancelled = false
+    async function loadBankAccounts() {
+      try {
+        const res = await fetch("/api/institution/finances/bank-accounts?rowsPerPage=100", { cache: "no-store" })
+        if (!res.ok) return
+        const data = (await res.json()) as {
+          rows?: BankAccount[]
+          items?: BankAccount[]
+          bankAccounts?: BankAccount[]
+        }
+        const rows = Array.isArray(data.rows)
+          ? data.rows
+          : Array.isArray(data.items)
+            ? data.items
+            : Array.isArray(data.bankAccounts)
+              ? data.bankAccounts
+              : []
+        if (!cancelled) setBankAccounts(rows)
+      } catch {
+        // Best-effort; the select simply shows no options if this fails.
+      }
+    }
+    void loadBankAccounts()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const amountNumber = Number(amountInput)
   const balanceNumber = Number(balanceInput)
@@ -95,9 +121,7 @@ export default function DisburseForm({
         ? "Nothing to disburse — set disbursement balance or principal on the loan."
         : amountNumber > completeCap
           ? `Amount cannot exceed the full disbursement amount (UGX ${completeCap.toLocaleString()}).`
-          : Math.abs(amountNumber - completeCap) > 0.005
-            ? `For complete disbursement, amount must equal UGX ${completeCap.toLocaleString()} (remaining to disburse).`
-            : ""
+          : ""
 
   const partialAmountError =
     !Number.isFinite(amountNumber) || amountNumber <= 0
@@ -112,13 +136,7 @@ export default function DisburseForm({
       return "Balance must be zero or greater."
     }
     if (balanceNumber > maxDisbursable) {
-      return `Balance cannot exceed the disbursable balance (UGX ${maxDisbursable.toLocaleString()}).`
-    }
-    if (Number.isFinite(amountNumber) && amountNumber > 0) {
-      const sum = amountNumber + balanceNumber
-      if (Math.abs(sum - maxDisbursable) > 0.0001) {
-        return `Amount and balance must add up to the disbursable balance (UGX ${maxDisbursable.toLocaleString()}).`
-      }
+      return `Balance cannot exceed the disbursable balance (${formatCurrency(maxDisbursable)}).`
     }
     return ""
   })()
@@ -143,46 +161,18 @@ export default function DisburseForm({
       hasError ? "border-red-500" : "border-gray-300 hover:border-gray-400"
     }`
 
-  const helperLine = (
-    <p className="mt-1 text-xs text-gray-500">
-      {loanType === "top up" || loanType === "buy off" ? (
-        <>
-          Processing fee ({Number(processingFeePercentage || 0)}%): UGX{" "}
-          {Number(processingFeeAmount || 0).toLocaleString()} | Settlement: UGX{" "}
-          {Number(settlementOutstandingBalance || 0).toLocaleString()} | Disbursable: UGX{" "}
-          {maxDisbursable.toLocaleString()}
-        </>
-      ) : (
-        <>
-          Processing fee ({Number(processingFeePercentage || 0)}%): UGX{" "}
-          {Number(processingFeeAmount || 0).toLocaleString()} | Disbursable: UGX {maxDisbursable.toLocaleString()}
-        </>
-      )}
-    </p>
-  )
-
-  const completeHelperLine = (
-    <p className="mt-1 text-xs text-gray-500">
-      {loanType === "top up" || loanType === "buy off" ? (
-        <>
-          Processing fee ({Number(processingFeePercentage || 0)}%): UGX{" "}
-          {Number(processingFeeAmount || 0).toLocaleString()} | Settlement: UGX{" "}
-          {Number(settlementOutstandingBalance || 0).toLocaleString()} | Full disbursement: UGX{" "}
-          {completeCap.toLocaleString()}
-          {maxDisbursable <= 0 && completeCap > 0 ? " (principal; balance was zero)" : ""}
-        </>
-      ) : (
-        <>
-          Processing fee ({Number(processingFeePercentage || 0)}%): UGX{" "}
-          {Number(processingFeeAmount || 0).toLocaleString()} | Full disbursement: UGX {completeCap.toLocaleString()}
-          {maxDisbursable <= 0 && completeCap > 0 ? " (principal; disbursement balance unset)" : ""}
-        </>
-      )}
-    </p>
-  )
-
   const handleSubmit = async () => {
     setSubmitAttempted(true)
+    setError(null)
+
+    if (BANK_ROUTED_PAYMENT_MODES.includes(mode as (typeof BANK_ROUTED_PAYMENT_MODES)[number]) && !bankAccountId) {
+      setError("Please select a bank account")
+      return
+    }
+    if (mode !== "Cash" && !referenceNumber.trim()) {
+      setError(`Reference number is required for ${mode} payments`)
+      return
+    }
     if (
       (disbursementType === "complete" ? invalidComplete : invalidPartial) ||
       invalidDate
@@ -196,6 +186,10 @@ export default function DisburseForm({
       balance: disbursementType === "partial" ? balanceNumber : undefined,
       disbursement_mode: mode,
       disbursement_date: disbursementDate.trim(),
+      reference_number: referenceNumber.trim() || undefined,
+      bank_account_id: BANK_ROUTED_PAYMENT_MODES.includes(mode as (typeof BANK_ROUTED_PAYMENT_MODES)[number])
+        ? bankAccountId || undefined
+        : undefined,
     })
   }
 
@@ -206,6 +200,12 @@ export default function DisburseForm({
 
   return (
     <div className="space-y-4 p-4">
+      {error ? (
+        <div className="flex items-start gap-2 rounded-md border border-red-200 bg-red-50 p-2.5">
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-red-600" />
+          <p className="text-sm text-red-700">{error}</p>
+        </div>
+      ) : null}
       <div className="rounded-xl border border-[#f08c2b]/25 bg-linear-to-r from-[#fff3e8] to-white p-3">
         <Label className="text-xs font-semibold uppercase tracking-wide text-[#de4925]">Disbursement Type</Label>
         <div className="mt-2 grid grid-cols-2 gap-2">
@@ -240,14 +240,47 @@ export default function DisburseForm({
           value={mode}
           onChange={setMode}
           placeholder="Choose disbursement mode"
-          options={modeOptions}
+          options={PAYMENT_MODE_OPTIONS}
         />
       </div>
+
+      {BANK_ROUTED_PAYMENT_MODES.includes(mode as (typeof BANK_ROUTED_PAYMENT_MODES)[number]) ? (
+        <div>
+          <Label className="mb-2 block">
+            Bank Account <span className="text-red-500">*</span>
+          </Label>
+          <StyledSelect
+            value={bankAccountId}
+            onChange={setBankAccountId}
+            placeholder={bankAccounts.length ? "Select bank account" : "No branch bank accounts"}
+            options={bankAccounts.map((account) => ({
+              value: account.id,
+              label: `${account.bank_name} — ${account.bank_account_number}`,
+            }))}
+          />
+        </div>
+      ) : null}
+
+      {mode !== "Cash" ? (
+        <div>
+          <Label htmlFor="sacco-disbursement-reference" className="mb-2 block">
+            Reference Number <span className="text-red-500">*</span>
+          </Label>
+          <input
+            id="sacco-disbursement-reference"
+            value={referenceNumber}
+            onChange={(e) => setReferenceNumber(e.target.value)}
+            placeholder="e.g. transaction id"
+            className={productStyleInputClass()}
+          />
+          <p className="mt-1 text-xs text-gray-500">Required for {mode} payments.</p>
+        </div>
+      ) : null}
 
       {disbursementType === "complete" ? (
         <div>
           <Label htmlFor="sacco-disbursement-amount-complete" className="mb-2 block">
-            Amount (UGX)
+            Amount 
           </Label>
           <input
             id="sacco-disbursement-amount-complete"
@@ -262,14 +295,17 @@ export default function DisburseForm({
           {showCompleteErr ? (
             <p className="mt-1 text-xs text-red-500">{completeAmountError}</p>
           ) : (
-            completeHelperLine
+            <p className="mt-1 text-xs text-gray-500">
+              Maximum disbursement: {formatCurrency(completeCap)}
+              {maxDisbursable <= 0 && completeCap > 0 ? " (principal; disbursement balance unset)" : ""}
+            </p>
           )}
         </div>
       ) : (
         <>
           <div>
             <Label htmlFor="sacco-disbursement-amount-partial" className="mb-2 block">
-              Amount (UGX)
+              Amount
             </Label>
             <input
               id="sacco-disbursement-amount-partial"
@@ -284,12 +320,14 @@ export default function DisburseForm({
             {showPartialAmountErr ? (
               <p className="mt-1 text-xs text-red-500">{partialAmountError}</p>
             ) : (
-              helperLine
+              <p className="mt-1 text-xs text-gray-500">
+                Disbursable balance: {formatCurrency(maxDisbursable)}
+              </p>
             )}
           </div>
           <div>
             <Label htmlFor="sacco-disbursement-balance-partial" className="mb-2 block">
-              Balance (UGX)
+              Balance
             </Label>
             <input
               id="sacco-disbursement-balance-partial"
@@ -305,7 +343,7 @@ export default function DisburseForm({
               <p className="mt-1 text-xs text-red-500">{partialBalanceError}</p>
             ) : (
               <p className="mt-1 text-xs text-gray-500">
-                Remaining disbursable after this disbursement; must equal disbursable minus amount.
+                Remaining disbursable balance after this disbursement.
               </p>
             )}
           </div>

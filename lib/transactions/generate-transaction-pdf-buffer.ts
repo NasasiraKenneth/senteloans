@@ -63,7 +63,7 @@ export async function generateTransactionPdfBuffer(
        t.transferred_to_id,
        t.processed_by,
        t.bank_account_id,
-       COALESCE(ba.bank_name, '') AS bank_name,
+       COALESCE(tpa.name, '') AS bank_name,
        COALESCE(ba.bank_account_number, '') AS bank_account_number,
        COALESCE(ins.name, '') AS sacco_name,
        COALESCE(ins.logo, '') AS sacco_logo,
@@ -74,6 +74,7 @@ export async function generateTransactionPdfBuffer(
      LEFT JOIN institutions ins ON ins.id = t.institution_id
      LEFT JOIN branches b ON b.id = t.branch_id
      LEFT JOIN bank_accounts ba ON ba.id = t.bank_account_id
+     LEFT JOIN third_party_agents tpa ON tpa.id = ba.third_party_agent_id
      WHERE t.id = $1
        AND t.institution_id = $2
        ${branchId ? "AND t.branch_id = $3" : ""}

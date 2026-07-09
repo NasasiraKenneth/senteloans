@@ -29,17 +29,22 @@ import { MdFormatListBulletedAdd } from "react-icons/md"
 import AddFunding from "../components/funding/add"
 import EditFunding from "../components/funding/edit"
 import RecordExpenseCashflow from "../components/cashFlows/add"
-import EditExpenseCashflow from "../components/cashFlows/edit"
+import RecordExpenseCashflowPayment from "../components/cashFlows/recordPayment/add"
 import { describeExpenseCashflowApiError } from "../components/cashFlows/cashflowApiErrors"
 import { describeExpenseApiError } from "../components/expenseApiErrors"
 import { describeExpenseFundingApiError } from "../components/funding/fundingApiErrors"
-import ExpenseCashflowExpandableContent from "../components/cashFlows/ExpenseCashflowExpandableContent"
+import ExpenseCashflowExpandableContent, {
+  type ExpenseCashflowPaymentLine,
+} from "../components/cashFlows/ExpenseCashflowExpandableContent"
+import { isExpenseCashflowPaymentRecordable, isExpenseCashflowUnpaidStatus, formatExpenseCashflowAssignedPartyLabel } from "@/lib/expenses/expense-cashflow-status"
 import type { FundingFormRow, FundingType } from "../components/forms/fundingForm"
 
 const FUNDING_TYPES: FundingType[] = ["savings", "shares", "reserves", "loan", "grant"]
 
 const EXPENSE_CASHFLOW_TABULAR_FILTERS: Filter[] = [
   { label: "All", value: "" },
+  { label: "Unpaid", value: "unpaid" },
+  { label: "Fully Paid", value: "fully_paid" },
   { label: "Pending", value: "pending" },
   { label: "Completed", value: "completed" },
   { label: "Rejected", value: "rejected" },
@@ -63,8 +68,6 @@ type ExpenseDetails = {
   description: string | null
   type: string
   status: string
-  category_id: string
-  category_name: string
   branch_id: string
   branch_name: string
   created_at: string
@@ -86,18 +89,21 @@ type FundingRow = {
 type ExpenseCashflowRow = {
   id: string
   amount: number
+  paid_amount: number
+  outstanding: number
   description: string | null
   status: string
   date: string | null
   payment_method: string | null
   created_at: string
   staff_id: string | null
-  client_id: string | null
+  third_party_agent_id: string | null
   assigned_type: "staff" | "client" | null
   assigned_name: string | null
   completed_by: string | null
   completed_at: string | null
   completed_by_name: string | null
+  payments?: ExpenseCashflowPaymentLine[]
 }
 
 const formatCurrency = (v: number) =>
@@ -120,8 +126,9 @@ function statusBadgeClass(status: string) {
 
 function cashflowStatusClass(status: string) {
   const s = String(status || "").trim().toLowerCase()
-  if (s === "pending") return "bg-amber-100 text-amber-800 border border-amber-200"
-  if (s === "completed" || s === "paid") return "bg-emerald-100 text-emerald-800 border border-emerald-200"
+  if (s === "pending" || s === "unpaid") return "bg-amber-100 text-amber-800 border border-amber-200"
+  if (s === "part paid" || s === "partially paid") return "bg-sky-100 text-sky-800 border border-sky-200"
+  if (s === "completed" || s === "paid" || s === "fully paid") return "bg-emerald-100 text-emerald-800 border border-emerald-200"
   if (s === "rejected") return "bg-rose-100 text-rose-800 border border-rose-200"
   return "bg-muted text-muted-foreground border border-border"
 }
@@ -141,8 +148,8 @@ export default function ExpenseDetailsPage() {
   const [editFundingOpen, setEditFundingOpen] = useState(false)
   const [editFundingRow, setEditFundingRow] = useState<FundingFormRow | null>(null)
   const [recordCashflowOpen, setRecordCashflowOpen] = useState(false)
-  const [editCashflowOpen, setEditCashflowOpen] = useState(false)
-  const [editCashflowRow, setEditCashflowRow] = useState<ExpenseCashflowRow | null>(null)
+  const [recordPaymentOpen, setRecordPaymentOpen] = useState(false)
+  const [recordPaymentRow, setRecordPaymentRow] = useState<ExpenseCashflowRow | null>(null)
   const [cashflowFilters, setCashflowFilters] = useState<Record<string, unknown>>({})
   const [expandedCashflowRowIds, setExpandedCashflowRowIds] = useState<Set<string | number>>(new Set())
   const [editExpenseStatus, setEditExpenseStatus] = useState(false)
@@ -180,10 +187,8 @@ export default function ExpenseDetailsPage() {
         expense_number: String(e.expense_number || ""),
         name: String(e.name || ""),
         description: e.description != null ? String(e.description) : null,
-        type: String(e.type || "Short-term"),
+        type: String(e.type || ""),
         status: String(e.status || "Pending"),
-        category_id: String(e.category_id || ""),
-        category_name: String(e.category_name || ""),
         branch_id: String(e.branch_id || ""),
         branch_name: String(e.branch_name || ""),
         created_at: String(e.created_at || ""),
@@ -209,19 +214,32 @@ export default function ExpenseDetailsPage() {
           ? body.cashflows.map((c: Record<string, unknown>) => ({
               id: String(c.id || ""),
               amount: Number(c.amount || 0),
+              paid_amount: Number(c.paid_amount || 0),
+              outstanding: Number(c.outstanding ?? Math.max(Number(c.amount || 0) - Number(c.paid_amount || 0), 0)),
               description: c.description != null ? String(c.description) : null,
               status: String(c.status || "Pending"),
               date: c.date != null ? String(c.date) : null,
               payment_method: c.payment_method != null ? String(c.payment_method) : null,
               created_at: c.created_at != null ? String(c.created_at) : "",
               staff_id: c.staff_id != null ? String(c.staff_id) : null,
-              client_id: c.client_id != null ? String(c.client_id) : null,
+              third_party_agent_id: c.third_party_agent_id != null ? String(c.third_party_agent_id) : null,
               assigned_type:
                 c.assigned_type === "staff" || c.assigned_type === "client" ? (c.assigned_type as "staff" | "client") : null,
               assigned_name: c.assigned_name != null ? String(c.assigned_name) : null,
               completed_by: c.completed_by != null ? String(c.completed_by) : null,
               completed_at: c.completed_at != null ? String(c.completed_at) : null,
               completed_by_name: c.completed_by_name != null ? String(c.completed_by_name).trim() : null,
+              payments: Array.isArray(c.payments)
+                ? c.payments.map((p: Record<string, unknown>) => ({
+                    id: String(p.id || ""),
+                    amount: Number(p.amount || 0),
+                    payment_date: String(p.payment_date || ""),
+                    transaction_number: p.transaction_number != null ? String(p.transaction_number) : null,
+                    mode: p.mode != null ? String(p.mode) : null,
+                    reference_number: p.reference_number != null ? String(p.reference_number) : null,
+                    processed_by_name: p.processed_by_name != null ? String(p.processed_by_name).trim() : null,
+                  }))
+                : [],
             }))
           : [],
       )
@@ -335,22 +353,18 @@ export default function ExpenseDetailsPage() {
     }
   }
 
-  const patchCashflowStatus = async (row: ExpenseCashflowRow, status: "completed" | "rejected") => {
+  const patchCashflowStatus = async (row: ExpenseCashflowRow) => {
     try {
       const res = await fetch(`/api/institution/expenses/${expenseId}/cashflows/${row.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status }),
+        body: JSON.stringify({ status: "rejected" }),
       })
       const body = (await res.json().catch(() => ({}))) as Record<string, unknown>
       if (!res.ok) throw new Error(describeExpenseCashflowApiError(body))
-      const tx = body.transaction as { transaction_number?: string } | undefined
       toast({
         title: "Cashflow status updated",
-        description:
-          status === "completed" && tx?.transaction_number
-            ? `Marked as Completed. Ledger ${tx.transaction_number}.`
-            : `Marked as ${status === "completed" ? "Completed" : "Rejected"}.`,
+        description: "Marked as Rejected.",
       })
       await load()
     } catch (e: unknown) {
@@ -388,7 +402,7 @@ export default function ExpenseDetailsPage() {
       header: "Assigned to",
       render: (r) => {
         if (!r.assigned_name) return <span className="text-muted-foreground">—</span>
-        const kind = r.assigned_type === "staff" ? "Staff" : r.assigned_type === "client" ? "Client" : ""
+        const kind = formatExpenseCashflowAssignedPartyLabel(r.assigned_type)
         return (
           <div className="flex min-w-0 flex-col gap-0.5">
             <span className="truncate font-medium text-foreground">{r.assigned_name}</span>
@@ -416,33 +430,32 @@ export default function ExpenseDetailsPage() {
       key: "actions",
       header: "Actions",
       render: (row) => {
-        const actions: SelectOption[] = [
-          {
-            value: "edit",
-            label: "Edit",
-            icon: <Pencil className="h-4 w-4" />,
+        const actions: SelectOption[] = []
+        if (isExpenseCashflowPaymentRecordable(row.status)) {
+          actions.push({
+            value: "record_payment",
+            label: "Record payment",
+            icon: <Banknote className="h-4 w-4" />,
             onClick: () => {
-              setEditCashflowRow(row)
-              setEditCashflowOpen(true)
+              setRecordPaymentRow(row)
+              setRecordPaymentOpen(true)
             },
-          },
-        ]
-        const statusOptions: SelectOption[] = [
-          {
-            value: "completed",
-            label: "Mark as Completed",
-            color: "text-green-600",
-            icon: <CheckCircle2 className="mr-2 h-4 w-4" />,
-            onClick: () => void patchCashflowStatus(row, "completed"),
-          },
-          {
-            value: "rejected",
-            label: "Mark as Rejected",
-            color: "text-red-600",
-            icon: <AlertTriangle className="mr-2 h-4 w-4" />,
-            onClick: () => void patchCashflowStatus(row, "rejected"),
-          },
-        ]
+          })
+        }
+        const statusOptions: SelectOption[] = isExpenseCashflowUnpaidStatus(row.status)
+          ? [
+              {
+                value: "rejected",
+                label: "Mark as Rejected",
+                color: "text-red-600",
+                icon: <AlertTriangle className="mr-2 h-4 w-4" />,
+                onClick: () => void patchCashflowStatus(row),
+              },
+            ]
+          : []
+        if (actions.length === 0 && statusOptions.length === 0) {
+          return <span className="text-muted-foreground">—</span>
+        }
         return (
           <div className="flex justify-center" onClick={(e) => e.stopPropagation()}>
             <ActionSelect row={row} actions={actions} statusOptions={statusOptions} />
@@ -466,7 +479,7 @@ export default function ExpenseDetailsPage() {
         options: [
           { value: "", label: "All" },
           { value: "staff", label: "Staff" },
-          { value: "client", label: "Clients" },
+          { value: "client", label: "Third Party Agents" },
         ],
       },
     ],
@@ -487,7 +500,7 @@ export default function ExpenseDetailsPage() {
     if (party === "staff") {
       list = list.filter((c) => !!c.staff_id)
     } else if (party === "client") {
-      list = list.filter((c) => !!c.client_id)
+      list = list.filter((c) => !!c.third_party_agent_id)
     }
     const q = String(cashflowFilters.assigned_search ?? "")
       .trim()
@@ -505,7 +518,11 @@ export default function ExpenseDetailsPage() {
   )
 
   const pendingCashflowCount = useMemo(
-    () => cashflows.filter((c) => String(c.status || "").trim().toLowerCase() === "pending").length,
+    () =>
+      cashflows.filter((c) => {
+        const s = String(c.status || "").trim().toLowerCase()
+        return s === "pending" || s === "unpaid"
+      }).length,
     [cashflows],
   )
   const completedCashflowCount = useMemo(() => {
@@ -637,10 +654,6 @@ export default function ExpenseDetailsPage() {
                 <div>
                   <SectionLabel>Expense type</SectionLabel>
                   <p className="mt-0.5 text-sm font-medium">{titleCase(expense?.type || "—")}</p>
-                </div>
-                <div>
-                  <SectionLabel>Category</SectionLabel>
-                  <p className="mt-0.5 text-sm font-medium">{expense?.category_name || "—"}</p>
                 </div>
                 <div>
                   <SectionLabel>Branch</SectionLabel>
@@ -849,13 +862,13 @@ export default function ExpenseDetailsPage() {
         onClose={() => setRecordCashflowOpen(false)}
         onSuccess={load}
       />
-      <EditExpenseCashflow
-        isOpen={editCashflowOpen}
+      <RecordExpenseCashflowPayment
+        isOpen={recordPaymentOpen}
         expenseId={expenseId}
-        cashflow={editCashflowRow}
+        cashflow={recordPaymentRow}
         onClose={() => {
-          setEditCashflowOpen(false)
-          setEditCashflowRow(null)
+          setRecordPaymentOpen(false)
+          setRecordPaymentRow(null)
         }}
         onSuccess={load}
       />

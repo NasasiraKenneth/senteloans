@@ -20,6 +20,7 @@ import {
   memberWriteGateRouteError,
 } from "@/lib/members/member-status"
 import { notifyMemberProfileUpdated } from "@/lib/notifications/member-events"
+import { PRIMARY_SAVINGS_MONTHLY_SAVINGS_SQL } from "@/lib/members/monthly-savings"
 
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const apiPath = getApiPath(req)
@@ -47,7 +48,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       if (!allowed) return { error: "missing_permission:view_members" as const }
 
       const memberRes = await client.query(
-        `SELECT c.id, c.institution_id, c.branch_id, c.member_number, c.full_name, c.auth_id, c.date_of_birth::text AS date_of_birth, c.gender, c.marital_status, c.member_type, c.phone_number, c.email, c.national_id, c.district, c.village, c.occupation, c.monthly_income, c.monthly_savings, c.notes, c.next_of_kin_name, c.next_of_kin_relationship, c.next_of_kin_phone, c.mobile_money_provider, c.mobile_money_number, c.bank_name, c.bank_account_number, c.bank_account_name, c.bank_branch, c.kyc_status, c.status, c.join_date::text AS join_date, c.created_by, c.modified_by, c.kyc_approved_by, c.kyc_approved_at, c.created_at, c.updated_at,
+        `SELECT c.id, c.institution_id, c.branch_id, c.member_number, c.full_name, c.auth_id, c.date_of_birth::text AS date_of_birth, c.gender, c.marital_status, c.member_type, c.phone_number, c.email, c.national_id, c.district, c.village, c.occupation, c.monthly_income, ${PRIMARY_SAVINGS_MONTHLY_SAVINGS_SQL}, c.notes, c.next_of_kin_name, c.next_of_kin_relationship, c.next_of_kin_phone, c.mobile_money_provider, c.mobile_money_number, c.bank_name, c.bank_account_number, c.bank_account_name, c.bank_branch, c.kyc_status, c.status, c.join_date::text AS join_date, c.created_by, c.modified_by, c.kyc_approved_by, c.kyc_approved_at, c.created_at, c.updated_at,
                 cb.full_name AS created_by_name, mb.full_name AS modified_by_name, kb.full_name AS kyc_approved_by_name,
                 COALESCE((SELECT SUM(mf.amount_paid) FROM membership_fees mf WHERE mf.member_id = c.id), 0)::numeric AS membership_fee_paid
          FROM members c
@@ -190,7 +191,6 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       locationVillage: "village",
       occupation: "occupation",
       monthlyIncome: "monthly_income",
-      monthlySavings: "monthly_savings",
       nextOfKin: "next_of_kin_name",
       nextOfKinRelationship: "next_of_kin_relationship",
       nextOfKinPhone: "next_of_kin_phone",
@@ -258,10 +258,6 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     if (typeof body.monthlyIncome !== "undefined") {
       const income = Number(body.monthlyIncome)
       if (!Number.isNaN(income) && income >= 0) updates["monthly_income"] = income
-    }
-    if (typeof body.monthlySavings !== "undefined") {
-      const savings = Number(body.monthlySavings)
-      if (!Number.isNaN(savings) && savings >= 0) updates["monthly_savings"] = savings
     }
     if (typeof body.nextOfKin === "string") updates["next_of_kin_name"] = body.nextOfKin
     if (typeof body.nextOfKinRelationship === "string") updates["next_of_kin_relationship"] = body.nextOfKinRelationship

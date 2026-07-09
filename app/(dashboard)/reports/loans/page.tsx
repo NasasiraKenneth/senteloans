@@ -18,21 +18,28 @@ import RangeDatePicker, {
 } from "@/components/newUI/range_date_picker";
 import TooltipButton from "@/components/newUI/tooltip_button";
 import { Badge } from "@/components/ui/badge";
-import { Filter, Loader2, RefreshCw } from "lucide-react";
+import { Filter, Loader2, RefreshCw, ChevronDown, ChevronUp, X } from "lucide-react";
 import { BsFileEarmarkPdf } from "react-icons/bs";
 import { BsFiletypePdf } from "react-icons/bs";
 import { RiFileExcel2Line } from "react-icons/ri";
 import { RiResetLeftFill } from "react-icons/ri";
 import { useToast } from "@/components/ui/toast";
-import { getSession } from "@/lib/session";
+import { useStaffSession } from "@/components/staff-session-provider";
+import { readInstitutionCurrency } from "@/lib/institution-branch-config";
 import DataTable, {
   type DataTableColumn,
 } from "@/components/datatables/DataTable";
 import { exportLoanReportsExcel } from "./components/excel-export";
 import { exportLoanReportsPdf } from "./components/pdf-export";
 import { exportLoanSummaryPdf } from "./components/summaryPdf";
+import LoanReportAnalytics, {
+  type LoanReportBreakdown,
+  type LoanReportSummary,
+} from "./components/LoanReportAnalytics";
+import LoanReportExpandableContent from "./components/LoanReportExpandableContent";
 
-const PAGE_SIZE = 100;
+const DEFAULT_ROWS_PER_PAGE = 25;
+const ROWS_PER_PAGE_OPTIONS = [10, 25, 50, 100];
 
 const LOAN_STATUSES = [
   "Applied",
@@ -53,20 +60,10 @@ const ACTIVE_LIKE = new Set([
   "Active",
 ]);
 
-function todayYmd(): string {
-  const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
-
-function parseYmd(s: string | null | undefined): number | null {
-  const t = String(s || "").slice(0, 10);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(t)) return null;
-  const n = new Date(`${t}T12:00:00`).getTime();
-  return Number.isFinite(n) ? n : null;
-}
+const filterInputClass = (hasError = false) =>
+  `w-full px-3 py-2.5 text-sm border rounded-md transition-all duration-200 focus:ring-[1.5px] focus:ring-[#f08c2b] focus:border-transparent focus:outline-none ${
+    hasError ? "border-red-500" : "border-gray-300 hover:border-gray-400"
+  }`;
 
 export interface LoanReportRow {
   id: string;
@@ -101,30 +98,14 @@ export interface LoanReportRow {
 
 type ProductOption = { id: string; product_name: string };
 type BranchOption = { id: string; name: string; branch_code?: string };
-type LoanReportSummary = {
-  principal_booked: number;
-  outstanding: number;
-  total_amount_paid: number;
-  total_interest: number;
-  total_penalties_collected: number;
-  total_early_payments: number;
-  avg_late_pay_days: number;
-  with_balance: number;
-  overdue: number;
-  defaulted: number;
-  pipeline: number;
-};
 
-function statusBadgeVariant(
-  status: string,
-): "default" | "secondary" | "destructive" | "outline" {
-  if (status === "Defaulted") return "destructive";
-  if (status === "Rejected") return "destructive";
-  if (status === "Closed") return "secondary";
-  if (ACTIVE_LIKE.has(status)) return "default";
-  if (status === "Approved") return "outline";
-  return "secondary";
-}
+const EMPTY_BREAKDOWN: LoanReportBreakdown = {
+  by_status: [],
+  by_product: [],
+  by_loan_type: [],
+  by_month: [],
+  collections_by_month: [],
+};
 
 function statusPillClass(status: string): string {
   switch (status) {
@@ -153,17 +134,31 @@ function statusPillClass(status: string): string {
   }
 }
 
+function formatCurrency(amount: number, currency: string) {
+  return `${currency} ${Number(amount || 0).toLocaleString()}`;
+}
+
 export default function LoanReportsPage() {
   const { toast } = useToast();
+  const { session } = useStaffSession();
+  const currency = readInstitutionCurrency(session?.institution?.config);
   const [items, setItems] = useState<LoanReportRow[]>([]);
   const [totalFromApi, setTotalFromApi] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(DEFAULT_ROWS_PER_PAGE);
   const [products, setProducts] = useState<ProductOption[]>([]);
   const [branches, setBranches] = useState<BranchOption[]>([]);
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
   const [resetVersion, setResetVersion] = useState(0);
+  const [filtersOpen, setFiltersOpen] = useState(true);
+  const [memberSearch, setMemberSearch] = useState("");
+  const [overdueOnly, setOverdueOnly] = useState(false);
+  const [expandedRowIds, setExpandedRowIds] = useState<Set<string | number>>(new Set());
+  const [breakdown, setBreakdown] = useState<LoanReportBreakdown>(EMPTY_BREAKDOWN);
   const [summary, setSummary] = useState<LoanReportSummary>({
     principal_booked: 0,
+    principal_disbursed: 0,
     outstanding: 0,
     total_amount_paid: 0,
     total_interest: 0,
@@ -236,7 +231,7 @@ export default function LoanReportsPage() {
   const loadProducts = useCallback(async () => {
     try {
       const res = await fetch(
-        "/api/institution/loan-products?status=Active&limit=200",
+        "/api/institution/loan-products?status=Active&pageSize=200",
         { cache: "no-store" },
       );
       const data = await res.json().catch(() => ({}));
@@ -255,34 +250,16 @@ export default function LoanReportsPage() {
     }
   }, []);
 
-  const loadBranches = useCallback(async () => {
-    try {
-      const res = await fetch("/api/institution/branches", {
-        cache: "no-store",
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setBranches([]);
-        return;
-      }
-      const raw = Array.isArray(data.items) ? data.items : [];
-      setBranches(
-        raw
-          .map((b: { id?: string; name?: string; branch_code?: string }) => ({
-            id: String(b.id || ""),
-            name: String(b.name || "Branch"),
-            branch_code: b.branch_code ? String(b.branch_code) : "",
-          }))
-          .filter((b: BranchOption) => Boolean(b.id)),
-      );
-    } catch {
-      setBranches([]);
-    }
-  }, []);
-
-  const buildQuery = useCallback(() => {
+  const buildQuery = useCallback(
+    (opts?: { exportAll?: boolean; pageOverride?: number; pageSizeOverride?: number }) => {
     const p = new URLSearchParams();
-    p.set("pageSize", String(PAGE_SIZE));
+    if (opts?.exportAll) {
+      p.set("export_all", "true");
+      p.set("pageSize", "5000");
+    } else {
+      p.set("page", String((opts?.pageOverride ?? page) + 1));
+      p.set("pageSize", String(opts?.pageSizeOverride ?? rowsPerPage));
+    }
     if (statusFilter !== "all") p.set("status", statusFilter);
     if (loanTypeFilter !== "all") p.set("loan_type", loanTypeFilter);
     if (productId !== "all") p.set("product_id", productId);
@@ -304,27 +281,38 @@ export default function LoanReportsPage() {
       p.set("disbursedDateStart", disbursedRange.start.trim());
     if (disbursedRange.end.trim())
       p.set("disbursedDateEnd", disbursedRange.end.trim());
+    if (memberSearch.trim()) p.set("search", memberSearch.trim());
+    if (overdueOnly) p.set("overdue_only", "true");
     return p;
-  }, [
-    statusFilter,
-    loanTypeFilter,
-    productId,
-    isSuperAdmin,
-    branchIds,
-    applicationRange.start,
-    applicationRange.end,
-    reviewedRange.start,
-    reviewedRange.end,
-    approvedRange.start,
-    approvedRange.end,
-    disbursedRange.start,
-    disbursedRange.end,
-  ]);
+  },
+    [
+      page,
+      rowsPerPage,
+      statusFilter,
+      loanTypeFilter,
+      productId,
+      isSuperAdmin,
+      branchIds,
+      applicationRange.start,
+      applicationRange.end,
+      reviewedRange.start,
+      reviewedRange.end,
+      approvedRange.start,
+      approvedRange.end,
+      disbursedRange.start,
+      disbursedRange.end,
+      memberSearch,
+      overdueOnly,
+    ],
+  );
 
-  const loadLoans = useCallback(async () => {
+  const loadLoans = useCallback(async (opts?: { pageOverride?: number; pageSizeOverride?: number }) => {
     setLoading(true);
     try {
-      const base = buildQuery();
+      const base = buildQuery({
+        pageOverride: opts?.pageOverride,
+        pageSizeOverride: opts?.pageSizeOverride,
+      });
       const res = await fetch(
         `/api/institution/reports/loans?${base.toString()}`,
         { cache: "no-store" },
@@ -353,6 +341,7 @@ export default function LoanReportsPage() {
       const s = (data.summary || {}) as Partial<LoanReportSummary>;
       setSummary({
         principal_booked: Number(s.principal_booked ?? 0),
+        principal_disbursed: Number(s.principal_disbursed ?? s.principal_booked ?? 0),
         outstanding: Number(s.outstanding ?? 0),
         total_amount_paid: Number(s.total_amount_paid ?? 0),
         total_interest: Number(s.total_interest ?? 0),
@@ -363,6 +352,14 @@ export default function LoanReportsPage() {
         overdue: Number(s.overdue ?? 0),
         defaulted: Number(s.defaulted ?? 0),
         pipeline: Number(s.pipeline ?? 0),
+      });
+      const b = data.breakdown as Partial<LoanReportBreakdown> | undefined;
+      setBreakdown({
+        by_status: Array.isArray(b?.by_status) ? b.by_status : [],
+        by_product: Array.isArray(b?.by_product) ? b.by_product : [],
+        by_loan_type: Array.isArray(b?.by_loan_type) ? b.by_loan_type : [],
+        by_month: Array.isArray(b?.by_month) ? b.by_month : [],
+        collections_by_month: Array.isArray(b?.collections_by_month) ? b.collections_by_month : [],
       });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Failed to load loans";
@@ -375,6 +372,7 @@ export default function LoanReportsPage() {
       setTotalFromApi(0);
       setSummary({
         principal_booked: 0,
+        principal_disbursed: 0,
         outstanding: 0,
         total_amount_paid: 0,
         total_interest: 0,
@@ -386,22 +384,35 @@ export default function LoanReportsPage() {
         defaulted: 0,
         pipeline: 0,
       });
+      setBreakdown(EMPTY_BREAKDOWN);
     } finally {
       setLoading(false);
     }
   }, [buildQuery, toast]);
 
   useEffect(() => {
-    const s = getSession();
-    const role = String(s?.role || "")
-      .trim()
-      .toLowerCase();
-    const superAdmin = role === "super_admin";
-    setIsSuperAdmin(superAdmin);
-    if (superAdmin) {
-      void loadBranches();
-    }
-  }, [loadBranches]);
+    let cancelled = false;
+    fetch("/api/institution/navigation/permissions", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((body) => {
+        if (cancelled || !body?.permissions) return;
+        const superAdmin = !!body.permissions.isSuperAdmin;
+        setIsSuperAdmin(superAdmin);
+        if (superAdmin && Array.isArray(body.permissions.branches)) {
+          setBranches(
+            body.permissions.branches.map((b: { id?: string; name?: string }) => ({
+              id: String(b.id || ""),
+              name: String(b.name || "Branch"),
+              branch_code: "",
+            })).filter((b: BranchOption) => b.id),
+          );
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     loadProducts();
@@ -409,38 +420,81 @@ export default function LoanReportsPage() {
 
   useEffect(() => {
     void loadLoans();
-    // Intentionally once on mount; filter changes apply via "Apply filters" or "Refresh".
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [loadLoans, page, rowsPerPage]);
 
   useEffect(() => {
     if (resetVersion > 0) {
-      void loadLoans();
+      if (page === 0) void loadLoans({ pageOverride: 0 });
+      else setPage(0);
     }
-  }, [resetVersion, loadLoans]);
+  }, [resetVersion, loadLoans, page]);
 
-  const maxDisbursedByCols = useMemo(
-    () =>
-      Math.max(
-        0,
-        ...items.map((r) =>
-          Array.isArray(r.disbursed_by) ? r.disbursed_by.length : 0,
-        ),
-      ),
-    [items],
-  );
-  const maxGuarantorCols = useMemo(
-    () =>
-      Math.max(
-        0,
-        ...items.map((r) =>
-          Array.isArray(r.guarantors) ? r.guarantors.length : 0,
-        ),
-      ),
-    [items],
-  );
-  const loanColumns = useMemo<DataTableColumn<LoanReportRow>[]>(() => {
-    const base: DataTableColumn<LoanReportRow>[] = [
+  const onPageChange = useCallback((_: unknown, newPage: number) => {
+    setPage(newPage);
+  }, []);
+
+  const onRowsPerPageChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    setRowsPerPage(parseInt(e.target.value, 10));
+    setPage(0);
+  }, []);
+
+  const toggleRowExpand = useCallback((rowId: string | number) => {
+    setExpandedRowIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(rowId)) next.delete(rowId);
+      else next.add(rowId);
+      return next;
+    });
+  }, []);
+
+  const activeFilterChips = useMemo(() => {
+    const chips: Array<{ key: string; label: string; onClear: () => void }> = [];
+    if (statusFilter !== "all") chips.push({ key: "status", label: `Status: ${statusFilter}`, onClear: () => setStatusFilter("all") });
+    if (loanTypeFilter !== "all") chips.push({ key: "type", label: `Type: ${loanTypeFilter}`, onClear: () => setLoanTypeFilter("all") });
+    if (productId !== "all") {
+      const name = products.find((p) => p.id === productId)?.product_name || "Product";
+      chips.push({ key: "product", label: `Product: ${name}`, onClear: () => setProductId("all") });
+    }
+    if (isSuperAdmin && branchIds.length > 0) {
+      const names = branchIds.map((id) => branches.find((b) => b.id === id)?.name || "Branch").join(", ");
+      chips.push({ key: "branches", label: `Branches: ${names}`, onClear: () => setBranchIds([]) });
+    }
+    if (memberSearch.trim()) chips.push({ key: "search", label: `Search: ${memberSearch.trim()}`, onClear: () => setMemberSearch("") });
+    if (overdueOnly) chips.push({ key: "overdue", label: "Overdue only", onClear: () => setOverdueOnly(false) });
+    const ranges: Array<[string, DateRangeValue, (v: DateRangeValue) => void, string]> = [
+      ["Applied", applicationRange, setApplicationRange, "application"],
+      ["Reviewed", reviewedRange, setReviewedRange, "reviewed"],
+      ["Approved", approvedRange, setApprovedRange, "approved"],
+      ["Disbursed", disbursedRange, setDisbursedRange, "disbursed"],
+    ];
+    for (const [label, range, setter] of ranges) {
+      if (range.start || range.end) {
+        chips.push({
+          key: label,
+          label: `${label}: ${range.start || "…"} – ${range.end || "…"}`,
+          onClear: () => setter({ start: "", end: "" }),
+        });
+      }
+    }
+    return chips;
+  }, [
+    statusFilter,
+    loanTypeFilter,
+    productId,
+    products,
+    isSuperAdmin,
+    branchIds,
+    branches,
+    memberSearch,
+    overdueOnly,
+    applicationRange,
+    reviewedRange,
+    approvedRange,
+    disbursedRange,
+  ]);
+
+  const loanColumns = useMemo<DataTableColumn<LoanReportRow>[]>(
+    () => [
       {
         key: "application",
         header: "Application",
@@ -478,14 +532,12 @@ export default function LoanReportsPage() {
       {
         key: "principal",
         header: "Principal",
-        render: (loan) =>
-          `UGX ${Number(loan.principal_amount || 0).toLocaleString()}`,
+        render: (loan) => formatCurrency(loan.principal_amount, currency),
       },
       {
         key: "outstanding",
         header: "Outstanding",
-        render: (loan) =>
-          `UGX ${Number(loan.outstanding_balance || 0).toLocaleString()}`,
+        render: (loan) => formatCurrency(loan.outstanding_balance, currency),
       },
       {
         key: "rate",
@@ -504,90 +556,11 @@ export default function LoanReportsPage() {
         ),
       },
       {
-        key: "reviewedAt",
-        header: "Reviewed at",
-        render: (loan) =>
-          loan.reviewed_at ? String(loan.reviewed_at).slice(0, 10) : "—",
-      },
-      {
-        key: "reviewedBy",
-        header: "Reviewed by",
-        render: (loan) => loan.reviewed_by_name || "—",
-      },
-      {
-        key: "approvedAt",
-        header: "Approved at",
-        render: (loan) =>
-          loan.approved_at ? String(loan.approved_at).slice(0, 10) : "—",
-      },
-      {
-        key: "disbursedAt",
-        header: "Disbursed at",
-        render: (loan) =>
-          loan.disbursed_at ? String(loan.disbursed_at).slice(0, 10) : "—",
-      },
-      {
-        key: "approvedBy",
-        header: "Approved by",
-        render: (loan) => loan.approved_by_name || "—",
-      },
-      {
-        key: "createdBy",
-        header: "Created by",
-        render: (loan) => loan.created_by_name || "—",
-      },
-    ];
-
-    const disbursedByColumns = Array.from({ length: maxDisbursedByCols }).map(
-      (_, idx) => ({
-        key: `disbursedBy${idx + 1}`,
-        header: `Disbursed by ${idx + 1}`,
-        render: (loan: LoanReportRow) => loan.disbursed_by?.[idx] || "—",
-      }),
-    );
-    const guarantorColumns = Array.from({ length: maxGuarantorCols }).map(
-      (_, idx) => ({
-        key: `guarantor${idx + 1}`,
-        header: `Guarantor ${idx + 1}`,
-        render: (loan: LoanReportRow) => loan.guarantors?.[idx] || "—",
-      }),
-    );
-
-    const metrics: DataTableColumn<LoanReportRow>[] = [
-      {
-        key: "amountPaid",
-        header: "Amount paid",
-        render: (loan) =>
-          `UGX ${Number(loan.total_amount_paid || 0).toLocaleString()}`,
-      },
-      {
-        key: "interest",
-        header: "Interest",
-        render: (loan) =>
-          `UGX ${Number(loan.total_interest || 0).toLocaleString()}`,
-      },
-      {
-        key: "penalties",
-        header: "Penalties",
-        render: (loan) =>
-          `UGX ${Number(loan.penalties_collected || 0).toLocaleString()}`,
-      },
-      {
-        key: "avgLateDays",
-        header: "Avg late days",
-        render: (loan) => Number(loan.late_pay_days_avg || 0).toLocaleString(),
-      },
-      {
-        key: "earlyPays",
-        header: "Early pays",
-        render: (loan) => Number(loan.early_payments || 0).toLocaleString(),
-      },
-      {
         key: "overdue",
         header: "Overdue",
         render: (loan) =>
           loan.overdue ? (
-            <Badge variant="destructive">Overdue</Badge>
+            <Badge variant="destructive">Yes</Badge>
           ) : (
             <Badge variant="secondary">No</Badge>
           ),
@@ -608,10 +581,17 @@ export default function LoanReportsPage() {
             ? String(loan.next_payment_date).slice(0, 10)
             : "—",
       },
-    ];
-
-    return [...base, ...disbursedByColumns, ...guarantorColumns, ...metrics];
-  }, [maxDisbursedByCols, maxGuarantorCols]);
+      {
+        key: "guarantors",
+        header: "Guarantors",
+        render: (loan) => {
+          const count = Array.isArray(loan.guarantors) ? loan.guarantors.length : 0;
+          return count > 0 ? `${count}` : "—";
+        },
+      },
+    ],
+    [currency],
+  );
 
   const handleExportExcel = async () => {
     try {
@@ -640,7 +620,7 @@ export default function LoanReportsPage() {
       }
       toast({
         variant: "success",
-        title: "Export started",
+        title: "Export complete",
         description: `${exportedRows} row(s) in XLSX.`,
       });
     } catch (e: unknown) {
@@ -680,7 +660,7 @@ export default function LoanReportsPage() {
       }
       toast({
         variant: "success",
-        title: "Export started",
+        title: "Export complete",
         description: `${exportedRows} row(s) in PDF.`,
       });
     } catch (e: unknown) {
@@ -695,8 +675,7 @@ export default function LoanReportsPage() {
 
   const handleSummaryPdf = async () => {
     try {
-      const summaryQuery = new URLSearchParams();
-      summaryQuery.set("pageSize", "5000");
+      const summaryQuery = buildQuery({ exportAll: true });
       if (summaryCreatedRange.start.trim())
         summaryQuery.set(
           "applicationDateStart",
@@ -727,14 +706,11 @@ export default function LoanReportsPage() {
         branchIds,
         branches,
         buildQuery: () => {
-          const p = new URLSearchParams();
-          p.set("pageSize", "5000");
+          const p = buildQuery({ exportAll: true });
           if (summaryCreatedRange.start.trim())
             p.set("applicationDateStart", summaryCreatedRange.start.trim());
           if (summaryCreatedRange.end.trim())
             p.set("applicationDateEnd", summaryCreatedRange.end.trim());
-          if (isSuperAdmin && branchIds.length > 0)
-            p.set("branches", branchIds.join(","));
           return p;
         },
       });
@@ -763,7 +739,8 @@ export default function LoanReportsPage() {
   };
 
   const handleApplyFilters = () => {
-    loadLoans();
+    if (page === 0) void loadLoans({ pageOverride: 0 });
+    else setPage(0);
   };
 
   const handleReset = () => {
@@ -775,95 +752,118 @@ export default function LoanReportsPage() {
     setReviewedRange({ start: "", end: "" });
     setApprovedRange({ start: "", end: "" });
     setDisbursedRange({ start: "", end: "" });
+    setMemberSearch("");
+    setOverdueOnly(false);
     setResetVersion((v) => v + 1);
   };
 
   return (
-    <>
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-foreground">Loan reports</h1>
-        <p className="text-muted-foreground">
-          Analyze loan performance across branches, products, statuses, and
-          timelines, then export detailed or executive reports.
-        </p>
+    <div className="animate-in fade-in duration-300">
+      {/* Premium hero */}
+      <div className="relative mb-8 overflow-hidden rounded-2xl border border-border bg-card p-6 shadow-sm">
+        <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-[#0f0f12]/[0.04] via-[#f08c2b]/[0.08] to-transparent" />
+        <div className="pointer-events-none absolute -right-16 -top-16 h-48 w-48 rounded-full bg-[#f08c2b]/10 blur-3xl" />
+        <div className="relative z-10 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+          <div>
+            <span className="mb-2 inline-flex items-center gap-1.5 rounded-full bg-[#0f0f12] px-2.5 py-0.5 text-xs font-semibold text-[#f08c2b]">
+              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#f08c2b]" />
+              Portfolio intelligence
+            </span>
+            <h1 className="text-3xl font-extrabold tracking-tight text-foreground">Loan reports</h1>
+            <p className="mt-1 max-w-2xl text-sm leading-relaxed text-muted-foreground">
+              Track collections, monitor risk, and export executive summaries — all filtered to your branch scope.
+            </p>
+          </div>
+          <div className="flex shrink-0 items-center gap-3 rounded-xl border border-[#f08c2b]/20 bg-[#f08c2b]/5 px-4 py-3">
+            <div className="text-right">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Book size</p>
+              <p className="text-xl font-extrabold tabular-nums text-[#0f0f12]">
+                {loading ? "—" : totalFromApi.toLocaleString()}
+              </p>
+            </div>
+            <div className="h-10 w-px bg-[#f08c2b]/30" />
+            <div className="text-right">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Currency</p>
+              <p className="text-xl font-extrabold text-[#f08c2b]">{currency}</p>
+            </div>
+          </div>
+        </div>
       </div>
 
       {loading && items.length === 0 ? (
-        <div className="flex min-h-[70vh] w-full items-center justify-center">
+        <div className="flex min-h-[50vh] w-full items-center justify-center">
           <div className="text-center">
-            <div className="mx-auto mb-4 h-8 w-8 animate-spin rounded-full border-b-2 border-primary"></div>
-            <p className="text-muted-foreground">Loading Loan Reports...</p>
+            <div className="mx-auto mb-4 h-8 w-8 animate-spin rounded-full border-b-2 border-[#f08c2b]" />
+            <p className="text-muted-foreground">Loading loan reports…</p>
           </div>
         </div>
       ) : (
         <>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 mb-8">
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-xs font-medium text-muted-foreground">
-                  Total loans
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{totalFromApi}</div>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Total matching filters: {totalFromApi}
-                </p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-xs font-medium text-muted-foreground">
-                  Total disbursed
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-xl font-bold tabular-nums">
-                  UGX {Math.round(summary.principal_booked).toLocaleString()}
-                </div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-xs font-medium text-muted-foreground">
-                  Total outstanding balance
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-xl font-bold tabular-nums">
-                  UGX {Math.round(summary.outstanding).toLocaleString()}
-                </div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-xs font-medium text-muted-foreground">
-                  Total interest
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-xl font-bold tabular-nums">
-                  UGX {Math.round(summary.total_interest).toLocaleString()}
-                </div>
-              </CardContent>
-            </Card>
-          </div>
+          <LoanReportAnalytics
+            total={totalFromApi}
+            summary={summary}
+            breakdown={breakdown}
+            currency={currency}
+            loading={loading}
+          />
 
           <Card className="mb-6">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Filter className="h-5 w-5" />
-                Filters &amp; export
-              </CardTitle>
-              <CardDescription>
-                Use filters to refine results, then export the current report
-                view in your preferred format.
-              </CardDescription>
+            <CardHeader
+              className="cursor-pointer select-none"
+              onClick={() => setFiltersOpen((v) => !v)}
+            >
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    <Filter className="h-5 w-5" />
+                    Filters &amp; export
+                  </CardTitle>
+                  <CardDescription>
+                    Refine the portfolio view, then export or open row details for full loan metrics.
+                  </CardDescription>
+                </div>
+                {filtersOpen ? (
+                  <ChevronUp className="h-5 w-5 text-muted-foreground" />
+                ) : (
+                  <ChevronDown className="h-5 w-5 text-muted-foreground" />
+                )}
+              </div>
             </CardHeader>
+            {filtersOpen && (
             <CardContent className="space-y-4">
               <div className="flex flex-row flex-wrap items-end gap-2">
+                <div className="w-auto min-w-[260px] space-y-2">
+                  <label className="mb-1 block text-sm font-medium text-gray-700">
+                    Search member / application
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Name, member no, or application ID"
+                    className={filterInputClass()}
+                    value={memberSearch}
+                    onChange={(e) => setMemberSearch(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") handleApplyFilters();
+                    }}
+                  />
+                </div>
+                <div className="flex items-center gap-2 pb-2">
+                  <label className="flex cursor-pointer items-center gap-2.5">
+                    <div className="relative">
+                      <input
+                        type="checkbox"
+                        className="peer sr-only"
+                        checked={overdueOnly}
+                        onChange={(e) => setOverdueOnly(e.target.checked)}
+                      />
+                      <div className="h-5 w-9 rounded-full bg-gray-300 transition-colors peer-checked:bg-[#f08c2b]" />
+                      <div className="absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform peer-checked:translate-x-4" />
+                    </div>
+                    <span className="text-sm text-gray-700">Overdue only</span>
+                  </label>
+                </div>
                 {isSuperAdmin && (
-                  <div className="space-y-2 w-auto min-w-[300px]">
+                  <div className="w-auto min-w-[300px] space-y-2">
                     <Label>Branch</Label>
                     <StyledMultiSelect
                       value={branchIds}
@@ -874,7 +874,7 @@ export default function LoanReportsPage() {
                     />
                   </div>
                 )}
-                <div className="space-y-2 w-auto min-w-[300px]">
+                <div className="w-auto min-w-[300px] space-y-2">
                   <Label>Status</Label>
                   <StyledSelect
                     value={statusFilter}
@@ -884,7 +884,7 @@ export default function LoanReportsPage() {
                     searchable
                   />
                 </div>
-                <div className="space-y-2 w-auto min-w-[300px]">
+                <div className="w-auto min-w-[300px] space-y-2">
                   <Label>Loan type</Label>
                   <StyledSelect
                     value={loanTypeFilter}
@@ -893,7 +893,7 @@ export default function LoanReportsPage() {
                     options={loanTypeSelectOptions}
                   />
                 </div>
-                <div className="space-y-2 w-auto min-w-[300px]">
+                <div className="w-auto min-w-[300px] space-y-2">
                   <Label>Product</Label>
                   <StyledSelect
                     value={productId}
@@ -903,7 +903,7 @@ export default function LoanReportsPage() {
                     searchable
                   />
                 </div>
-                <div className="space-y-2 w-auto min-w-[300px]">
+                <div className="w-auto min-w-[300px] space-y-2">
                   <Label>Application date range</Label>
                   <RangeDatePicker
                     value={applicationRange}
@@ -911,7 +911,7 @@ export default function LoanReportsPage() {
                     placeholder="Filter by application date"
                   />
                 </div>
-                <div className="space-y-2 w-auto min-w-[300px]">
+                <div className="w-auto min-w-[300px] space-y-2">
                   <Label>Reviewed date range</Label>
                   <RangeDatePicker
                     value={reviewedRange}
@@ -919,7 +919,7 @@ export default function LoanReportsPage() {
                     placeholder="Filter by reviewed date"
                   />
                 </div>
-                <div className="space-y-2 w-auto min-w-[300px]">
+                <div className="w-auto min-w-[300px] space-y-2">
                   <Label>Approved date range</Label>
                   <RangeDatePicker
                     value={approvedRange}
@@ -927,7 +927,7 @@ export default function LoanReportsPage() {
                     placeholder="Filter by approved date"
                   />
                 </div>
-                <div className="space-y-2 w-auto min-w-[300px]">
+                <div className="w-auto min-w-[300px] space-y-2">
                   <Label>Disbursed date range</Label>
                   <RangeDatePicker
                     value={disbursedRange}
@@ -999,18 +999,51 @@ export default function LoanReportsPage() {
                   <BsFiletypePdf className="h-4 w-4" />
                 </TooltipButton>
               </div>
+
+              {activeFilterChips.length > 0 && (
+                <div className="flex flex-wrap items-center gap-2 border-t border-border/50 pt-3">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Active</span>
+                  {activeFilterChips.map((chip) => (
+                    <button
+                      key={chip.key}
+                      type="button"
+                      onClick={chip.onClear}
+                      className="inline-flex items-center gap-1 rounded-full border border-border bg-muted/40 px-2.5 py-1 text-xs font-medium text-foreground hover:bg-muted"
+                    >
+                      {chip.label}
+                      <X className="h-3 w-3 text-muted-foreground" />
+                    </button>
+                  ))}
+                </div>
+              )}
             </CardContent>
+            )}
           </Card>
 
           <DataTable
-            title="Loan portfolio detail"
+            title={`Loan portfolio detail (${totalFromApi})`}
             columns={loanColumns}
             rows={items}
             loading={loading}
             emptyMessage="No loans match the current filters."
+            getRowId={(row) => row.id}
+            renderDetail={(row) => (
+              <LoanReportExpandableContent loan={row} currency={currency} />
+            )}
+            expandedRowIds={expandedRowIds}
+            onToggleExpand={toggleRowExpand}
+            onRowClick={(row) => toggleRowExpand(row.id)}
+            pagination={{
+              total: totalFromApi,
+              page,
+              onPageChange,
+              rowsPerPage,
+              onRowsPerPageChange,
+              rowsPerPageOptions: ROWS_PER_PAGE_OPTIONS,
+            }}
           />
         </>
       )}
-    </>
+    </div>
   );
 }

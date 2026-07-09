@@ -385,6 +385,7 @@ export default function InvestmentsPage() {
           { value: "fixed_income", label: "Fixed Income" },
           { value: "project", label: "Project" },
           { value: "equity", label: "Equity" },
+          { value: "securities", label: "Securities" },
           { value: "partnership", label: "Partnership" },
         ],
       },

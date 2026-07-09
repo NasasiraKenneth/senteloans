@@ -12,11 +12,13 @@ export type UnclaimedFormData = {
   mode: string
   date: string
   transaction_number: string
+  bank_account_id: string
   notes: string
   branch_id: string
 }
 
 type BranchOption = { value: string; label: string }
+type BankAccountOption = { id: string; bank_name: string; bank_account_number: string }
 
 interface UnclaimedFormProps {
   onSubmit: (data: UnclaimedFormData) => void
@@ -34,8 +36,13 @@ const defaultValues: UnclaimedFormData = {
   mode: "Cash",
   date: "",
   transaction_number: "",
+  bank_account_id: "",
   notes: "",
   branch_id: "",
+}
+
+function isBankTransferMode(mode: string): boolean {
+  return mode.trim().toLowerCase() === "bank transfer"
 }
 
 const inputClass = (hasError: boolean) =>
@@ -50,6 +57,7 @@ function mergeInitialValues(initialValues?: Partial<UnclaimedFormData>): Unclaim
     mode: initialValues?.mode ?? "Cash",
     date: toDateOnlyString(initialValues?.date),
     transaction_number: initialValues?.transaction_number ?? "",
+    bank_account_id: initialValues?.bank_account_id ?? "",
     notes: initialValues?.notes ?? "",
     branch_id: initialValues?.branch_id ?? "",
   }
@@ -69,6 +77,8 @@ export default function UnclaimedForm({
     mode === "edit" && initialValues ? mergeInitialValues(initialValues) : { ...defaultValues },
   )
   const [errors, setErrors] = useState<Partial<Record<keyof UnclaimedFormData, string>>>({})
+  const [bankAccounts, setBankAccounts] = useState<BankAccountOption[]>([])
+  const [bankAccountsLoading, setBankAccountsLoading] = useState(false)
   const disabled = loading || formDisabled
 
   useEffect(() => {
@@ -84,11 +94,48 @@ export default function UnclaimedForm({
     setErrors({})
   }, [mode, initialValues])
 
+  useEffect(() => {
+    if (!isBankTransferMode(form.mode)) return
+    let cancelled = false
+    async function loadBankAccounts() {
+      setBankAccountsLoading(true)
+      try {
+        const params = new URLSearchParams({ rowsPerPage: "100" })
+        if (showBranchPicker && form.branch_id.trim()) {
+          params.set("branches", form.branch_id.trim())
+        }
+        const res = await fetch(`/api/institution/finances/bank-accounts?${params.toString()}`, {
+          cache: "no-store",
+        })
+        if (!res.ok) return
+        const data = (await res.json()) as { rows?: BankAccountOption[] }
+        const rows = Array.isArray(data.rows) ? data.rows : []
+        if (!cancelled) setBankAccounts(rows)
+      } catch {
+        if (!cancelled) setBankAccounts([])
+      } finally {
+        if (!cancelled) setBankAccountsLoading(false)
+      }
+    }
+    void loadBankAccounts()
+    return () => {
+      cancelled = true
+    }
+  }, [form.mode, form.branch_id, showBranchPicker])
+
   const set = (field: keyof UnclaimedFormData, value: string) => {
     setForm((prev) => {
       const next = { ...prev, [field]: value }
-      if (field === "mode" && value.trim().toLowerCase() === "cash") {
-        next.transaction_number = ""
+      if (field === "mode") {
+        if (value.trim().toLowerCase() === "cash") {
+          next.transaction_number = ""
+        }
+        if (!isBankTransferMode(value)) {
+          next.bank_account_id = ""
+        }
+      }
+      if (field === "branch_id") {
+        next.bank_account_id = ""
       }
       return next
     })
@@ -96,6 +143,8 @@ export default function UnclaimedForm({
   }
 
   const isCash = form.mode.trim().toLowerCase() === "cash"
+  const isBankTransfer = isBankTransferMode(form.mode)
+  const bankAccountPickerBlocked = showBranchPicker && !form.branch_id.trim()
 
   const validate = (): boolean => {
     const e: Partial<Record<keyof UnclaimedFormData, string>> = {}
@@ -103,6 +152,12 @@ export default function UnclaimedForm({
     if (!Number.isFinite(amount) || amount <= 0) e.amount = "Enter an amount greater than zero"
     if (!form.mode.trim()) e.mode = "Select a payment mode"
     if (showBranchPicker && !form.branch_id.trim()) e.branch_id = "Select a branch"
+    if (isBankTransfer && !bankAccountPickerBlocked && !form.bank_account_id.trim()) {
+      e.bank_account_id = "Select a bank account"
+    }
+    if (!isCash && !form.transaction_number.trim()) {
+      e.transaction_number = "Reference number is required"
+    }
     setErrors(e)
     return Object.keys(e).length === 0
   }
@@ -116,10 +171,19 @@ export default function UnclaimedForm({
       mode: form.mode.trim(),
       date: form.date.trim(),
       transaction_number: isCash ? "" : form.transaction_number.trim(),
+      bank_account_id: isBankTransfer ? form.bank_account_id.trim() : "",
       notes: form.notes.trim(),
       branch_id: form.branch_id.trim(),
     })
   }
+
+  const bankAccountPlaceholder = bankAccountsLoading
+    ? "Loading bank accounts…"
+    : bankAccountPickerBlocked
+      ? "Select a branch first"
+      : bankAccounts.length === 0
+        ? "No bank accounts for this branch"
+        : "Select bank account"
 
   const selectWrap = (hasError: boolean) => (hasError ? "rounded-md ring-1 ring-red-500" : "")
 
@@ -179,6 +243,31 @@ export default function UnclaimedForm({
         </div>
       </div>
 
+      {isBankTransfer ? (
+        <div>
+          <label className="mb-1 block text-sm font-medium text-gray-700">
+            Bank account <span className="text-red-500">*</span>
+          </label>
+          <div
+            className={`${selectWrap(!!errors.bank_account_id)} ${disabled || bankAccountsLoading || bankAccountPickerBlocked ? "pointer-events-none opacity-60" : ""}`}
+          >
+            <StyledSelect
+              value={form.bank_account_id}
+              onChange={(v) => set("bank_account_id", v)}
+              placeholder={bankAccountPlaceholder}
+              options={bankAccounts.map((account) => ({
+                value: account.id,
+                label: `${account.bank_name} — ${account.bank_account_number}`,
+              }))}
+              searchable
+            />
+          </div>
+          {errors.bank_account_id ? (
+            <p className="mt-1 text-xs text-red-600">{errors.bank_account_id}</p>
+          ) : null}
+        </div>
+      ) : null}
+
       <div>
         <label className="mb-1 block text-sm font-medium text-gray-700">Deposit date</label>
         <ReeveDatePicker
@@ -189,19 +278,24 @@ export default function UnclaimedForm({
         />
       </div>
 
-      {!isCash && (
+      {!isCash ? (
         <div>
-          <label className="mb-1 block text-sm font-medium text-gray-700">Transaction reference</label>
+          <label className="mb-1 block text-sm font-medium text-gray-700">
+            Reference number <span className="text-red-500">*</span>
+          </label>
           <input
             type="text"
-            className={inputClass(false)}
+            className={inputClass(!!errors.transaction_number)}
             value={form.transaction_number}
             onChange={(ev) => set("transaction_number", ev.target.value)}
-            placeholder="Optional reference"
+            placeholder="Payment reference"
             disabled={disabled}
           />
+          {errors.transaction_number ? (
+            <p className="mt-1 text-xs text-red-600">{errors.transaction_number}</p>
+          ) : null}
         </div>
-      )}
+      ) : null}
 
       <div>
         <label className="mb-1 block text-sm font-medium text-gray-700">Notes</label>

@@ -1,57 +1,84 @@
 import { NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
+import type { PoolClient } from "pg"
 import { authOptions } from "@/lib/auth"
 import { runWithAuth } from "@/lib/db"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
+import {
+  type ActorContext,
+  hasPermission,
+  isSuperAdmin,
+  resolveActorContext,
+  scopeWhere,
+} from "@/lib/api/rbac"
+import { assertBranchActive } from "@/lib/branches/branch-status"
+import { assertActorActive } from "@/lib/staff/staff-status"
 import { auditLogger } from "@/lib/audit/audit-logger"
 
-type ActorContext = {
-  id: string
-  institution_id: string
-  branch_id: string | null
-  role_id: string | null
-  role: string | null
+type CreateBranchError =
+  | "actor_branch_missing"
+  | "branch_id_required"
+  | "branch_not_found"
+  | "branch_inactive"
+  | "cross_branch_operation_forbidden"
+  | "cross_tenant_operation_forbidden"
+
+async function resolveCreateBranchId(
+  client: PoolClient,
+  actor: ActorContext,
+  bodyBranchId: unknown,
+): Promise<
+  | { ok: true; branchId: string }
+  | { ok: false; error: CreateBranchError; branchStatus?: string }
+> {
+  const requestedBranchId =
+    bodyBranchId != null && String(bodyBranchId).trim() !== ""
+      ? String(bodyBranchId).trim()
+      : ""
+
+  if (isSuperAdmin(actor)) {
+    const branchId = requestedBranchId || String(actor.branch_id || "").trim()
+    if (!branchId) return { ok: false, error: "branch_id_required" }
+
+    const branchCheck = await assertBranchActive(client, branchId)
+    if (!branchCheck.ok) {
+      return {
+        ok: false,
+        error: branchCheck.error === "branch_inactive" ? "branch_inactive" : "branch_not_found",
+        ...(branchCheck.error === "branch_inactive" ? { branchStatus: branchCheck.status } : {}),
+      }
+    }
+    if (branchCheck.branch.institution_id !== actor.institution_id) {
+      return { ok: false, error: "cross_tenant_operation_forbidden" }
+    }
+    return { ok: true, branchId }
+  }
+
+  if (!actor.branch_id) return { ok: false, error: "actor_branch_missing" }
+  if (requestedBranchId && requestedBranchId !== String(actor.branch_id)) {
+    return { ok: false, error: "cross_branch_operation_forbidden" }
+  }
+
+  const branchCheck = await assertBranchActive(client, actor.branch_id)
+  if (!branchCheck.ok) {
+    return {
+      ok: false,
+      error: branchCheck.error === "branch_inactive" ? "branch_inactive" : "branch_not_found",
+      ...(branchCheck.error === "branch_inactive" ? { branchStatus: branchCheck.status } : {}),
+    }
+  }
+  return { ok: true, branchId: actor.branch_id }
 }
 
-async function resolveActorContext(client: any, authUserId: string): Promise<ActorContext | null> {
-  const actorRes = await client.query(
-    `SELECT
-       u.id,
-       u.institution_id,
-       u.branch_id,
-       u.role_id,
-       CASE
-         WHEN r.name = 'System Admin' THEN 'system_admin'
-         WHEN r.name = 'Super Admin' THEN 'super_admin'
-         WHEN r.name = 'Admin' THEN 'institution_admin'
-         WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
-         ELSE NULL
-       END AS role
-     FROM users u
-     LEFT JOIN roles r ON r.id = u.role_id
-     WHERE u.auth_id = $1
-     LIMIT 1`,
-    [authUserId]
-  )
-  return actorRes.rows[0] || null
-}
-
-async function hasPermission(client: any, actor: ActorContext, permission: string): Promise<boolean> {
-  const role = String(actor.role || "").trim().toLowerCase()
-  if (role === "super_admin") return true
-  if (!actor.role_id || !actor.branch_id) return false
-
-  const permRes = await client.query(
-    `SELECT 1
-     FROM role_permissions rp
-     JOIN permissions p ON p.id = rp.permission_id
-     WHERE rp.role_id = $1
-       AND rp.branch_id = $2
-       AND p.name = $3
-     LIMIT 1`,
-    [actor.role_id, actor.branch_id, permission]
-  )
-  return permRes.rowCount > 0
+function createErrorStatus(error: string | undefined): number {
+  const code = error || "unexpected_error"
+  if (code.startsWith("missing_permission:")) return 403
+  if (code === "no_app_user_profile") return 403
+  if (code === "staff_inactive") return 403
+  if (code === "cross_branch_operation_forbidden") return 403
+  if (code === "cross_tenant_operation_forbidden") return 403
+  if (code === "branch_inactive") return 403
+  return 400
 }
 
 const deriveInstitutionInitials = (institutionName: string): string => {
@@ -131,22 +158,24 @@ export async function GET(req: Request) {
     const result = await runWithAuth(session.user.authUserId, async (client) => {
       const actor = await resolveActorContext(client, session.user.authUserId as string)
       if (!actor?.institution_id) return { error: "no_app_user_profile" as const }
+
+      if (!isSuperAdmin(actor) && !actor.branch_id) {
+        return { error: "actor_branch_missing" as const }
+      }
+
       const allowed = await hasPermission(client, actor, "view_loan_products")
       if (!allowed) return { error: "missing_permission:view_loan_products" as const }
 
-      let where = "lp.institution_id = $1"
-      const params: unknown[] = [actor.institution_id]
-      let idx = 2
-      const role = String(actor.role || "").trim().toLowerCase()
-      const isSuperAdmin = role === "super_admin"
-      if (!isSuperAdmin) {
-        if (!actor.branch_id) return { error: "actor_branch_missing" as const }
-        where += ` AND lp.branch_id = $${idx++}`
-        params.push(actor.branch_id)
-      } else if (selectedBranchIds.length > 0) {
-        where += ` AND lp.branch_id = ANY($${idx++}::uuid[])`
-        params.push(selectedBranchIds)
-      }
+      const scoped = scopeWhere({
+        tableAlias: "lp",
+        actor,
+        selectedBranchIds,
+        startIndex: 1,
+      })
+      let where = scoped.where
+      const params: unknown[] = scoped.values
+      let idx = scoped.nextIndex
+
       if (status) {
         where += ` AND lp.status = $${idx++}`
         params.push(status)
@@ -205,10 +234,7 @@ export async function GET(req: Request) {
     })
 
     if (result && "error" in result) {
-      const statusCode =
-        result.error === "missing_permission:view_loan_products" ? 403 :
-        result.error === "no_app_user_profile" ? 403 :
-        result.error === "actor_branch_missing" ? 400 : 400
+      const statusCode = createErrorStatus(result.error)
       apiLog("warn", "loan_products.list.denied", { method: "GET", apiPath, status: statusCode, error: result.error, authUserId: session.user.authUserId })
       return NextResponse.json({ error: result.error }, { status: statusCode })
     }
@@ -248,6 +274,7 @@ export async function POST(req: Request) {
       interest_calculation_method, collateral_required,
       guarantors_required, processing_fee_percentage,
       insurance_required, status, eligibilities,
+      branch_id: branchIdInput,
     } = body
 
     if (!product_name || !product_code || !minimum_amount || !maximum_amount || !interest_rate || !minimum_tenure_months || !maximum_tenure_months) {
@@ -257,29 +284,43 @@ export async function POST(req: Request) {
     const result = await runWithAuth(session.user.authUserId, async (client) => {
       const actor = await resolveActorContext(client, session.user.authUserId as string)
       if (!actor?.institution_id) return { error: "no_app_user_profile" as const }
+
+      const actorCheck = await assertActorActive(client, actor)
+      if (!actorCheck.ok) return { error: "staff_inactive" as const }
+
+      if (!isSuperAdmin(actor) && !actor.branch_id) {
+        return { error: "actor_branch_missing" as const }
+      }
+
       const allowed = await hasPermission(client, actor, "create_loan_product")
       if (!allowed) return { error: "missing_permission:create_loan_product" as const }
-      if (!actor.branch_id) return { error: "actor_branch_missing" as const }
+
+      const branchRes = await resolveCreateBranchId(client, actor, branchIdInput)
+      if (!branchRes.ok) return { error: branchRes.error, branchStatus: branchRes.branchStatus }
+      const branchId = branchRes.branchId
 
       const instRes = await client.query(
-        `SELECT u.institution_id, i.name AS institution_name
-         FROM users u
-         JOIN institutions i ON i.id = u.institution_id
-         WHERE u.auth_id = $1`,
-        [session!.user!.authUserId]
+        `SELECT name AS institution_name
+         FROM institutions
+         WHERE id = $1
+         LIMIT 1`,
+        [actor.institution_id]
       )
-      const institutionId = instRes.rows[0]?.institution_id
       const institutionName = String(instRes.rows[0]?.institution_name || "")
-      if (!institutionId) throw new Error("Institution not found")
       if (!institutionName) throw new Error("Institution name not found")
 
-      const generatedProductCode = await buildNextProductCode(client, institutionId, institutionName, product_code)
+      const generatedProductCode = await buildNextProductCode(
+        client,
+        actor.institution_id,
+        institutionName,
+        product_code,
+      )
 
       const normalizedEligibilities = Array.isArray(eligibilities)
         ? Array.from(
             new Map(
               eligibilities
-                .map((item: any) => ({
+                .map((item: { eligibility?: unknown; status?: unknown }) => ({
                   eligibility: String(item?.eligibility || "").trim(),
                   status: String(item?.status || "Active") === "Inactive" ? "Inactive" : "Active",
                 }))
@@ -299,7 +340,7 @@ export async function POST(req: Request) {
            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
            RETURNING id`,
           [
-            institutionId, actor.branch_id, product_name, generatedProductCode, description || null,
+            actor.institution_id, branchId, product_name, generatedProductCode, description || null,
             minimum_amount, maximum_amount, interest_rate,
             minimum_tenure_months, maximum_tenure_months,
             interest_calculation_method || "reducing_balance",
@@ -325,6 +366,7 @@ export async function POST(req: Request) {
           {
             product_name,
             product_code: generatedProductCode,
+            branch_id: branchId,
             description: description || null,
             minimum_amount,
             maximum_amount,
@@ -341,7 +383,7 @@ export async function POST(req: Request) {
           },
           actor.institution_id,
           actor.id,
-          undefined,
+          { branch_id: branchId },
           client
         )
 
@@ -354,10 +396,7 @@ export async function POST(req: Request) {
     })
 
     if (result && "error" in result) {
-      const statusCode =
-        result.error === "missing_permission:create_loan_product" ? 403 :
-        result.error === "no_app_user_profile" ? 403 :
-        result.error === "actor_branch_missing" ? 400 : 400
+      const statusCode = createErrorStatus(String(result.error))
       apiLog("warn", "loan_products.create.denied", { method: "POST", apiPath, status: statusCode, error: result.error, authUserId: session.user.authUserId })
       return NextResponse.json({ error: result.error }, { status: statusCode })
     }

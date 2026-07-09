@@ -9,54 +9,10 @@ import {
   toSafeExcelSheetName,
 } from "@/lib/export/server-excel"
 import { renderInvoicesPdfBuffer, type InvoiceExportRow } from "./invoices-pdf"
-
-type ActorContext = {
-  id: string
-  institution_id: string
-  branch_id: string | null
-  role_id: string | null
-  role: string | null
-}
+import { hasPermission, isSuperAdmin, resolveActorContext } from "@/lib/api/rbac"
+import { expandStatusFilter, normalizeTargetTypeFilter } from "@/lib/invoices/status"
 
 type BranchScope = { id: string; name: string }
-
-async function resolveActorContext(client: any, authUserId: string): Promise<ActorContext | null> {
-  const actorRes = await client.query(
-    `SELECT
-       u.id,
-       u.institution_id,
-       u.branch_id,
-       u.role_id,
-       CASE
-         WHEN r.name = 'System Admin' THEN 'system_admin'
-         WHEN r.name = 'Super Admin' THEN 'super_admin'
-         WHEN r.name = 'Admin' THEN 'institution_admin'
-         WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
-         ELSE NULL
-       END AS role
-     FROM users u
-     LEFT JOIN roles r ON r.id = u.role_id
-     WHERE u.auth_id = $1
-     LIMIT 1`,
-    [authUserId],
-  )
-  return actorRes.rows[0] || null
-}
-
-async function hasPermission(client: any, actor: ActorContext, permission: string): Promise<boolean> {
-  const role = String(actor.role || "").trim().toLowerCase()
-  if (role === "super_admin") return true
-  if (!actor.role_id || !actor.branch_id) return false
-  const permRes = await client.query(
-    `SELECT 1
-     FROM role_permissions rp
-     JOIN permissions p ON p.id = rp.permission_id
-     WHERE rp.role_id = $1 AND rp.branch_id = $2 AND p.name = $3
-     LIMIT 1`,
-    [actor.role_id, actor.branch_id, permission],
-  )
-  return (permRes.rowCount ?? 0) > 0
-}
 
 function formatStatusForRow(status: string): string {
   return String(status || "")
@@ -133,17 +89,24 @@ function appendInvoiceFilters(
   const p = [...params]
   let i = idx
   if (filters.status) {
-    w += ` AND LOWER(i.status) = LOWER($${i++})`
-    p.push(filters.status)
+    const statusValues = expandStatusFilter(filters.status)
+    if (statusValues.length === 1) {
+      w += ` AND LOWER(i.status) = LOWER($${i++})`
+      p.push(statusValues[0])
+    } else if (statusValues.length > 1) {
+      w += ` AND LOWER(i.status) = ANY($${i++}::text[])`
+      p.push(statusValues.map((s) => s.toLowerCase()))
+    }
   }
   if (filters.invoiceType) {
     w += ` AND LOWER(i.invoice_type) = LOWER($${i++})`
     p.push(filters.invoiceType)
   }
-  if (filters.targetType === "member") {
-    w += ` AND i.member_id IS NOT NULL AND i.client_id IS NULL`
-  } else if (filters.targetType === "client") {
-    w += ` AND i.client_id IS NOT NULL AND i.member_id IS NULL`
+  const normalizedTarget = normalizeTargetTypeFilter(filters.targetType || "")
+  if (normalizedTarget === "member") {
+    w += ` AND i.member_id IS NOT NULL AND i.third_party_agent_id IS NULL`
+  } else if (normalizedTarget === "third_party_agent") {
+    w += ` AND i.third_party_agent_id IS NOT NULL AND i.member_id IS NULL`
   }
   if (filters.dateFrom) {
     w += ` AND i.invoice_date >= (($${i}::timestamp AT TIME ZONE 'Africa/Nairobi')::date)`
@@ -223,11 +186,11 @@ export async function GET(req: Request) {
       const allowed = await hasPermission(client, actor, "view_invoices")
       if (!allowed) return { error: "missing_permission:view_invoices" as const }
 
-      const actorRole = String(actor.role || "").trim().toLowerCase()
-      if (actorRole !== "super_admin" && !actor.branch_id) return { error: "actor_branch_missing" as const }
+      const isSuperAdminActor = isSuperAdmin(actor)
+      if (!isSuperAdminActor && !actor.branch_id) return { error: "actor_branch_missing" as const }
 
       let branchScopes: BranchScope[] = []
-      if (actorRole === "super_admin") {
+      if (isSuperAdminActor) {
         const branchRes = await client.query(
           `SELECT id, name
            FROM branches
@@ -272,8 +235,8 @@ export async function GET(req: Request) {
              i.invoice_number,
              COALESCE(m.full_name, c.name, '') AS assigned_to,
              CASE
-               WHEN i.member_id IS NOT NULL AND i.client_id IS NULL THEN 'Member'
-               WHEN i.client_id IS NOT NULL AND i.member_id IS NULL THEN 'Client'
+               WHEN i.member_id IS NOT NULL AND i.third_party_agent_id IS NULL THEN 'Member'
+               WHEN i.third_party_agent_id IS NOT NULL AND i.member_id IS NULL THEN 'Client'
                ELSE '—'
              END AS target_label,
              i.invoice_type,
@@ -286,7 +249,7 @@ export async function GET(req: Request) {
              u.full_name AS created_by_name
            FROM invoices i
            LEFT JOIN members m ON m.id = i.member_id
-           LEFT JOIN clients c ON c.id = i.client_id
+           LEFT JOIN third_party_agents c ON c.id = i.third_party_agent_id
            LEFT JOIN users u ON u.id = i.created_by
            WHERE ${where}
            ORDER BY i.created_at DESC`,
@@ -315,9 +278,10 @@ export async function GET(req: Request) {
     })
 
     if (result && "error" in result) {
+      const errorCode = String(result.error || "")
       const statusCode =
-        result.error === "user_not_linked" || result.error.startsWith("missing_permission:") ? 403 : 400
-      return NextResponse.json({ error: result.error }, { status: statusCode })
+        errorCode === "user_not_linked" || errorCode.startsWith("missing_permission:") ? 403 : 400
+      return NextResponse.json({ error: errorCode }, { status: statusCode })
     }
     if (!result || "error" in result) return NextResponse.json({ error: "Unexpected export payload" }, { status: 500 })
 

@@ -33,7 +33,10 @@ export function ActionSelect({
   return (
     <>
       <div
-        onClick={(e) => setAnchor(e.currentTarget)}
+        onClick={(e) => {
+          e.stopPropagation()
+          setAnchor(e.currentTarget)
+        }}
         className="flex items-center justify-center w-8 h-8 rounded-full border hover:text-[#f08c2b] hover:bg-gray-100 cursor-pointer"
       >
         <MoreHorizontal className="h-4 w-4" />

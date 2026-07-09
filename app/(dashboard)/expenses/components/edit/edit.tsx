@@ -13,8 +13,6 @@ type ExpenseDetail = {
   description: string | null
   type: string
   status: string
-  category_id: string
-  category_name: string
   branch_id: string
   branch_name: string
   can_edit: boolean
@@ -31,24 +29,13 @@ export default function EditExpense({ isOpen, expenseId, onClose, onSuccess }: E
   const [loading, setLoading] = useState(false)
   const [detailLoading, setDetailLoading] = useState(false)
   const [detail, setDetail] = useState<ExpenseDetail | null>(null)
-  const [categories, setCategories] = useState<Array<{ id: string; category: string }>>([])
   const [branchOptions, setBranchOptions] = useState<Array<{ value: string; label: string }>>([])
   const [isSuperAdmin, setIsSuperAdmin] = useState(false)
   const { toast } = useToast()
 
   const loadMeta = useCallback(async () => {
     try {
-      const [expRes, permRes] = await Promise.all([
-        fetch("/api/institution/expenses?page=1&pageSize=1", { cache: "no-store" }),
-        fetch("/api/institution/expenses/permissions", { cache: "no-store" }),
-      ])
-      if (expRes.ok) {
-        const expBody = await expRes.json().catch(() => ({}))
-        const cats = Array.isArray(expBody?.categories) ? expBody.categories : []
-        setCategories(cats.map((c: Record<string, unknown>) => ({ id: String(c.id), category: String(c.category || "") })))
-      } else {
-        setCategories([])
-      }
+      const permRes = await fetch("/api/institution/expenses/permissions", { cache: "no-store" })
       if (permRes.ok) {
         const permBody = await permRes.json().catch(() => ({}))
         const p = permBody?.permissions
@@ -59,7 +46,6 @@ export default function EditExpense({ isOpen, expenseId, onClose, onSuccess }: E
         setBranchOptions([])
       }
     } catch {
-      setCategories([])
       setBranchOptions([])
       setIsSuperAdmin(false)
     }
@@ -119,8 +105,7 @@ export default function EditExpense({ isOpen, expenseId, onClose, onSuccess }: E
     return {
       name: detail.name,
       description: detail.description ?? "",
-      category_id: detail.category_id,
-      type: detail.type || "Short-term",
+      type: detail.type || "",
       branch_id: detail.branch_id || "",
     }
   }, [detail])
@@ -135,7 +120,6 @@ export default function EditExpense({ isOpen, expenseId, onClose, onSuccess }: E
         body: JSON.stringify({
           name: data.name,
           description: data.description.trim() ? data.description.trim() : null,
-          category_id: data.category_id,
           type: data.type,
           branch_id: data.branch_id || null,
         }),
@@ -187,7 +171,6 @@ export default function EditExpense({ isOpen, expenseId, onClose, onSuccess }: E
             formDisabled={!detail.can_edit}
             onSubmit={handleUpdate}
             loading={loading}
-            categories={categories}
             showBranchPicker={isSuperAdmin && branchOptions.length > 0}
             branchOptions={branchOptions}
           />

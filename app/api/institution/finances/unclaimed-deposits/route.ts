@@ -1,11 +1,20 @@
 import { NextResponse } from "next/server"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
-import { hasPermission, isSuperAdmin, requireStaffSession, resolveActorContext, scopeWhere } from "@/lib/api/rbac"
+import { requireStaffSession, scopeWhere } from "@/lib/api/rbac"
+import {
+  assertFinanceBranchScope,
+  assertFinanceMutationAccess,
+  assertFinanceReadAccess,
+  financeAccessErrorResponseOrNull,
+  resolveFinanceWriteBranchId,
+} from "@/lib/api/finance-access"
 import { runWithAuth } from "@/lib/db"
 import { auditUnclaimedDepositInsert, unclaimedDepositSnapshot } from "@/lib/audit/finances-audit"
 import { FINANCE_PERMISSIONS } from "@/lib/finances/permissions"
 import { toDateOnlyString } from "@/lib/finances/date-only"
 import { normalizePaymentMode } from "@/lib/finances/payment-mode"
+import { getBranchBankAccount } from "@/lib/finances/bank-account"
+import { parseUnclaimedAssignedTypeFilter } from "@/lib/finances/unclaimed-deposit"
 import { insertWithTransactionNumberRetry } from "@/lib/transactions/transaction-number-retry"
 
 export async function GET(req: Request) {
@@ -22,8 +31,7 @@ export async function GET(req: Request) {
     const status = (url.searchParams.get("status") || "").trim()
     const search = (url.searchParams.get("q") || "").trim()
     const assignedTypeRaw = (url.searchParams.get("assigned_type") || "").trim().toLowerCase()
-    const assignedType =
-      assignedTypeRaw === "member" || assignedTypeRaw === "client" ? assignedTypeRaw : ""
+    const assignedType = parseUnclaimedAssignedTypeFilter(assignedTypeRaw)
     const dateFromRaw = (url.searchParams.get("date_from") || "").trim()
     const dateToRaw = (url.searchParams.get("date_to") || "").trim()
     const isIsoDate = (s: string) => /^\d{4}-\d{2}-\d{2}$/.test(s)
@@ -36,11 +44,15 @@ export async function GET(req: Request) {
     const offset = page * rowsPerPage
 
     const result = await runWithAuth(sess.authUserId, async (client) => {
-      const actor = await resolveActorContext(client, sess.authUserId)
-      if (!actor?.institution_id) return { error: "user_not_linked" as const }
-      const allowed = await hasPermission(client, actor, FINANCE_PERMISSIONS.viewUnclaimedDeposits)
-      if (!allowed) return { error: "missing_permission:view_unclaimed_deposits" as const }
-      if (!isSuperAdmin(actor) && !actor.branch_id) return { error: "actor_branch_missing" as const }
+      const access = await assertFinanceReadAccess(client, sess.authUserId, FINANCE_PERMISSIONS.viewUnclaimedDeposits)
+      if (!access.ok) {
+        return {
+          error: access.error,
+          staffStatus: access.staffStatus,
+          branchStatus: access.branchStatus,
+        }
+      }
+      const { actor } = access
 
       const scoped = scopeWhere({ tableAlias: "ud", actor, selectedBranchIds })
       let where = scoped.where
@@ -66,8 +78,8 @@ export async function GET(req: Request) {
 
       if (assignedType === "member") {
         where += ` AND ud.member_id IS NOT NULL`
-      } else if (assignedType === "client") {
-        where += ` AND ud.client_id IS NOT NULL`
+      } else if (assignedType === "third_party_agent") {
+        where += ` AND ud.third_party_agent_id IS NOT NULL`
       }
 
       if (dateFrom) {
@@ -97,7 +109,7 @@ export async function GET(req: Request) {
            COALESCE(m.full_name, c.name, '—') AS assigned_to,
            CASE
              WHEN ud.member_id IS NOT NULL THEN 'Member'
-             WHEN ud.client_id IS NOT NULL THEN 'Client'
+             WHEN ud.third_party_agent_id IS NOT NULL THEN 'Third Party Agent'
              ELSE '—'
            END AS assigned_type,
            COALESCE(ud.notes, '') AS notes,
@@ -117,7 +129,7 @@ export async function GET(req: Request) {
            COUNT(*) OVER()::int AS total_count
          FROM unclaimed_deposits ud
          LEFT JOIN members m ON m.id = ud.member_id
-         LEFT JOIN clients c ON c.id = ud.client_id
+         LEFT JOIN third_party_agents c ON c.id = ud.third_party_agent_id
          LEFT JOIN branches b ON b.id = ud.branch_id
          LEFT JOIN users cu ON cu.id = ud.created_by
          LEFT JOIN users mu ON mu.id = ud.modified_by
@@ -142,7 +154,7 @@ export async function GET(req: Request) {
             date: toDateOnlyString(row.date),
             status: String(row.status || "unclaimed"),
             assigned_to: String(row.assigned_to || "—"),
-            assigned_type: String(row.assigned_type || "—") as "Member" | "Client",
+            assigned_type: String(row.assigned_type || "—") as "Member" | "Third Party Agent" | "—",
             notes: String(row.notes || ""),
             branch_name: String(row.branch_name || ""),
             created_at: row.created_at ? new Date(row.created_at).toISOString() : "",
@@ -170,8 +182,11 @@ export async function GET(req: Request) {
     })
 
     if (result && "error" in result) {
-      const statusCode = result.error === "actor_branch_missing" ? 400 : 403
-      return NextResponse.json({ error: result.error }, { status: statusCode })
+      const accessResponse = financeAccessErrorResponseOrNull(result)
+      if (accessResponse) {
+        return NextResponse.json(accessResponse.body, { status: accessResponse.status })
+      }
+      return NextResponse.json({ error: result.error }, { status: 403 })
     }
 
     return NextResponse.json({ rows: result?.rows || [], total: result?.total || 0 })
@@ -195,6 +210,7 @@ export async function POST(req: Request) {
     const mode = normalizePaymentMode(body?.mode)
     const depositDate = String(body?.date || "").trim() || null
     const transactionNumber = String(body?.transaction_number || "").trim() || null
+    const bankAccountIdRaw = String(body?.bank_account_id || "").trim()
     const notes = String(body?.notes || "").trim() || null
     const branchId = String(body?.branch_id || "").trim()
 
@@ -204,22 +220,40 @@ export async function POST(req: Request) {
     if (!mode) {
       return NextResponse.json({ error: "invalid_payment_mode" }, { status: 400 })
     }
+    if (mode === "Bank Transfer" && !bankAccountIdRaw) {
+      return NextResponse.json({ error: "bank_account_required" }, { status: 400 })
+    }
 
     const created = await runWithAuth(sess.authUserId, async (client) => {
-      const actor = await resolveActorContext(client, sess.authUserId)
-      if (!actor?.institution_id) return { error: "user_not_linked" as const }
-      const allowed = await hasPermission(client, actor, FINANCE_PERMISSIONS.addUnclaimedDeposit)
-      if (!allowed) return { error: "missing_permission:add_unclaimed_deposit" as const }
+      const access = await assertFinanceMutationAccess(client, sess.authUserId, FINANCE_PERMISSIONS.addUnclaimedDeposit)
+      if (!access.ok) {
+        return {
+          error: access.error,
+          staffStatus: access.staffStatus,
+          branchStatus: access.branchStatus,
+        }
+      }
+      const { actor } = access
 
-      const targetBranchId = isSuperAdmin(actor) ? branchId || actor.branch_id : actor.branch_id
-      if (!targetBranchId) return { error: "branch_id_required" as const }
+      const targetBranchId = resolveFinanceWriteBranchId(actor, branchId)
+      const branchScope = await assertFinanceBranchScope(client, actor, targetBranchId)
+      if (!branchScope.ok) {
+        return {
+          error: branchScope.error,
+          staffStatus: branchScope.staffStatus,
+          branchStatus: branchScope.branchStatus,
+        }
+      }
 
-      if (isSuperAdmin(actor) && branchId) {
-        const branchCheck = await client.query(
-          `SELECT 1 FROM branches WHERE id = $1::uuid AND institution_id = $2::uuid LIMIT 1`,
-          [targetBranchId, actor.institution_id],
-        )
-        if ((branchCheck.rowCount ?? 0) === 0) return { error: "invalid_branch" as const }
+      let bankAccountId: string | null = null
+      if (mode === "Bank Transfer") {
+        const bankAccount = await getBranchBankAccount(client, {
+          bankAccountId: bankAccountIdRaw,
+          institutionId: actor.institution_id,
+          branchId: branchScope.branchId,
+        })
+        if (!bankAccount) return { error: "invalid_bank_account" as const }
+        bankAccountId = bankAccount.id
       }
 
       const inserted = await insertWithTransactionNumberRetry<{
@@ -231,7 +265,7 @@ export async function POST(req: Request) {
         date: string | null
         status: string
         member_id: string | null
-        client_id: string | null
+        third_party_agent_id: string | null
         transaction_id: string | null
         branch_id: string
         notes: string | null
@@ -239,17 +273,18 @@ export async function POST(req: Request) {
         (unclaimedDepositNumber) =>
           client.query(
             `INSERT INTO unclaimed_deposits (
-               institution_id, branch_id, unclaimed_deposit_number, transaction_number,
+               institution_id, branch_id, bank_account_id, unclaimed_deposit_number, transaction_number,
                amount, mode, date, status, notes, created_by, modified_by
              ) VALUES (
-               $1::uuid, $2::uuid, $3, $4,
-               $5, $6::payment_mode, $7::date, 'unclaimed', $8, $9::uuid, $9::uuid
+               $1::uuid, $2::uuid, $3::uuid, $4, $5,
+               $6, $7::payment_mode, $8::date, 'unclaimed', $9, $10::uuid, $10::uuid
              )
              RETURNING id, unclaimed_deposit_number, transaction_number, amount, mode, date, status,
-                       member_id, client_id, transaction_id, branch_id, notes`,
+                       member_id, third_party_agent_id, bank_account_id, transaction_id, branch_id, notes`,
             [
               actor.institution_id,
-              targetBranchId,
+              branchScope.branchId,
+              bankAccountId,
               unclaimedDepositNumber,
               transactionNumber,
               amount,
@@ -272,7 +307,7 @@ export async function POST(req: Request) {
           actor,
           newId,
           unclaimedDepositSnapshot(newRow),
-          (newRow.branch_id as string | null | undefined) ?? targetBranchId,
+          (newRow.branch_id as string | null | undefined) ?? branchScope.branchId,
         )
       }
 
@@ -283,11 +318,15 @@ export async function POST(req: Request) {
     })
 
     if (created && "error" in created) {
+      const accessResponse = financeAccessErrorResponseOrNull(created)
+      if (accessResponse) {
+        return NextResponse.json(accessResponse.body, { status: accessResponse.status })
+      }
       const statusCode =
-        created.error === "branch_id_required" || created.error === "invalid_branch"
-          ? 400
-          : created.error === "unclaimed_deposit_number_generation_failed"
-            ? 500
+        created.error === "unclaimed_deposit_number_generation_failed"
+          ? 500
+          : created.error === "invalid_bank_account" || created.error === "bank_account_required"
+            ? 400
             : 403
       return NextResponse.json({ error: created.error }, { status: statusCode })
     }

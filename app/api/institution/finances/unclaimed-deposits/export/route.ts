@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
-import { hasPermission, isSuperAdmin, requireStaffSession, resolveActorContext } from "@/lib/api/rbac"
+import { isSuperAdmin, requireStaffSession } from "@/lib/api/rbac"
+import {
+  assertFinanceReadAccess,
+  financeAccessErrorResponseOrNull,
+} from "@/lib/api/finance-access"
 import { runWithAuth } from "@/lib/db"
 import {
   addExcelTitleAndHeaders,
@@ -10,6 +14,7 @@ import {
 } from "@/lib/export/server-excel"
 import { FINANCE_PERMISSIONS } from "@/lib/finances/permissions"
 import { toDateOnlyString } from "@/lib/finances/date-only"
+import { parseUnclaimedAssignedTypeFilter } from "@/lib/finances/unclaimed-deposit"
 import { renderUnclaimedDepositsPdfBuffer } from "./unclaimed-deposits-pdf"
 
 type BranchScope = { id: string; name: string }
@@ -59,8 +64,7 @@ export async function GET(req: Request) {
     const search = (url.searchParams.get("q") || "").trim()
     const status = (url.searchParams.get("status") || "").trim().toLowerCase()
     const assignedTypeRaw = (url.searchParams.get("assigned_type") || "").trim().toLowerCase()
-    const assignedType =
-      assignedTypeRaw === "member" || assignedTypeRaw === "client" ? assignedTypeRaw : ""
+    const assignedType = parseUnclaimedAssignedTypeFilter(assignedTypeRaw)
     const dateFromRaw = (url.searchParams.get("date_from") || "").trim()
     const dateToRaw = (url.searchParams.get("date_to") || "").trim()
     const isIsoDate = (s: string) => /^\d{4}-\d{2}-\d{2}$/.test(s)
@@ -73,11 +77,15 @@ export async function GET(req: Request) {
     const format = (url.searchParams.get("format") || "").trim().toLowerCase()
 
     const result = await runWithAuth(sess.authUserId, async (client) => {
-      const actor = await resolveActorContext(client, sess.authUserId)
-      if (!actor?.institution_id) return { error: "user_not_linked" as const }
-      const allowed = await hasPermission(client, actor, FINANCE_PERMISSIONS.viewUnclaimedDeposits)
-      if (!allowed) return { error: "missing_permission:view_unclaimed_deposits" as const }
-      if (!isSuperAdmin(actor) && !actor.branch_id) return { error: "actor_branch_missing" as const }
+      const access = await assertFinanceReadAccess(client, sess.authUserId, FINANCE_PERMISSIONS.viewUnclaimedDeposits)
+      if (!access.ok) {
+        return {
+          error: access.error,
+          staffStatus: access.staffStatus,
+          branchStatus: access.branchStatus,
+        }
+      }
+      const { actor } = access
 
       let branchScopes: BranchScope[] = []
       if (isSuperAdmin(actor)) {
@@ -130,8 +138,8 @@ export async function GET(req: Request) {
 
         if (assignedType === "member") {
           where += ` AND ud.member_id IS NOT NULL`
-        } else if (assignedType === "client") {
-          where += ` AND ud.client_id IS NOT NULL`
+        } else if (assignedType === "third_party_agent") {
+          where += ` AND ud.third_party_agent_id IS NOT NULL`
         }
 
         if (dateFrom) {
@@ -153,7 +161,7 @@ export async function GET(req: Request) {
              COALESCE(m.full_name, c.name, '—') AS assigned_to,
              CASE
                WHEN ud.member_id IS NOT NULL THEN 'Member'
-               WHEN ud.client_id IS NOT NULL THEN 'Client'
+               WHEN ud.third_party_agent_id IS NOT NULL THEN 'Third Party Agent'
                ELSE '—'
              END AS assigned_type,
              COALESCE(ud.mode::text, '') AS mode,
@@ -161,7 +169,7 @@ export async function GET(req: Request) {
              COALESCE(ud.status, 'unclaimed') AS status
            FROM unclaimed_deposits ud
            LEFT JOIN members m ON m.id = ud.member_id
-           LEFT JOIN clients c ON c.id = ud.client_id
+           LEFT JOIN third_party_agents c ON c.id = ud.third_party_agent_id
            WHERE ${where}
            ORDER BY ud.date DESC NULLS LAST, ud.created_at DESC`,
           params,
@@ -186,12 +194,11 @@ export async function GET(req: Request) {
     })
 
     if (result && "error" in result) {
-      const statusCode =
-        result.error === "actor_branch_missing" || result.error === "no_branch_scope"
-          ? 400
-          : result.error === "user_not_linked" || String(result.error).startsWith("missing_permission:")
-            ? 403
-            : 400
+      const accessResponse = financeAccessErrorResponseOrNull(result)
+      if (accessResponse) {
+        return NextResponse.json(accessResponse.body, { status: accessResponse.status })
+      }
+      const statusCode = result.error === "no_branch_scope" ? 400 : 403
       return NextResponse.json({ error: result.error }, { status: statusCode })
     }
     if (!result || "error" in result) {

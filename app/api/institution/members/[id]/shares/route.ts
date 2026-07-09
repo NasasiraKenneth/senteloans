@@ -217,7 +217,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       const memberRow = gate.member
 
       const cfgRes = await client.query(
-        `SELECT shares, share_value, minimum_shares, maximum_shares, currency
+        `SELECT shares, share_value, minimum_shares, maximum_shares, currency, invoice_overdue_period
          FROM config
          WHERE branch_id = $1
          LIMIT 1`,
@@ -231,6 +231,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       const minShares = cfg.minimum_shares != null ? Number(cfg.minimum_shares) : undefined
       const maxShares = cfg.maximum_shares != null ? Number(cfg.maximum_shares) : undefined
       const currency = (cfg.currency as string) || "UGX"
+      const invoiceDueDays = Number(cfg.invoice_overdue_period || 30)
 
       if (!sharesEnabled) return { error: "shares_disabled" as const }
       if (!valuePerShare || Number.isNaN(valuePerShare) || valuePerShare <= 0) {
@@ -406,6 +407,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         })
 
         // Auto-generate a paid invoice for the share purchase.
+        const due = new Date(`${purchaseDate}T00:00:00Z`)
+        due.setUTCDate(due.getUTCDate() + Math.max(1, invoiceDueDays))
+        const invoiceDue = due.toISOString().slice(0, 10)
+
         const invoice = await createInvoiceWithItems(client, {
           institutionId: actor.institution_id,
           branchId: memberRow.branch_id,
@@ -413,6 +418,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
           // Invoice date follows the payment date so backdated purchases land
           // on the right accounting period (matches the transaction date).
           invoiceDate: purchaseDate,
+          invoiceDue,
           invoiceType: "Auto",
           status: "fully paid",
           vat: 0,

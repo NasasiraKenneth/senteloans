@@ -1,10 +1,55 @@
 import { Worker, type Job } from "bullmq"
 import { createConnection } from "../lib/queue/redis"
+import { storeReportArtifact } from "../lib/queue/report-artifacts"
+import { generateLoanReportExport } from "../lib/reports/loan-report-export"
 import {
   REPORT_QUEUE_NAME,
   type ReportJobData,
   type ReportJobName,
 } from "../queues/report.queue"
+
+async function processReportJob(job: Job<ReportJobData, unknown, ReportJobName>) {
+  switch (job.data.kind) {
+    case "loan-reports-export": {
+      const result = await generateLoanReportExport({
+        authUserId: job.data.actorId,
+        format: job.data.format,
+        filters: job.data.filters,
+      })
+      if (!result.ok) {
+        throw new Error(result.error)
+      }
+      const expiresInSec = job.data.delivery?.type === "url" ? job.data.delivery.expiresInSec : undefined
+      await storeReportArtifact(
+        String(job.id),
+        result.buffer,
+        {
+          contentType: result.contentType,
+          filename: result.filename,
+          institutionId: job.data.institutionId,
+          authUserId: job.data.actorId,
+          rowCount: result.rowCount,
+        },
+        expiresInSec,
+      )
+      return {
+        ok: true,
+        kind: job.data.kind,
+        format: job.data.format,
+        filename: result.filename,
+        rowCount: result.rowCount,
+      }
+    }
+    case "investment-reports-export":
+    case "investments-export":
+      // TODO: move matching export routes into shared lib functions.
+      return { ok: true, kind: job.data.kind, format: job.data.format }
+    default: {
+      const _exhaustive: never = job.data.kind
+      throw new Error(`unhandled report job kind: ${JSON.stringify(_exhaustive)}`)
+    }
+  }
+}
 
 export function startReportWorker() {
   const worker = new Worker<ReportJobData, unknown, ReportJobName>(
@@ -13,10 +58,7 @@ export function startReportWorker() {
       console.log(
         `[report.worker] job=${job.id} kind=${job.data.kind} format=${job.data.format} institutionId=${job.data.institutionId}`,
       )
-      // TODO: move the body of the matching export route into a shared
-      // function (e.g. `lib/exports/investment-reports.ts`) and call it here.
-      // For now just acknowledge the job so the queue plumbing is testable.
-      return { ok: true, kind: job.data.kind, format: job.data.format }
+      return processReportJob(job)
     },
     {
       connection: createConnection("report-worker"),

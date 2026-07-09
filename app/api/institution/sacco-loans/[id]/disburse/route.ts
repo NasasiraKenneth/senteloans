@@ -3,69 +3,24 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { runWithAuth } from "@/lib/db"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
+import { assertBranchActive, type BranchStatus } from "@/lib/branches/branch-status"
+import { assertActorActive } from "@/lib/staff/staff-status"
+import { hasPermission, isSuperAdmin, resolveActorContext, SUPER_ADMIN_WRITE_BLOCKED } from "@/lib/api/rbac"
 import { auditLogger } from "@/lib/audit/audit-logger"
-
-type ActorContext = {
-  id: string
-  institution_id: string
-  branch_id: string | null
-  role_id: string | null
-  role: string | null
-}
-
-async function resolveActorContext(client: any, authUserId: string): Promise<ActorContext | null> {
-  const actorRes = await client.query(
-    `SELECT
-       u.id,
-       u.institution_id,
-       u.branch_id,
-       u.role_id,
-       CASE
-         WHEN r.name = 'System Admin' THEN 'system_admin'
-         WHEN r.name = 'Super Admin' THEN 'super_admin'
-         WHEN r.name = 'Admin' THEN 'institution_admin'
-         WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
-         ELSE NULL
-       END AS role
-     FROM users u
-     LEFT JOIN roles r ON r.id = u.role_id
-     WHERE u.auth_id = $1
-     LIMIT 1`,
-    [authUserId],
-  )
-  return actorRes.rows[0] || null
-}
-
-async function hasPermission(client: any, actor: ActorContext, permission: string): Promise<boolean> {
-  const role = String(actor.role || "").trim().toLowerCase()
-  if (role === "super_admin") return true
-  if (!actor.role_id || !actor.branch_id) return false
-
-  const permRes = await client.query(
-    `SELECT 1
-     FROM role_permissions rp
-     JOIN permissions p ON p.id = rp.permission_id
-     WHERE rp.role_id = $1
-       AND rp.branch_id = $2
-       AND p.name = $3
-     LIMIT 1`,
-    [actor.role_id, actor.branch_id, permission],
-  )
-  return permRes.rowCount > 0
-}
+import { PAYMENT_MODES } from "@/lib/finances/payment-mode"
+import {
+  PaymentSettlementFailure,
+  settlePaymentByMode,
+  validatePaymentModeInput,
+} from "@/lib/finances/settle-payment-mode"
+import { createTransaction } from "@/lib/transactions/create-transaction"
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 const VALID_DISBURSE_STATUSES = new Set(["Approved", "Partially Disbursed"])
 
-const PAYMENT_MODES = new Set(["Cash", "Mobile Money", "Bank Transfer", "Cheque", "Card"])
-
 function roundMoney(n: number): number {
   return Math.round((Number(n) + Number.EPSILON) * 100) / 100
-}
-
-function moneyEqual(a: number, b: number): boolean {
-  return Math.abs(roundMoney(a) - roundMoney(b)) < 0.005
 }
 
 function formatApprovedAt(iso: string | null): string {
@@ -105,6 +60,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const disbursement_date = String(body.disbursement_date ?? body.disbursementDate ?? "")
       .trim()
       .slice(0, 10)
+    const reference_number = String(body.reference_number ?? body.referenceNumber ?? "").trim()
+    const bank_account_id = String(body.bank_account_id ?? body.bankAccountId ?? "").trim()
 
     if (disbursement_type_raw !== "complete" && disbursement_type_raw !== "partial") {
       return NextResponse.json({ error: "invalid_disbursement_type" }, { status: 400 })
@@ -112,11 +69,19 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     if (!Number.isFinite(amount) || amount <= 0) {
       return NextResponse.json({ error: "invalid_amount" }, { status: 400 })
     }
-    if (!PAYMENT_MODES.has(disbursement_mode)) {
+    if (!(PAYMENT_MODES as readonly string[]).includes(disbursement_mode)) {
       return NextResponse.json({ error: "invalid_disbursement_mode" }, { status: 400 })
     }
     if (!/^\d{4}-\d{2}-\d{2}$/.test(disbursement_date)) {
       return NextResponse.json({ error: "invalid_disbursement_date" }, { status: 400 })
+    }
+    const paymentModeError = validatePaymentModeInput({
+      mode: disbursement_mode,
+      referenceNumber: reference_number,
+      bankAccountId: bank_account_id,
+    })
+    if (paymentModeError) {
+      return NextResponse.json({ error: paymentModeError }, { status: 400 })
     }
     if (disbursement_type_raw === "partial") {
       if (!Number.isFinite(balance as number)) {
@@ -130,17 +95,32 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     }
 
     const result = await runWithAuth(session.user.authUserId, async (client) => {
-      const actor = await resolveActorContext(client, session.user.authUserId as string)
+      const actor = await resolveActorContext(client, session.user.authUserId as string, { activeOnly: false })
       if (!actor?.institution_id) return { error: "user_not_linked" as const }
+      const staffCheck = await assertActorActive(client, actor)
+      if (!staffCheck.ok) {
+        return {
+          error: staffCheck.error,
+          staffStatus: staffCheck.error === "staff_inactive" ? staffCheck.status : undefined,
+        }
+      }
+      if (isSuperAdmin(actor)) return { error: SUPER_ADMIN_WRITE_BLOCKED }
       const allowed = await hasPermission(client, actor, "disburse_sacco_loan")
       if (!allowed) return { error: "missing_permission:disburse_sacco_loan" as const }
 
-      const isSuperAdmin = String(actor.role || "").trim().toLowerCase() === "super_admin"
-      if (!isSuperAdmin && !actor.branch_id) return { error: "actor_branch_missing" as const }
+      if (!actor.branch_id) return { error: "actor_branch_missing" as const }
+      const branchCheck = await assertBranchActive(client, actor.branch_id)
+      if (!branchCheck.ok) {
+        return {
+          error: branchCheck.error,
+          branchStatus: branchCheck.error === "branch_inactive" ? branchCheck.status : undefined,
+        }
+      }
 
+      const isSA = isSuperAdmin(actor)
       let where = "l.id = $1 AND l.institution_id = $2"
       const qparams: unknown[] = [loanId, actor.institution_id]
-      if (!isSuperAdmin) {
+      if (!isSA) {
         where += " AND l.branch_id = $3"
         qparams.push(actor.branch_id)
       }
@@ -150,13 +130,13 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         disbursement_balance: string | number
         principal_amount: string | number
         total_amount: string | number | null
-        client_id: string
+        third_party_agent_id: string
         branch_id: string
         loan_product: string | null
         approved_at: Date | string | null
       }>(
         `SELECT l.status, l.disbursement_balance, l.principal_amount, l.total_amount,
-                l.client_id, l.branch_id, l.loan_product, l.approved_at
+                l.third_party_agent_id, l.branch_id, l.loan_product, l.approved_at
          FROM institution_loans l
          WHERE ${where}
          LIMIT 1`,
@@ -179,11 +159,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       const outstandingSeed =
         Number.isFinite(totalAmt) && totalAmt > 0 ? totalAmt : principal > 0 ? principal : 0
 
-      if (disbursement_type_raw === "partial" && remainingBefore <= 0) {
-        return { error: "no_remaining_disbursement_balance" as const }
-      }
-
-      const completeTarget =
+      const disbursementAmount = roundMoney(amount)
+      const disbursableCap =
         remainingBefore > 0
           ? remainingBefore
           : String(loan.status || "") === "Approved" && principal > 0
@@ -191,31 +168,30 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
             : 0
 
       const txBalanceBefore =
-        remainingBefore > 0 ? remainingBefore : completeTarget > 0 ? completeTarget : 0
+        remainingBefore > 0 ? remainingBefore : disbursableCap > 0 ? disbursableCap : 0
 
       let newDisbursementBalance: number
       let nextStatus: "Fully Disbursed" | "Partially Disbursed"
 
       if (disbursement_type_raw === "complete") {
-        if (completeTarget <= 0) {
+        if (disbursableCap <= 0) {
           return { error: "no_remaining_disbursement_balance" as const }
         }
-        if (!moneyEqual(amount, completeTarget)) {
-          return { error: "amount_must_equal_disbursement_balance" as const }
+        if (disbursementAmount > disbursableCap) {
+          return { error: "invalid_amount" as const }
         }
         newDisbursementBalance = 0
         nextStatus = "Fully Disbursed"
       } else {
-        const bal = roundMoney(balance as number)
-        const sum = roundMoney(amount + bal)
-        if (!moneyEqual(sum, remainingBefore)) {
-          return { error: "amount_and_balance_must_equal_disbursement_balance" as const }
+        if (remainingBefore <= 0) {
+          return { error: "no_remaining_disbursement_balance" as const }
         }
-        if (amount > remainingBefore) {
+        const bal = roundMoney(balance as number)
+        if (disbursementAmount > remainingBefore) {
           return { error: "invalid_amount" as const }
         }
         newDisbursementBalance = bal
-        nextStatus = bal <= 0 ? "Fully Disbursed" : "Partially Disbursed"
+        nextStatus = "Partially Disbursed"
       }
 
       const productLabel = (loan.loan_product && String(loan.loan_product).trim()) || "Loan"
@@ -223,14 +199,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         loan.approved_at != null ? String(loan.approved_at) : null,
       )
       const description = `${productLabel} sacco loan disbursement ${approvedLabel || "approved"}`
+      const loanBranchId = String(loan.branch_id || "")
 
-      const transactionNumber = `SLD-${Date.now()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`
-      const transactionDate = `${disbursement_date}T12:00:00.000Z`
-
-      const updateWhere = isSuperAdmin
+      const updateWhere = isSA
         ? "id = $6 AND institution_id = $7"
         : "id = $6 AND institution_id = $7 AND branch_id = $8"
-      const updateParams = isSuperAdmin
+      const updateParams = isSA
         ? [
             newDisbursementBalance,
             disbursement_date,
@@ -251,6 +225,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
             loan.branch_id,
           ]
 
+      let txCommitted = false
       await client.query("BEGIN")
       try {
         const upd = await client.query(
@@ -271,7 +246,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
           updateParams,
         )
         if (upd.rowCount === 0) {
-          await client.query("ROLLBACK")
           return { error: "update_failed" as const }
         }
         await auditLogger.logUpdate(
@@ -291,85 +265,90 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
           },
           actor.institution_id,
           actor.id,
-          undefined,
+          { branch_id: loanBranchId },
           client
         )
 
-        await client.query(
-          `INSERT INTO transactions (
-             institution_id, branch_id, member_id, client_id, account_id, loan_id, sacco_loan_id,
-             transaction_number, type, amount, mode, description, reference_number,
-             balance_before, balance_after, processed_by, transaction_date, status
-           )
-           VALUES (
-             $1, $2, NULL, $3, NULL, NULL, $4,
-             $5, 'Loan Disbursement', $6, $7, $8, $9,
-             $10, $11, $12, $13::timestamptz, 'Completed'
-           )`,
-          [
-            actor.institution_id,
-            loan.branch_id,
-            loan.client_id,
-            loanId,
-            transactionNumber,
-            roundMoney(amount),
-            disbursement_mode,
-            description,
-            transactionNumber,
-            txBalanceBefore,
-            newDisbursementBalance,
-            actor.id,
-            transactionDate,
-          ],
-        )
-        await auditLogger.logInsert(
-          "transactions",
-          transactionNumber,
-          {
-            transaction_number: transactionNumber,
+        let tx
+        try {
+          tx = await createTransaction(client, {
+            institutionId: actor.institution_id,
+            branchId: loanBranchId,
+            thirdPartyAgentId: loan.third_party_agent_id,
+            saccoLoanId: loanId,
+            bankAccountId: bank_account_id || null,
             type: "Loan Disbursement",
-            amount: roundMoney(amount),
+            amount: disbursementAmount,
             mode: disbursement_mode,
             description,
-            client_id: loan.client_id,
-            sacco_loan_id: loanId,
-            balance_before: txBalanceBefore,
-            balance_after: newDisbursementBalance,
-            transaction_date: transactionDate,
-            status: "Completed",
-          },
-          actor.institution_id,
-          actor.id,
-          undefined,
-          client
-        )
+            referenceNumber: reference_number || null,
+            balanceBefore: txBalanceBefore,
+            balanceAfter: newDisbursementBalance,
+            processedBy: actor.id,
+            transactionDate: disbursement_date,
+            prefix: "TXN",
+          })
+
+          await settlePaymentByMode(client, {
+            institutionId: actor.institution_id,
+            branchId: loanBranchId,
+            amount: disbursementAmount,
+            mode: disbursement_mode,
+            flow: "outflow",
+            actor,
+            bankAccountId: bank_account_id || null,
+            referenceNumber: reference_number,
+          })
+        } catch (e: unknown) {
+          if (e instanceof PaymentSettlementFailure) {
+            if (e.code === "insufficient_bank_balance") {
+              return { error: "bank_account_insufficient_funds" as const }
+            }
+            return { error: e.code as typeof e.code }
+          }
+          const msg = (e as Error)?.message || ""
+          if (msg === "transaction_insert_failed") {
+            return { error: "disbursement_transaction_create_failed" as const }
+          }
+          throw e
+        }
 
         await client.query("COMMIT")
-      } catch (e) {
-        await client.query("ROLLBACK")
-        throw e
-      }
+        txCommitted = true
 
-      return {
-        ok: true as const,
-        status: nextStatus,
-        disbursement_balance: newDisbursementBalance,
-        transaction_number: transactionNumber,
+        return {
+          ok: true as const,
+          status: nextStatus,
+          disbursement_balance: newDisbursementBalance,
+          transaction_number: tx.transactionNumber,
+        }
+      } finally {
+        if (!txCommitted) {
+          await client.query("ROLLBACK").catch(() => undefined)
+        }
       }
     })
 
     if (result && "error" in result) {
       const err = result.error
       const statusCode =
-        err === "missing_permission:disburse_sacco_loan" || err === "user_not_linked"
+        err === "missing_permission:disburse_sacco_loan" ||
+        err === "user_not_linked" ||
+        err === "staff_inactive" ||
+        err === "branch_inactive" ||
+        err === "branch_not_found" ||
+        err === SUPER_ADMIN_WRITE_BLOCKED
           ? 403
-          : err === "not_found"
+          : err === "staff_not_found" || err === "not_found"
             ? 404
             : err === "actor_branch_missing"
               ? 400
               : 400
       apiLog("warn", "sacco_loans.disburse.denied", { method: "POST", apiPath, status: statusCode, error: err })
-      return NextResponse.json({ error: err }, { status: statusCode })
+      const payload: Record<string, unknown> = { error: err }
+      if ("staffStatus" in result && result.staffStatus) payload.staff_status = result.staffStatus
+      if ("branchStatus" in result && result.branchStatus) payload.branch_status = result.branchStatus as BranchStatus
+      return NextResponse.json(payload, { status: statusCode })
     }
 
     apiLog("info", "sacco_loans.disburse.success", { method: "POST", apiPath, status: 200, loanId })

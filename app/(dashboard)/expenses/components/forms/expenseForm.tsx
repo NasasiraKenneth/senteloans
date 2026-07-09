@@ -3,26 +3,20 @@
 import { useState, useEffect, useMemo } from "react"
 import { Button } from "@/components/ui/button"
 import StyledSelect from "@/components/newUI/styled_select"
+import { EXPENSE_TYPE_OPTIONS } from "@/lib/expenses/expense-types"
 
 export type ExpenseFormData = {
   name: string
   description: string
-  category_id: string
   type: string
   branch_id: string
 }
 
-export const EXPENSE_TYPE_OPTIONS = [
-  { value: "Fixed-expenses", label: "Fixed-expenses" },
-  { value: "Variable-expenses", label: "Variable-expenses" },
-  { value: "Capital-expenses", label: "Capital-expenses" },
-  { value: "Operating-expenses", label: "Operating-expenses" },
-] as const
+export { EXPENSE_TYPE_OPTIONS }
 
 const defaultValues: ExpenseFormData = {
   name: "",
   description: "",
-  category_id: "",
   type: "",
   branch_id: "",
 }
@@ -32,13 +26,11 @@ const inputClass = (hasError: boolean) =>
     hasError ? "border-red-500" : "border-gray-300 hover:border-gray-400"
   }`
 
-type CategoryOption = { id: string; category: string }
 type BranchOption = { value: string; label: string }
 
 interface ExpenseFormProps {
   onSubmit: (data: ExpenseFormData) => void
   loading?: boolean
-  categories: CategoryOption[]
   showBranchPicker: boolean
   branchOptions: BranchOption[]
   mode?: "create" | "edit"
@@ -51,7 +43,6 @@ interface ExpenseFormProps {
 export default function ExpenseForm({
   onSubmit,
   loading = false,
-  categories,
   showBranchPicker,
   branchOptions,
   mode = "create",
@@ -61,11 +52,6 @@ export default function ExpenseForm({
   const [form, setForm] = useState<ExpenseFormData>({ ...defaultValues })
   const [errors, setErrors] = useState<Partial<Record<keyof ExpenseFormData, string>>>({})
   const disabled = loading || formDisabled
-
-  const categorySelectOptions = useMemo(
-    () => categories.map((c) => ({ value: c.id, label: c.category || "—" })),
-    [categories],
-  )
 
   const typeSelectOptions = useMemo(
     () => EXPENSE_TYPE_OPTIONS.map((o) => ({ value: o.value, label: o.label })),
@@ -85,7 +71,6 @@ export default function ExpenseForm({
       ...defaultValues,
       name: initialValues.name ?? "",
       description: initialValues.description ?? "",
-      category_id: initialValues.category_id ?? "",
       type: initialValues.type ?? "",
       branch_id: initialValues.branch_id ?? "",
     })
@@ -100,7 +85,7 @@ export default function ExpenseForm({
   const validate = (): boolean => {
     const e: Partial<Record<keyof ExpenseFormData, string>> = {}
     if (!form.name.trim()) e.name = "Name is required"
-    if (!form.category_id.trim()) e.category_id = "Select a category"
+    if (!form.type.trim()) e.type = "Select a type"
     if (showBranchPicker && !form.branch_id.trim()) e.branch_id = "Select a branch"
     setErrors(e)
     return Object.keys(e).length === 0
@@ -113,14 +98,10 @@ export default function ExpenseForm({
     onSubmit({
       name: form.name.trim(),
       description: form.description.trim(),
-      category_id: form.category_id.trim(),
-      type: form.type.trim() || "Short-term",
+      type: form.type.trim(),
       branch_id: form.branch_id.trim(),
     })
   }
-
-  const selectWrap = (hasError: boolean) =>
-    hasError ? "rounded-md ring-1 ring-red-500 ring-offset-0" : ""
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-4 p-4 max-h-[calc(100vh-12rem)] overflow-y-auto">
@@ -159,32 +140,17 @@ export default function ExpenseForm({
         {errors.name ? <p className="mt-1 text-xs text-red-600">{errors.name}</p> : null}
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <div>
-          <label className="mb-1 block text-sm font-medium text-gray-700">Category</label>
-          <div className={`${selectWrap(!!errors.category_id)} ${disabled ? "pointer-events-none opacity-60" : ""}`}>
-            <StyledSelect
-              value={form.category_id}
-              onChange={(v) => set("category_id", v)}
-              placeholder="Select category"
-              options={categorySelectOptions}
-              searchable
-            />
-          </div>
-          {errors.category_id ? <p className="mt-1 text-xs text-red-600">{errors.category_id}</p> : null}
+      <div>
+        <label className="mb-1 block text-sm font-medium text-gray-700">Type</label>
+        <div className={disabled ? "pointer-events-none opacity-60" : ""}>
+          <StyledSelect
+            value={form.type}
+            onChange={(v) => set("type", v)}
+            placeholder="Select type"
+            options={typeSelectOptions}
+          />
         </div>
-
-        <div>
-          <label className="mb-1 block text-sm font-medium text-gray-700">Type</label>
-          <div className={disabled ? "pointer-events-none opacity-60" : ""}>
-            <StyledSelect
-              value={form.type}
-              onChange={(v) => set("type", v)}
-              placeholder="Select type"
-              options={typeSelectOptions}
-            />
-          </div>
-        </div>
+        {errors.type ? <p className="mt-1 text-xs text-red-600">{errors.type}</p> : null}
       </div>
 
       <div>

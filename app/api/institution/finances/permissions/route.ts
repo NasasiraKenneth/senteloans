@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
-import { hasPermission, isSuperAdmin, requireStaffSession, resolveActorContext } from "@/lib/api/rbac"
+import { hasPermission, isSuperAdmin, requireStaffSession } from "@/lib/api/rbac"
+import {
+  assertFinancePermissionsReadAccess,
+  financeAccessErrorResponseOrNull,
+} from "@/lib/api/finance-access"
 import { runWithAuth } from "@/lib/db"
 import { FINANCE_PERMISSIONS } from "@/lib/finances/permissions"
 
@@ -13,8 +17,15 @@ export async function GET(req: Request) {
     }
 
     const permissions = await runWithAuth(sess.authUserId, async (client) => {
-      const actor = await resolveActorContext(client, sess.authUserId)
-      if (!actor?.institution_id) return null
+      const access = await assertFinancePermissionsReadAccess(client, sess.authUserId)
+      if (!access.ok) {
+        return {
+          error: access.error,
+          staffStatus: access.staffStatus,
+          branchStatus: access.branchStatus,
+        }
+      }
+      const { actor } = access
 
       const [
         viewBankAccounts,
@@ -68,8 +79,12 @@ export async function GET(req: Request) {
       }
     })
 
-    if (!permissions) {
-      return NextResponse.json({ error: "user_not_linked" }, { status: 403 })
+    if (permissions && "error" in permissions) {
+      const accessResponse = financeAccessErrorResponseOrNull(permissions)
+      if (accessResponse) {
+        return NextResponse.json(accessResponse.body, { status: accessResponse.status })
+      }
+      return NextResponse.json({ error: permissions.error }, { status: 403 })
     }
 
     apiLog("info", "finances.permissions.success", { method: "GET", apiPath, status: 200 })

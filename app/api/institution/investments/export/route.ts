@@ -8,7 +8,7 @@ import {
   formatIsoDateForExcel,
   toSafeExcelSheetName,
 } from "@/lib/export/server-excel"
-import { hasInvestmentPermission, resolveInvestmentActor } from "@/lib/api/investment-rbac"
+import { hasPermission, isSuperAdmin, resolveActorContext } from "@/lib/api/rbac"
 import { renderInvestmentsPdfBuffer, type InvestmentExportRow } from "./investments-pdf"
 
 type BranchScope = { id: string; name: string }
@@ -126,7 +126,7 @@ function appendInvestmentFilters(
   if (filters.q) {
     w += ` AND (
           i.investment_number ILIKE $${i}
-          OR c.name ILIKE $${i}
+          OR tpa.name ILIKE $${i}
           OR COALESCE(i.investment_name, '') ILIKE $${i}
           OR i.description ILIKE $${i}
         )`
@@ -167,16 +167,16 @@ export async function GET(req: Request) {
     }
 
     const result = await runWithAuth(session.user.authUserId, async (client) => {
-      const actor = await resolveInvestmentActor(client, session.user.authUserId as string)
+      const actor = await resolveActorContext(client, session.user.authUserId as string, { activeOnly: false })
       if (!actor?.institution_id) return { error: "user_not_linked" as const }
-      const allowed = await hasInvestmentPermission(client, actor, "view_investments")
+      const allowed = await hasPermission(client, actor, "view_investments")
       if (!allowed) return { error: "missing_permission:view_investments" as const }
 
-      const actorRole = String(actor.role || "").trim().toLowerCase()
-      if (actorRole !== "super_admin" && !actor.branch_id) return { error: "actor_branch_missing" as const }
+      const superAdmin = isSuperAdmin(actor)
+      if (!superAdmin && !actor.branch_id) return { error: "actor_branch_missing" as const }
 
       let branchScopes: BranchScope[] = []
-      if (actorRole === "super_admin") {
+      if (superAdmin) {
         const branchRes = await client.query(
           `SELECT id, name
            FROM branches
@@ -218,7 +218,7 @@ export async function GET(req: Request) {
         const dataRes = await client.query(
           `SELECT
              i.investment_number,
-             c.name AS provider_name,
+             tpa.name AS provider_name,
              COALESCE(i.investment_name, '') AS investment_name,
              i.category,
              i.risk_level,
@@ -229,7 +229,7 @@ export async function GET(req: Request) {
              i.status,
              u.full_name AS created_by_name
            FROM investments i
-           LEFT JOIN clients c ON c.id = i.provider_id
+           LEFT JOIN third_party_agents tpa ON tpa.id = i.provider_id
            LEFT JOIN users u ON u.id = i.created_by
            WHERE ${where}
            ORDER BY i.created_at DESC`,

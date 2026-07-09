@@ -10,6 +10,7 @@ type LoanRow = {
   loan_type: string
   principal_amount: number
   tenure_months: number
+  remaining_tenure_months?: number
   outstanding_balance: number
   application_date: string | null
   next_payment_date: string | null
@@ -26,7 +27,7 @@ type Payload = {
 }
 
 export async function renderLoansPdfBuffer(payload: Payload): Promise<Buffer> {
-  const columns = ["Application", "Member", "Product", "Status", "Type", "Amount", "Tenure", "Outstanding", "Applied", "Next Payment"]
+  const columns = ["Application", "Member", "Product", "Status", "Type", "Amount", "Remaining Tenure", "Outstanding", "Applied", "Next Payment"]
   const doc = (
     <Document>
       {payload.sheets.map((sheet, idx) => (
@@ -47,7 +48,7 @@ export async function renderLoansPdfBuffer(payload: Payload): Promise<Buffer> {
                 <Text style={styles.cell}>{row.status || ""}</Text>
                 <Text style={styles.cell}>{row.loan_type || ""}</Text>
                 <Text style={styles.cell}>{Number(row.principal_amount || 0).toLocaleString("en-UG")}</Text>
-                <Text style={styles.cell}>{String(row.tenure_months || 0)}</Text>
+                <Text style={styles.cell}>{String(row.remaining_tenure_months ?? row.tenure_months ?? 0)}</Text>
                 <Text style={styles.cell}>{Number(row.outstanding_balance || 0).toLocaleString("en-UG")}</Text>
                 <Text style={styles.cell}>{row.application_date ? formatIsoDate(row.application_date) : ""}</Text>
                 <Text style={styles.cell}>{row.next_payment_date ? formatIsoDate(row.next_payment_date) : ""}</Text>

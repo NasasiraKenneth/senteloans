@@ -13,10 +13,12 @@ interface EditBankAccountProps {
 }
 
 const ERROR_MESSAGES: Record<string, string> = {
-  bank_name_and_account_required: "Bank name and account number are required.",
+  third_party_agent_id_required: "Select a third party agent for this bank account.",
+  bank_account_number_required: "Account number is required.",
   "missing_permission:edit_bank_account": "You do not have permission to edit bank accounts.",
   branch_id_required: "Select a branch for this account.",
   invalid_branch: "The selected branch is invalid.",
+  invalid_third_party_agent: "The selected third party agent is invalid for this branch.",
   bank_account_already_exists: "This bank account already exists for your institution.",
   not_found: "This bank account no longer exists.",
 }
@@ -25,26 +27,58 @@ function formatError(code: string): string {
   return ERROR_MESSAGES[code] || code.replace(/_/g, " ")
 }
 
+type AgentOption = { value: string; label: string; branch_id: string }
+
 export default function EditBankAccount({ isOpen, accountId, onClose, onSuccess }: EditBankAccountProps) {
   const [loading, setLoading] = useState(false)
   const [fetching, setFetching] = useState(false)
   const [fetchError, setFetchError] = useState<string | null>(null)
   const [branchOptions, setBranchOptions] = useState<Array<{ value: string; label: string }>>([])
+  const [agentOptions, setAgentOptions] = useState<AgentOption[]>([])
+  const [agentsLoading, setAgentsLoading] = useState(false)
   const [isSuperAdmin, setIsSuperAdmin] = useState(false)
   const [initialValues, setInitialValues] = useState<Partial<BankAccountFormData> | null>(null)
   const { toast } = useToast()
 
   const loadMeta = useCallback(async () => {
+    setAgentsLoading(true)
     try {
-      const res = await fetch("/api/institution/finances/permissions", { cache: "no-store" })
-      if (!res.ok) return
-      const body = await res.json().catch(() => ({}))
-      const p = body?.permissions
-      setIsSuperAdmin(!!p?.isSuperAdmin)
-      setBranchOptions((p?.branches || []).map((b: { id: string; name: string }) => ({ value: b.id, label: b.name })))
+      const [permRes, agentsRes] = await Promise.all([
+        fetch("/api/institution/finances/permissions", { cache: "no-store" }),
+        fetch("/api/institution/third-party-agents?limit=200", { cache: "no-store" }),
+      ])
+
+      if (permRes.ok) {
+        const permBody = await permRes.json().catch(() => ({}))
+        const p = permBody?.permissions
+        setIsSuperAdmin(!!p?.isSuperAdmin)
+        setBranchOptions((p?.branches || []).map((b: { id: string; name: string }) => ({ value: b.id, label: b.name })))
+      } else {
+        setIsSuperAdmin(false)
+        setBranchOptions([])
+      }
+
+      if (agentsRes.ok) {
+        const agentsBody = await agentsRes.json().catch(() => ({}))
+        const agents = Array.isArray(agentsBody?.third_party_agents) ? agentsBody.third_party_agents : []
+        setAgentOptions(
+          agents
+            .map((a: { id?: string; name?: string; branch_id?: string }) => ({
+              value: String(a.id || ""),
+              label: String(a.name || "Agent").trim() || "Agent",
+              branch_id: String(a.branch_id || ""),
+            }))
+            .filter((o: AgentOption) => Boolean(o.value)),
+        )
+      } else {
+        setAgentOptions([])
+      }
     } catch {
       setBranchOptions([])
+      setAgentOptions([])
       setIsSuperAdmin(false)
+    } finally {
+      setAgentsLoading(false)
     }
   }, [])
 
@@ -66,9 +100,8 @@ export default function EditBankAccount({ isOpen, accountId, onClose, onSuccess 
 
         const account = body?.account
         setInitialValues({
-          bank_name: account?.bank_name || "",
+          third_party_agent_id: account?.third_party_agent_id || "",
           bank_account_number: account?.bank_account_number || "",
-          total_amount: String(account?.total_amount ?? ""),
           branch_id: account?.branch_id || "",
         })
       } catch (e: unknown) {
@@ -95,7 +128,7 @@ export default function EditBankAccount({ isOpen, accountId, onClose, onSuccess 
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          bank_name: data.bank_name,
+          third_party_agent_id: data.third_party_agent_id,
           bank_account_number: data.bank_account_number,
           branch_id: data.branch_id || null,
         }),
@@ -103,9 +136,12 @@ export default function EditBankAccount({ isOpen, accountId, onClose, onSuccess 
       const body = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(body?.error || "Failed to update bank account")
 
+      const agentLabel =
+        agentOptions.find((a) => a.value === data.third_party_agent_id)?.label || "Bank account"
+
       toast({
         title: "Bank account updated",
-        description: `${data.bank_name} has been saved.`,
+        description: `${agentLabel} has been saved.`,
         variant: "success",
       })
       onSuccess()
@@ -143,6 +179,8 @@ export default function EditBankAccount({ isOpen, accountId, onClose, onSuccess 
           loading={loading}
           showBranchPicker={isSuperAdmin && branchOptions.length > 0}
           branchOptions={branchOptions}
+          agentOptions={agentOptions}
+          agentsLoading={agentsLoading}
         />
       ) : null}
     </ReeveModal>

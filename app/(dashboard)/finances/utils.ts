@@ -1,3 +1,10 @@
+export {
+  UNCLAIMED_ASSIGNED_TYPE_MEMBER,
+  UNCLAIMED_ASSIGNED_TYPE_THIRD_PARTY,
+  type UnclaimedAssignedType,
+  parseUnclaimedAssignedTypeFilter,
+} from "@/lib/finances/unclaimed-deposit"
+
 export const formatCurrency = (amount: number) =>
   new Intl.NumberFormat("en-UG", { style: "currency", currency: "UGX", minimumFractionDigits: 0 }).format(amount)
 

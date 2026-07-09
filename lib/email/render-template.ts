@@ -120,6 +120,21 @@ export function renderEmailTemplate(template: string, data: TemplateData = {}): 
       )
     }
 
+    case "invoice.sent": {
+      const amount = Number(data.amount || 0)
+      const invoiceNumber = String(data.invoiceNumber || "")
+      const dueDate = data.dueDate ? String(data.dueDate) : null
+      return layout(
+        "Invoice issued",
+        `<p>Hello ${esc(memberName)},</p>
+         <p>Invoice <strong>${esc(invoiceNumber)}</strong> has been issued to your account.</p>
+         <p>Amount due: <strong>${esc(formatCurrency(amount, currency))}</strong></p>
+         ${dueDate ? `<p>Due date: <strong>${esc(dueDate)}</strong></p>` : ""}
+         <p>Your invoice is attached to this email as a PDF.</p>`,
+        institutionName,
+      )
+    }
+
     case "membership_fee.paid": {
       const amount = Number(data.amount || 0)
       const remaining = Number(data.remaining || 0)
@@ -131,6 +146,23 @@ export function renderEmailTemplate(template: string, data: TemplateData = {}): 
          <p>We received your membership fee payment of <strong>${esc(formatCurrency(amount, currency))}</strong>.</p>
          ${remaining > 0 ? `<p>Outstanding balance: <strong>${esc(formatCurrency(remaining, currency))}</strong></p>` : "<p>Your membership fee is fully paid. Thank you.</p>"}
          ${invoiceNumber ? `<p>Invoice: <strong>${esc(invoiceNumber)}</strong></p>` : ""}
+         ${transactionNumber ? `<p>Receipt no.: <strong>${esc(transactionNumber)}</strong></p>` : ""}
+         <p>Your payment receipt is attached to this email as a PDF.</p>`,
+        institutionName,
+      )
+    }
+
+    case "invoice.payment_recorded": {
+      const amount = Number(data.amount || 0)
+      const outstanding = Number(data.outstanding || 0)
+      const fullySettled = Boolean(data.fullySettled)
+      const invoiceNumber = data.invoiceNumber ? String(data.invoiceNumber) : null
+      const transactionNumber = data.transactionNumber ? String(data.transactionNumber) : null
+      return layout(
+        "Invoice payment received",
+        `<p>Hello ${esc(memberName)},</p>
+         <p>We received your payment of <strong>${esc(formatCurrency(amount, currency))}</strong>${invoiceNumber ? ` for invoice <strong>${esc(invoiceNumber)}</strong>` : ""}.</p>
+         ${fullySettled ? "<p>Your invoice is now fully paid. Thank you.</p>" : `<p>Outstanding balance: <strong>${esc(formatCurrency(outstanding, currency))}</strong></p>`}
          ${transactionNumber ? `<p>Receipt no.: <strong>${esc(transactionNumber)}</strong></p>` : ""}
          <p>Your payment receipt is attached to this email as a PDF.</p>`,
         institutionName,
@@ -149,6 +181,269 @@ export function renderEmailTemplate(template: string, data: TemplateData = {}): 
          ${invoiceNumber ? `<p>Invoice: <strong>${esc(invoiceNumber)}</strong></p>` : ""}
          ${transactionNumber ? `<p>Receipt no.: <strong>${esc(transactionNumber)}</strong></p>` : ""}
          <p>Your invoice and payment receipt are attached to this email as PDFs.</p>`,
+        institutionName,
+      )
+    }
+
+    case "savings.deposit":
+    case "savings.withdrawal":
+    case "savings.transfer":
+    case "savings.transfer_deposit": {
+      const amount = Number(data.amount || 0)
+      const balanceAfter = Number(data.balanceAfter ?? data.balance_after ?? 0)
+      const accountNumber = data.accountNumber ? String(data.accountNumber) : null
+      const sourceAccountNumber = data.sourceAccountNumber ? String(data.sourceAccountNumber) : null
+      const transactionNumber = data.transactionNumber ? String(data.transactionNumber) : null
+      const transactionDate = data.transactionDate ? String(data.transactionDate) : null
+      const mode = data.mode ? String(data.mode) : null
+      const charges = data.charges != null ? Number(data.charges) : null
+      const transactionType = String(data.transactionType || template.split(".")[1] || "transaction")
+      const isTransferDeposit = template === "savings.transfer_deposit"
+      const typeLabel = isTransferDeposit
+        ? "Transfer deposit"
+        : transactionType === "deposit"
+          ? "Deposit"
+          : transactionType === "withdrawal"
+            ? "Withdrawal"
+            : "Transfer"
+      const title = isTransferDeposit ? "Transfer deposit received" : `${typeLabel} confirmation`
+      const intro = isTransferDeposit
+        ? `A transfer deposit of <strong>${esc(formatCurrency(amount, currency))}</strong>${accountNumber ? ` was credited to account <strong>${esc(accountNumber)}</strong>` : " was credited to your account"}${sourceAccountNumber ? ` from account <strong>${esc(sourceAccountNumber)}</strong>` : ""}.`
+        : `Your ${esc(typeLabel.toLowerCase())} of <strong>${esc(formatCurrency(amount, currency))}</strong>${accountNumber ? ` on account <strong>${esc(accountNumber)}</strong>` : ""} has been processed.`
+      return layout(
+        title,
+        `<p>Hello ${esc(memberName)},</p>
+         <p>${intro}</p>
+         ${mode ? `<p>Payment method: <strong>${esc(mode)}</strong></p>` : ""}
+         ${transactionDate ? `<p>Transaction date: <strong>${esc(transactionDate)}</strong></p>` : ""}
+         <p>Available balance: <strong>${esc(formatCurrency(balanceAfter, currency))}</strong></p>
+         ${charges != null && charges > 0 ? `<p>Transaction charges: <strong>${esc(formatCurrency(charges, currency))}</strong></p>` : ""}
+         ${transactionNumber ? `<p>Receipt no.: <strong>${esc(transactionNumber)}</strong></p>` : ""}
+         <p>Your transaction receipt is attached to this email as a PDF.</p>`,
+        institutionName,
+      )
+    }
+
+    case "loan.payment_received": {
+      const amount = Number(data.amount || 0)
+      const balanceAfter = Number(data.balanceAfter ?? data.balance_after ?? 0)
+      const applicationId = String(data.applicationId || "")
+      const paymentDate = data.paymentDate ? String(data.paymentDate) : null
+      const transactionNumber = data.transactionNumber ? String(data.transactionNumber) : null
+      return layout(
+        "Loan payment received",
+        `<p>Hello ${esc(memberName)},</p>
+         <p>Thank you — we received your loan payment of <strong>${esc(formatCurrency(amount, currency))}</strong>${applicationId ? ` for loan <strong>${esc(applicationId)}</strong>` : ""}.</p>
+         ${paymentDate ? `<p>Payment date: <strong>${esc(paymentDate)}</strong></p>` : ""}
+         <p>Outstanding balance: <strong>${esc(formatCurrency(balanceAfter, currency))}</strong></p>
+         ${transactionNumber ? `<p>Receipt no.: <strong>${esc(transactionNumber)}</strong></p>` : ""}
+         <p>Your payment receipt is attached to this email as a PDF.</p>`,
+        institutionName,
+      )
+    }
+
+    case "loan.application_submitted": {
+      const amount = Number(data.principalAmount || 0)
+      const applicationId = String(data.applicationId || "")
+      const loanType = String(data.loanType || "Normal")
+      const productName = data.productName ? String(data.productName) : null
+      return layout(
+        "Loan application submitted",
+        `<p>Hello ${esc(memberName)},</p>
+         <p>Your loan application <strong>${esc(applicationId)}</strong> has been submitted successfully.</p>
+         <p>Amount requested: <strong>${esc(formatCurrency(amount, currency, { fractionDigits: 2 }))}</strong></p>
+         <p>Loan type: <strong>${esc(loanType)}</strong></p>
+         ${productName ? `<p>Product: <strong>${esc(productName)}</strong></p>` : ""}
+         <p>We will notify you when your application is reviewed.</p>
+         <p>Member number: <strong>${esc(memberNumber)}</strong></p>`,
+        institutionName,
+      )
+    }
+
+    case "loan.pending_approval": {
+      const amount = Number(data.principalAmount || 0)
+      const applicationId = String(data.applicationId || "")
+      const loanType = String(data.loanType || "Normal")
+      const productName = data.productName ? String(data.productName) : null
+      const staffName = String(data.staffName || "Team member")
+      return layout(
+        "New loan application",
+        `<p>Hello ${esc(staffName)},</p>
+         <p><strong>${esc(memberName)}</strong> (${esc(memberNumber)}) has submitted a new loan application.</p>
+         <p>Application ID: <strong>${esc(applicationId)}</strong></p>
+         <p>Amount requested: <strong>${esc(formatCurrency(amount, currency, { fractionDigits: 2 }))}</strong></p>
+         <p>Loan type: <strong>${esc(loanType)}</strong></p>
+         ${productName ? `<p>Product: <strong>${esc(productName)}</strong></p>` : ""}
+         <p>Please sign in to review the application.</p>`,
+        institutionName,
+      )
+    }
+
+    case "loan.under_review": {
+      const amount = Number(data.principalAmount || 0)
+      const applicationId = String(data.applicationId || "")
+      return layout(
+        "Loan under review",
+        `<p>Hello ${esc(memberName)},</p>
+         <p>Your loan application <strong>${esc(applicationId)}</strong> is under review.</p>
+         <p>Amount requested: <strong>${esc(formatCurrency(amount, currency, { fractionDigits: 2 }))}</strong></p>
+         <p>We will notify you when a decision is made.</p>
+         <p>Member number: <strong>${esc(memberNumber)}</strong></p>`,
+        institutionName,
+      )
+    }
+
+    case "loan.reviewed": {
+      const amount = Number(data.principalAmount || 0)
+      const applicationId = String(data.applicationId || "")
+      return layout(
+        "Loan review complete",
+        `<p>Hello ${esc(memberName)},</p>
+         <p>Your loan application <strong>${esc(applicationId)}</strong> has been reviewed.</p>
+         <p>Amount: <strong>${esc(formatCurrency(amount, currency, { fractionDigits: 2 }))}</strong></p>
+         <p>We will notify you when a final decision is made.</p>`,
+        institutionName,
+      )
+    }
+
+    case "loan.status_change": {
+      const amount = Number(data.principalAmount || 0)
+      const applicationId = String(data.applicationId || "")
+      const statusLabel = String(data.statusLabel || "updated")
+      return layout(
+        "Loan status update",
+        `<p>Hello ${esc(memberName)},</p>
+         <p>Your loan application <strong>${esc(applicationId)}</strong> status is now <strong>${esc(statusLabel)}</strong>.</p>
+         <p>Amount: <strong>${esc(formatCurrency(amount, currency, { fractionDigits: 2 }))}</strong></p>
+         <p>Sign in to your portal for details.</p>
+         <p>Member number: <strong>${esc(memberNumber)}</strong></p>`,
+        institutionName,
+      )
+    }
+
+    case "loan.approved": {
+      const amount = Number(data.principalAmount || 0)
+      const applicationId = String(data.applicationId || "")
+      return layout(
+        "Loan application approved",
+        `<p>Hello ${esc(memberName)},</p>
+         <p>Your loan application <strong>${esc(applicationId)}</strong> has been approved.</p>
+         <p>Approved amount: <strong>${esc(formatCurrency(amount, currency, { fractionDigits: 2 }))}</strong></p>
+         <p>We will notify you when disbursement is processed.</p>`,
+        institutionName,
+      )
+    }
+
+    case "loan.rejected": {
+      const amount = Number(data.principalAmount || 0)
+      const applicationId = String(data.applicationId || "")
+      return layout(
+        "Loan application update",
+        `<p>Hello ${esc(memberName)},</p>
+         <p>Your loan application <strong>${esc(applicationId)}</strong> was not approved.</p>
+         <p>Amount requested: <strong>${esc(formatCurrency(amount, currency, { fractionDigits: 2 }))}</strong></p>
+         <p>Contact your branch for more information.</p>`,
+        institutionName,
+      )
+    }
+
+    case "loan.partially_disbursed": {
+      const amount = Number(data.principalAmount || 0)
+      const applicationId = String(data.applicationId || "")
+      return layout(
+        "Loan partially disbursed",
+        `<p>Hello ${esc(memberName)},</p>
+         <p>A partial disbursement has been made on your loan <strong>${esc(applicationId)}</strong>.</p>
+         <p>Amount: <strong>${esc(formatCurrency(amount, currency, { fractionDigits: 2 }))}</strong></p>
+         <p>Sign in to your portal for disbursement details.</p>`,
+        institutionName,
+      )
+    }
+
+    case "loan.disbursed": {
+      const amount = Number(data.principalAmount || 0)
+      const applicationId = String(data.applicationId || "")
+      return layout(
+        "Loan fully disbursed",
+        `<p>Hello ${esc(memberName)},</p>
+         <p>Your loan <strong>${esc(applicationId)}</strong> has been fully disbursed.</p>
+         <p>Disbursed amount: <strong>${esc(formatCurrency(amount, currency, { fractionDigits: 2 }))}</strong></p>
+         <p>Thank you for banking with ${esc(institutionName)}.</p>`,
+        institutionName,
+      )
+    }
+
+    case "loan.ready_for_approval": {
+      const amount = Number(data.principalAmount || 0)
+      const applicationId = String(data.applicationId || "")
+      const staffName = String(data.staffName || "Team member")
+      return layout(
+        "Loan ready for approval",
+        `<p>Hello ${esc(staffName)},</p>
+         <p><strong>${esc(memberName)}</strong> (${esc(memberNumber)}) — application <strong>${esc(applicationId)}</strong> has been reviewed.</p>
+         <p>Amount: <strong>${esc(formatCurrency(amount, currency, { fractionDigits: 2 }))}</strong></p>
+         <p>Please sign in to approve or reject the loan.</p>`,
+        institutionName,
+      )
+    }
+
+    case "loan.under_review_staff": {
+      const amount = Number(data.principalAmount || 0)
+      const applicationId = String(data.applicationId || "")
+      const staffName = String(data.staffName || "Team member")
+      return layout(
+        "Loan under review",
+        `<p>Hello ${esc(staffName)},</p>
+         <p><strong>${esc(memberName)}</strong> (${esc(memberNumber)}) — application <strong>${esc(applicationId)}</strong> is under review.</p>
+         <p>Amount: <strong>${esc(formatCurrency(amount, currency, { fractionDigits: 2 }))}</strong></p>`,
+        institutionName,
+      )
+    }
+
+    case "loan.approved_staff": {
+      const amount = Number(data.principalAmount || 0)
+      const applicationId = String(data.applicationId || "")
+      const staffName = String(data.staffName || "Team member")
+      return layout(
+        "Loan approved",
+        `<p>Hello ${esc(staffName)},</p>
+         <p><strong>${esc(memberName)}</strong>'s loan (<strong>${esc(applicationId)}</strong>) for ${esc(formatCurrency(amount, currency, { fractionDigits: 2 }))} has been approved.</p>`,
+        institutionName,
+      )
+    }
+
+    case "loan.rejected_staff": {
+      const amount = Number(data.principalAmount || 0)
+      const applicationId = String(data.applicationId || "")
+      const staffName = String(data.staffName || "Team member")
+      return layout(
+        "Loan rejected",
+        `<p>Hello ${esc(staffName)},</p>
+         <p><strong>${esc(memberName)}</strong>'s loan application (<strong>${esc(applicationId)}</strong>) for ${esc(formatCurrency(amount, currency, { fractionDigits: 2 }))} was rejected.</p>`,
+        institutionName,
+      )
+    }
+
+    case "loan.partially_disbursed_staff": {
+      const amount = Number(data.principalAmount || 0)
+      const applicationId = String(data.applicationId || "")
+      const staffName = String(data.staffName || "Team member")
+      return layout(
+        "Loan partially disbursed",
+        `<p>Hello ${esc(staffName)},</p>
+         <p><strong>${esc(memberName)}</strong>'s loan (<strong>${esc(applicationId)}</strong>) has been partially disbursed (${esc(formatCurrency(amount, currency, { fractionDigits: 2 }))}).</p>`,
+        institutionName,
+      )
+    }
+
+    case "loan.fully_disbursed_staff": {
+      const amount = Number(data.principalAmount || 0)
+      const applicationId = String(data.applicationId || "")
+      const staffName = String(data.staffName || "Team member")
+      return layout(
+        "Loan fully disbursed",
+        `<p>Hello ${esc(staffName)},</p>
+         <p><strong>${esc(memberName)}</strong>'s loan (<strong>${esc(applicationId)}</strong>) for ${esc(formatCurrency(amount, currency, { fractionDigits: 2 }))} has been fully disbursed.</p>`,
         institutionName,
       )
     }

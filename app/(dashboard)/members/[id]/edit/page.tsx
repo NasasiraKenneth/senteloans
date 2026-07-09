@@ -41,7 +41,6 @@ type MemberRecord = {
   village?: string
   occupation?: string
   monthly_income?: number | string
-  monthly_savings?: number | string
   next_of_kin_name?: string
   next_of_kin_relationship?: string
   next_of_kin_phone?: string
@@ -68,7 +67,6 @@ function mapMemberToFormData(client: MemberRecord): MemberEditFormData {
     village: client.village || "",
     occupation: client.occupation || "",
     monthlyIncome: (client.monthly_income ?? "").toString(),
-    monthlySavings: (client.monthly_savings ?? "").toString(),
     nextOfKin: client.next_of_kin_name || "",
     nextOfKinRelationship: client.next_of_kin_relationship || "",
     nextOfKinPhone: client.next_of_kin_phone || "",
@@ -211,10 +209,6 @@ export default function UserEditPage({ params }: UserEditPageProps) {
       setError("Monthly Income must be a number")
       return
     }
-    if (formData.monthlySavings && Number.isNaN(Number(formData.monthlySavings))) {
-      setError("Monthly Savings must be a number")
-      return
-    }
 
     setSaving(true)
     try {
@@ -230,7 +224,6 @@ export default function UserEditPage({ params }: UserEditPageProps) {
         village: formData.village,
         occupation: formData.occupation,
         monthlyIncome: formData.monthlyIncome ? Number(formData.monthlyIncome) : undefined,
-        monthlySavings: formData.monthlySavings ? Number(formData.monthlySavings) : undefined,
         nextOfKin: formData.nextOfKin,
         nextOfKinRelationship: formData.nextOfKin ? formData.nextOfKinRelationship : undefined,
         nextOfKinPhone: formData.nextOfKinPhone,

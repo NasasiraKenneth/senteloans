@@ -1,58 +1,13 @@
 import { NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
-import { runWithAuth } from "@/lib/db"
+import { runWithAuth, runWithoutAuth } from "@/lib/db"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
+import { assertBranchActive, type BranchStatus } from "@/lib/branches/branch-status"
+import { assertActorActive } from "@/lib/staff/staff-status"
+import { hasPermission, isSuperAdmin, resolveActorContext, SUPER_ADMIN_WRITE_BLOCKED } from "@/lib/api/rbac"
 import { auditLogger } from "@/lib/audit/audit-logger"
-
-type ActorContext = {
-  id: string
-  institution_id: string
-  branch_id: string | null
-  role_id: string | null
-  role: string | null
-}
-
-async function resolveActorContext(client: any, authUserId: string): Promise<ActorContext | null> {
-  const actorRes = await client.query(
-    `SELECT
-       u.id,
-       u.institution_id,
-       u.branch_id,
-       u.role_id,
-       CASE
-         WHEN r.name = 'System Admin' THEN 'system_admin'
-         WHEN r.name = 'Super Admin' THEN 'super_admin'
-         WHEN r.name = 'Admin' THEN 'institution_admin'
-         WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
-         ELSE NULL
-       END AS role
-     FROM users u
-     LEFT JOIN roles r ON r.id = u.role_id
-     WHERE u.auth_id = $1
-     LIMIT 1`,
-    [authUserId],
-  )
-  return actorRes.rows[0] || null
-}
-
-async function hasPermission(client: any, actor: ActorContext, permission: string): Promise<boolean> {
-  const role = String(actor.role || "").trim().toLowerCase()
-  if (role === "super_admin") return true
-  if (!actor.role_id || !actor.branch_id) return false
-
-  const permRes = await client.query(
-    `SELECT 1
-     FROM role_permissions rp
-     JOIN permissions p ON p.id = rp.permission_id
-     WHERE rp.role_id = $1
-       AND rp.branch_id = $2
-       AND p.name = $3
-     LIMIT 1`,
-    [actor.role_id, actor.branch_id, permission],
-  )
-  return permRes.rowCount > 0
-}
+import { notifySaccoLoanActivated } from "@/lib/notifications/sacco-loan-events"
 
 const APPROVE_REJECT_FROM = new Set(["Applied", "Under Review", "Reviewed"])
 
@@ -91,12 +46,11 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       if (!actor?.institution_id) return { error: "user_not_linked" as const }
       const allowed = await hasPermission(client, actor, "view_sacco_loans")
       if (!allowed) return { error: "missing_permission:view_sacco_loans" as const }
-      const isSuperAdmin = String(actor.role || "").trim().toLowerCase() === "super_admin"
-      if (!isSuperAdmin && !actor.branch_id) return { error: "actor_branch_missing" as const }
+      if (!isSuperAdmin(actor) && !actor.branch_id) return { error: "actor_branch_missing" as const }
 
       let where = "l.id = $1 AND l.institution_id = $2"
       const qparams: unknown[] = [id, actor.institution_id]
-      if (!isSuperAdmin) {
+      if (!isSuperAdmin(actor)) {
         where += " AND l.branch_id = $3"
         qparams.push(actor.branch_id)
       }
@@ -104,11 +58,12 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       const dataRes = await client.query(
         `SELECT
            l.id,
-           l.client_id,
+           l.third_party_agent_id,
            l.loan_product,
            l.principal_amount,
            l.interest_rate,
            l.tenure_months,
+           COALESCE(l.remaining_tenure_months, l.tenure_months) AS remaining_tenure_months,
            l.monthly_payment,
            l.total_amount,
            l.outstanding_balance,
@@ -126,9 +81,9 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
            l.overdue_days,
            l.created_at,
            l.updated_at,
-           COALESCE(c.name, '') AS client_name
+           COALESCE(tpa.name, '') AS third_party_agent_name
          FROM institution_loans l
-         LEFT JOIN clients c ON c.id = l.client_id
+         LEFT JOIN third_party_agents tpa ON tpa.id = l.third_party_agent_id
          WHERE ${where}
          LIMIT 1`,
         qparams,
@@ -136,15 +91,23 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       const row = dataRes.rows[0] as Record<string, unknown> | undefined
       if (!row) return { notFound: true as const }
 
+      const agentId = String(row.third_party_agent_id || "")
+      const agentName = String(row.third_party_agent_name || "")
+      const tenureMonths = Number(row.tenure_months || 0)
+      const remainingTenure = Number(row.remaining_tenure_months ?? row.tenure_months ?? 0)
+
       return {
         loan: {
           id: String(row.id || ""),
-          client_id: String(row.client_id || ""),
-          client_name: String(row.client_name || ""),
+          third_party_agent_id: agentId,
+          third_party_agent_name: agentName,
+          client_id: agentId,
+          client_name: agentName,
           loan_product: row.loan_product != null ? String(row.loan_product) : null,
           principal_amount: Number(row.principal_amount || 0),
           interest_rate: Number(row.interest_rate || 0),
-          tenure_months: Number(row.tenure_months || 0),
+          tenure_months: tenureMonths,
+          remaining_tenure_months: remainingTenure,
           monthly_payment: row.monthly_payment != null ? Number(row.monthly_payment) : null,
           total_amount: row.total_amount != null ? Number(row.total_amount) : null,
           outstanding_balance: Number(row.outstanding_balance || 0),
@@ -207,28 +170,43 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     }
 
     const result = await runWithAuth(session.user.authUserId, async (client) => {
-      const actor = await resolveActorContext(client, session.user.authUserId as string)
+      const actor = await resolveActorContext(client, session.user.authUserId as string, { activeOnly: false })
       if (!actor?.institution_id) return { error: "user_not_linked" as const }
-      const isSuperAdmin = String(actor.role || "").trim().toLowerCase() === "super_admin"
-      if (!isSuperAdmin && !actor.branch_id) return { error: "actor_branch_missing" as const }
+      const staffCheck = await assertActorActive(client, actor)
+      if (!staffCheck.ok) {
+        return {
+          error: staffCheck.error,
+          staffStatus: staffCheck.error === "staff_inactive" ? staffCheck.status : undefined,
+        }
+      }
+      if (isSuperAdmin(actor)) return { error: SUPER_ADMIN_WRITE_BLOCKED }
+      if (!actor.branch_id) return { error: "actor_branch_missing" as const }
+      const branchCheck = await assertBranchActive(client, actor.branch_id)
+      if (!branchCheck.ok) {
+        return {
+          error: branchCheck.error,
+          branchStatus: branchCheck.error === "branch_inactive" ? branchCheck.status : undefined,
+        }
+      }
 
+      const isSA = isSuperAdmin(actor)
       let where = "l.id = $1 AND l.institution_id = $2"
       const qparams: unknown[] = [id, actor.institution_id]
-      if (!isSuperAdmin) {
+      if (!isSA) {
         where += " AND l.branch_id = $3"
         qparams.push(actor.branch_id)
       }
 
-      const updateWhere = isSuperAdmin
+      const updateWhere = isSA
         ? "id = $2 AND institution_id = $3"
         : "id = $2 AND institution_id = $3 AND branch_id = $4"
-      const updateParams = isSuperAdmin
+      const updateParams = isSA
         ? [actor.id, id, actor.institution_id]
         : [actor.id, id, actor.institution_id, actor.branch_id]
 
       if (nextStatus === "Active") {
-        const ok = await hasPermission(client, actor, "disburse_sacco_loan")
-        if (!ok) return { error: "missing_permission:disburse_sacco_loan" as const }
+        const ok = await hasPermission(client, actor, "activate_sacco_loan")
+        if (!ok) return { error: "missing_permission:activate_sacco_loan" as const }
 
         const nextPaymentRaw = String(
           body.next_payment_date ?? body.nextPaymentDate ?? "",
@@ -247,8 +225,24 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
           return { error: "invalid_monthly_payment" as const }
         }
 
-        const loanRes = await client.query<{ status: string; tenure_months: number; next_payment_date: string | null; maturity_date: string | null; monthly_payment: number | null }>(
-          `SELECT l.status, l.tenure_months, l.next_payment_date, l.maturity_date, l.monthly_payment FROM institution_loans l WHERE ${where} LIMIT 1`,
+        const loanRes = await client.query<{
+          status: string
+          tenure_months: number
+          remaining_tenure_months: number | null
+          next_payment_date: string | null
+          maturity_date: string | null
+          monthly_payment: number | null
+          loan_product: string | null
+          third_party_agent_id: string
+          third_party_agent_name: string
+        }>(
+          `SELECT l.status, l.tenure_months, l.remaining_tenure_months, l.next_payment_date, l.maturity_date,
+                  l.monthly_payment, l.loan_product, l.third_party_agent_id,
+                  COALESCE(tpa.name, '') AS third_party_agent_name
+           FROM institution_loans l
+           LEFT JOIN third_party_agents tpa ON tpa.id = l.third_party_agent_id
+           WHERE ${where}
+           LIMIT 1`,
           qparams,
         )
         const row = loanRes.rows[0]
@@ -257,16 +251,19 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
           return { error: "invalid_status_transition" as const }
         }
 
-        const tenureMonths = Math.max(0, Math.floor(Number(row.tenure_months ?? 0)))
-        const expectedMaturity = addCalendarMonthsToIsoDate(nextPaymentDate, tenureMonths)
+        const remainingTenureMonths = Math.max(
+          0,
+          Math.floor(Number(row.remaining_tenure_months ?? row.tenure_months ?? 0)),
+        )
+        const expectedMaturity = addCalendarMonthsToIsoDate(nextPaymentDate, remainingTenureMonths)
         if (!expectedMaturity || expectedMaturity !== maturityDate) {
           return { error: "maturity_date_mismatch" as const }
         }
 
-        const activeUpdateWhere = isSuperAdmin
+        const activeUpdateWhere = isSA
           ? "id = $2 AND institution_id = $3"
           : "id = $2 AND institution_id = $3 AND branch_id = $7"
-        const activeUpdateParams = isSuperAdmin
+        const activeUpdateParams = isSA
           ? [actor.id, id, actor.institution_id, nextPaymentDate, maturityDate, monthlyPayment]
           : [actor.id, id, actor.institution_id, nextPaymentDate, maturityDate, monthlyPayment, actor.branch_id]
 
@@ -298,10 +295,29 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
           },
           actor.institution_id,
           actor.id,
-          undefined,
+          { branch_id: actor.branch_id },
           client
         )
-        return { ok: true as const, status: "Active" as const }
+        return {
+          ok: true as const,
+          status: "Active" as const,
+          postCommit: {
+            actorId: actor.id,
+            institutionId: actor.institution_id,
+            branchId: actor.branch_id,
+            agent: {
+              id: String(row.third_party_agent_id || ""),
+              name: String(row.third_party_agent_name || "").trim() || "External lender",
+            },
+            loan: {
+              id,
+              loan_product: row.loan_product != null ? String(row.loan_product) : null,
+              next_payment_date: nextPaymentDate,
+              maturity_date: maturityDate,
+              monthly_payment: Number(monthlyPayment),
+            },
+          },
+        }
       }
 
       if (nextStatus === "Approved") {
@@ -343,7 +359,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
           { status: "Approved", approved_at: approvedAt, rejected_at: null },
           actor.institution_id,
           actor.id,
-          undefined,
+          { branch_id: actor.branch_id },
           client
         )
       } else {
@@ -365,7 +381,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
           { status: "Rejected", approved_at: null, rejected_at: rejectedAt },
           actor.institution_id,
           actor.id,
-          undefined,
+          { branch_id: actor.branch_id },
           client
         )
       }
@@ -378,22 +394,73 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       const statusCode =
         err === "missing_permission:approve_sacco_loan" ||
           err === "missing_permission:reject_sacco_loan" ||
+          err === "missing_permission:activate_sacco_loan" ||
           err === "missing_permission:disburse_sacco_loan" ||
-          err === "missing_permission:view_sacco_loans"
+          err === "missing_permission:view_sacco_loans" ||
+          err === "staff_inactive" ||
+          err === "branch_inactive" ||
+          err === "branch_not_found" ||
+          err === SUPER_ADMIN_WRITE_BLOCKED
           ? 403
           : err === "user_not_linked" || err === "cross_branch_operation_forbidden"
             ? 403
+            : err === "staff_not_found"
+              ? 404
             : err === "not_found"
               ? 404
               : err === "actor_branch_missing"
                 ? 400
                 : 400
       apiLog("warn", "sacco_loans.patch.denied", { method: "PATCH", apiPath, status: statusCode, error: err })
-      return NextResponse.json({ error: err }, { status: statusCode })
+      const payload: Record<string, unknown> = { error: err }
+      if ("staffStatus" in result && result.staffStatus) payload.staff_status = result.staffStatus
+      if ("branchStatus" in result && result.branchStatus) payload.branch_status = result.branchStatus as BranchStatus
+      return NextResponse.json(payload, { status: statusCode })
     }
 
-    apiLog("info", "sacco_loans.patch.success", { method: "PATCH", apiPath, status: 200, id, status: result.status })
-    return NextResponse.json(result)
+    apiLog("info", "sacco_loans.patch.success", { method: "PATCH", apiPath, status: 200, id, loanStatus: result.status })
+
+    const ctx = result && "postCommit" in result ? result.postCommit : null
+    if (ctx) {
+      try {
+        const notifyRes = await runWithoutAuth((notifyClient) =>
+          notifySaccoLoanActivated({
+            client: notifyClient,
+            actor: {
+              id: ctx.actorId,
+              institution_id: ctx.institutionId,
+              branch_id: ctx.branchId,
+            },
+            agent: ctx.agent,
+            loan: ctx.loan,
+          }),
+        )
+        apiLog(
+          notifyRes.ok ? "info" : "warn",
+          notifyRes.ok
+            ? "sacco_loans.activate.notifications_dispatched"
+            : "sacco_loans.activate.notifications_partial",
+          {
+            method: "PATCH",
+            apiPath,
+            status: 200,
+            loanId: id,
+            staffNotifications: notifyRes.staffNotifications,
+            ...(notifyRes.errors.length ? { errors: notifyRes.errors } : {}),
+          },
+        )
+      } catch (notifyErr) {
+        apiLog("error", "sacco_loans.activate.notifications_failed", {
+          method: "PATCH",
+          apiPath,
+          status: 200,
+          loanId: id,
+          error: (notifyErr as Error)?.message || "notify_failed",
+        })
+      }
+    }
+
+    return NextResponse.json({ ok: true, status: result.status })
   } catch (e: unknown) {
     const err = e as Error
     apiLog("error", "sacco_loans.patch.error", { method: "PATCH", apiPath, status: 500, error: err?.message })

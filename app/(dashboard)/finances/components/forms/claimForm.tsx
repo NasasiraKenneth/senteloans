@@ -26,9 +26,9 @@ function transactionLabel(t: RawTransaction): string {
 }
 
 export type ClaimFormData = {
-  assignee_type: "member" | "client" | ""
+  assignee_type: "member" | "third_party_agent" | ""
   member_id: string
-  client_id: string
+  third_party_agent_id: string
   transaction_id: string
 }
 
@@ -48,13 +48,13 @@ interface ClaimFormProps {
 const defaultValues: ClaimFormData = {
   assignee_type: "",
   member_id: "",
-  client_id: "",
+  third_party_agent_id: "",
   transaction_id: "",
 }
 
 const ASSIGNEE_OPTIONS = [
   { value: "member", label: "Member" },
-  { value: "client", label: "Client" },
+  { value: "third_party_agent", label: "Third Party Agent" },
 ]
 
 const selectWrap = (hasError: boolean) => (hasError ? "rounded-md ring-1 ring-red-500" : "")
@@ -69,7 +69,7 @@ export default function ClaimForm({
   const [form, setForm] = useState<ClaimFormData>({ ...defaultValues })
   const [errors, setErrors] = useState<Partial<Record<keyof ClaimFormData, string>>>({})
   const [memberOptions, setMemberOptions] = useState<{ value: string; label: string }[]>([])
-  const [clientOptions, setClientOptions] = useState<{ value: string; label: string }[]>([])
+  const [thirdPartyAgentOptions, setThirdPartyAgentOptions] = useState<{ value: string; label: string }[]>([])
   const [transactionOptions, setTransactionOptions] = useState<{ value: string; label: string }[]>([])
   const [loadingLists, setLoadingLists] = useState(false)
   const [loadingTransactions, setLoadingTransactions] = useState(false)
@@ -83,7 +83,7 @@ export default function ClaimForm({
       try {
         const [mRes, cRes] = await Promise.all([
           fetch(`/api/institution/members?limit=200${branchQuery}`, { cache: "no-store" }),
-          fetch(`/api/institution/clients?limit=200${branchQuery}`, { cache: "no-store" }),
+          fetch(`/api/institution/third-party-agents?limit=200${branchQuery}`, { cache: "no-store" }),
         ])
         const mBody = await mRes.json().catch(() => ({}))
         const cBody = await cRes.json().catch(() => ({}))
@@ -100,16 +100,16 @@ export default function ClaimForm({
         } else if (!cancelled) setMemberOptions([])
 
         if (!cancelled && cRes.ok) {
-          const clients = Array.isArray(cBody?.clients) ? cBody.clients : []
-          setClientOptions(
-            clients
+          const agents = Array.isArray(cBody?.third_party_agents) ? cBody.third_party_agents : []
+          setThirdPartyAgentOptions(
+            agents
               .map((c: { id?: string; name?: string }) => ({
                 value: String(c.id || ""),
-                label: String(c.name || "Client").trim() || "Client",
+                label: String(c.name || "Third Party Agent").trim() || "Third Party Agent",
               }))
               .filter((o: { value: string }) => Boolean(o.value)),
           )
-        } else if (!cancelled) setClientOptions([])
+        } else if (!cancelled) setThirdPartyAgentOptions([])
       } finally {
         if (!cancelled) setLoadingLists(false)
       }
@@ -123,8 +123,8 @@ export default function ClaimForm({
     const assigneeId =
       form.assignee_type === "member"
         ? form.member_id
-        : form.assignee_type === "client"
-          ? form.client_id
+        : form.assignee_type === "third_party_agent"
+          ? form.third_party_agent_id
           : ""
 
     if (!assigneeId) {
@@ -139,7 +139,7 @@ export default function ClaimForm({
     params.set("pageSize", "100")
     if (branchId) params.set("branches", branchId)
     if (form.assignee_type === "member") params.set("member_id", assigneeId)
-    else params.set("client_id", assigneeId)
+    else params.set("third_party_agent_id", assigneeId)
 
     void (async () => {
       try {
@@ -169,17 +169,17 @@ export default function ClaimForm({
     return () => {
       cancelled = true
     }
-  }, [branchId, form.assignee_type, form.member_id, form.client_id])
+  }, [branchId, form.assignee_type, form.member_id, form.third_party_agent_id])
 
   const set = (field: keyof ClaimFormData, value: string) => {
     setForm((prev) => {
       const next = { ...prev, [field]: value }
       if (field === "assignee_type") {
         next.member_id = ""
-        next.client_id = ""
+        next.third_party_agent_id = ""
         next.transaction_id = ""
       }
-      if (field === "member_id" || field === "client_id") {
+      if (field === "member_id" || field === "third_party_agent_id") {
         next.transaction_id = ""
       }
       return next
@@ -189,9 +189,11 @@ export default function ClaimForm({
 
   const validate = (): boolean => {
     const e: Partial<Record<keyof ClaimFormData, string>> = {}
-    if (!form.assignee_type) e.assignee_type = "Select member or client"
+    if (!form.assignee_type) e.assignee_type = "Select member or third party agent"
     if (form.assignee_type === "member" && !form.member_id.trim()) e.member_id = "Select a member"
-    if (form.assignee_type === "client" && !form.client_id.trim()) e.client_id = "Select a client"
+    if (form.assignee_type === "third_party_agent" && !form.third_party_agent_id.trim()) {
+      e.third_party_agent_id = "Select a third party agent"
+    }
     setErrors(e)
     return Object.keys(e).length === 0
   }
@@ -203,17 +205,25 @@ export default function ClaimForm({
     onSubmit({
       assignee_type: form.assignee_type,
       member_id: form.assignee_type === "member" ? form.member_id.trim() : "",
-      client_id: form.assignee_type === "client" ? form.client_id.trim() : "",
+      third_party_agent_id:
+        form.assignee_type === "third_party_agent" ? form.third_party_agent_id.trim() : "",
       transaction_id: form.transaction_id.trim(),
     })
   }
 
   const assigneeSelected =
     (form.assignee_type === "member" && !!form.member_id.trim()) ||
-    (form.assignee_type === "client" && !!form.client_id.trim())
+    (form.assignee_type === "third_party_agent" && !!form.third_party_agent_id.trim())
+
+  const assigneeLabel =
+    form.assignee_type === "member"
+      ? "member"
+      : form.assignee_type === "third_party_agent"
+        ? "third party agent"
+        : "member or third party agent"
 
   const transactionPlaceholder = !assigneeSelected
-    ? `Select a ${form.assignee_type || "member or client"} first`
+    ? `Select a ${assigneeLabel} first`
     : loadingTransactions
       ? "Loading transactions…"
       : transactionOptions.length === 0
@@ -316,21 +326,25 @@ export default function ClaimForm({
         </div>
       )}
 
-      {form.assignee_type === "client" && (
+      {form.assignee_type === "third_party_agent" && (
         <div>
           <label className="mb-1 block text-sm font-medium text-gray-700">
-            Client <span className="text-red-500">*</span>
+            Third party agent <span className="text-red-500">*</span>
           </label>
-          <div className={`${selectWrap(!!errors.client_id)} ${disabled || loadingLists ? "pointer-events-none opacity-60" : ""}`}>
+          <div
+            className={`${selectWrap(!!errors.third_party_agent_id)} ${disabled || loadingLists ? "pointer-events-none opacity-60" : ""}`}
+          >
             <StyledSelect
-              value={form.client_id}
-              onChange={(v) => set("client_id", v)}
-              placeholder={loadingLists ? "Loading clients…" : "Select client"}
-              options={clientOptions}
+              value={form.third_party_agent_id}
+              onChange={(v) => set("third_party_agent_id", v)}
+              placeholder={loadingLists ? "Loading agents…" : "Select third party agent"}
+              options={thirdPartyAgentOptions}
               searchable
             />
           </div>
-          {errors.client_id ? <p className="mt-1 text-xs text-red-600">{errors.client_id}</p> : null}
+          {errors.third_party_agent_id ? (
+            <p className="mt-1 text-xs text-red-600">{errors.third_party_agent_id}</p>
+          ) : null}
         </div>
       )}
 
@@ -352,7 +366,7 @@ export default function ClaimForm({
       )}
 
       <p className="text-xs text-muted-foreground">
-        Claiming links this deposit to the selected member or client and marks it as claimed.
+        Claiming links this deposit to the selected member or third party agent and marks it as claimed.
       </p>
 
       <div className="flex justify-end gap-2 border-t border-gray-100 pt-4">

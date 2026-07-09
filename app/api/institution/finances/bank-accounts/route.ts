@@ -1,9 +1,17 @@
 import { NextResponse } from "next/server"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
-import { hasPermission, isSuperAdmin, requireStaffSession, resolveActorContext, scopeWhere } from "@/lib/api/rbac"
+import { requireStaffSession, scopeWhere } from "@/lib/api/rbac"
+import {
+  assertFinanceBranchScope,
+  assertFinanceMutationAccess,
+  assertFinanceReadAccess,
+  financeAccessErrorResponseOrNull,
+  resolveFinanceWriteBranchId,
+} from "@/lib/api/finance-access"
 import { runWithAuth } from "@/lib/db"
 import { auditBankAccountInsert, bankAccountSnapshot } from "@/lib/audit/finances-audit"
 import { FINANCE_PERMISSIONS } from "@/lib/finances/permissions"
+import { BANK_ACCOUNT_AGENT_JOIN } from "@/lib/finances/bank-account"
 
 export async function GET(req: Request) {
   const apiPath = getApiPath(req)
@@ -24,11 +32,15 @@ export async function GET(req: Request) {
     const offset = page * rowsPerPage
 
     const result = await runWithAuth(sess.authUserId, async (client) => {
-      const actor = await resolveActorContext(client, sess.authUserId)
-      if (!actor?.institution_id) return { error: "user_not_linked" as const }
-      const allowed = await hasPermission(client, actor, FINANCE_PERMISSIONS.viewBankAccounts)
-      if (!allowed) return { error: "missing_permission:view_bank_accouts" as const }
-      if (!isSuperAdmin(actor) && !actor.branch_id) return { error: "actor_branch_missing" as const }
+      const access = await assertFinanceReadAccess(client, sess.authUserId, FINANCE_PERMISSIONS.viewBankAccounts)
+      if (!access.ok) {
+        return {
+          error: access.error,
+          staffStatus: access.staffStatus,
+          branchStatus: access.branchStatus,
+        }
+      }
+      const { actor } = access
 
       const scoped = scopeWhere({ tableAlias: "ba", actor, selectedBranchIds })
       let where = scoped.where
@@ -36,7 +48,7 @@ export async function GET(req: Request) {
       let idx = scoped.nextIndex
 
       if (search) {
-        where += ` AND (ba.bank_name ILIKE $${idx} OR ba.bank_account_number ILIKE $${idx})`
+        where += ` AND (tpa.name ILIKE $${idx} OR ba.bank_account_number ILIKE $${idx})`
         values.push(`%${search}%`)
         idx++
       }
@@ -48,13 +60,15 @@ export async function GET(req: Request) {
       const listRes = await client.query(
         `SELECT
            ba.id,
-           ba.bank_name,
+           ba.third_party_agent_id,
+           tpa.name AS bank_name,
            ba.bank_account_number,
            COALESCE(ba.total_amount, 0)::numeric AS total_amount,
            b.name AS branch_name,
            ba.updated_at,
            COUNT(*) OVER()::int AS total_count
          FROM bank_accounts ba
+         ${BANK_ACCOUNT_AGENT_JOIN}
          LEFT JOIN branches b ON b.id = ba.branch_id
          WHERE ${where}
          ORDER BY ba.updated_at DESC NULLS LAST, ba.created_at DESC
@@ -67,6 +81,7 @@ export async function GET(req: Request) {
       return {
         rows: listRes.rows.map((row) => ({
           id: String(row.id),
+          third_party_agent_id: row.third_party_agent_id ? String(row.third_party_agent_id) : "",
           bank_name: String(row.bank_name || ""),
           bank_account_number: String(row.bank_account_number || ""),
           total_amount: Number(row.total_amount || 0),
@@ -78,8 +93,11 @@ export async function GET(req: Request) {
     })
 
     if (result && "error" in result) {
-      const statusCode = result.error === "actor_branch_missing" ? 400 : 403
-      return NextResponse.json({ error: result.error }, { status: statusCode })
+      const accessResponse = financeAccessErrorResponseOrNull(result)
+      if (accessResponse) {
+        return NextResponse.json(accessResponse.body, { status: accessResponse.status })
+      }
+      return NextResponse.json({ error: result.error }, { status: 403 })
     }
 
     return NextResponse.json({ rows: result?.rows || [], total: result?.total || 0 })
@@ -99,39 +117,52 @@ export async function POST(req: Request) {
     }
 
     const body = await req.json().catch(() => ({}))
-    const bankName = String(body?.bank_name || "").trim()
+    const thirdPartyAgentId = String(body?.third_party_agent_id || "").trim()
     const accountNumber = String(body?.bank_account_number || "").trim()
-    const totalAmount = Number(body?.total_amount ?? 0)
     const branchId = String(body?.branch_id || "").trim()
 
-    if (!bankName || !accountNumber) {
-      return NextResponse.json({ error: "bank_name_and_account_required" }, { status: 400 })
+    if (!thirdPartyAgentId) {
+      return NextResponse.json({ error: "third_party_agent_id_required" }, { status: 400 })
     }
-    if (!Number.isFinite(totalAmount) || totalAmount < 0) {
-      return NextResponse.json({ error: "invalid_total_amount" }, { status: 400 })
+    if (!accountNumber) {
+      return NextResponse.json({ error: "bank_account_number_required" }, { status: 400 })
     }
 
     const created = await runWithAuth(sess.authUserId, async (client) => {
-      const actor = await resolveActorContext(client, sess.authUserId)
-      if (!actor?.institution_id) return { error: "user_not_linked" as const }
-      const allowed = await hasPermission(client, actor, FINANCE_PERMISSIONS.addBankAccount)
-      if (!allowed) return { error: "missing_permission:add_bank_account" as const }
+      const access = await assertFinanceMutationAccess(client, sess.authUserId, FINANCE_PERMISSIONS.addBankAccount)
+      if (!access.ok) {
+        return {
+          error: access.error,
+          staffStatus: access.staffStatus,
+          branchStatus: access.branchStatus,
+        }
+      }
+      const { actor } = access
 
-      const targetBranchId = isSuperAdmin(actor) ? branchId || actor.branch_id : actor.branch_id
-      if (!targetBranchId) return { error: "branch_id_required" as const }
+      const targetBranchId = resolveFinanceWriteBranchId(actor, branchId)
+      const branchScope = await assertFinanceBranchScope(client, actor, targetBranchId)
+      if (!branchScope.ok) {
+        return {
+          error: branchScope.error,
+          staffStatus: branchScope.staffStatus,
+          branchStatus: branchScope.branchStatus,
+        }
+      }
 
-      const branchCheck = await client.query(
-        `SELECT 1 FROM branches WHERE id = $1::uuid AND institution_id = $2::uuid LIMIT 1`,
-        [targetBranchId, actor.institution_id],
+      const agentCheck = await client.query(
+        `SELECT 1 FROM third_party_agents
+         WHERE id = $1::uuid AND institution_id = $2::uuid AND branch_id = $3::uuid
+         LIMIT 1`,
+        [thirdPartyAgentId, actor.institution_id, branchScope.branchId],
       )
-      if ((branchCheck.rowCount ?? 0) === 0) return { error: "invalid_branch" as const }
+      if ((agentCheck.rowCount ?? 0) === 0) return { error: "invalid_third_party_agent" as const }
 
       const insertRes = await client.query(
         `INSERT INTO bank_accounts (
-           institution_id, branch_id, bank_name, bank_account_number, total_amount, modified_by
-         ) VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6::uuid)
-         RETURNING id, bank_name, bank_account_number, total_amount, branch_id`,
-        [actor.institution_id, targetBranchId, bankName, accountNumber, totalAmount, actor.id],
+           institution_id, branch_id, third_party_agent_id, bank_account_number, total_amount, modified_by
+         ) VALUES ($1::uuid, $2::uuid, $3::uuid, $4, 0, $5::uuid)
+         RETURNING id, third_party_agent_id, bank_account_number, total_amount, branch_id`,
+        [actor.institution_id, branchScope.branchId, thirdPartyAgentId, accountNumber, actor.id],
       )
 
       const newRow = insertRes.rows[0] as Record<string, unknown> | undefined
@@ -142,7 +173,7 @@ export async function POST(req: Request) {
           actor,
           newId,
           bankAccountSnapshot(newRow),
-          (newRow.branch_id as string | null | undefined) ?? targetBranchId,
+          (newRow.branch_id as string | null | undefined) ?? branchScope.branchId,
         )
       }
 
@@ -150,8 +181,11 @@ export async function POST(req: Request) {
     })
 
     if (created && "error" in created) {
-      const statusCode =
-        created.error === "branch_id_required" || created.error === "invalid_branch" ? 400 : 403
+      const accessResponse = financeAccessErrorResponseOrNull(created)
+      if (accessResponse) {
+        return NextResponse.json(accessResponse.body, { status: accessResponse.status })
+      }
+      const statusCode = created.error === "invalid_third_party_agent" ? 400 : 403
       return NextResponse.json({ error: created.error }, { status: statusCode })
     }
 

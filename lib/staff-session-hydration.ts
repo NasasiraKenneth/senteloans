@@ -1,5 +1,6 @@
 import {
   getSession,
+  clearSession,
   mergeSessionFromAuthUser,
   patchSession,
   setSession,
@@ -39,12 +40,29 @@ export async function hydrateStaffSession(): Promise<SessionData | null> {
   const localSession = getSession()
 
   try {
-    const authRes = await fetch("/api/auth/session", { cache: "no-store" })
-    if (!authRes.ok) return localSession
+    const authRes = await fetch("/api/auth/session", {
+      credentials: "include",
+      cache: "no-store",
+      headers: { Accept: "application/json" },
+    })
+    const contentType = authRes.headers.get("content-type") || ""
+    // HTML 404 / non-JSON is the NextAuth CLIENT_FETCH_ERROR case — drop stale cache.
+    if (!authRes.ok || !contentType.includes("application/json")) {
+      clearSession()
+      return null
+    }
 
-    const auth = await authRes.json()
+    const auth = await authRes.json().catch(() => null)
+    if (!auth || typeof auth !== "object") {
+      clearSession()
+      return null
+    }
+
     const user = auth?.user as AuthSessionUser | undefined
-    if (!user?.authUserId || user?.type !== "staff") return localSession
+    if (!user?.authUserId || user?.type !== "staff") {
+      clearSession()
+      return null
+    }
 
     const merged: SessionData = {
       ...(localSession || {

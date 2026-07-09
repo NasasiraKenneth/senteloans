@@ -1,20 +1,33 @@
 import { NextResponse } from "next/server"
 import { runWithAuth } from "@/lib/db"
+import {
+  auditExpenseUpdate,
+  expenseSnapshot,
+} from "@/lib/audit/expense-audit"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
 import { expenseFundingStatusBlock } from "@/lib/api/expense-funding-guard"
-import { auditCashflowInsert, cashflowSnapshot } from "@/lib/audit/expense-audit"
-import { hasPermission, isSuperAdmin, requireStaffSession, resolveActorContext } from "@/lib/api/rbac"
+import {
+  createExpenseCashflow,
+} from "@/lib/expenses/create-expense"
+import {
+  isSettledExpenseCashflowStatus,
+  mapExpensePaymentSettlementFailure,
+  normalizeExpenseCashflowPaymentStatus,
+  recordFullyPaidExpenseCashflow,
+  recordUnpaidExpenseCashflow,
+} from "@/lib/expenses/record-expense-cashflow-payment"
+import { PaymentSettlementFailure, validatePaymentModeInput } from "@/lib/finances/settle-payment-mode"
+import { requireStaffSession } from "@/lib/api/rbac"
+import {
+  assertExpenseWriteAccess,
+  expenseScopeWhere,
+  mapExpenseMutationErrorResponse,
+} from "@/lib/api/expense-access"
 
 const PAYMENT_MODES = ["Cash", "Mobile Money", "Bank Transfer", "Cheque", "Card"] as const
 
-function singleExpenseWhere(actor: NonNullable<Awaited<ReturnType<typeof resolveActorContext>>>, expenseId: string): { where: string; values: unknown[] } {
-  let where = `e.id = $1::uuid AND e.institution_id = $2::uuid`
-  const values: unknown[] = [expenseId, actor.institution_id]
-  if (!isSuperAdmin(actor)) {
-    where += ` AND e.branch_id = $3::uuid`
-    values.push(actor.branch_id)
-  }
-  return { where, values }
+function normalizeExpenseStatus(s: string): string {
+  return String(s || "").trim().toLowerCase()
 }
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -33,9 +46,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
   const assigneeRaw = String(body.assignee_type ?? body.type ?? "").trim().toLowerCase()
   const staffIdRaw = body.staff_id ?? body.staffId
-  const clientIdRaw = body.client_id ?? body.clientId
+  const thirdPartyAgentIdRaw = body.third_party_agent_id ?? body.thirdPartyAgentId
   const staffId = staffIdRaw != null && String(staffIdRaw).trim() !== "" ? String(staffIdRaw).trim() : ""
-  const clientId = clientIdRaw != null && String(clientIdRaw).trim() !== "" ? String(clientIdRaw).trim() : ""
+  const thirdPartyAgentId =
+    thirdPartyAgentIdRaw != null && String(thirdPartyAgentIdRaw).trim() !== ""
+      ? String(thirdPartyAgentIdRaw).trim()
+      : ""
 
   const amount = Number(body.amount ?? 0)
   const descriptionRaw = body.description
@@ -46,6 +62,21 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const date = String(body.date ?? "").trim()
   const modeRaw = String(body.mode ?? body.payment_method ?? body.transactionMode ?? "").trim()
   const mode = modeRaw || null
+  const paymentStatus = normalizeExpenseCashflowPaymentStatus(
+    body.payment_status ?? body.paymentStatus,
+  )
+  const referenceNumber = String(body.reference_number ?? body.referenceNumber ?? "").trim()
+  const bankAccountId = String(body.bank_account_id ?? body.bankAccountId ?? "").trim()
+  const transactionChargesRaw = body.transaction_charges ?? body.transactionCharges
+  const transactionCharges =
+    transactionChargesRaw == null || transactionChargesRaw === ""
+      ? 0
+      : Number(transactionChargesRaw)
+
+  if (paymentStatus == null) {
+    return NextResponse.json({ error: "invalid_payment_status" }, { status: 400 })
+  }
+  const isFullyPaid = paymentStatus === "fully_paid"
 
   if (assigneeRaw !== "staff" && assigneeRaw !== "clients") {
     return NextResponse.json({ error: "invalid_assignee_type" }, { status: 400 })
@@ -53,11 +84,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   if (assigneeRaw === "staff" && !staffId) {
     return NextResponse.json({ error: "staff_id_required" }, { status: 400 })
   }
-  if (assigneeRaw === "clients" && !clientId) {
-    return NextResponse.json({ error: "client_id_required" }, { status: 400 })
+  if (assigneeRaw === "clients" && !thirdPartyAgentId) {
+    return NextResponse.json({ error: "third_party_agent_id_required" }, { status: 400 })
   }
-  if (assigneeRaw === "staff" && clientId) {
-    return NextResponse.json({ error: "client_id_not_allowed_for_staff_cashflow" }, { status: 400 })
+  if (assigneeRaw === "staff" && thirdPartyAgentId) {
+    return NextResponse.json({ error: "third_party_agent_id_not_allowed_for_staff_cashflow" }, { status: 400 })
   }
   if (assigneeRaw === "clients" && staffId) {
     return NextResponse.json({ error: "staff_id_not_allowed_for_client_cashflow" }, { status: 400 })
@@ -65,11 +96,31 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
     return NextResponse.json({ error: "invalid_date" }, { status: 400 })
   }
-  if (mode && !PAYMENT_MODES.includes(mode as (typeof PAYMENT_MODES)[number])) {
-    return NextResponse.json({ error: "invalid_payment_method" }, { status: 400 })
-  }
   if (Number.isNaN(amount) || amount <= 0) {
     return NextResponse.json({ error: "invalid_amount" }, { status: 400 })
+  }
+
+  if (isFullyPaid) {
+    if (!mode) {
+      return NextResponse.json({ error: "mode_required" }, { status: 400 })
+    }
+    if (!PAYMENT_MODES.includes(mode as (typeof PAYMENT_MODES)[number])) {
+      return NextResponse.json({ error: "invalid_payment_method" }, { status: 400 })
+    }
+    if (!Number.isFinite(transactionCharges) || transactionCharges < 0) {
+      return NextResponse.json({ error: "invalid_transaction_charges" }, { status: 400 })
+    }
+    if (mode === "Cash" && transactionCharges > 0) {
+      return NextResponse.json({ error: "transaction_charges_not_allowed" }, { status: 400 })
+    }
+    const paymentModeError = validatePaymentModeInput({
+      mode,
+      referenceNumber,
+      bankAccountId,
+    })
+    if (paymentModeError) {
+      return NextResponse.json({ error: paymentModeError }, { status: 400 })
+    }
   }
 
   try {
@@ -80,15 +131,36 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     }
 
     const result = await runWithAuth(sess.authUserId, async (client) => {
-      const actor = await resolveActorContext(client, sess.authUserId)
-      if (!actor?.institution_id) return { error: "user_not_linked" as const }
-      const allowed = await hasPermission(client, actor, "record_cashflow")
-      if (!allowed) return { error: "missing_permission:record_cashflow" as const }
-      if (!isSuperAdmin(actor) && !actor.branch_id) return { error: "actor_branch_missing" as const }
+      const access = await assertExpenseWriteAccess(client, sess.authUserId, "record_cashflow")
+      if (!access.ok) {
+        return {
+          error: access.error,
+          message: access.message,
+          staffStatus: access.staffStatus,
+          branchStatus: access.branchStatus,
+        }
+      }
+      const { actor } = access
 
-      const { where, values } = singleExpenseWhere(actor, expenseId)
-      const exRes = await client.query<{ id: string; branch_id: string; status: string }>(
-        `SELECT e.id, e.branch_id, e.status FROM expenses e WHERE ${where} LIMIT 1`,
+      const { where, values } = expenseScopeWhere(actor, expenseId)
+      const exRes = await client.query<{
+        id: string
+        branch_id: string
+        status: string
+        expense_number: string | null
+        name: string | null
+        description: string | null
+        type: string | null
+        approved_by: string | null
+        approved_at: string | null
+        rejected_by: string | null
+        rejected_at: string | null
+        completed_by: string | null
+        completed_at: string | null
+      }>(
+        `SELECT e.id, e.branch_id, e.status, e.expense_number, e.name, e.description, e.type,
+                e.approved_by, e.approved_at, e.rejected_by, e.rejected_at, e.completed_by, e.completed_at
+         FROM expenses e WHERE ${where} LIMIT 1`,
         values,
       )
       const expense = exRes.rows[0]
@@ -96,8 +168,18 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       const blocked = expenseFundingStatusBlock(String(expense.status || ""))
       if (blocked) return blocked
 
+      const expenseStatusNorm = normalizeExpenseStatus(String(expense.status || ""))
+      if (isFullyPaid && expenseStatusNorm !== "approved" && expenseStatusNorm !== "active") {
+        return {
+          error: "expense_not_approved_or_active" as const,
+          message:
+            "Fully paid cashflows can only be recorded when the expense is approved or active." as const,
+        }
+      }
+
       const branchId = String(expense.branch_id || "")
       const instId = actor.institution_id
+      const expenseNumber = String(expense.expense_number || "").trim() || expenseId.slice(0, 8)
 
       if (assigneeRaw === "staff") {
         const s = await client.query(
@@ -108,116 +190,175 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         )
         if ((s.rowCount ?? 0) === 0) return { error: "invalid_staff" as const }
       } else {
-        const cWhere = isSuperAdmin(actor)
-          ? `id = $1::uuid AND institution_id = $2::uuid`
-          : `id = $1::uuid AND institution_id = $2::uuid AND branch_id = $3::uuid`
-        const cParams = isSuperAdmin(actor) ? [clientId, instId] : [clientId, instId, branchId]
-        const c = await client.query(`SELECT id FROM clients WHERE ${cWhere} LIMIT 1`, cParams)
-        if ((c.rowCount ?? 0) === 0) return { error: "invalid_client" as const }
+        const c = await client.query(
+          `SELECT id FROM third_party_agents
+           WHERE id = $1::uuid AND institution_id = $2::uuid AND branch_id = $3::uuid
+           LIMIT 1`,
+          [thirdPartyAgentId, instId, branchId],
+        )
+        if ((c.rowCount ?? 0) === 0) return { error: "invalid_third_party_agent" as const }
       }
 
-      const ins = await client.query(
-        `INSERT INTO expense_cashflows (
-           expense_id,
-           transaction_id,
-           staff_id,
-           client_id,
-           payment_method,
-           amount,
-           description,
-           date
-         )
-         VALUES (
-           $1::uuid,
-           NULL,
-           $2::uuid,
-           $3::uuid,
-           $4::payment_mode,
-           $5,
-           $6,
-           $7::date
-         )
-         RETURNING
-           id,
-           expense_id,
-           amount::float,
-           description,
-           status,
-           date::text AS date,
-           payment_method::text AS payment_method,
-           created_at,
-           staff_id,
-           client_id,
-           completed_by,
-           completed_at`,
-        [
-          expenseId,
-          assigneeRaw === "staff" ? staffId : null,
-          assigneeRaw === "clients" ? clientId : null,
-          mode,
-          amount,
-          description,
-          date,
-        ],
-      )
-      const row = ins.rows[0] as Record<string, unknown> | undefined
-      if (!row) return { error: "insert_failed" as const }
+      const resolvedStaffId = assigneeRaw === "staff" ? staffId : null
+      const resolvedAgentId = assigneeRaw === "clients" ? thirdPartyAgentId : null
 
-      await auditCashflowInsert(client, actor, String(row.id), cashflowSnapshot(row), branchId)
-
-      const sid = row.staff_id != null ? String(row.staff_id) : null
-      const cid = row.client_id != null ? String(row.client_id) : null
-      let assigned_type: "staff" | "client" | null = null
-      if (sid) assigned_type = "staff"
-      else if (cid) assigned_type = "client"
-
-      let assigned_name: string | null = null
-      if (sid) {
-        const nr = await client.query(`SELECT full_name FROM users WHERE id = $1::uuid LIMIT 1`, [sid])
-        assigned_name =
-          nr.rows[0]?.full_name != null ? String(nr.rows[0].full_name).trim() || "Staff" : "Staff"
-      } else if (cid) {
-        const nr = await client.query(`SELECT name FROM clients WHERE id = $1::uuid LIMIT 1`, [cid])
-        assigned_name = nr.rows[0]?.name != null ? String(nr.rows[0].name).trim() || "Client" : "Client"
+      if (!isFullyPaid) {
+        await client.query("BEGIN")
+        let committed = false
+        try {
+          const recorded = await recordUnpaidExpenseCashflow({
+            client,
+            actor,
+            institutionId: instId,
+            branchId,
+            expenseId,
+            expenseNumber,
+            staffId: resolvedStaffId,
+            thirdPartyAgentId: resolvedAgentId,
+            amount,
+            date,
+            description,
+          })
+          await client.query("COMMIT")
+          committed = true
+          const response = await buildCashflowResponse(client, recorded.cashflow, actor.id)
+          return {
+            ...response,
+            payment_status: "unpaid" as const,
+            transaction: {
+              id: recorded.transactionId,
+              transaction_number: recorded.transactionNumber,
+            },
+          }
+        } catch (e: unknown) {
+          const msg = (e as Error)?.message || ""
+          if (msg === "transaction_insert_failed") {
+            return { error: "transaction_insert_failed" as const }
+          }
+          throw e
+        } finally {
+          if (!committed) {
+            await client.query("ROLLBACK").catch(() => undefined)
+          }
+        }
       }
 
-      return {
-        cashflow: {
-          id: String(row.id),
-          amount: Number(row.amount || 0),
-          description: row.description != null ? String(row.description) : null,
-          status: String(row.status || "Pending"),
-          date: row.date != null ? String(row.date) : null,
-          payment_method: row.payment_method != null ? String(row.payment_method) : null,
-          created_at: row.created_at != null ? String(row.created_at) : "",
-          staff_id: sid,
-          client_id: cid,
-          assigned_type,
-          assigned_name,
-          completed_by: row.completed_by != null ? String(row.completed_by) : null,
-          completed_at: row.completed_at != null ? String(row.completed_at) : null,
-          completed_by_name: null as string | null,
-        },
+      await client.query("BEGIN")
+      let committed = false
+      try {
+        const cnt = await client.query<{ c: string }>(
+          `SELECT COUNT(*)::text AS c
+           FROM expense_cashflows
+           WHERE expense_id = $1::uuid
+             AND LOWER(TRIM(COALESCE(status::text, ''))) IN ('completed', 'paid', 'fully paid')`,
+          [expenseId],
+        )
+        const priorCompletedCashflowCount = Number(cnt.rows[0]?.c ?? 0)
+
+        let settled: Awaited<ReturnType<typeof recordFullyPaidExpenseCashflow>>
+        try {
+          settled = await recordFullyPaidExpenseCashflow({
+            client,
+            actor,
+            institutionId: instId,
+            branchId,
+            expenseId,
+            expenseNumber,
+            staffId: resolvedStaffId,
+            thirdPartyAgentId: resolvedAgentId,
+            amount,
+            mode: mode!,
+            date,
+            description,
+            referenceNumber,
+            bankAccountId,
+            charges: transactionCharges,
+          })
+        } catch (e: unknown) {
+          if (e instanceof PaymentSettlementFailure) {
+            return { error: mapExpensePaymentSettlementFailure(e) as string }
+          }
+          const msg = (e as Error)?.message || ""
+          if (msg === "transaction_insert_failed") {
+            return { error: "transaction_insert_failed" as const }
+          }
+          throw e
+        }
+
+        const created = settled.cashflow
+
+        let expenseStatus: string | undefined
+        if (priorCompletedCashflowCount === 0 && expenseStatusNorm === "approved") {
+          const expUpd = await client.query(
+            `UPDATE expenses e
+             SET status = 'Active', updated_at = NOW()
+             WHERE e.id = $1::uuid
+               AND e.institution_id = $2::uuid
+               AND LOWER(TRIM(COALESCE(e.status::text, ''))) = 'approved'
+             RETURNING e.id, e.expense_number, e.name, e.description, e.status, e.type, e.branch_id,
+                       e.approved_by, e.approved_at, e.rejected_by, e.rejected_at, e.completed_by, e.completed_at`,
+            [expenseId, instId],
+          )
+          const newExpRow = expUpd.rows[0] as Record<string, unknown> | undefined
+          if (newExpRow) {
+            await auditExpenseUpdate(
+              client,
+              actor,
+              expenseId,
+              expenseSnapshot(expense as unknown as Record<string, unknown>),
+              expenseSnapshot(newExpRow),
+              branchId,
+            )
+            expenseStatus = "Active"
+          }
+        }
+
+        await client.query("COMMIT")
+        committed = true
+
+        const response = await buildCashflowResponse(client, created, actor.id)
+        return {
+          ...response,
+          payment_status: "fully_paid" as const,
+          expense_payment_id: settled.expensePayment.id,
+          transaction: {
+            id: settled.transactionId,
+            transaction_number: settled.transactionNumber,
+          },
+          ...(settled.chargesExpenseId
+            ? {
+                charges_expense_id: settled.chargesExpenseId,
+                charges_transaction_id: settled.chargesTransactionId,
+              }
+            : {}),
+          expense_status: expenseStatus,
+        }
+      } finally {
+        if (!committed) {
+          await client.query("ROLLBACK").catch(() => undefined)
+        }
       }
     })
 
     if (result && "error" in result) {
       const code = String(result.error || "")
-      const statusCode =
-        code === "missing_permission:record_cashflow" ? 403
-        : code === "user_not_linked" ? 403
-        : code === "actor_branch_missing" ? 400
-        : code === "not_found" ? 404
-        : code === "expense_already_completed" || code === "expense_already_rejected" ? 409
-        : code === "invalid_staff" || code === "invalid_client" ? 400
-        : code === "insert_failed" ? 500
-        : 400
-      apiLog("warn", "expenses.cashflows.create.denied", { method: "POST", apiPath, status: statusCode, error: code })
-      const payload: { error: string; message?: string } = { error: code }
-      if ("message" in result && typeof result.message === "string" && result.message.trim()) {
-        payload.message = result.message.trim()
-      }
-      return NextResponse.json(payload, { status: statusCode })
+      const { status, body: errBody } = mapExpenseMutationErrorResponse(
+        {
+          error: code,
+          message: "message" in result ? String(result.message || "") : undefined,
+          staffStatus: "staffStatus" in result ? result.staffStatus : undefined,
+          branchStatus: "branchStatus" in result ? result.branchStatus : undefined,
+        },
+        {
+          expense_already_completed: 409,
+          expense_already_rejected: 409,
+          expense_not_approved_or_active: 409,
+          insert_failed: 500,
+          transaction_insert_failed: 500,
+        },
+      )
+      apiLog("warn", "expenses.cashflows.create.denied", { method: "POST", apiPath, status, error: code })
+      return NextResponse.json(errBody, { status })
     }
 
     apiLog("info", "expenses.cashflows.create.success", { method: "POST", apiPath, status: 201 })
@@ -226,5 +367,53 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const err = e as Error
     apiLog("error", "expenses.cashflows.create.error", { method: "POST", apiPath, status: 500, error: err?.message || "Unexpected error" })
     return NextResponse.json({ error: err?.message || "Unexpected error" }, { status: 500 })
+  }
+}
+
+async function buildCashflowResponse(
+  client: import("pg").PoolClient,
+  created: Awaited<ReturnType<typeof createExpenseCashflow>>,
+  actorId: string,
+) {
+  const sid = created.staffId
+  const agentId = created.thirdPartyAgentId
+  let assigned_type: "staff" | "client" | null = null
+  if (sid) assigned_type = "staff"
+  else if (agentId) assigned_type = "client"
+
+  let assigned_name: string | null = null
+  if (sid) {
+    const nr = await client.query(`SELECT full_name FROM users WHERE id = $1::uuid LIMIT 1`, [sid])
+    assigned_name =
+      nr.rows[0]?.full_name != null ? String(nr.rows[0].full_name).trim() || "Staff" : "Staff"
+  } else if (agentId) {
+    const nr = await client.query(`SELECT name FROM third_party_agents WHERE id = $1::uuid LIMIT 1`, [agentId])
+    assigned_name = nr.rows[0]?.name != null ? String(nr.rows[0].name).trim() || "Third Party Agent" : "Third Party Agent"
+  }
+
+  const nameRes = await client.query(`SELECT full_name FROM users WHERE id = $1::uuid LIMIT 1`, [actorId])
+  const completed_by_name =
+    nameRes.rows[0]?.full_name != null ? String(nameRes.rows[0].full_name).trim() : null
+
+  const isSettled = isSettledExpenseCashflowStatus(String(created.status || ""))
+
+  return {
+    cashflow: {
+      id: created.id,
+      amount: created.amount,
+      description: created.description,
+      status: created.status,
+      date: created.date,
+      payment_method: created.paymentMethod,
+      created_at: created.createdAt ?? "",
+      staff_id: sid,
+      third_party_agent_id: agentId,
+      assigned_type,
+      assigned_name,
+      completed_by: isSettled ? actorId : null,
+      completed_at: isSettled ? new Date().toISOString() : null,
+      completed_by_name: isSettled ? completed_by_name : null,
+      transaction_id: created.transactionId,
+    },
   }
 }

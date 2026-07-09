@@ -1,16 +1,19 @@
 import { NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
-import { runWithAuth } from "@/lib/db"
-import { notificationService } from "@/lib/notifications/notification-service"
-import { NotificationTemplates } from "@/lib/notifications/notification-types"
-import { getInstitutionAdminRecipients } from "@/lib/notifications/admin-recipients"
+import { runWithAuth, runWithoutAuth } from "@/lib/db"
+import { notifyLoanApplicationCreated } from "@/lib/notifications/loan-events"
+import { enqueueLoanApplicationEmails } from "@/lib/email/loan-emails"
 import { auditLogger } from "@/lib/audit/audit-logger"
 import { calculateLoanTerms } from "@/lib/loans/calculations"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
 import { makePrefixedNumber } from "@/lib/ids/prefixed-number"
-import { requireStaffSession, resolveActorContext, hasPermission, scopeWhere, isSuperAdmin, normalizeRole } from "@/lib/api/rbac"
+import { requireStaffSession, resolveActorContext, hasPermission, scopeWhere, isSuperAdmin, normalizeRole, assertNotSuperAdmin, SUPER_ADMIN_WRITE_BLOCKED } from "@/lib/api/rbac"
 import { decodeCursor, encodeCursor } from "@/lib/api/keyset"
+import { loanSummaryActiveStatusPredicate } from "@/lib/loans/summary"
+import { assertBranchActive } from "@/lib/branches/branch-status"
+import { assertMemberActive } from "@/lib/members/member-status"
+import { assertActorActive } from "@/lib/staff/staff-status"
 
 export async function GET(req: Request) {
   const apiPath = getApiPath(req)
@@ -41,6 +44,7 @@ export async function GET(req: Request) {
     const applicationDateEnd = (url.searchParams.get("applicationDateEnd") || "").trim()
     const nextPaymentDateStart = (url.searchParams.get("nextPaymentDateStart") || "").trim()
     const nextPaymentDateEnd = (url.searchParams.get("nextPaymentDateEnd") || "").trim()
+    const includeSummary = ["1", "true", "yes"].includes((url.searchParams.get("include_summary") || "").trim().toLowerCase())
 
     const result = await runWithAuth(sess.authUserId, async (client) => {
       const actor = await resolveActorContext(client, sess.authUserId)
@@ -56,10 +60,10 @@ export async function GET(req: Request) {
       if (memberId) {
         matchedMemberIds = [memberId]
       } else if (q) {
-        const searchWhere = isSuperAdmin
+        const searchWhere = isSA
           ? `institution_id = $1 AND (full_name ILIKE $2 OR member_number ILIKE $2 OR phone_number ILIKE $2 OR email ILIKE $2)`
           : `institution_id = $1 AND branch_id = $2 AND (full_name ILIKE $3 OR member_number ILIKE $3 OR phone_number ILIKE $3 OR email ILIKE $3)`
-        const searchParams = isSuperAdmin
+        const searchParams = isSA
           ? [actor.institution_id, `%${q}%`]
           : [actor.institution_id, actor.branch_id, `%${q}%`]
         const searchRes = await client.query(
@@ -76,6 +80,15 @@ export async function GET(req: Request) {
       let where = scoped.where
       const params: unknown[] = [...scoped.values]
       let idx = scoped.nextIndex
+      if (matchedMemberIds.length > 0) {
+        where += ` AND l.member_id = ANY($${idx}::uuid[])`
+        params.push(matchedMemberIds)
+        idx++
+      }
+
+      const summaryWhere = where
+      const summaryParams = [...params]
+
       if (status) {
         where += ` AND l.status = $${idx++}`
         params.push(status)
@@ -93,11 +106,11 @@ export async function GET(req: Request) {
         params.push(loanType)
       }
       if (remainingTenure) {
-        if (remainingTenure === "eq1") where += ` AND l.tenure_months = 1`
-        else if (remainingTenure === "lte3") where += ` AND l.tenure_months <= 3`
-        else if (remainingTenure === "lte6") where += ` AND l.tenure_months <= 6`
-        else if (remainingTenure === "lte12") where += ` AND l.tenure_months <= 12`
-        else if (remainingTenure === "gt12") where += ` AND l.tenure_months > 12`
+        if (remainingTenure === "eq1") where += ` AND l.remaining_tenure_months = 1`
+        else if (remainingTenure === "lte3") where += ` AND l.remaining_tenure_months <= 3`
+        else if (remainingTenure === "lte6") where += ` AND l.remaining_tenure_months <= 6`
+        else if (remainingTenure === "lte12") where += ` AND l.remaining_tenure_months <= 12`
+        else if (remainingTenure === "gt12") where += ` AND l.remaining_tenure_months > 12`
       }
       if (applicationDateStart) {
         where += ` AND l.application_date >= (($${idx}::timestamp AT TIME ZONE 'Africa/Nairobi')::date)`
@@ -119,11 +132,6 @@ export async function GET(req: Request) {
         params.push(nextPaymentDateEnd)
         idx++
       }
-      if (matchedMemberIds.length > 0) {
-        where += ` AND l.member_id = ANY($${idx}::uuid[])`
-        params.push(matchedMemberIds)
-        idx++
-      }
 
       if (cursor) {
         // keyset pagination: application_date desc, id desc
@@ -142,7 +150,7 @@ export async function GET(req: Request) {
       if (!cursor) params.push(take, from)
       else params.push(take)
       const dataRes = await client.query(
-        `SELECT l.id, l.application_id, l.member_id, l.loan_product_id, l.principal_amount, l.interest_rate, l.tenure_months, l.outstanding_balance, l.status, l.loan_type, l.approved_at, l.disbursement_date, l.application_date, l.next_payment_date
+        `SELECT l.id, l.application_id, l.member_id, l.loan_product_id, l.principal_amount, l.interest_rate, l.tenure_months, l.remaining_tenure_months, l.outstanding_balance, l.status, l.loan_type, l.approved_at, l.disbursement_date, l.application_date, l.next_payment_date
          FROM loans l WHERE ${where} ORDER BY l.application_date DESC, l.id DESC LIMIT $${idx}${cursor ? "" : ` OFFSET $${idx + 1}`}`,
         params
       )
@@ -170,6 +178,7 @@ export async function GET(req: Request) {
         principal_amount: row.principal_amount,
         interest_rate: row.interest_rate,
         tenure_months: row.tenure_months,
+        remaining_tenure_months: row.remaining_tenure_months,
         outstanding_balance: row.outstanding_balance,
         status: row.status,
         loan_type: row.loan_type,
@@ -185,7 +194,29 @@ export async function GET(req: Request) {
           ? encodeCursor({ t: String(last.application_date), id: String(last.id) })
           : null
 
-      return { items, total, page, pageSize: take, nextCursor }
+      let summary: { totalLoans: number; activeLoans: number; totalBorrowed: number; totalOutstanding: number } | undefined
+      if (includeSummary && matchedMemberIds.length > 0) {
+        const activePredicate = loanSummaryActiveStatusPredicate("l.status")
+        const summaryRes = await client.query(
+          `SELECT
+             COUNT(*)::int AS total_loans,
+             COUNT(*) FILTER (WHERE ${activePredicate})::int AS active_loans,
+             COALESCE(SUM(l.principal_amount::numeric), 0) AS total_borrowed,
+             COALESCE(SUM(l.outstanding_balance::numeric) FILTER (WHERE ${activePredicate}), 0) AS total_outstanding
+           FROM loans l
+           WHERE ${summaryWhere}`,
+          summaryParams,
+        )
+        const summaryRow = summaryRes.rows[0] as Record<string, unknown> | undefined
+        summary = {
+          totalLoans: Number(summaryRow?.total_loans || 0),
+          activeLoans: Number(summaryRow?.active_loans || 0),
+          totalBorrowed: Number(summaryRow?.total_borrowed || 0),
+          totalOutstanding: Number(summaryRow?.total_outstanding || 0),
+        }
+      }
+
+      return { items, total, page, pageSize: take, nextCursor, summary }
     })
 
     if (result && "error" in result) {
@@ -258,14 +289,48 @@ export async function POST(req: Request) {
     if (!purpose) return NextResponse.json({ error: "purpose_required" }, { status: 400 })
 
     const result = await runWithAuth(session.user.authUserId, async (client) => {
-      const actor = await resolveActorContext(client, session.user.authUserId as string)
+      const actor = await resolveActorContext(client, session.user.authUserId as string, {
+        activeOnly: false,
+      })
       if (!actor?.institution_id) return { error: "user_not_linked" as const }
+
+      const staffCheck = await assertActorActive(client, actor)
+      if (!staffCheck.ok) {
+        return {
+          error: staffCheck.error,
+          staffStatus: staffCheck.error === "staff_inactive" ? staffCheck.status : undefined,
+        }
+      }
+
+      const writeGuard = assertNotSuperAdmin(actor)
+      if (!writeGuard.ok) {
+        return { error: writeGuard.error, message: writeGuard.message }
+      }
+
       const allowed = await hasPermission(client, actor, "create_loan")
       if (!allowed) return { error: "missing_permission:create_loan" as const }
       if (!actor.branch_id) return { error: "actor_branch_missing" as const }
-      const [borrowerRes, productRes, topUpLoanRes] = await Promise.all([
-        client.query(`SELECT id, institution_id, branch_id, status, kyc_status FROM members WHERE id = $1`, [member_id]),
-        client.query(`SELECT id, institution_id, branch_id, status, interest_rate, minimum_amount, maximum_amount, minimum_tenure_months, maximum_tenure_months, guarantors_required, interest_calculation_method FROM loan_products WHERE id = $1`, [loan_product_id]),
+
+      const branchCheck = await assertBranchActive(client, actor.branch_id)
+      if (!branchCheck.ok) {
+        return {
+          error: branchCheck.error,
+          branchStatus: branchCheck.error === "branch_inactive" ? branchCheck.status : undefined,
+        }
+      }
+
+      const memberCheck = await assertMemberActive(client, member_id, actor.institution_id)
+      if (!memberCheck.ok) {
+        return {
+          error: memberCheck.error,
+          memberStatus: memberCheck.error === "member_inactive" ? memberCheck.status : undefined,
+        }
+      }
+      const borrower = memberCheck.member
+      if (borrower.branch_id !== actor.branch_id) return { error: "cross_branch_operation_forbidden" as const }
+
+      const [productRes, topUpLoanRes] = await Promise.all([
+        client.query(`SELECT id, institution_id, branch_id, status, product_name, interest_rate, minimum_amount, maximum_amount, minimum_tenure_months, maximum_tenure_months, guarantors_required, interest_calculation_method FROM loan_products WHERE id = $1`, [loan_product_id]),
         loan_type === "top up"
           ? client.query(
               `SELECT id, institution_id, branch_id, member_id, outstanding_balance, status
@@ -276,17 +341,14 @@ export async function POST(req: Request) {
             )
           : Promise.resolve({ rows: [] as any[] }),
       ])
-      const borrower = borrowerRes.rows[0]
       const product = productRes.rows[0]
       const topUpLoan = topUpLoanRes.rows[0]
-      if (!borrower) return { error: "member_not_found" as const }
       if (!product) return { error: "loan_product_not_found" as const }
-      if (borrower.institution_id !== actor.institution_id || product.institution_id !== actor.institution_id)
+      if (product.institution_id !== actor.institution_id)
         return { error: "cross_tenant_operation_forbidden" as const }
-      if (borrower.branch_id !== actor.branch_id || product.branch_id !== actor.branch_id)
+      if (product.branch_id !== actor.branch_id)
         return { error: "cross_branch_operation_forbidden" as const }
       if (String(product.status) !== "Active") return { error: "product_not_active" as const }
-      if (String(borrower.status) !== "Active") return { error: "borrower_not_active" as const }
       if (loan_type === "top up") {
         if (!topUpLoan) return { error: "top_up_loan_not_found" as const }
         if (topUpLoan.institution_id !== actor.institution_id) return { error: "cross_tenant_operation_forbidden" as const }
@@ -328,7 +390,7 @@ export async function POST(req: Request) {
       }
       if (loan_type === "buy off") {
         const extRes = await client.query(
-          `SELECT id FROM clients WHERE id = $1 AND institution_id = $2 AND branch_id = $3`,
+          `SELECT id FROM third_party_agents WHERE id = $1 AND institution_id = $2 AND branch_id = $3`,
           [external_lender_id, actor.institution_id, actor.branch_id]
         )
         if (!extRes.rows[0]) return { error: "external_lender_not_found" as const }
@@ -364,8 +426,8 @@ export async function POST(req: Request) {
         application_id = makePrefixedNumber("LN")
         try {
           const loanRes = await client.query(
-            `INSERT INTO loans (institution_id, branch_id, member_id, loan_product_id, application_id, principal_amount, interest_rate, tenure_months, monthly_payment, total_amount, status, loan_type, purpose, collateral_description, application_date, created_by)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'Applied', $11, $12, $13, $14, $15) RETURNING id, application_id`,
+            `INSERT INTO loans (institution_id, branch_id, member_id, loan_product_id, application_id, principal_amount, interest_rate, tenure_months, remaining_tenure_months, monthly_payment, total_amount, status, loan_type, purpose, collateral_description, application_date, created_by)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8, $9, $10, 'Applied', $11, $12, $13, $14, $15) RETURNING id, application_id`,
             [actor.institution_id, actor.branch_id, member_id, loan_product_id, application_id, principal_amount, annualRate, tenure_months, monthly_payment, total_amount, loan_type, purpose, collateral_description, today, actor.id]
           )
           loanRow = loanRes.rows[0] || null
@@ -536,69 +598,141 @@ export async function POST(req: Request) {
         ]
       )
 
-      const memberNameRes = await client.query(`SELECT full_name FROM members WHERE id = $1`, [member_id])
-      const memberName = memberNameRes.rows[0]?.full_name || ""
-      const admins = await getInstitutionAdminRecipients(client, actor.institution_id, {
-        excludeUserId: actor.id,
-        roles: ["institution_admin", "manager", "loan_officer"],
-      })
-      if (admins.length > 0 && memberName) {
-        const tpl = NotificationTemplates.pendingLoanApproval(memberName, principal_amount, loanRow.id)
-        await notificationService.createBulk(
-          admins.map((a) => ({
-            institutionId: actor.institution_id,
-            branchId: String(a.branch_id || actor.branch_id || ""),
-            recipientType: "institution_user" as const,
-            recipientId: a.id,
-            type: "pending_loan_approval" as const,
-            title: tpl.title,
-            message: tpl.message,
-            actionUrl: tpl.actionUrl,
-            metadata: { loan_id: loanRow.id, member_id, member_name: memberName, amount: principal_amount },
-          })),
-          client
-        )
-      }
+      const cfgRes = await client.query<{ currency: string }>(
+        `SELECT currency FROM config WHERE branch_id = $1 ORDER BY created_at DESC LIMIT 1`,
+        [actor.branch_id],
+      )
+      const currency = (cfgRes.rows[0]?.currency as string) || "UGX"
+      const instRes = await client.query<{ name: string }>(
+        `SELECT name FROM institutions WHERE id = $1`,
+        [actor.institution_id],
+      )
+      const institutionName = instRes.rows[0]?.name || ""
 
-      if (memberName) {
-        const memberTpl = NotificationTemplates.loanApplicationSubmitted(loanRow.id, principal_amount)
-        await notificationService
-          .create(
-            {
-              institutionId: actor.institution_id,
-              branchId: String(actor.branch_id || ""),
-              recipientType: "member",
-              recipientId: member_id,
-              type: "loan_application_submitted",
-              title: memberTpl.title,
-              message: memberTpl.message,
-              actionUrl: memberTpl.actionUrl,
-              metadata: { loan_id: loanRow.id, amount: principal_amount },
-            },
-            client
-          )
-          .catch((e) => console.error("Failed to create loan_application_submitted notification:", e))
+      return {
+        ok: true,
+        id: loanRow.id,
+        application_id: loanRow.application_id,
+        postCommit: {
+          actorId: actor.id,
+          institutionId: actor.institution_id,
+          branchId: actor.branch_id,
+          institutionName,
+          currency,
+          member: {
+            id: String(borrower.id),
+            full_name: String(borrower.full_name || ""),
+            member_number: String(borrower.member_number || ""),
+            email: borrower.email ? String(borrower.email) : "",
+          },
+          loan: {
+            id: loanRow.id,
+            application_id: loanRow.application_id,
+            principal_amount,
+            loan_type,
+            product_name: product.product_name ? String(product.product_name) : null,
+          },
+        },
       }
-
-      return { ok: true, id: loanRow.id, application_id: loanRow.application_id }
     })
 
     if (result && "error" in result) {
+      const errorCode = String(result.error || "")
       const status =
-        result.error === "missing_permission:create_loan" ? 403 :
-        result.error === "cross_tenant_operation_forbidden" || result.error === "cross_branch_operation_forbidden" ? 403 :
-        result.error === "user_not_linked" ? 403 :
-        result.error === "member_not_found" ||
-        result.error === "loan_product_not_found" ||
-        result.error === "top_up_loan_not_found" ||
-        result.error === "external_lender_not_found"
+        errorCode === "staff_not_found" ? 404 :
+        errorCode === "missing_permission:create_loan" ||
+        errorCode === SUPER_ADMIN_WRITE_BLOCKED ||
+        errorCode === "cross_tenant_operation_forbidden" ||
+        errorCode === "cross_branch_operation_forbidden" ||
+        errorCode === "user_not_linked" ||
+        errorCode === "staff_inactive" ||
+        errorCode === "branch_inactive" ||
+        errorCode === "branch_not_found" ||
+        errorCode === "member_inactive" ? 403 :
+        errorCode === "member_not_found" ||
+        errorCode === "loan_product_not_found" ||
+        errorCode === "top_up_loan_not_found" ||
+        errorCode === "external_lender_not_found"
           ? 404
           : 400
-      apiLog("warn", "loans.create.denied", { method: "POST", apiPath, status, error: result.error, authUserId: session.user.authUserId })
-      return NextResponse.json({ error: result.error }, { status })
+      apiLog("warn", "loans.create.denied", { method: "POST", apiPath, status, error: errorCode, authUserId: session.user.authUserId })
+      const payload: Record<string, unknown> = {
+        error: "message" in result && result.message ? result.message : errorCode,
+        code: errorCode,
+      }
+      if ("branchStatus" in result && result.branchStatus) payload.branch_status = result.branchStatus
+      if ("staffStatus" in result && result.staffStatus) payload.staff_status = result.staffStatus
+      if ("memberStatus" in result && result.memberStatus) payload.member_status = result.memberStatus
+      return NextResponse.json(payload, { status })
     }
     apiLog("info", "loans.create.success", { method: "POST", apiPath, status: 200, loanId: result.id, authUserId: session.user.authUserId })
-    return NextResponse.json(result)
+
+    const ctx = "postCommit" in result ? result.postCommit : null
+    if (ctx) {
+      try {
+        const notifyRes = await runWithoutAuth((notifyClient) =>
+          notifyLoanApplicationCreated({
+            client: notifyClient,
+            actor: { id: ctx.actorId, institution_id: ctx.institutionId, branch_id: ctx.branchId },
+            member: { id: ctx.member.id, full_name: ctx.member.full_name },
+            loan: ctx.loan,
+            currency: ctx.currency,
+          }),
+        )
+        apiLog(notifyRes.ok ? "info" : "warn",
+          notifyRes.ok ? "loans.create.notifications_dispatched" : "loans.create.notifications_partial",
+          {
+            method: "POST",
+            apiPath,
+            status: 200,
+            loanId: result.id,
+            memberNotifications: notifyRes.memberNotifications,
+            staffNotifications: notifyRes.staffNotifications,
+            ...(notifyRes.errors.length ? { errors: notifyRes.errors } : {}),
+          },
+        )
+      } catch (notifyErr) {
+        apiLog("error", "loans.create.notifications_failed", {
+          method: "POST",
+          apiPath,
+          status: 200,
+          loanId: result.id,
+          error: (notifyErr as Error)?.message || "notify_failed",
+        })
+      }
+
+      try {
+        const emailRes = await enqueueLoanApplicationEmails({
+          actorId: ctx.actorId,
+          institutionId: ctx.institutionId,
+          branchId: ctx.branchId,
+          institutionName: ctx.institutionName,
+          currency: ctx.currency,
+          member: ctx.member,
+          loan: ctx.loan,
+          context: { institutionId: ctx.institutionId, branchId: ctx.branchId, actorId: ctx.actorId },
+        })
+        if (emailRes.errors.length > 0) {
+          apiLog("warn", "loans.create.email_enqueue_partial", {
+            method: "POST",
+            apiPath,
+            status: 200,
+            loanId: result.id,
+            errors: emailRes.errors,
+          })
+        }
+      } catch (emailErr) {
+        apiLog("error", "loans.create.email_enqueue_failed", {
+          method: "POST",
+          apiPath,
+          status: 200,
+          loanId: result.id,
+          error: (emailErr as Error)?.message || "email_failed",
+        })
+      }
+    }
+
+    return NextResponse.json({ id: result.id, application_id: result.application_id })
   } catch (e: unknown) {
     const err = e as Error
     apiLog("error", "loans.create.error", { method: "POST", apiPath, status: 500, error: err?.message || "Unexpected error" })

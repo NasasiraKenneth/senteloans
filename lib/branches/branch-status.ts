@@ -1,19 +1,19 @@
-import type { PoolClient } from "pg"
+import type { PoolClient } from "pg";
 
-export type BranchStatus = "Active" | "Inactive" | "Suspended" | "Closed"
+export type BranchStatus = "Active" | "Inactive" | "Suspended" | "Closed";
 
 export interface BranchRow {
-  id: string
-  institution_id: string
-  name: string
-  status: BranchStatus
+  id: string;
+  institution_id: string;
+  name: string;
+  status: BranchStatus;
 }
 
-export type BranchStatusError = "branch_not_found" | "branch_inactive"
+export type BranchStatusError = "branch_not_found" | "branch_inactive";
 
 export type BranchStatusResult =
   | { ok: true; branch: BranchRow }
-  | { ok: false; error: BranchStatusError; status?: BranchStatus }
+  | { ok: false; error: BranchStatusError; status?: BranchStatus };
 
 /**
  * Look up a branch by id and return its row + active status flag.
@@ -30,10 +30,10 @@ export async function getBranchById(
       WHERE id = $1
       LIMIT 1`,
     [branchId],
-  )
-  const row = res.rows[0]
-  if (!row) return { ok: false, error: "branch_not_found" }
-  return { ok: true, branch: row }
+  );
+  const row = res.rows[0];
+  if (!row) return { ok: false, error: "branch_not_found" };
+  return { ok: true, branch: row };
 }
 
 /**
@@ -45,10 +45,10 @@ export async function assertBranchActive(
   client: PoolClient,
   branchId: string,
 ): Promise<BranchStatusResult> {
-  const res = await getBranchById(client, branchId)
-  if (!res.ok) return res
+  const res = await getBranchById(client, branchId);
+  if (!res.ok) return res;
   if (res.branch.status !== "Active") {
-    return { ok: false, error: "branch_inactive", status: res.branch.status }
+    return { ok: false, error: "branch_inactive", status: res.branch.status };
   }
-  return res
+  return res;
 }

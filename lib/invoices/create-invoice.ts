@@ -1,15 +1,10 @@
 import type { PoolClient } from "pg"
-import { auditLogger } from "@/lib/audit/audit-logger"
+import { auditInvoiceInsert } from "@/lib/audit/invoice-audit"
 import { insertWithInvoiceNumberRetry } from "./invoice-number-retry"
+import { normalizeInvoiceStatus, type InvoiceStatus } from "./status"
 import { numberToWords, DEFAULT_CURRENCY_IN_WORDS } from "./utils"
 
-export type InvoiceStatus = "draft" | "sent" | "partially paid" | "fully paid" | "overdue" | "cancelled"
-
-const normalizeInvoiceStatus = (value?: string): InvoiceStatus => {
-  const s = String(value || "draft").trim().toLowerCase()
-  const allowed: InvoiceStatus[] = ["draft", "sent", "partially paid", "fully paid", "overdue", "cancelled"]
-  return allowed.includes(s as InvoiceStatus) ? (s as InvoiceStatus) : "draft"
-}
+export type { InvoiceStatus } from "./status"
 
 export interface InvoiceItemInput {
   unit?: string | null
@@ -186,8 +181,9 @@ export async function createInvoiceWithItems(
     )
   }
 
-  await auditLogger.logInsert(
-    "invoices",
+  await auditInvoiceInsert(
+    client,
+    { id: input.createdBy, institution_id: input.institutionId, branch_id: input.branchId },
     invoice.id,
     {
       member_id: input.target.member_id ?? null,
@@ -202,10 +198,7 @@ export async function createInvoiceWithItems(
       total_amount: totalAmount,
       item_count: validItems.length,
     },
-    input.institutionId,
-    input.createdBy,
-    { branch_id: input.branchId },
-    client,
+    input.branchId,
   )
 
   return {

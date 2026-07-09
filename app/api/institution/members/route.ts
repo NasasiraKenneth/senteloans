@@ -16,6 +16,7 @@ import {
   resolveActorContext,
   SUPER_ADMIN_WRITE_BLOCKED,
 } from "@/lib/api/rbac"
+import { parseMonthlySavingsInput } from "@/lib/members/monthly-savings"
 
 type MemberCreatePostCommit = {
   institutionName: string
@@ -378,9 +379,17 @@ export async function POST(req: Request) {
         `SA${inst}-${yymm}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`
       const joinDate = body.joinDate || new Date().toISOString().slice(0, 10)
       const monthlyIncome = typeof body.monthlyIncome !== "undefined" && body.monthlyIncome !== null && !Number.isNaN(Number(body.monthlyIncome)) ? Number(body.monthlyIncome) : null
-      const monthlySavings = typeof body.monthlySavings !== "undefined" && body.monthlySavings !== null && !Number.isNaN(Number(body.monthlySavings)) ? Number(body.monthlySavings) : null
       const memberEmail = typeof body.email === "string" ? body.email.trim() || null : null
       const savingsAccountType = resolveSavingsAccountType(body.savingsAccountType)
+
+      let monthlySavings: number | null = null
+      if (shouldCreateSavings) {
+        const parsed = parseMonthlySavingsInput(body.monthlySavings, savingsAccountType)
+        if (parsed.error) {
+          return { error: parsed.error }
+        }
+        monthlySavings = parsed.value
+      }
       const nextOfKinName = typeof body.nextOfKinName === "string" ? body.nextOfKinName.trim() || null : null
       const nextOfKinRelationship = typeof body.nextOfKinRelationship === "string" ? body.nextOfKinRelationship.trim() || null : null
       const nextOfKinPhone = typeof body.nextOfKinPhone === "string" ? body.nextOfKinPhone.trim() || null : null
@@ -400,8 +409,8 @@ export async function POST(req: Request) {
         }>(
           (memberNumber) =>
             client.query<{ id: string; member_number: string }>(
-              `INSERT INTO members (institution_id, branch_id, member_number, full_name, date_of_birth, gender, member_type, phone_number, national_id, email, marital_status, district, village, occupation, monthly_income, monthly_savings, next_of_kin_name, next_of_kin_relationship, next_of_kin_phone, join_date, created_by, modified_by)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $21) RETURNING id, member_number`,
+              `INSERT INTO members (institution_id, branch_id, member_number, full_name, date_of_birth, gender, member_type, phone_number, national_id, email, marital_status, district, village, occupation, monthly_income, next_of_kin_name, next_of_kin_relationship, next_of_kin_phone, join_date, created_by, modified_by)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $20) RETURNING id, member_number`,
               [
                 actor.institution_id,
                 branchId,
@@ -418,7 +427,6 @@ export async function POST(req: Request) {
                 typeof body.village === "string" ? body.village : null,
                 typeof body.occupation === "string" ? body.occupation : null,
                 monthlyIncome,
-                monthlySavings,
                 nextOfKinName,
                 nextOfKinRelationship,
                 nextOfKinPhone,
@@ -461,7 +469,6 @@ export async function POST(req: Request) {
             village: typeof body.village === "string" ? body.village : null,
             occupation: typeof body.occupation === "string" ? body.occupation : null,
             monthly_income: monthlyIncome,
-            monthly_savings: monthlySavings,
             next_of_kin_name: nextOfKinName,
             next_of_kin_relationship: nextOfKinRelationship,
             next_of_kin_phone: nextOfKinPhone,
@@ -480,9 +487,9 @@ export async function POST(req: Request) {
           }>(
             (accountNumber) =>
               client.query<{ id: string; account_number: string }>(
-                `INSERT INTO savings_accounts (institution_id, branch_id, member_id, account_number, account_type, available_balance, total_balance, status, open_date)
-                 VALUES ($1, $2, $3, $4, $5, 0, 0, 'Active', $6) RETURNING id, account_number`,
-                [actor.institution_id, branchId, data.id, accountNumber, savingsAccountType, joinDate],
+                `INSERT INTO savings_accounts (institution_id, branch_id, member_id, account_number, account_type, monthly_savings, available_balance, total_balance, status, open_date)
+                 VALUES ($1, $2, $3, $4, $5, $6, 0, 0, 'Active', $7) RETURNING id, account_number`,
+                [actor.institution_id, branchId, data.id, accountNumber, savingsAccountType, monthlySavings, joinDate],
               ),
             {
               prefix: "SA",
@@ -508,6 +515,7 @@ export async function POST(req: Request) {
               member_id: data.id,
               account_number: savInsert.row.account_number,
               account_type: savingsAccountType,
+              monthly_savings: monthlySavings,
               open_date: joinDate,
               auto_created: true,
             },

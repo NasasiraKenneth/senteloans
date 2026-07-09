@@ -3,7 +3,10 @@ import { getSharedConnection } from "../lib/queue/redis"
 
 export const REPORT_QUEUE_NAME = "report"
 
-export type ReportJobName = "investment-reports-export" | "investments-export"
+export type ReportJobName =
+  | "investment-reports-export"
+  | "investments-export"
+  | "loan-reports-export"
 
 export type ReportJobData = {
   kind: ReportJobName

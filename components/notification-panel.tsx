@@ -117,11 +117,11 @@ export function NotificationPanel({ apiEndpoint, onCountChange }: NotificationPa
   }
 
   return (
-    <div className="flex flex-col max-h-[500px]">
-      <div className="p-4 border-b">
+    <div className="flex max-h-[min(520px,85vh)] flex-col overflow-hidden">
+      <div className="shrink-0 border-b p-4">
         <h3 className="font-semibold text-sm">Notifications</h3>
       </div>
-      <ScrollArea className="flex-1">
+      <ScrollArea className="h-[min(400px,calc(85vh-9rem))]">
         <div className="divide-y">
           {notifications.map((notification) => (
             <div
@@ -166,7 +166,7 @@ export function NotificationPanel({ apiEndpoint, onCountChange }: NotificationPa
         </div>
       </ScrollArea>
       {notifications.some((n) => !n.read) && (
-        <div className="p-3 border-t">
+        <div className="shrink-0 border-t p-3">
           <Button
             variant="ghost"
             size="sm"

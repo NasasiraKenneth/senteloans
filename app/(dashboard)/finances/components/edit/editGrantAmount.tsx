@@ -21,6 +21,13 @@ const ERROR_MESSAGES: Record<string, string> = {
   grant_already_complete: "This grant is already complete — the full pledge has been received.",
   "missing_permission:edit_grant_amount": "You do not have permission to edit the received amount.",
   not_found: "This grant no longer exists.",
+  invalid_payment_mode: "Select a valid payment mode.",
+  reference_number_required: "Reference number is required for this payment mode.",
+  bank_account_required: "Select a bank account for bank-routed payments.",
+  invalid_bank_account: "The selected bank account is invalid.",
+  insufficient_bank_balance: "Insufficient bank account balance.",
+  insufficient_cash_balance: "Insufficient cash balance.",
+  insufficient_mobile_money_balance: "Insufficient mobile money balance.",
 }
 
 function formatError(code: string, message?: string): string {
@@ -59,7 +66,7 @@ export default function EditGrantAmount({ isOpen, grantId, onClose, onSuccess }:
         }
 
         setSummary({
-          client_name: String(g?.client_name || ""),
+          third_party_agent_name: String(g?.third_party_agent_name || ""),
           total_amount: totalAmount,
           available_balance: availableBalance,
           remaining_amount: Number(g?.remaining_amount || Math.max(0, totalAmount - availableBalance)),
@@ -89,7 +96,13 @@ export default function EditGrantAmount({ isOpen, grantId, onClose, onSuccess }:
       const res = await fetch(`/api/institution/finances/grants/${grantId}/amount`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ amount: Number(data.amount) }),
+        body: JSON.stringify({
+          amount: Number(data.amount),
+          mode: data.mode,
+          reference_number: data.reference_number || null,
+          bank_account_id: data.bank_account_id || null,
+          date: data.date || null,
+        }),
       })
       const body = await res.json().catch(() => ({}))
       if (!res.ok) {

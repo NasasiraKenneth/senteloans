@@ -6,6 +6,7 @@ import DataTable, { type DataTableColumn } from "@/components/datatables/DataTab
 import { ActionButtons } from "@/components/datatables/ActionButtons"
 import type { FilterField } from "@/components/datatables/TableFilter"
 import { useToast } from "@/components/ui/toast"
+import { withBranchFilterFirst } from "@/lib/filters/branch-first-filter"
 import EditGrant from "../edit/editGrant"
 import EditGrantAmount from "../edit/editGrantAmount"
 import { downloadGrantsExport } from "../exports/grants-export"
@@ -30,6 +31,8 @@ export default function GrantsView({ refreshKey = 0, onRefresh }: GrantsViewProp
   const [canView, setCanView] = useState(false)
   const [canEdit, setCanEdit] = useState(false)
   const [canEditAmount, setCanEditAmount] = useState(false)
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false)
+  const [branchOptions, setBranchOptions] = useState<Array<{ value: string; label: string }>>([])
   const [activeFilters, setActiveFilters] = useState<Record<string, string>>({})
   const [page, setPage] = useState(0)
   const [rowsPerPage, setRowsPerPage] = useState(10)
@@ -43,10 +46,19 @@ export default function GrantsView({ refreshKey = 0, onRefresh }: GrantsViewProp
       setCanView(!!body?.permissions?.viewGrants)
       setCanEdit(!!body?.permissions?.editGrant)
       setCanEditAmount(!!body?.permissions?.editGrantAmount)
+      setIsSuperAdmin(!!body?.permissions?.isSuperAdmin)
+      setBranchOptions(
+        ((body?.permissions?.branches || []) as Array<{ id: string; name: string }>).map((b) => ({
+          value: b.id,
+          label: b.name,
+        })),
+      )
     } catch {
       setCanView(false)
       setCanEdit(false)
       setCanEditAmount(false)
+      setIsSuperAdmin(false)
+      setBranchOptions([])
     }
   }, [])
 
@@ -144,14 +156,14 @@ export default function GrantsView({ refreshKey = 0, onRefresh }: GrantsViewProp
     setPage(0)
   }, [])
 
-  const filterFields = useMemo<FilterField[]>(
-    () => [
-      { field: "q", label: "Search by client name", type: "text" },
+  const filterFields = useMemo<FilterField[]>(() => {
+    const fields: FilterField[] = [
+      { field: "q", label: "Search by third party agent name", type: "text" },
       { field: "created_at", label: "Created at", type: "date-range" },
       { field: "updated_at", label: "Updated at", type: "date-range" },
-    ],
-    [],
-  )
+    ]
+    return withBranchFilterFirst(fields, { isSuperAdmin, branchOptions })
+  }, [isSuperAdmin, branchOptions])
 
   const handleEdit = useCallback((row: GrantRow) => {
     setEditingId(row.id)
@@ -167,7 +179,7 @@ export default function GrantsView({ refreshKey = 0, onRefresh }: GrantsViewProp
 
   const columns = useMemo<DataTableColumn<GrantRow>[]>(
     () => [
-      { key: "client", header: "Client", render: (r) => <span className="font-medium">{r.client_name}</span> },
+      { key: "third_party_agent", header: "Third party agent", render: (r) => <span className="font-medium">{r.third_party_agent_name}</span> },
       { key: "total", header: "Total grant", render: (r) => formatCurrency(r.total_amount) },
       { key: "available", header: "Available", render: (r) => formatCurrency(r.available_balance) },
       {
@@ -201,14 +213,14 @@ export default function GrantsView({ refreshKey = 0, onRefresh }: GrantsViewProp
                 onClick: handleEdit,
                 variant: "primary",
                 icon: <Edit className="h-4 w-4" />,
-                disabled: !canEdit,
+                disabled: true,
               },
             ]}
           />
         ),
       },
     ],
-    [canEdit, canEditAmount, handleEdit, handleEditAmount],
+    [canEditAmount, handleEdit, handleEditAmount],
   )
 
   const handleEditSuccess = () => {
@@ -269,7 +281,7 @@ export default function GrantsView({ refreshKey = 0, onRefresh }: GrantsViewProp
         columns={columns}
         rows={rows}
         loading={loading}
-        emptyMessage={error || "No grants yet. Use Add grant to create one for a client."}
+        emptyMessage={error || "No grants yet. Use Add grant to create one for a third party agent."}
         filterFields={filterFields}
         onQueryParamsChange={handleQueryParamsChange}
         pagination={{

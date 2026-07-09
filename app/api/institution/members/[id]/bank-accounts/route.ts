@@ -34,10 +34,11 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       if (memberRow.institution_id !== actor.institution_id) return { error: "forbidden" as const }
 
       const res = await client.query(
-        `SELECT id, bank_name, bank_account_number
-         FROM bank_accounts
-         WHERE institution_id = $1 AND branch_id = $2
-         ORDER BY bank_name ASC, bank_account_number ASC`,
+        `SELECT ba.id, tpa.name AS bank_name, ba.bank_account_number
+         FROM bank_accounts ba
+         INNER JOIN third_party_agents tpa ON tpa.id = ba.third_party_agent_id
+         WHERE ba.institution_id = $1 AND ba.branch_id = $2
+         ORDER BY tpa.name ASC, ba.bank_account_number ASC`,
         [memberRow.institution_id, memberRow.branch_id]
       )
       return {

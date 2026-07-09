@@ -3,49 +3,11 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { runWithAuth } from "@/lib/db"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
+import { isSuperAdmin, resolveActorContext, scopeWhere } from "@/lib/api/rbac"
+import { dashboardPeopleLabelForInstitutionType } from "@/lib/dashboard/people-model"
+import { readInstitutionCurrency } from "@/lib/institution-branch-config"
 
-type ActorContext = {
-  id: string
-  institution_id: string
-  branch_id: string | null
-  role_id: string | null
-  role: string | null
-}
-
-async function resolveActorContext(client: any, authUserId: string): Promise<ActorContext | null> {
-  const actorRes = await client.query(
-    `SELECT
-       u.id,
-       u.institution_id,
-       u.branch_id,
-       u.role_id,
-       CASE
-         WHEN r.name = 'System Admin' THEN 'system_admin'
-         WHEN r.name = 'Super Admin' THEN 'super_admin'
-         WHEN r.name = 'Admin' THEN 'institution_admin'
-         WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
-         ELSE NULL
-       END AS role
-     FROM users u
-     LEFT JOIN roles r ON r.id = u.role_id
-     WHERE u.auth_id = $1
-       AND u.status = 'Active'
-     LIMIT 1`,
-    [authUserId]
-  )
-  return actorRes.rows[0] || null
-}
-
-/** Branch filter: staff see their branch only; super_admin sees all branches or ?branches=id1,id2 */
-function branchPredicate(alias: string, isSuperAdmin: boolean, branchId: string | null, selectedBranchIds: string[]) {
-  if (!isSuperAdmin) {
-    return { sql: ` AND ${alias}.branch_id = $2`, params: [branchId] as unknown[] }
-  }
-  if (selectedBranchIds.length > 0) {
-    return { sql: ` AND ${alias}.branch_id = ANY($2::uuid[])`, params: [selectedBranchIds] as unknown[] }
-  }
-  return { sql: "", params: [] as unknown[] }
-}
+const ACTIVE_LOAN_STATUSES = ["Partially Disbursed", "Fully Disbursed", "Active"] as const
 
 /** GET /api/institution/dashboard-stats — branch-scoped stats + recent loans + recent members */
 export async function GET(req: Request) {
@@ -68,128 +30,191 @@ export async function GET(req: Request) {
     const result = await runWithAuth(session.user.authUserId, async (client) => {
       const actor = await resolveActorContext(client, session.user.authUserId as string)
       if (!actor?.institution_id) return { error: "user_not_linked" as const }
-
-      const role = String(actor.role || "").trim().toLowerCase()
-      const isSuperAdmin = role === "super_admin"
-      if (!isSuperAdmin && !actor.branch_id) return { error: "actor_branch_missing" as const }
+      if (!isSuperAdmin(actor) && !actor.branch_id) return { error: "actor_branch_missing" as const }
 
       const instId = actor.institution_id
 
-      const clientsBranch = branchPredicate("c", isSuperAdmin, actor.branch_id, selectedBranchIds)
-      const membersBranch = branchPredicate("m", isSuperAdmin, actor.branch_id, selectedBranchIds)
-      const loansBranch = branchPredicate("l", isSuperAdmin, actor.branch_id, selectedBranchIds)
-      const txBranch = branchPredicate("t", isSuperAdmin, actor.branch_id, selectedBranchIds)
-      const savingsBranch = branchPredicate("sa", isSuperAdmin, actor.branch_id, selectedBranchIds)
+      const instRes = await client.query(`SELECT type FROM institutions WHERE id = $1 LIMIT 1`, [instId])
+      const institutionType = String(instRes.rows[0]?.type || "SACCO")
+      const peopleLabel = dashboardPeopleLabelForInstitutionType(institutionType)
 
-      const clientsParams = [instId, ...clientsBranch.params]
-      const membersParams = [instId, ...membersBranch.params]
-      const loansParams = [instId, ...loansBranch.params]
-      const txParams = [instId, ...txBranch.params]
-      const savingsParams = [instId, ...savingsBranch.params]
+      const currencyBranchId = actor.branch_id || selectedBranchIds[0] || null
+      let currency = "UGX"
+      if (currencyBranchId) {
+        const cfgRes = await client.query(`SELECT currency FROM config WHERE branch_id = $1 LIMIT 1`, [currencyBranchId])
+        currency = readInstitutionCurrency(
+          cfgRes.rows[0] ? { currency: cfgRes.rows[0].currency } : null,
+          "UGX",
+        )
+      } else if (isSuperAdmin(actor)) {
+        const cfgRes = await client.query(
+          `SELECT currency FROM config c
+           JOIN branches b ON b.id = c.branch_id
+           WHERE b.institution_id = $1
+           ORDER BY b.name ASC
+           LIMIT 1`,
+          [instId],
+        )
+        currency = readInstitutionCurrency(
+          cfgRes.rows[0] ? { currency: cfgRes.rows[0].currency } : null,
+          "UGX",
+        )
+      }
 
-      const [clientsRes, membersRes, loansRes, txRes, savingsRes] = await Promise.all([
-        client.query(
-          `SELECT COUNT(*)::int AS total, (COUNT(*) FILTER (WHERE c.status = 'Active'))::int AS active
-           FROM clients c
-           WHERE c.institution_id = $1${clientsBranch.sql}`,
-          clientsParams
-        ),
-        client.query(
-          `SELECT COUNT(*)::int AS total, (COUNT(*) FILTER (WHERE m.status = 'Active'))::int AS active
-           FROM members m
-           WHERE m.institution_id = $1${membersBranch.sql}`,
-          membersParams
-        ),
-        client.query(
-          `SELECT COUNT(*)::int AS total,
-                  COALESCE(SUM(outstanding_balance), 0)::numeric AS outstanding,
-                  (COUNT(*) FILTER (
-                    WHERE status IN ('Partially Disbursed','Fully Disbursed','Active')
-                  ))::int AS active_loans
-           FROM loans l
-           WHERE l.institution_id = $1${loansBranch.sql}`,
-          loansParams
-        ),
-        client.query(
-          `SELECT COUNT(*)::int AS tx_count FROM transactions t
-           WHERE t.institution_id = $1
-             AND t.transaction_date >= date_trunc('month', CURRENT_TIMESTAMP)${txBranch.sql}`,
-          txParams
-        ),
-        client.query(
-          `SELECT COALESCE(SUM(sa.total_balance), 0)::numeric AS total
-           FROM savings_accounts sa
-           WHERE sa.institution_id = $1${savingsBranch.sql}`,
-          savingsParams
-        ),
-      ])
+      const membersScope = scopeWhere({ tableAlias: "m", actor, selectedBranchIds, startIndex: 1 })
+      const loansScope = scopeWhere({ tableAlias: "l", actor, selectedBranchIds, startIndex: 1 })
+      const txScope = scopeWhere({ tableAlias: "t", actor, selectedBranchIds, startIndex: 1 })
+      const savingsScope = scopeWhere({ tableAlias: "sa", actor, selectedBranchIds, startIndex: 1 })
 
-      const totalClients = clientsRes.rows[0]?.total ?? 0
-      const activeClients = clientsRes.rows[0]?.active ?? 0
+      const membersParams = membersScope.values
+      const loansParams = loansScope.values
+      const txParams = txScope.values
+      const savingsParams = savingsScope.values
+
+      const activeLoanList = ACTIVE_LOAN_STATUSES.map((s) => `'${s}'`).join(", ")
+
+      const [membersRes, loansRes, txRes, savingsRes, portfolioRes, collectionRes, overdueRes] =
+        await Promise.all([
+          client.query(
+            `SELECT COUNT(*)::int AS total,
+                    (COUNT(*) FILTER (WHERE m.status = 'Active'))::int AS active,
+                    (COUNT(*) FILTER (WHERE m.status = 'Inactive'))::int AS inactive
+             FROM members m
+             WHERE ${membersScope.where}`,
+            membersParams,
+          ),
+          client.query(
+            `SELECT COUNT(*)::int AS total,
+                    COALESCE(SUM(outstanding_balance), 0)::numeric AS outstanding,
+                    (COUNT(*) FILTER (WHERE status IN (${activeLoanList})))::int AS active_loans,
+                    (COUNT(*) FILTER (WHERE approved_at IS NOT NULL))::int AS approved_loans,
+                    COALESCE(AVG(principal_amount) FILTER (WHERE status IN (${activeLoanList})), 0)::numeric AS avg_principal
+             FROM loans l
+             WHERE ${loansScope.where}`,
+            loansParams,
+          ),
+          client.query(
+            `SELECT COUNT(*)::int AS tx_count FROM transactions t
+             WHERE ${txScope.where}
+               AND t.transaction_date >= date_trunc('month', CURRENT_TIMESTAMP)`,
+            txParams,
+          ),
+          client.query(
+            `SELECT COALESCE(SUM(sa.total_balance), 0)::numeric AS total
+             FROM savings_accounts sa
+             WHERE ${savingsScope.where}`,
+            savingsParams,
+          ),
+          client.query(
+            `SELECT
+               COALESCE(SUM(outstanding_balance) FILTER (WHERE status = 'Defaulted'), 0)::numeric AS npl_outstanding,
+               COALESCE(SUM(outstanding_balance) FILTER (WHERE status IN (${activeLoanList}, 'Defaulted')), 0)::numeric AS portfolio_outstanding
+             FROM loans l
+             WHERE ${loansScope.where}`,
+            loansParams,
+          ),
+          client.query(
+            `SELECT
+               COALESCE(SUM(lr.amount_due) FILTER (
+                 WHERE lr.due_date >= date_trunc('month', CURRENT_DATE)::date
+                   AND lr.due_date < (date_trunc('month', CURRENT_DATE) + interval '1 month')::date
+               ), 0)::numeric AS due_this_month,
+               COALESCE(SUM(lr.amount_paid) FILTER (
+                 WHERE lr.payment_date >= date_trunc('month', CURRENT_DATE)::date
+                   AND lr.payment_date < (date_trunc('month', CURRENT_DATE) + interval '1 month')::date
+               ), 0)::numeric AS collected_this_month
+             FROM loan_repayments lr
+             INNER JOIN loans l ON l.id = lr.loan_id
+             WHERE ${loansScope.where}`,
+            loansParams,
+          ),
+          client.query(
+            `SELECT COUNT(DISTINCT l.id)::int AS overdue_count
+             FROM loans l
+             INNER JOIN loan_repayments lr ON lr.loan_id = l.id
+             WHERE ${loansScope.where}
+               AND l.status IN (${activeLoanList})
+               AND lr.status != 'Paid'
+               AND lr.due_date < CURRENT_DATE`,
+            loansParams,
+          ),
+        ])
+
       const totalMembers = membersRes.rows[0]?.total ?? 0
       const activeMembers = membersRes.rows[0]?.active ?? 0
+      const inactiveMembers = membersRes.rows[0]?.inactive ?? 0
 
       const loansRow = loansRes.rows[0]
-      const totalLoanPortfolio = Number(loansRow?.outstanding ?? 0)
-      const outstandingLoans = totalLoanPortfolio
+      const outstandingLoans = Number(loansRow?.outstanding ?? 0)
+      const activeLoansCount = Number(loansRow?.active_loans ?? 0)
+      const totalApprovedLoans = Number(loansRow?.approved_loans ?? 0)
+      const averageLoanSize = Number(loansRow?.avg_principal ?? 0)
       const totalSavingsPortfolio = Number(savingsRes.rows[0]?.total ?? 0)
       const totalTransactionsThisMonth = txRes.rows[0]?.tx_count ?? 0
+      const overdueLoansCount = overdueRes.rows[0]?.overdue_count ?? 0
 
-      const newClientsRes = await client.query(
-        `SELECT COUNT(*)::int AS c FROM clients c
-         WHERE c.institution_id = $1 AND c.created_at >= date_trunc('month', CURRENT_TIMESTAMP)${clientsBranch.sql}`,
-        clientsParams
-      )
+      const nplOutstanding = Number(portfolioRes.rows[0]?.npl_outstanding ?? 0)
+      const portfolioOutstanding = Number(portfolioRes.rows[0]?.portfolio_outstanding ?? 0)
+      const nplRatio =
+        portfolioOutstanding > 0 ? Math.round((nplOutstanding / portfolioOutstanding) * 1000) / 10 : 0
+
+      const dueThisMonth = Number(collectionRes.rows[0]?.due_this_month ?? 0)
+      const collectedThisMonth = Number(collectionRes.rows[0]?.collected_this_month ?? 0)
+      const monthlyCollectionEfficiency =
+        dueThisMonth > 0 ? Math.min(100, Math.round((collectedThisMonth / dueThisMonth) * 1000) / 10) : 0
+
       const newMembersRes = await client.query(
         `SELECT COUNT(*)::int AS c FROM members m
-         WHERE m.institution_id = $1 AND m.created_at >= date_trunc('month', CURRENT_TIMESTAMP)${membersBranch.sql}`,
-        membersParams
+         WHERE ${membersScope.where}
+           AND m.created_at >= date_trunc('month', CURRENT_TIMESTAMP)`,
+        membersParams,
       )
       const loansApprovedRes = await client.query(
         `SELECT COUNT(*)::int AS c FROM loans l
-         WHERE l.institution_id = $1
+         WHERE ${loansScope.where}
            AND l.status IN ('Approved','Partially Disbursed','Fully Disbursed','Active')
            AND l.approved_at IS NOT NULL
-           AND l.approved_at >= date_trunc('month', CURRENT_TIMESTAMP)${loansBranch.sql}`,
-        loansParams
+           AND l.approved_at >= date_trunc('month', CURRENT_TIMESTAMP)`,
+        loansParams,
       )
 
-      const totalPrincipalRes = await client.query(
-        `SELECT COALESCE(SUM(l.principal_amount), 0)::numeric AS s FROM loans l WHERE l.institution_id = $1${loansBranch.sql}`,
-        loansParams
-      )
-      const totalPrincipal = Number(totalPrincipalRes.rows[0]?.s ?? 0)
-      const nplRatio =
-        totalPrincipal > 0
-          ? Math.round((Number(loansRow?.outstanding ?? 0) / totalPrincipal) * 100 * 10) / 10
-          : 0
+      const memberRetentionRate =
+        totalMembers > 0 ? Math.round((activeMembers / totalMembers) * 1000) / 10 : 0
 
       const stats = {
-        totalClients,
-        activeClients,
+        peopleLabel,
+        currency,
         totalMembers,
         activeMembers,
-        totalLoanPortfolio,
+        inactiveMembers,
+        newMembersThisMonth: newMembersRes.rows[0]?.c ?? 0,
+        memberRetentionRate,
+        totalLoanPortfolio: outstandingLoans,
         outstandingLoans,
+        activeLoansCount,
+        totalApprovedLoans,
+        overdueLoansCount,
+        averageLoanSize,
         totalSavingsPortfolio,
         totalTransactionsThisMonth,
-        newClientsThisMonth: newClientsRes.rows[0]?.c ?? 0,
-        newMembersThisMonth: newMembersRes.rows[0]?.c ?? 0,
         loansApprovedThisMonth: loansApprovedRes.rows[0]?.c ?? 0,
         nplRatio,
-        monthlyCollectionEfficiency: 92,
+        monthlyCollectionEfficiency,
+        collectedThisMonth,
+        dueThisMonth,
       }
 
       const recentLoansRes = await client.query(
         `SELECT l.id, l.application_id, l.principal_amount, l.status, l.application_date,
-                m.full_name AS client_name, p.product_name AS product_name
+                m.full_name AS client_name,
+                p.product_name AS product_name
          FROM loans l
          JOIN members m ON m.id = l.member_id AND m.institution_id = l.institution_id
          LEFT JOIN loan_products p ON p.id = l.loan_product_id
-         WHERE l.institution_id = $1${loansBranch.sql}
+         WHERE ${loansScope.where}
          ORDER BY l.application_date DESC NULLS LAST, l.created_at DESC
          LIMIT 5`,
-        loansParams
+        loansParams,
       )
       const recentLoans = recentLoansRes.rows.map((r: Record<string, unknown>) => ({
         id: r.id,
@@ -201,15 +226,16 @@ export async function GET(req: Request) {
         loanProduct: r.product_name || "Loan",
       }))
 
-      const recentMembersRes = await client.query(
+      const recentPeopleRes = await client.query(
         `SELECT m.id, m.member_number, m.full_name, m.district, m.occupation, m.kyc_status, m.status
          FROM members m
-         WHERE m.institution_id = $1${membersBranch.sql}
+         WHERE ${membersScope.where}
          ORDER BY m.created_at DESC
          LIMIT 5`,
-        membersParams
+        membersParams,
       )
-      const recentMembers = recentMembersRes.rows.map((r: Record<string, unknown>) => ({
+
+      const recentMembers = recentPeopleRes.rows.map((r: Record<string, unknown>) => ({
         id: r.id,
         clientNumber: r.member_number,
         fullName: r.full_name,

@@ -5,6 +5,7 @@ import type { ActorContext } from "@/lib/api/rbac"
 const EXPENSES_TABLE = "expenses"
 const FUNDING_TABLE = "expense_funding_sources"
 const CASHFLOWS_TABLE = "expense_cashflows"
+const CASHFLOW_PAYMENTS_TABLE = "expense_cashflows_payments"
 
 export function expenseAuditMeta(
   actor: Pick<ActorContext, "id" | "institution_id" | "branch_id">,
@@ -21,7 +22,6 @@ export function expenseSnapshot(row: Record<string, unknown>): Record<string, un
     description: row.description ?? null,
     status: row.status ?? null,
     type: row.type ?? null,
-    category_id: row.category_id ?? null,
     branch_id: row.branch_id ?? null,
     approved_by: row.approved_by ?? null,
     approved_at: row.approved_at ?? null,
@@ -45,7 +45,7 @@ export function cashflowSnapshot(row: Record<string, unknown>): Record<string, u
   return {
     expense_id: row.expense_id ?? null,
     staff_id: row.staff_id ?? null,
-    client_id: row.client_id ?? null,
+    third_party_agent_id: row.third_party_agent_id ?? null,
     payment_method: row.payment_method ?? null,
     amount: row.amount ?? null,
     description: row.description ?? null,
@@ -54,6 +54,18 @@ export function cashflowSnapshot(row: Record<string, unknown>): Record<string, u
     transaction_id: row.transaction_id ?? null,
     completed_by: row.completed_by ?? null,
     completed_at: row.completed_at ?? null,
+  }
+}
+
+export function cashflowPaymentSnapshot(row: Record<string, unknown>): Record<string, unknown> {
+  return {
+    expense_id: row.expense_id ?? null,
+    expense_cashflow_id: row.expense_cashflow_id ?? null,
+    transaction_id: row.transaction_id ?? null,
+    payment_method: row.payment_method ?? null,
+    amount: row.amount ?? null,
+    date: row.date ?? null,
+    created_by: row.created_by ?? null,
   }
 }
 
@@ -181,6 +193,24 @@ export async function auditCashflowUpdate(
     CASHFLOWS_TABLE,
     recordId,
     oldValues,
+    newValues,
+    actor.institution_id,
+    actor.id,
+    expenseAuditMeta(actor, branchId),
+    client,
+  )
+}
+
+export async function auditCashflowPaymentInsert(
+  client: PoolClient,
+  actor: Pick<ActorContext, "id" | "institution_id" | "branch_id">,
+  recordId: string,
+  newValues: Record<string, unknown>,
+  branchId?: string | null,
+): Promise<void> {
+  await auditLogger.logInsert(
+    CASHFLOW_PAYMENTS_TABLE,
+    recordId,
     newValues,
     actor.institution_id,
     actor.id,

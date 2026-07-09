@@ -8,6 +8,7 @@ export type ActorContext = {
   branch_id: string | null
   role_id: string | null
   role: string | null
+  status?: string | null
 }
 
 export function normalizeRole(role: unknown): string {
@@ -72,6 +73,7 @@ export async function resolveActorContext(
        u.institution_id,
        u.branch_id,
        u.role_id,
+       u.status::text AS status,
        CASE
          WHEN r.name = 'System Admin' THEN 'system_admin'
          WHEN r.name = 'Super Admin' THEN 'super_admin'

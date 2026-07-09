@@ -8,6 +8,7 @@ import { auditLogger } from "@/lib/audit/audit-logger"
 import { resolveActorContext, hasPermission, assertNotSuperAdmin, SUPER_ADMIN_WRITE_BLOCKED } from "@/lib/api/rbac"
 import { assertBranchActive } from "@/lib/branches/branch-status"
 import { assertMemberActive } from "@/lib/members/member-status"
+import { assertActorActive } from "@/lib/staff/staff-status"
 import { createTransaction } from "@/lib/transactions/create-transaction"
 import { applyDailyFinanceEntry } from "@/lib/finances/daily-finance"
 import { getBranchBankAccount, adjustBankAccountBalance, type BankAccountRow } from "@/lib/finances/bank-account"
@@ -293,8 +294,18 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     let postCommit: OpeningBalancePostCommit | null = null
 
     const result = await runWithAuth(session.user.authUserId, async (client) => {
-      const actor = await resolveActorContext(client, session!.user!.authUserId)
+      const actor = await resolveActorContext(client, session!.user!.authUserId, {
+        activeOnly: false,
+      })
       if (!actor) return { error: "user_not_linked" as const }
+
+      const staffCheck = await assertActorActive(client, actor)
+      if (!staffCheck.ok) {
+        return {
+          error: staffCheck.error,
+          staffStatus: staffCheck.error === "staff_inactive" ? staffCheck.status : undefined,
+        }
+      }
 
       // Super admins are read-only; block all write operations.
       const writeGuard = assertNotSuperAdmin(actor)
@@ -496,8 +507,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
         const loanRes = await client.query(
           `INSERT INTO loans
-            (institution_id, branch_id, member_id, loan_product_id, application_id, principal_amount, interest_rate, tenure_months, monthly_payment, total_amount, outstanding_balance, status, purpose, application_date, approved_at, disbursement_date, maturity_date, next_payment_date, created_by)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'Active', $12, $13, $13, $14, $15, $16, $17)
+            (institution_id, branch_id, member_id, loan_product_id, application_id, principal_amount, interest_rate, tenure_months, remaining_tenure_months, monthly_payment, total_amount, outstanding_balance, status, purpose, application_date, approved_at, disbursement_date, maturity_date, next_payment_date, created_by)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8, $9, $10, $11, 'Active', $12, $13, $13, $14, $15, $16, $17)
            RETURNING id`,
           [
             actor.institution_id, branchId, memberId, loanProductId, applicationId,
@@ -702,7 +713,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     if (result && "error" in result) {
       const status =
         result.error === "member_not_found" || result.error === "savings_account_not_found" || result.error === "loan_product_not_found" || result.error === "branch_not_found" ? 404 :
-        result.error === "missing_permission:edit_opening_savings" || result.error === "missing_permission:edit_opening_loans" || result.error === SUPER_ADMIN_WRITE_BLOCKED || result.error === "branch_inactive" || result.error === "member_inactive" ? 403 :
+        result.error === "missing_permission:edit_opening_savings" || result.error === "missing_permission:edit_opening_loans" || result.error === SUPER_ADMIN_WRITE_BLOCKED || result.error === "branch_inactive" || result.error === "member_inactive" || result.error === "staff_inactive" ? 403 :
         400
       // Prefer the human-readable message (e.g. super-admin block) so the client toast is friendly.
       const errorText = "message" in result && result.message ? result.message : result.error
@@ -710,8 +721,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         {
           error: errorText,
           code: result.error,
-          ...("branchStatus" in result && result.branchStatus ? { branchStatus: result.branchStatus } : {}),
+          ...("branchStatus" in result && result.branchStatus ? { branch_status: result.branchStatus } : {}),
           ...("memberStatus" in result && result.memberStatus ? { member_status: result.memberStatus } : {}),
+          ...("staffStatus" in result && result.staffStatus ? { staff_status: result.staffStatus } : {}),
         },
         { status }
       )

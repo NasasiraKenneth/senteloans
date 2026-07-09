@@ -368,7 +368,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
             processedBy: actor.id,
             membershipFeeId: feeRow.id,
           })
-          const synced = await syncInvoiceStatusFromPayments(client, openInvoice.id)
+          const synced = await syncInvoiceStatusFromPayments(client, openInvoice.id, {
+            institutionId: actor.institution_id,
+            branchId: memberRow.branch_id,
+            userId: actor.id,
+          })
           invoicePayment = {
             invoice_id: openInvoice.id,
             status: synced.status,

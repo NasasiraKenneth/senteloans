@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo, useRef, type ChangeEvent } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef, type ChangeEvent, type ReactNode } from "react";
 import {
   Card,
   CardContent,
@@ -25,13 +25,28 @@ import {
   Download,
   Truck,
   X,
+  Wallet,
 } from "lucide-react";
 import DataTable, { DataTableColumn } from "@/components/datatables/DataTable";
 import { FilterField } from "@/components/datatables/TableFilter";
 import AddNewInvoice from "./components/add/addNewInvoice";
 import EditInvoice from "./components/edit/editInvoice";
 import ViewInvoicePdf from "./components/view-pdf/viewPdf";
+import RecordInvoicePaymentModal from "./components/record-payment/add";
+import InvoiceExpandableContent from "./components/InvoiceExpandableContent";
 import { getInitials } from "@/lib/invoices/utils";
+import {
+  canEditInvoice,
+  canRecordInvoicePayment,
+  formatInvoiceStatusLabel,
+  getAllowedInvoiceStatusTransitions,
+  getInvoiceEditBlockedReason,
+  getInvoiceStatusTransitionBlockedReason,
+  isPaidInvoiceStatus,
+  isPartiallyPaidInvoiceStatus,
+  isInvoiceStatusTransitionAllowed,
+  normalizeInvoiceStatus,
+} from "@/lib/invoices/status";
 import { FaRobot, FaUserCheck } from "react-icons/fa";
 import { ActionSelect, SelectOption } from "@/components/datatables/actions";
 import { Filter } from "@/types";
@@ -39,12 +54,24 @@ import { useToast } from "@/components/ui/toast"
 import { withBranchFilterFirst } from "@/lib/filters/branch-first-filter"
 import { downloadInvoicesExport } from "./export/export"
 import { downloadInvoicePdfFile } from "@/lib/invoices/download"
+import { formatCurrency } from "@/lib/format-currency";
+
+type InvoicePaymentLine = {
+  id: string;
+  amount: number;
+  payment_date: string;
+  transaction_number: string | null;
+  mode: string | null;
+  reference_number: string | null;
+  processed_by_name: string | null;
+  source?: string;
+};
 
 type InvoiceRow = {
   id: string;
   invoice_number: string;
   client_name: string;
-  target_type?: "member" | "client";
+  target_type?: "member" | "third_party_agent";
   staff_name: string;
   client_number: string | null;
   invoice_date: string;
@@ -52,8 +79,11 @@ type InvoiceRow = {
   subtotal: number;
   vat: number;
   total_amount: number;
+  paid_amount?: number;
+  outstanding?: number;
   invoice_type: string;
   status: string;
+  payments?: InvoicePaymentLine[];
   items?: Array<{
     id: string;
     description: string;
@@ -61,14 +91,6 @@ type InvoiceRow = {
     total_price: number;
   }>;
 };
-
-function formatCurrency(amount: number): string {
-  return new Intl.NumberFormat("en-UG", {
-    style: "currency",
-    currency: "UGX",
-    minimumFractionDigits: 0,
-  }).format(amount || 0);
-}
 
 function formatDate(value: string | null): string {
   if (!value) return "—";
@@ -82,21 +104,25 @@ function formatDate(value: string | null): string {
 }
 
 function normalizeStatus(status: string | null | undefined): string {
-  return String(status || "").trim().toLowerCase();
+  return normalizeInvoiceStatus(status, "draft");
 }
 
 function formatStatusLabel(status: string | null | undefined): string {
-  const normalized = normalizeStatus(status);
-  if (!normalized) return "Draft";
-  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+  return formatInvoiceStatusLabel(status);
 }
 
 function getStatusMeta(status: string) {
-  switch (normalizeStatus(status)) {
-    case "paid":
+  const normalized = normalizeStatus(status);
+  switch (normalized) {
+    case "fully paid":
       return {
         icon: <CheckCircle2 className="h-4 w-4 text-emerald-600" />,
         cls: "bg-emerald-100 text-emerald-700 border border-emerald-200",
+      };
+    case "partially paid":
+      return {
+        icon: <DollarSign className="h-4 w-4 text-teal-600" />,
+        cls: "bg-teal-100 text-teal-700 border border-teal-200",
       };
     case "overdue":
       return {
@@ -116,49 +142,47 @@ function getStatusMeta(status: string) {
   }
 }
 
-// Define your status helper in invoice page
+// Status options for the datatable change-status menu (rules in lib/invoices/status.ts).
 const getAvailableStatuses = (
   currentStatus: string,
   onStatusChange: (newStatus: string) => void,
 ): SelectOption[] => {
-  const allStatuses: SelectOption[] = [
-    {
-      value: "draft",
+  const statusMeta: Record<
+    string,
+    { label: string; color: string; icon: ReactNode }
+  > = {
+    draft: {
       label: "Mark as Draft",
       color: "text-gray-600",
       icon: <Clock3 className="mr-2 h-4 w-4" />,
     },
-    {
-      value: "sent",
+    sent: {
       label: "Mark as Sent",
       color: "text-blue-600",
       icon: <Truck className="mr-2 h-4 w-4" />,
     },
-    {
-      value: "paid",
-      label: "Mark as Paid",
-      color: "text-green-600",
-      icon: <CheckCircle2 className="mr-2 h-4 w-4" />,
-    },
-    {
-      value: "overdue",
+    overdue: {
       label: "Mark as Overdue",
       color: "text-red-600",
       icon: <AlertTriangle className="mr-2 h-4 w-4" />,
     },
-    {
-      value: "cancelled",
+    cancelled: {
       label: "Mark as Cancelled",
       color: "text-red-600",
       icon: <X className="mr-2 h-4 w-4" />,
     },
-  ];
-  return allStatuses
-    .filter((s) => s.value !== normalizeStatus(currentStatus))
-    .map((s) => ({
-      ...s,
-      onClick: () => onStatusChange(String(s.value)),
-    }));
+  };
+
+  return getAllowedInvoiceStatusTransitions(currentStatus).map((value) => {
+    const meta = statusMeta[value];
+    return {
+      value,
+      label: meta?.label ?? formatInvoiceStatusLabel(value),
+      color: meta?.color ?? "text-gray-600",
+      icon: meta?.icon ?? <Clock3 className="mr-2 h-4 w-4" />,
+      onClick: () => onStatusChange(value),
+    };
+  });
 };
 
 export default function InvoicesPage() {
@@ -173,11 +197,17 @@ export default function InvoicesPage() {
   const [isViewOpen, setIsViewOpen] = useState(false);
   const [editInvoiceId, setEditInvoiceId] = useState<string | null>(null);
   const [viewInvoiceId, setViewInvoiceId] = useState<string | null>(null);
+  const [isRecordPaymentOpen, setIsRecordPaymentOpen] = useState(false);
+  const [recordPaymentInvoice, setRecordPaymentInvoice] = useState<InvoiceRow | null>(null);
+  const [expandedRowIds, setExpandedRowIds] = useState<Set<string>>(new Set());
   const [activeQueryParams, setActiveQueryParams] = useState<Record<string, unknown>>({});
   const [activeFilters, setActiveFilters] = useState<Record<string, string>>({});
   const [exporting, setExporting] = useState<"excel" | "pdf" | null>(null);
   const [invoicePermissions, setInvoicePermissions] = useState({
     viewInvoices: false,
+    addInvoice: false,
+    editInvoice: false,
+    editInvoiceStatus: false,
     downloadInvoice: false,
     isSuperAdmin: false,
     branches: [] as Array<{ value: string; label: string }>,
@@ -232,6 +262,7 @@ export default function InvoicesPage() {
       const requestRows = typeof rowsPerPageOverride === "number" ? rowsPerPageOverride : rowsPerPage;
       params.set("page", String(requestPage + 1));
       params.set("pageSize", String(requestRows));
+      params.set("include_payments", "true");
 
       const res = await fetch(
         `/api/institution/invoices?${params.toString()}`,
@@ -256,6 +287,9 @@ export default function InvoicesPage() {
         const data = (await res.json()) as {
           permissions?: {
             viewInvoices?: boolean;
+            addInvoice?: boolean;
+            editInvoice?: boolean;
+            editInvoiceStatus?: boolean;
             downloadInvoice?: boolean;
             isSuperAdmin?: boolean;
             branches?: Array<{ id: string; name: string }>;
@@ -263,6 +297,9 @@ export default function InvoicesPage() {
         };
         setInvoicePermissions({
           viewInvoices: !!data.permissions?.viewInvoices,
+          addInvoice: !!data.permissions?.addInvoice,
+          editInvoice: !!data.permissions?.editInvoice,
+          editInvoiceStatus: !!data.permissions?.editInvoiceStatus,
           downloadInvoice: !!data.permissions?.downloadInvoice,
           isSuperAdmin: !!data.permissions?.isSuperAdmin,
           branches: (data.permissions?.branches || []).map((b) => ({ value: b.id, label: b.name })),
@@ -276,6 +313,16 @@ export default function InvoicesPage() {
 
   useEffect(() => {
     void loadInvoices(activeQueryParams, page, rowsPerPage);
+  }, []);
+
+  const toggleRowExpand = useCallback((rowId: string | number) => {
+    const id = String(rowId);
+    setExpandedRowIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   }, []);
 
   const handleQueryParamsChange = useCallback((params: object) => {
@@ -355,7 +402,9 @@ export default function InvoicesPage() {
     (sum, row) => sum + Number(row.total_amount || 0),
     0,
   );
-  const paidCount = invoices.filter((i) => normalizeStatus(i.status) === "paid").length;
+  const paidCount = invoices.filter(
+    (i) => isPaidInvoiceStatus(i.status) || isPartiallyPaidInvoiceStatus(i.status),
+  ).length;
   const overdueCount = invoices.filter((i) => normalizeStatus(i.status) === "overdue").length;
   const draftCount = invoices.filter((i) => normalizeStatus(i.status) === "draft").length;
 
@@ -365,8 +414,23 @@ export default function InvoicesPage() {
   };
 
   const handleEdit = (row: InvoiceRow) => {
+    if (!canEditInvoice(row.status)) {
+      toast({
+        variant: "warning",
+        title: "Cannot edit invoice",
+        description:
+          getInvoiceEditBlockedReason(row.status) ||
+          "Only draft invoices can be edited.",
+      });
+      return;
+    }
     setEditInvoiceId(row.id);
     setIsEditOpen(true);
+  };
+
+  const handleRecordPayment = (row: InvoiceRow) => {
+    setRecordPaymentInvoice(row);
+    setIsRecordPaymentOpen(true);
   };
 
   const handleDownloadInvoicePdf = (row: InvoiceRow) => {
@@ -423,8 +487,22 @@ export default function InvoicesPage() {
     invoice: InvoiceRow,
     newStatus: string,
   ) => {
+    if (!invoicePermissions.editInvoiceStatus) {
+      toast({
+        variant: "warning",
+        title: "Access denied",
+        description: "You do not have permission to change invoice status.",
+      });
+      return;
+    }
     try {
       const normalized = normalizeStatus(newStatus);
+      if (!isInvoiceStatusTransitionAllowed(invoice.status, normalized)) {
+        throw new Error(
+          getInvoiceStatusTransitionBlockedReason(invoice.status, normalized) ||
+            "This status change is not allowed.",
+        );
+      }
       const res = await fetch(`/api/institution/invoices/${invoice.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -432,7 +510,7 @@ export default function InvoicesPage() {
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
-        throw new Error(body?.error || "Failed to update invoice status");
+        throw new Error(body?.message || body?.error || "Failed to update invoice status");
       }
 
       setInvoices((prev) =>
@@ -588,13 +666,15 @@ export default function InvoicesPage() {
             icon: <Eye className="h-4 w-4" />,
             onClick: () => handleView(row),
           },
-          {
+        ];
+        if (invoicePermissions.editInvoice) {
+          actions.push({
             value: "edit",
             label: "Edit",
             icon: <Edit className="h-4 w-4" />,
             onClick: () => handleEdit(row),
-          },
-        ];
+          });
+        }
         if (invoicePermissions.downloadInvoice) {
           actions.push({
             value: "download",
@@ -603,11 +683,20 @@ export default function InvoicesPage() {
             onClick: () => handleDownloadInvoicePdf(row),
           });
         }
+        if (invoicePermissions.editInvoice && canRecordInvoicePayment(row)) {
+          actions.push({
+            value: "record-payment",
+            label: "Record payment",
+            icon: <Wallet className="h-4 w-4" />,
+            onClick: () => handleRecordPayment(row),
+          });
+        }
 
-        const statusOptions = getAvailableStatuses(
-          row.status || "draft",
-          (nextStatus) => void handleChangeInvoiceStatus(row, nextStatus),
-        );
+        const statusOptions = invoicePermissions.editInvoiceStatus
+          ? getAvailableStatuses(row.status || "draft", (nextStatus) =>
+              void handleChangeInvoiceStatus(row, nextStatus),
+            )
+          : [];
 
         return (
           <div className="flex justify-center">
@@ -637,7 +726,7 @@ export default function InvoicesPage() {
         multiple: false,
         options: [
           { value: "member", label: "Member Invoices" },
-          { value: "client", label: "Client Invoices" },
+          { value: "third_party_agent", label: "Third Party Agent Invoices" },
         ],
       },
       {
@@ -664,7 +753,8 @@ export default function InvoicesPage() {
     { label: "All Invoices", value: "" },
     { value: "draft", label: "Draft" },
     { value: "sent", label: "Sent" },
-    { value: "paid", label: "Paid" },
+    { value: "fully paid", label: "Fully Paid" },
+    { value: "partially paid", label: "Partially Paid" },
     { value: "overdue", label: "Overdue" },
     { value: "cancelled", label: "Cancelled" },
   ];
@@ -681,6 +771,7 @@ export default function InvoicesPage() {
         <Button
           className="bg-[#111111] text-white hover:bg-[#111111] disabled:opacity-70"
           onClick={() => setIsAddOpen(true)}
+          disabled={!invoicePermissions.addInvoice}
         >
           <Plus className="mr-2 h-4 w-4" />
           Create Invoice
@@ -756,6 +847,11 @@ export default function InvoicesPage() {
         columns={columns}
         loading={loading}
         emptyMessage="No invoices found."
+        getRowId={(row) => row.id}
+        renderDetail={(row) => <InvoiceExpandableContent invoice={row} />}
+        expandedRowIds={expandedRowIds}
+        onToggleExpand={toggleRowExpand}
+        onRowClick={(row) => toggleRowExpand(row.id)}
         tabularFilters={filters}
         tabularFilterField="status"
         onQueryParamsChange={handleQueryParamsChange}
@@ -807,6 +903,16 @@ export default function InvoicesPage() {
           setEditInvoiceId(viewInvoiceId);
           setIsEditOpen(true);
         }}
+      />
+
+      <RecordInvoicePaymentModal
+        isOpen={isRecordPaymentOpen}
+        invoice={recordPaymentInvoice}
+        onClose={() => {
+          setIsRecordPaymentOpen(false);
+          setRecordPaymentInvoice(null);
+        }}
+        onSuccess={() => void loadInvoices(activeQueryParams, page, rowsPerPage)}
       />
     </div>
   );

@@ -14,13 +14,14 @@ interface ClaimDepositProps {
 }
 
 const ERROR_MESSAGES: Record<string, string> = {
-  assignee_required: "Select a member or client to assign this deposit to.",
+  assignee_required: "Select a member or third party agent to assign this deposit to.",
   invalid_member: "The selected member is invalid for this branch.",
-  invalid_client: "The selected client is invalid for this branch.",
+  invalid_third_party_agent: "The selected third party agent is invalid for this branch.",
+  invalid_client: "The selected third party agent is invalid for this branch.",
   invalid_transaction: "The selected transaction is invalid for this assignee.",
   transaction_already_linked: "This transaction is already linked to another deposit.",
   transaction_amount_mismatch: "The transaction amount does not match the deposit amount.",
-  member_and_client_conflict: "Assign either a member or a client, not both.",
+  member_and_client_conflict: "Assign either a member or a third party agent, not both.",
   deposit_already_claimed: "This deposit has already been claimed.",
   "missing_permission:edit_unclaimed_deposit": "You do not have permission to claim deposits.",
   not_found: "This deposit no longer exists.",
@@ -107,7 +108,8 @@ export default function ClaimDeposit({ isOpen, depositId, onClose, onSuccess }: 
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           member_id: data.assignee_type === "member" ? data.member_id : null,
-          client_id: data.assignee_type === "client" ? data.client_id : null,
+          third_party_agent_id:
+            data.assignee_type === "third_party_agent" ? data.third_party_agent_id : null,
           transaction_id: data.transaction_id || null,
         }),
       })
