@@ -13,6 +13,7 @@
     "db:migrate": "ts-node --compiler-options '{\"module\":\"CommonJS\"}' scripts/run-migrations.ts",
     "db:seed-auth": "ts-node --compiler-options '{\"module\":\"CommonJS\"}' scripts/seed-app-auth-users.ts",
     "workers": "TS_NODE_PROJECT=tsconfig.workers.json node -r ./scripts/register-paths.js -r ts-node/register/transpile-only scripts/start-workers.ts",
+    "socket": "TS_NODE_PROJECT=tsconfig.workers.json node -r ./scripts/register-paths.js -r ts-node/register/transpile-only scripts/start-socket-server.ts",
     "email:retry": "TS_NODE_PROJECT=tsconfig.workers.json node -r ./scripts/register-paths.js -r ts-node/register/transpile-only scripts/retry-email-job.ts",
     "notifications:cleanup": "ts-node --compiler-options '{\"module\":\"CommonJS\"}' scripts/cleanup-notifications.ts"
   },
@@ -93,6 +94,7 @@
     "react-resizable-panels": "^2.1.7",
     "recharts": "^3.9.0",
     "socket.io": "^4.8.3",
+    "socket.io-client": "^4.8.3",
     "sonner": "^1.7.4",
     "tailwind-merge": "^2.5.5",
     "tailwindcss-animate": "^1.0.7",

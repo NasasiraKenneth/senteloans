@@ -116,6 +116,8 @@ export const config = {
     "/invoices/:path*",
     "/reports",
     "/reports/:path*",
+    "/chats",
+    "/chats/:path*",
     "/finances",
     "/finances/:path*",
     "/expenses",

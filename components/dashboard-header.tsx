@@ -4,6 +4,7 @@ import { LogOut, Settings, ChevronDown, ChevronRight, Home } from "lucide-react"
 import { usePathname } from "next/navigation"
 import Link from "next/link"
 import { NotificationBell } from "@/components/notification-bell"
+import { ChatMessagesButton } from "@/components/chat-messages-button"
 import { InstitutionLogo } from "@/components/institution-logo"
 import {
   DropdownMenu,
@@ -64,6 +65,7 @@ export function DashboardHeader() {
       investments: "Investments",
       transactions: "Transactions",
       reports: "Reports",
+      chats: "Messages",
       settings: "Settings",
       new: "New",
       edit: "Edit",
@@ -143,7 +145,7 @@ export function DashboardHeader() {
 
         {/* Right — Actions */}
         <div className="ml-auto flex items-center gap-2">
-          {/* Notifications */}
+          <ChatMessagesButton href="/chats" />
           <NotificationBell apiEndpoint="/api/institution/notifications" />
 
           {/* Divider */}

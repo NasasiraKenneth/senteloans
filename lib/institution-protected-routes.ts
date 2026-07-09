@@ -15,6 +15,7 @@ export const INSTITUTION_PROTECTED_PREFIXES = [
   "/transactions",
   "/invoices",
   "/reports",
+  "/chats",
   "/finances",
   "/expenses",
 ] as const

@@ -6,6 +6,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { NotificationBell } from "@/components/notification-bell"
+import { ChatMessagesButton } from "@/components/chat-messages-button"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -117,6 +118,10 @@ export function ClientPortalHeader({
         </div>
 
         <div className="flex shrink-0 items-center gap-1 sm:gap-2">
+          <ChatMessagesButton
+            href="/client-portal/messages"
+            triggerClassName={portalTriggerClass}
+          />
           <NotificationBell
             apiEndpoint="/api/client/notifications"
             contentClassName={PORTAL_THEME}
