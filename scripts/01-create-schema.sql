@@ -98,6 +98,7 @@ CREATE TABLE IF NOT EXISTS config (
     savings VARCHAR(10) NOT NULL DEFAULT 'false',
     mobile_money VARCHAR(10) NOT NULL DEFAULT 'false',
     auto_invoices VARCHAR(10) NOT NULL DEFAULT 'false',
+    chats VARCHAR(10) NOT NULL DEFAULT 'false',
     currency VARCHAR(20) NOT NULL,
     currency_inwords VARCHAR(250) NOT NULL,
     membership_fee NUMERIC(18,2) NOT NULL CHECK (membership_fee >= 0),

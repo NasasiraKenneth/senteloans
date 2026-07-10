@@ -5,28 +5,30 @@
  *   SOCKET_PORT=3010 npm run socket
  *
  * Env:
- *   REDIS_URL          — pub/sub + optional Socket.IO redis adapter later
- *   SOCKET_PORT        — default 3010
- *   NEXTAUTH_SECRET    — verify session token on handshake (optional v1: identity id param)
- *
- * Inbox subscriptions:
- *   Client emits `inbox:subscribe` with { chatIdentityId }
- *   Server joins room `inbox:{chatIdentityId}`
- *   On Redis `chat:inbox:events:{id}` → emits `inbox:updated` to room
- *
- * Thread subscriptions:
- *   Client emits `thread:subscribe` with { conversationId }
- *   Server joins room `thread:{conversationId}`
- *   On Redis `chat:thread:events:{id}` → emits `thread:event` to room
+ *   REDIS_URL
+ *   SOCKET_PORT (default 3010)
+ *   NEXTAUTH_SECRET — required to verify session cookies on handshake
+ *   DATABASE_URL — verify identity/participant ownership on subscribe
+ *   NEXT_PUBLIC_APP_URL — CORS origin
  */
 
 import http from "node:http"
-import { Server } from "socket.io"
+import { Server, type Socket } from "socket.io"
 import IORedis from "ioredis"
+import { getToken } from "next-auth/jwt"
+import { Pool } from "pg"
 import { REDIS_URL } from "../lib/queue/redis"
-import { inboxChannel } from "../lib/chats/redis/keys"
 
 const PORT = Number(process.env.SOCKET_PORT || 3010)
+const NEXTAUTH_SECRET = process.env.NEXTAUTH_SECRET
+const DATABASE_URL = process.env.DATABASE_URL
+
+type SocketAuth = {
+  authUserId: string
+  type: "staff" | "client" | string
+  userId?: string | null
+  memberId?: string | null
+}
 
 const httpServer = http.createServer()
 const io = new Server(httpServer, {
@@ -38,11 +40,104 @@ const io = new Server(httpServer, {
 })
 
 const redisSub = new IORedis(REDIS_URL, { maxRetriesPerRequest: null })
+const pool = DATABASE_URL
+  ? new Pool({ connectionString: DATABASE_URL, max: 5, idleTimeoutMillis: 30000 })
+  : null
 
-io.on("connection", (socket) => {
-  socket.on("inbox:subscribe", (payload: { chatIdentityId?: string }) => {
+async function verifyInboxIdentity(auth: SocketAuth, chatIdentityId: string): Promise<boolean> {
+  if (!pool) return false
+
+  if (auth.type === "staff" && auth.userId) {
+    const res = await pool.query(
+      `SELECT 1 FROM chat_identities
+        WHERE id = $1 AND user_id = $2 AND is_active = TRUE
+        LIMIT 1`,
+      [chatIdentityId, auth.userId],
+    )
+    return (res.rowCount ?? 0) > 0
+  }
+
+  if (auth.type === "client" && auth.memberId) {
+    const res = await pool.query(
+      `SELECT 1 FROM chat_identities
+        WHERE id = $1 AND member_id = $2 AND is_active = TRUE
+        LIMIT 1`,
+      [chatIdentityId, auth.memberId],
+    )
+    return (res.rowCount ?? 0) > 0
+  }
+
+  return false
+}
+
+async function verifyThreadAccess(auth: SocketAuth, conversationId: string): Promise<boolean> {
+  if (!pool) return false
+
+  const res = await pool.query(
+    `SELECT 1
+       FROM conversation_participants cp
+       INNER JOIN chat_identities ci ON ci.id = cp.chat_identity_id
+      WHERE cp.conversation_id = $1
+        AND cp.left_at IS NULL
+        AND (
+          ($2::uuid IS NOT NULL AND ci.user_id = $2)
+          OR ($3::uuid IS NOT NULL AND ci.member_id = $3)
+        )
+      LIMIT 1`,
+    [conversationId, auth.userId ?? null, auth.memberId ?? null],
+  )
+
+  return (res.rowCount ?? 0) > 0
+}
+
+io.use(async (socket, next) => {
+  try {
+    if (!NEXTAUTH_SECRET) {
+      return next(new Error("socket_auth_misconfigured"))
+    }
+
+    const cookieHeader = socket.request.headers.cookie
+    if (!cookieHeader) {
+      return next(new Error("unauthorized"))
+    }
+
+    const token = await getToken({
+      req: { headers: { cookie: cookieHeader } } as Parameters<typeof getToken>[0]["req"],
+      secret: NEXTAUTH_SECRET,
+    })
+
+    if (!token?.authUserId) {
+      return next(new Error("unauthorized"))
+    }
+
+    socket.data.auth = {
+      authUserId: String(token.authUserId),
+      type: String(token.type || ""),
+      userId: token.userId ? String(token.userId) : null,
+      memberId: (token.memberId || token.clientId)
+        ? String(token.memberId || token.clientId)
+        : null,
+    } satisfies SocketAuth
+
+    return next()
+  } catch (error) {
+    console.error("[socket] auth failed", error)
+    return next(new Error("unauthorized"))
+  }
+})
+
+io.on("connection", (socket: Socket) => {
+  socket.on("inbox:subscribe", async (payload: { chatIdentityId?: string }) => {
+    const auth = socket.data.auth as SocketAuth | undefined
     const chatIdentityId = payload?.chatIdentityId?.trim()
-    if (!chatIdentityId) return
+    if (!auth || !chatIdentityId) return
+
+    const allowed = await verifyInboxIdentity(auth, chatIdentityId)
+    if (!allowed) {
+      socket.emit("socket:error", { error: "forbidden_inbox_subscribe" })
+      return
+    }
+
     socket.join(`inbox:${chatIdentityId}`)
   })
 
@@ -52,9 +147,17 @@ io.on("connection", (socket) => {
     socket.leave(`inbox:${chatIdentityId}`)
   })
 
-  socket.on("thread:subscribe", (payload: { conversationId?: string }) => {
+  socket.on("thread:subscribe", async (payload: { conversationId?: string }) => {
+    const auth = socket.data.auth as SocketAuth | undefined
     const conversationId = payload?.conversationId?.trim()
-    if (!conversationId) return
+    if (!auth || !conversationId) return
+
+    const allowed = await verifyThreadAccess(auth, conversationId)
+    if (!allowed) {
+      socket.emit("socket:error", { error: "forbidden_thread_subscribe" })
+      return
+    }
+
     socket.join(`thread:${conversationId}`)
   })
 
@@ -104,12 +207,14 @@ httpServer.listen(PORT, () => {
 
 process.on("SIGINT", () => {
   redisSub.disconnect()
+  void pool?.end()
   httpServer.close()
   process.exit(0)
 })
 
 process.on("SIGTERM", () => {
   redisSub.disconnect()
+  void pool?.end()
   httpServer.close()
   process.exit(0)
 })

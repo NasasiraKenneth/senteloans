@@ -8,6 +8,10 @@ export type ConversationType =
 
 export type MessageType = "TEXT" | "IMAGE" | "FILE" | "AUDIO" | "VIDEO" | "SYSTEM"
 
+export type MessageVisibility = "PUBLIC" | "INTERNAL"
+
+export type SupportTicketStatus = "OPEN" | "PENDING" | "RESOLVED" | "CLOSED"
+
 export type ChatParticipant = {
   id: string
   name: string
@@ -38,8 +42,11 @@ export type ChatMessage = {
   pinnedAt?: string
   replyToId?: string
   attachmentName?: string
+  attachmentUrl?: string
   forwardedFrom?: ForwardedMessageMeta
   forwardedFromMessageId?: string
+  /** PUBLIC = member-visible; INTERNAL = staff-only notes (SUPPORT) */
+  visibility?: MessageVisibility
 }
 
 export type ConversationReference = {
@@ -64,6 +71,8 @@ export type ChatConversation = {
   latestPinnedAt?: string | null
   reference?: ConversationReference
   messages: ChatMessage[]
+  supportStatus?: SupportTicketStatus | null
+  assigneeChatIdentityId?: string | null
 }
 
 export type ChatContact = {
@@ -79,6 +88,8 @@ export type ChatInboxResponse = {
   currentIdentityId: string
   conversations: ChatConversation[]
   totalUnread: number
+  /** Staff with manage_support_chat_participants can see branch SUPPORT queue */
+  canManageSupportParticipants?: boolean
 }
 
 export type ChatContactsResponse = {

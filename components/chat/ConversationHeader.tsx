@@ -48,6 +48,18 @@ function conversationHeaderSubtitle(
   isDirect: boolean,
   peer: ChatConversation["participants"][number] | undefined,
 ): string {
+  if (conversation.type === "SUPPORT") {
+    const member = conversation.participants.find((p) => p.role === "member")
+    if (member) {
+      const parts = [member.name]
+      if (conversation.supportStatus) parts.push(conversation.supportStatus.toLowerCase())
+      const agentCount = conversation.participants.filter((p) => p.role === "staff").length
+      if (agentCount > 0) parts.push(`${agentCount} agent${agentCount === 1 ? "" : "s"}`)
+      return parts.join(" · ")
+    }
+    return "Branch support"
+  }
+
   if (isDirect) {
     return peer?.isOnline ? "Online" : "Offline"
   }
@@ -175,7 +187,7 @@ export function ConversationHeader({
               }}
             >
               <UserPlus className="h-4 w-4" />
-              Add participant
+              {conversation.type === "SUPPORT" ? "Add support agents" : "Add participant"}
             </DropdownMenuItem>
           ) : null}
         </DropdownMenuContent>

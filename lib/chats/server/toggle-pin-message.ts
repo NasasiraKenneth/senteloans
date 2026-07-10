@@ -41,8 +41,11 @@ export async function togglePinMessage(
   conversationId: string,
   messageId: string,
   chatIdentityId: string,
+  options?: { hasManageSupportParticipants?: boolean },
 ): Promise<TogglePinResponse> {
-  await requireConversationAccess(client, conversationId, chatIdentityId)
+  await requireConversationAccess(client, conversationId, chatIdentityId, {
+    hasManageSupportParticipants: options?.hasManageSupportParticipants,
+  })
 
   const messageRes = await client.query(
     `SELECT id, message_type::text AS message_type

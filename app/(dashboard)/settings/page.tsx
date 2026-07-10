@@ -24,6 +24,7 @@ import {
   Pencil,
   Search,
   Smartphone,
+  MessageCircle,
   CreditCard,
   Mail,
   Tags,
@@ -43,7 +44,7 @@ import { useStaffSession } from "@/components/staff-session-provider"
 import { upload } from "@vercel/blob/client"
 
 interface InstitutionConfig {
-  modules: { loans: boolean; shares: boolean; savings: boolean; mobile_money: boolean }
+  modules: { loans: boolean; shares: boolean; savings: boolean; mobile_money: boolean; chats: boolean }
   currency: string
   currencyInWords?: string
   shareValue?: number
@@ -1677,6 +1678,7 @@ export default function SettingsPage() {
                             { id: "moduleMobileMoney", label: "Mobile Money", hint: "Airtel/MTN payment collection and disbursement", active: !!config.modules.mobile_money, icon: Smartphone, type: "module" as const, key: "mobile_money" as const },
                             { id: "moduleSavings", label: "Savings", hint: "Savings accounts and savings compliance rules", active: !!config.modules.savings, icon: BellRing, type: "module" as const, key: "savings" as const },
                             { id: "moduleShares", label: "Shares", hint: "Member shares and share capital controls", active: !!config.modules.shares, icon: DollarSign, type: "module" as const, key: "shares" as const },
+                            { id: "moduleChats", label: "Chats", hint: "In-app messaging for staff and members", active: !!config.modules.chats, icon: MessageCircle, type: "module" as const, key: "chats" as const },
                             { id: "moduleAutoInvoices", label: "Auto Invoices", hint: "Automated invoice generation for due payments", active: !!config.autoInvoices, icon: CreditCard, type: "flag" as const, key: "autoInvoices" as const },
                           ].map((item) => {
                             const Icon = item.icon

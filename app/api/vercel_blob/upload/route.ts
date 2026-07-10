@@ -39,10 +39,25 @@ export async function POST(request: NextRequest) {
         const normalizedPath = String(pathname || "").replace(/^\/+/, "");
         const isInstitutionLogoUpload =
           normalizedPath.startsWith("institution-logos/");
+        const isChatAttachmentUpload =
+          normalizedPath.startsWith("chat-attachments/");
         return {
           allowedContentTypes: isInstitutionLogoUpload
             ? ["image/jpeg", "image/png", "image/webp", "image/gif"]
-            : ["image/jpeg", "image/png", "image/webp", "application/pdf"],
+            : isChatAttachmentUpload
+              ? [
+                  "image/jpeg",
+                  "image/png",
+                  "image/webp",
+                  "image/gif",
+                  "application/pdf",
+                  "application/msword",
+                  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                  "application/vnd.ms-excel",
+                  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                  "text/plain",
+                ]
+              : ["image/jpeg", "image/png", "image/webp", "application/pdf"],
           addRandomSuffix: true,
           // callbackUrl is automatically computed by Vercel in production.
           // In local dev, onUploadCompleted won't fire (Vercel can't reach localhost)

@@ -46,6 +46,7 @@ export async function GET(req: Request) {
         editInstitutionInfo,
         editBranchInfo,
         editRolePermissions,
+        viewChats,
       ] = await Promise.all([
         hasPermission(client, actor, "view_users"),
         hasPermission(client, actor, "view_members"),
@@ -70,6 +71,7 @@ export async function GET(req: Request) {
         hasPermission(client, actor, "edit_institution_info"),
         hasPermission(client, actor, "edit_branch_info"),
         hasPermission(client, actor, "edit_role_permissions"),
+        hasPermission(client, actor, "view_chats"),
       ])
 
       const role = String(actor.role || "").trim().toLowerCase()
@@ -117,6 +119,7 @@ export async function GET(req: Request) {
         viewExpenses,
         viewReports,
         viewSettings,
+        viewChats,
         isSuperAdmin: isSuperAdmin(actor),
         branches,
       }

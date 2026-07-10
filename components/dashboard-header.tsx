@@ -18,6 +18,7 @@ import { useRouter } from "next/navigation"
 import { signOut } from "next-auth/react"
 import { clearSession } from "@/lib/session"
 import { useStaffSession } from "@/components/staff-session-provider"
+import { readInstitutionConfigModuleEnabled } from "@/lib/institution-branch-config"
 
 function getInitials(name: string): string {
   if (!name) return "U"
@@ -145,7 +146,12 @@ export function DashboardHeader() {
 
         {/* Right — Actions */}
         <div className="ml-auto flex items-center gap-2">
-          <ChatMessagesButton href="/chats" />
+          {readInstitutionConfigModuleEnabled(session?.institution?.config, "chats") ? (
+            <ChatMessagesButton
+              href="/chats"
+              unreadApiEndpoint="/api/institution/chats/unread"
+            />
+          ) : null}
           <NotificationBell apiEndpoint="/api/institution/notifications" />
 
           {/* Divider */}

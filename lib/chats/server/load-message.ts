@@ -7,6 +7,7 @@ export const MESSAGE_SELECT_SQL = `SELECT
   m.conversation_id,
   m.sender_id,
   m.message_type::text AS message_type,
+  COALESCE(m.visibility::text, 'PUBLIC') AS visibility,
   m.body,
   m.metadata,
   m.reply_to_message_id,
@@ -20,6 +21,13 @@ export const MESSAGE_SELECT_SQL = `SELECT
      ORDER BY ma.uploaded_at ASC
      LIMIT 1
   ) AS attachment_name,
+  (
+    SELECT ma.file_url
+      FROM message_attachments ma
+     WHERE ma.message_id = m.id
+     ORDER BY ma.uploaded_at ASC
+     LIMIT 1
+  ) AS attachment_url,
   COALESCE(u_fwd.full_name, mem_fwd.full_name, 'Unknown') AS forwarded_sender_name,
   src.body AS forwarded_body,
   src.message_type::text AS forwarded_type,

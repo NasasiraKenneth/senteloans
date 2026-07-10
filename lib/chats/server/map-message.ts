@@ -1,10 +1,16 @@
-import type { ChatMessage, ForwardedMessageMeta, MessageType } from "@/lib/chats/types"
+import type {
+  ChatMessage,
+  ForwardedMessageMeta,
+  MessageType,
+  MessageVisibility,
+} from "@/lib/chats/types"
 
 export type MessageRow = {
   id: string
   conversation_id: string
   sender_id: string
   message_type: MessageType
+  visibility?: MessageVisibility | null
   body: string | null
   metadata: Record<string, unknown> | null
   reply_to_message_id: string | null
@@ -12,6 +18,7 @@ export type MessageRow = {
   created_at: string | Date
   pinned_at?: string | Date | null
   attachment_name?: string | null
+  attachment_url?: string | null
   forwarded_sender_name?: string | null
   forwarded_body?: string | null
   forwarded_type?: MessageType | null
@@ -68,7 +75,9 @@ export function mapMessageRow(row: MessageRow): ChatMessage {
     pinnedAt: row.pinned_at ? new Date(row.pinned_at).toISOString() : undefined,
     replyToId: row.reply_to_message_id ?? undefined,
     attachmentName: row.attachment_name ?? undefined,
+    attachmentUrl: row.attachment_url ?? undefined,
     forwardedFrom,
     forwardedFromMessageId: row.forwarded_from_message_id ?? undefined,
+    visibility: row.visibility === "INTERNAL" ? "INTERNAL" : "PUBLIC",
   }
 }

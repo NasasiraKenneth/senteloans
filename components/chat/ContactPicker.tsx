@@ -19,6 +19,8 @@ type ContactPickerProps = {
   onSelectedIdsChange: (ids: string[]) => void
   onSelectedContactsChange?: (contacts: ChatContact[]) => void
   excludeIds?: string[]
+  /** Lock filter to staff (support agent adds) */
+  roleFilter?: ContactFilter
 }
 
 const FILTERS: { id: ContactFilter; label: string }[] = [
@@ -35,13 +37,18 @@ export function ContactPicker({
   onSelectedIdsChange,
   onSelectedContactsChange,
   excludeIds = [],
+  roleFilter,
 }: ContactPickerProps) {
   const [query, setQuery] = useState("")
   const [debouncedQuery, setDebouncedQuery] = useState("")
-  const [filter, setFilter] = useState<ContactFilter>("all")
+  const [filter, setFilter] = useState<ContactFilter>(roleFilter ?? "all")
   const [remoteContacts, setRemoteContacts] = useState<ChatContact[]>([])
   const [loading, setLoading] = useState(Boolean(contactsApiBase))
   const [selectedById, setSelectedById] = useState<Record<string, ChatContact>>({})
+
+  useEffect(() => {
+    if (roleFilter) setFilter(roleFilter)
+  }, [roleFilter])
 
   useEffect(() => {
     if (selectedIds.length === 0) {
@@ -150,23 +157,25 @@ export function ContactPicker({
         />
       </div>
 
-      <div className="flex gap-1.5">
-        {FILTERS.map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            onClick={() => setFilter(item.id)}
-            className={cn(
-              "rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors",
-              filter === item.id
-                ? "bg-[#f08c2b] text-white"
-                : "bg-muted/60 text-muted-foreground hover:bg-muted",
-            )}
-          >
-            {item.label}
-          </button>
-        ))}
-      </div>
+      {!roleFilter ? (
+        <div className="flex gap-1.5">
+          {FILTERS.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => setFilter(item.id)}
+              className={cn(
+                "rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors",
+                filter === item.id
+                  ? "bg-[#f08c2b] text-white"
+                  : "bg-muted/60 text-muted-foreground hover:bg-muted",
+              )}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
 
       <div className="max-h-56 overflow-y-auto rounded-lg border border-border/80">
         {loading ? (

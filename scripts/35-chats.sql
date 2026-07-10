@@ -49,6 +49,14 @@ BEGIN
       'INSTITUTION'
     );
   END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'message_visibility') THEN
+    CREATE TYPE message_visibility AS ENUM ('PUBLIC', 'INTERNAL');
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'support_ticket_status') THEN
+    CREATE TYPE support_ticket_status AS ENUM ('OPEN', 'PENDING', 'RESOLVED', 'CLOSED');
+  END IF;
 END $chat_enums$;
 
 -- ---------------------------------------------------------------------------
@@ -126,6 +134,10 @@ CREATE TABLE IF NOT EXISTS conversations (
   last_message_preview TEXT,
   -- Denormalized MAX(pinned_messages.pinned_at) for inbox pinned-section sort.
   latest_pinned_at TIMESTAMPTZ,
+  -- SUPPORT ticket fields (null for non-support conversations)
+  support_status support_ticket_status,
+  assignee_chat_identity_id UUID
+    REFERENCES chat_identities(id) ON DELETE SET NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -234,6 +246,7 @@ CREATE TABLE IF NOT EXISTS messages (
   sender_id UUID NOT NULL
     REFERENCES chat_identities(id) ON DELETE RESTRICT,
   message_type message_type NOT NULL DEFAULT 'TEXT',
+  visibility message_visibility NOT NULL DEFAULT 'PUBLIC',
   body TEXT,
   metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
   client_message_id VARCHAR(64),

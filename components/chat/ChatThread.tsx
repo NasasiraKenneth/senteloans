@@ -5,7 +5,7 @@ import { ConversationHeader } from "./ConversationHeader"
 import { ConversationSearchBar } from "./ConversationSearchBar"
 import { PinnedMessagesBar } from "./PinnedMessagesBar"
 import { MessageBubble } from "./MessageBubble"
-import { ChatComposer, type ReplyPreview } from "./ChatComposer"
+import { ChatComposer, type ReplyPreview, type SendMessagePayload } from "./ChatComposer"
 import { buildChatsQueryString } from "@/lib/chats/client/build-query"
 import { formatMessageDayLabel } from "@/lib/chats/format"
 import { findMessageHits } from "@/lib/chats/search-messages"
@@ -14,7 +14,7 @@ import type { ChatConversation, ChatMessage, ListMessagesResponse } from "@/lib/
 type ChatThreadProps = {
   conversation: ChatConversation
   currentUserId: string
-  onSend: (body: string, replyToId?: string) => void
+  onSend: (payload: SendMessagePayload) => void | Promise<void>
   onPinMessage?: (messageId: string) => void
   onForwardMessage?: (message: ChatMessage, senderName: string) => void
   onAddParticipants?: () => void
@@ -23,6 +23,9 @@ type ChatThreadProps = {
   enableMemberLinks?: boolean
   messagesLoading?: boolean
   messagesApiBase?: string | null
+  enableInternalNotes?: boolean
+  /** Hide add-people for member support desk view */
+  hideAddParticipants?: boolean
 }
 
 function groupMessagesByDay(messages: ChatMessage[]): { day: string; messages: ChatMessage[] }[] {
@@ -53,10 +56,15 @@ export function ChatThread({
   enableMemberLinks = true,
   messagesLoading = false,
   messagesApiBase = null,
+  enableInternalNotes = false,
+  hideAddParticipants = false,
 }: ChatThreadProps) {
   const bottomRef = useRef<HTMLDivElement>(null)
   const messageRefs = useRef(new Map<string, HTMLDivElement>())
   const isGroup = conversation.type !== "DIRECT"
+  const isMemberSupportDesk =
+    conversation.type === "SUPPORT" &&
+    conversation.participants.some((participant) => participant.id === "support-desk")
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState("")
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("")
@@ -269,7 +277,11 @@ export function ChatThread({
         enableMemberLinks={enableMemberLinks}
         searchActive={searchOpen}
         onSearchMessages={() => setSearchOpen(true)}
-        onAddParticipants={conversation.type !== "DIRECT" ? onAddParticipants : undefined}
+        onAddParticipants={
+          hideAddParticipants || conversation.type === "DIRECT"
+            ? undefined
+            : onAddParticipants
+        }
       />
 
       {searchOpen ? (
@@ -321,9 +333,12 @@ export function ChatThread({
                   <MessageBubble
                     key={message.id}
                     message={message}
-                    sender={participantMap.get(message.senderId)}
+                    sender={
+                      participantMap.get(message.senderId) ??
+                      (isMemberSupportDesk ? conversation.participants[0] : undefined)
+                    }
                     isOwn={message.senderId === currentUserId}
-                    showSender={isGroup}
+                    showSender={isGroup && !isMemberSupportDesk}
                     enableMemberLinks={enableMemberLinks}
                     highlightQuery={hasSearchQuery ? searchQuery : ""}
                     isActiveSearchMatch={message.id === activeMatchId}
@@ -355,6 +370,10 @@ export function ChatThread({
         onSend={onSend}
         replyTo={replyTo}
         onCancelReply={() => setReplyTo(null)}
+        enableAttachments={Boolean(messagesApiBase)}
+        conversationId={conversation.id}
+        showDemoBanner={!messagesApiBase}
+        enableInternalNotes={enableInternalNotes}
       />
     </div>
   )

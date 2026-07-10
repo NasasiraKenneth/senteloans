@@ -4,7 +4,7 @@ import { useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { useClientSession } from "@/components/client-session-provider"
 
-type ClientModule = "savings" | "shares"
+type ClientModule = "savings" | "shares" | "chats"
 
 /** Redirect to overview when the branch has a module disabled. */
 export function useClientModuleGuard(module: ClientModule) {

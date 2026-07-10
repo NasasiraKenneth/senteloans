@@ -68,6 +68,7 @@ export function ChatsShell({
   const [inboxLoading, setInboxLoading] = useState(Boolean(apiBase))
   const [inboxError, setInboxError] = useState<string | null>(null)
   const [totalUnread, setTotalUnread] = useState(0)
+  const [canManageSupportParticipants, setCanManageSupportParticipants] = useState(false)
   const [activeId, setActiveId] = useState<string | null>(null)
   const [search, setSearch] = useState("")
   const [debouncedSearch, setDebouncedSearch] = useState("")
@@ -97,14 +98,24 @@ export function ChatsShell({
           search: debouncedSearch,
         })}`
         const response = await fetch(url, { cache: "no-store" })
-        const data = (await response.json()) as ChatInboxResponse & { error?: string }
+        const data = (await response.json()) as ChatInboxResponse & {
+          error?: string
+          message?: string
+        }
         if (!response.ok) {
-          throw new Error(data.error || "Failed to load inbox")
+          if (data.error === "chats_disabled") {
+            toast({
+              title: "Chats disabled",
+              description: data.message || "Chat messaging is disabled for this branch.",
+            })
+          }
+          throw new Error(data.message || data.error || "Failed to load inbox")
         }
 
         setConversations(data.conversations ?? [])
         setCurrentIdentityId(data.currentIdentityId ?? "")
         setTotalUnread(data.totalUnread ?? 0)
+        setCanManageSupportParticipants(Boolean(data.canManageSupportParticipants))
       } catch (error: unknown) {
         const message = error instanceof Error ? error.message : "Failed to load inbox"
         setInboxError(message)
@@ -115,7 +126,7 @@ export function ChatsShell({
         setInboxLoading(false)
       }
     },
-    [apiBase, debouncedSearch, filter],
+    [apiBase, debouncedSearch, filter, toast],
   )
 
   useEffect(() => {
@@ -459,11 +470,24 @@ export function ChatsShell({
   )
 
   const handleSend = useCallback(
-    async (body: string, replyToId?: string) => {
+    async (payload: {
+      body: string
+      replyToId?: string
+      messageType?: ChatMessage["type"]
+      visibility?: ChatMessage["visibility"]
+      attachment?: {
+        fileName: string
+        fileUrl: string
+        mimeType?: string
+        fileSize?: number
+        storageKey?: string
+      }
+    }) => {
       if (!activeId) return
 
-      const trimmedBody = body.trim()
-      if (!trimmedBody) return
+      const trimmedBody = payload.body.trim()
+      const messageType = payload.messageType ?? (payload.attachment ? "FILE" : "TEXT")
+      if (!trimmedBody && !payload.attachment) return
 
       if (messagesApiBase) {
         const clientMessageId = `client-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
@@ -472,25 +496,31 @@ export function ChatsShell({
           id: clientMessageId,
           conversationId: activeId,
           senderId: currentIdentityId,
-          type: "TEXT",
+          type: messageType,
           body: trimmedBody,
           sentAt: now,
-          replyToId,
+          replyToId: payload.replyToId,
+          attachmentName: payload.attachment?.fileName,
+          attachmentUrl: payload.attachment?.fileUrl,
+          visibility: payload.visibility ?? "PUBLIC",
         }
 
         setConversations((prev) =>
           prev.map((conversation) => {
             if (conversation.id !== activeId) return conversation
-            return {
+            const next = {
               ...conversation,
               messages: [...conversation.messages, optimisticMessage],
-              lastMessage: {
-                body: trimmedBody,
+            }
+            if ((payload.visibility ?? "PUBLIC") === "PUBLIC") {
+              next.lastMessage = {
+                body: trimmedBody || payload.attachment?.fileName || "Attachment",
                 sentAt: now,
                 senderId: currentIdentityId,
-                type: "TEXT",
-              },
+                type: messageType,
+              }
             }
+            return next
           }),
         )
 
@@ -500,8 +530,11 @@ export function ChatsShell({
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               body: trimmedBody,
-              replyToMessageId: replyToId,
+              messageType,
+              replyToMessageId: payload.replyToId,
               clientMessageId,
+              attachment: payload.attachment,
+              visibility: payload.visibility ?? "PUBLIC",
             }),
           })
           const data = (await response.json()) as SendMessageResponse & {
@@ -519,16 +552,19 @@ export function ChatsShell({
                 const withoutOptimistic = conversation.messages.filter(
                   (message) => message.id !== clientMessageId,
                 )
-                return {
+                const next = {
                   ...conversation,
                   messages: [...withoutOptimistic, data.message],
-                  lastMessage: {
-                    body: data.message.body,
+                }
+                if ((data.message.visibility ?? "PUBLIC") === "PUBLIC") {
+                  next.lastMessage = {
+                    body: data.message.body || data.message.attachmentName || "Attachment",
                     sentAt: data.message.sentAt,
                     senderId: data.message.senderId,
                     type: data.message.type,
-                  },
+                  }
                 }
+                return next
               }),
             ),
           )
@@ -553,14 +589,16 @@ export function ChatsShell({
       }
 
       const now = new Date().toISOString()
-      const newMessage = {
+      const newMessage: ChatMessage = {
         id: `local-${Date.now()}`,
         conversationId: activeId,
         senderId: currentIdentityId,
-        type: "TEXT" as const,
+        type: messageType,
         body: trimmedBody,
         sentAt: now,
-        replyToId,
+        replyToId: payload.replyToId,
+        attachmentName: payload.attachment?.fileName,
+        attachmentUrl: payload.attachment?.fileUrl,
       }
 
       setConversations((prev) =>
@@ -570,10 +608,10 @@ export function ChatsShell({
             ...conversation,
             messages: [...conversation.messages, newMessage],
             lastMessage: {
-              body: trimmedBody,
+              body: trimmedBody || payload.attachment?.fileName || "Attachment",
               sentAt: now,
               senderId: currentIdentityId,
-              type: "TEXT",
+              type: messageType,
             },
           }
         }),
@@ -933,6 +971,13 @@ export function ChatsShell({
               enableMemberLinks={enableMemberLinks}
               messagesLoading={messagesLoadingId === activeConversation.id}
               messagesApiBase={messagesApiBase}
+              enableInternalNotes={
+                !isClientPortalApi && activeConversation.type === "SUPPORT"
+              }
+              hideAddParticipants={
+                isClientPortalApi ||
+                (activeConversation.type === "SUPPORT" && !canManageSupportParticipants)
+              }
             />
           ) : (
             <ChatEmptyState />
@@ -986,6 +1031,7 @@ export function ChatsShell({
           contacts={contactsApiBase ? undefined : contacts}
           contactsApiBase={contactsApiBase}
           onAdd={handleAddParticipants}
+          staffOnly={activeConversation.type === "SUPPORT"}
         />
       ) : null}
     </>

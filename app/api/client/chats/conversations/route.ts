@@ -3,6 +3,11 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { runWithAuth } from "@/lib/db"
 import {
+  assertChatsModuleEnabled,
+  ChatsDisabledError,
+  chatsDisabledResponse,
+} from "@/lib/chats/server/assert-chats-enabled"
+import {
   ChatConversationError,
   createOrOpenDirectConversation,
 } from "@/lib/chats/server/create-conversation"
@@ -28,6 +33,10 @@ export async function POST(req: Request) {
 
     const result = await runWithAuth(session.user.authUserId, async (client) => {
       const identity = await ensureMemberChatIdentity(client, memberId)
+      await assertChatsModuleEnabled(client, {
+        institutionId: identity.institutionId,
+        branchId: identity.branchId,
+      })
       return createOrOpenDirectConversation(client, {
         creatorChatIdentityId: identity.id,
         targetChatIdentityId,
@@ -42,6 +51,9 @@ export async function POST(req: Request) {
       created: result.created,
     })
   } catch (error: unknown) {
+    if (error instanceof ChatsDisabledError) {
+      return chatsDisabledResponse()
+    }
     if (error instanceof ChatConversationError) {
       const status =
         error.code === "target_not_found"

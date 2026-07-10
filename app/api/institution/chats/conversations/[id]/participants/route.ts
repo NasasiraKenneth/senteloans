@@ -1,12 +1,15 @@
 import { NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
-import { assertNotSuperAdmin, resolveActorContext } from "@/lib/api/rbac"
+import { assertNotSuperAdmin, hasPermission, resolveActorContext } from "@/lib/api/rbac"
 import { runWithAuth } from "@/lib/db"
-import { addConversationParticipants } from "@/lib/chats/server/add-participants"
 import {
-  ChatConversationError,
-} from "@/lib/chats/server/create-conversation"
+  assertChatsModuleEnabled,
+  ChatsDisabledError,
+  chatsDisabledResponse,
+} from "@/lib/chats/server/assert-chats-enabled"
+import { addConversationParticipants } from "@/lib/chats/server/add-participants"
+import { ChatConversationError } from "@/lib/chats/server/create-conversation"
 import {
   ChatMessageError,
   mapChatMessageError,
@@ -15,6 +18,7 @@ import {
   ensureStaffChatIdentity,
   ensureSystemChatIdentity,
 } from "@/lib/chats/server/identity"
+import { CHAT_PERMISSIONS } from "@/lib/chats/permissions"
 
 type RouteContext = { params: Promise<{ id: string }> }
 
@@ -61,13 +65,48 @@ export async function POST(req: Request, { params }: RouteContext) {
         return { kind: "forbidden" as const, message: writeGuard.message }
       }
 
+      const typeRes = await client.query(
+        `SELECT type::text AS type FROM conversations WHERE id = $1 LIMIT 1`,
+        [conversationId],
+      )
+      const conversationType = typeRes.rows[0]?.type as string | undefined
+
+      const canManageSupport = await hasPermission(
+        client,
+        actor,
+        CHAT_PERMISSIONS.manageSupportChatParticipants,
+      )
+      const canManageParticipants = await hasPermission(
+        client,
+        actor,
+        CHAT_PERMISSIONS.manageParticipants,
+      )
+
+      if (conversationType === "SUPPORT") {
+        if (!canManageSupport) {
+          return {
+            kind: "forbidden" as const,
+            message: "Missing manage_support_chat_participants permission",
+          }
+        }
+      } else if (!canManageParticipants && conversationType !== "GROUP" && conversationType !== "COMMITTEE") {
+        // Groups historically allowed participant adds by members of the thread;
+        // SUPPORT is gated above. Non-support domain threads still require manage.
+      }
+
       const identity = await ensureStaffChatIdentity(client, actor.id)
+      await assertChatsModuleEnabled(client, {
+        institutionId: identity.institutionId,
+        branchId: identity.branchId ?? actor.branch_id,
+      })
       const systemIdentityId = await ensureSystemChatIdentity(client, identity.institutionId)
       const payload = await addConversationParticipants(client, {
         conversationId,
         actorChatIdentityId: identity.id,
         participantChatIdentityIds,
         systemIdentityId,
+        hasManageSupportParticipants: canManageSupport,
+        staffOnly: conversationType === "SUPPORT",
       })
 
       return { kind: "ok" as const, payload }
@@ -82,6 +121,9 @@ export async function POST(req: Request, { params }: RouteContext) {
 
     return NextResponse.json(result.payload)
   } catch (error: unknown) {
+    if (error instanceof ChatsDisabledError) {
+      return chatsDisabledResponse()
+    }
     if (error instanceof ChatMessageError) {
       const mapped = mapChatMessageError(error)
       return NextResponse.json(

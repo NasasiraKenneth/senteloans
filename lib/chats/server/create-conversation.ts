@@ -250,9 +250,10 @@ export async function createGroupConversation(
          institution_id,
          sender_id,
          message_type,
+         visibility,
          body
        )
-       VALUES ($1, $2, $3, 'SYSTEM', $4)
+       VALUES ($1, $2, $3, 'SYSTEM', 'PUBLIC', $4)
        RETURNING id, created_at`,
       [conversationId, institutionId, systemIdentityId, systemBody],
     )

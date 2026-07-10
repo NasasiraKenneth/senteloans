@@ -28,6 +28,7 @@ import {
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { ClientPortalClient, ClientPortalInstitution } from "@/lib/client-session-types"
+import { readInstitutionConfigModuleEnabled } from "@/lib/institution-branch-config"
 
 const PORTAL_THEME = "client-portal-theme"
 
@@ -118,10 +119,13 @@ export function ClientPortalHeader({
         </div>
 
         <div className="flex shrink-0 items-center gap-1 sm:gap-2">
-          <ChatMessagesButton
-            href="/client-portal/messages"
-            triggerClassName={portalTriggerClass}
-          />
+          {readInstitutionConfigModuleEnabled(institution.config, "chats") ? (
+            <ChatMessagesButton
+              href="/client-portal/messages"
+              unreadApiEndpoint="/api/client/chats/unread"
+              triggerClassName={portalTriggerClass}
+            />
+          ) : null}
           <NotificationBell
             apiEndpoint="/api/client/notifications"
             contentClassName={PORTAL_THEME}

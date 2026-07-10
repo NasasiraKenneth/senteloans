@@ -3,6 +3,11 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { runWithAuth } from "@/lib/db"
 import {
+  assertChatsModuleEnabled,
+  ChatsDisabledError,
+  chatsDisabledResponse,
+} from "@/lib/chats/server/assert-chats-enabled"
+import {
   ChatMessageError,
   mapChatMessageError,
 } from "@/lib/chats/server/chat-message-error"
@@ -27,11 +32,18 @@ export async function POST(_req: Request, { params }: RouteContext) {
 
     const result = await runWithAuth(session.user.authUserId, async (client) => {
       const identity = await ensureMemberChatIdentity(client, memberId)
+      await assertChatsModuleEnabled(client, {
+        institutionId: identity.institutionId,
+        branchId: identity.branchId,
+      })
       return togglePinMessage(client, conversationId, messageId, identity.id)
     })
 
     return NextResponse.json(result)
   } catch (error: unknown) {
+    if (error instanceof ChatsDisabledError) {
+      return chatsDisabledResponse()
+    }
     if (error instanceof ChatMessageError) {
       const mapped = mapChatMessageError(error)
       return NextResponse.json(

@@ -43,10 +43,24 @@ const INBOX_SEARCH_SQL = `(
   )
 )`
 
+export type ListInboxOptions = InboxQuery & {
+  publicMessagesOnly?: boolean
+  viewerRole?: "staff" | "member"
+  /** Include SUPPORT tickets in branch even when not a participant */
+  includeSupportQueue?: boolean
+  branchId?: string | null
+  canManageSupportParticipants?: boolean
+}
+
 async function getTotalUnread(
   client: PoolClient,
   chatIdentityId: string,
+  publicMessagesOnly: boolean,
 ): Promise<number> {
+  const visibilitySql = publicMessagesOnly
+    ? `AND COALESCE(msg.visibility::text, 'PUBLIC') = 'PUBLIC'`
+    : ""
+
   const res = await client.query(
     `SELECT COALESCE(SUM(unread_count), 0)::int AS total_unread
        FROM (
@@ -56,6 +70,7 @@ async function getTotalUnread(
             WHERE msg.conversation_id = c.id
               AND msg.is_deleted = FALSE
               AND msg.sender_id <> $1
+              ${visibilitySql}
               AND (
                 cp.last_read_message_id IS NULL
                 OR msg.created_at > (
@@ -81,13 +96,16 @@ export async function listInboxConversations(
   client: PoolClient,
   chatIdentityId: string,
   institutionId: string,
-  query: InboxQuery = {},
+  query: ListInboxOptions = {},
 ): Promise<ChatInboxResponse> {
   const filter = query.filter ?? "all"
   const filterType = inboxFilterSql(filter)
   const searchPattern = toIlikePattern(query.search ?? "")
+  const publicMessagesOnly = query.publicMessagesOnly === true
+  const includeSupportQueue =
+    query.includeSupportQueue === true && query.canManageSupportParticipants === true
 
-  const conversationsRes = await client.query(
+  const participantRes = await client.query(
     `SELECT c.id
        FROM conversations c
        INNER JOIN conversation_participants cp
@@ -104,16 +122,72 @@ export async function listInboxConversations(
     [chatIdentityId, institutionId, filterType, searchPattern],
   )
 
-  const conversationIds = conversationsRes.rows.map((row) => row.id as string)
+  const idSet = new Set(participantRes.rows.map((row) => row.id as string))
+
+  if (includeSupportQueue && (filter === "all" || filter === "SUPPORT")) {
+    const queueSearchSql = `(
+      $4::text = ''
+      OR COALESCE(c.title, '') ILIKE $4
+      OR COALESCE(c.last_message_preview, '') ILIKE $4
+      OR EXISTS (
+        SELECT 1
+          FROM conversation_references cr_search
+          LEFT JOIN members mem_search
+            ON cr_search.reference_type = 'MEMBER'
+           AND mem_search.id = cr_search.reference_id
+         WHERE cr_search.conversation_id = c.id
+           AND COALESCE(mem_search.full_name, '') ILIKE $4
+      )
+    )`
+
+    const queueRes = await client.query(
+      `SELECT c.id
+         FROM conversations c
+        WHERE c.institution_id = $1
+          AND c.type = 'SUPPORT'
+          AND ($2::uuid IS NULL OR c.branch_id IS NULL OR c.branch_id = $2)
+          AND NOT EXISTS (
+            SELECT 1
+              FROM conversation_participants cp
+             WHERE cp.conversation_id = c.id
+               AND cp.chat_identity_id = $3
+               AND cp.left_at IS NULL
+          )
+          AND ${queueSearchSql}
+        ORDER BY COALESCE(c.last_message_at, c.updated_at) DESC
+        LIMIT 100`,
+      [institutionId, query.branchId ?? null, chatIdentityId, searchPattern],
+    )
+
+    for (const row of queueRes.rows) {
+      idSet.add(row.id as string)
+    }
+  }
+
+  const conversationIds = [...idSet]
   const [conversations, totalUnread] = await Promise.all([
-    loadConversationRows(client, conversationIds, chatIdentityId),
-    getTotalUnread(client, chatIdentityId),
+    loadConversationRows(client, conversationIds, chatIdentityId, {
+      publicMessagesOnly,
+      allowMissingParticipant: includeSupportQueue,
+      viewerRole: query.viewerRole,
+    }),
+    getTotalUnread(client, chatIdentityId, publicMessagesOnly),
   ])
+
+  conversations.sort((a, b) => {
+    const aPin = a.latestPinnedAt ? new Date(a.latestPinnedAt).getTime() : 0
+    const bPin = b.latestPinnedAt ? new Date(b.latestPinnedAt).getTime() : 0
+    if (aPin !== bPin) return bPin - aPin
+    const aTime = a.lastMessage?.sentAt ? new Date(a.lastMessage.sentAt).getTime() : 0
+    const bTime = b.lastMessage?.sentAt ? new Date(b.lastMessage.sentAt).getTime() : 0
+    return bTime - aTime
+  })
 
   return {
     ok: true,
     currentIdentityId: chatIdentityId,
-    conversations,
+    conversations: conversations.slice(0, 100),
     totalUnread,
+    canManageSupportParticipants: query.canManageSupportParticipants === true,
   }
 }

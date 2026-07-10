@@ -2,7 +2,13 @@ import { NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { runWithAuth } from "@/lib/db"
+import {
+  assertChatsModuleEnabled,
+  ChatsDisabledError,
+  chatsDisabledResponse,
+} from "@/lib/chats/server/assert-chats-enabled"
 import { ensureMemberChatIdentity, ensureSystemChatIdentity } from "@/lib/chats/server/identity"
+import { ensureMemberSupportConversation } from "@/lib/chats/server/ensure-member-support"
 import { loadInbox } from "@/lib/chats/server/load-inbox"
 import { normalizeInboxFilter } from "@/lib/chats/server/inbox-query"
 
@@ -25,18 +31,38 @@ export async function GET(req: Request) {
 
     const result = await runWithAuth(session.user.authUserId, async (client) => {
       const identity = await ensureMemberChatIdentity(client, memberId)
-      await ensureSystemChatIdentity(client, identity.institutionId)
+      await assertChatsModuleEnabled(client, {
+        institutionId: identity.institutionId,
+        branchId: identity.branchId,
+      })
+      const systemIdentityId = await ensureSystemChatIdentity(client, identity.institutionId)
+
+      await ensureMemberSupportConversation(client, {
+        memberChatIdentityId: identity.id,
+        memberId,
+        institutionId: identity.institutionId,
+        branchId: identity.branchId,
+        systemIdentityId,
+      })
 
       return loadInbox(client, {
         chatIdentityId: identity.id,
         institutionId: identity.institutionId,
-        skipCache,
-        query: { filter, search },
+        skipCache: true,
+        query: {
+          filter,
+          search,
+          publicMessagesOnly: true,
+          viewerRole: "member",
+        },
       })
     })
 
     return NextResponse.json(result)
   } catch (error: unknown) {
+    if (error instanceof ChatsDisabledError) {
+      return chatsDisabledResponse()
+    }
     const err = error as Error
     return NextResponse.json({ error: err?.message || "Unexpected error" }, { status: 500 })
   }

@@ -3,6 +3,11 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { runWithAuth } from "@/lib/db"
 import {
+  assertChatsModuleEnabled,
+  ChatsDisabledError,
+  chatsDisabledResponse,
+} from "@/lib/chats/server/assert-chats-enabled"
+import {
   ChatMessageError,
   mapChatMessageError,
 } from "@/lib/chats/server/chat-message-error"
@@ -45,17 +50,25 @@ export async function GET(req: Request, { params }: RouteContext) {
 
     const result = await runWithAuth(session.user.authUserId, async (client) => {
       const identity = await ensureMemberChatIdentity(client, memberId)
+      await assertChatsModuleEnabled(client, {
+        institutionId: identity.institutionId,
+        branchId: identity.branchId,
+      })
       return listMessages(client, conversationId, identity.id, {
         limit: Number.isFinite(limit) ? limit : undefined,
         before,
         after,
         search,
         markRead,
+        publicMessagesOnly: true,
       })
     })
 
     return NextResponse.json(result)
   } catch (error: unknown) {
+    if (error instanceof ChatsDisabledError) {
+      return chatsDisabledResponse()
+    }
     if (error instanceof ChatMessageError) {
       const mapped = mapChatMessageError(error)
       return NextResponse.json(
@@ -89,6 +102,13 @@ export async function POST(req: Request, { params }: RouteContext) {
       clientMessageId?: string
       forwardedFromMessageId?: string
       metadata?: Record<string, unknown>
+      attachment?: {
+        fileName?: string
+        fileUrl?: string
+        mimeType?: string
+        fileSize?: number
+        storageKey?: string
+      }
     }
 
     const messageType = body.messageType ?? "TEXT"
@@ -96,8 +116,23 @@ export async function POST(req: Request, { params }: RouteContext) {
       return NextResponse.json({ error: "invalid_request", message: "Unsupported message type" }, { status: 400 })
     }
 
+    const attachment =
+      body.attachment?.fileUrl && body.attachment?.fileName
+        ? {
+            fileName: String(body.attachment.fileName),
+            fileUrl: String(body.attachment.fileUrl),
+            mimeType: body.attachment.mimeType,
+            fileSize: body.attachment.fileSize,
+            storageKey: body.attachment.storageKey,
+          }
+        : undefined
+
     const result = await runWithAuth(session.user.authUserId, async (client) => {
       const identity = await ensureMemberChatIdentity(client, memberId)
+      await assertChatsModuleEnabled(client, {
+        institutionId: identity.institutionId,
+        branchId: identity.branchId,
+      })
       return sendMessage(client, {
         conversationId,
         senderChatIdentityId: identity.id,
@@ -107,11 +142,17 @@ export async function POST(req: Request, { params }: RouteContext) {
         clientMessageId: body.clientMessageId,
         forwardedFromMessageId: body.forwardedFromMessageId,
         metadata: body.metadata,
+        attachment,
+        publicMessagesOnly: true,
+        visibility: "PUBLIC",
       })
     })
 
     return NextResponse.json(result)
   } catch (error: unknown) {
+    if (error instanceof ChatsDisabledError) {
+      return chatsDisabledResponse()
+    }
     if (error instanceof ChatMessageError) {
       const mapped = mapChatMessageError(error)
       return NextResponse.json(

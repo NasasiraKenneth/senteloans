@@ -8,6 +8,10 @@ import {
 } from "./notify-inbox"
 import { loadMessageById } from "./load-message"
 import { requireConversationAccess } from "./conversation-access"
+import {
+  ensureStaffJoinedSupportConversation,
+  getConversationStaffParticipantIdentityIds,
+} from "./support-access"
 
 export type AddParticipantsInput = {
   conversationId: string
@@ -15,6 +19,9 @@ export type AddParticipantsInput = {
   participantChatIdentityIds: string[]
   systemIdentityId: string
   actorDisplayName?: string
+  hasManageSupportParticipants?: boolean
+  /** Staff-only adds for SUPPORT tickets */
+  staffOnly?: boolean
 }
 
 export type AddParticipantsResponse = {
@@ -44,9 +51,25 @@ export async function addConversationParticipants(
     participantChatIdentityIds,
     systemIdentityId,
     actorDisplayName = "Someone",
+    hasManageSupportParticipants = false,
+    staffOnly = false,
   } = input
 
-  const access = await requireConversationAccess(client, conversationId, actorChatIdentityId)
+  const access = await requireConversationAccess(client, conversationId, actorChatIdentityId, {
+    hasManageSupportParticipants,
+  })
+
+  if (access.type === "SUPPORT") {
+    if (!hasManageSupportParticipants) {
+      throw new ChatConversationError(
+        "Missing manage_support_chat_participants permission",
+        "forbidden",
+      )
+    }
+    if (!access.isParticipant) {
+      await ensureStaffJoinedSupportConversation(client, conversationId, actorChatIdentityId)
+    }
+  }
 
   let resolvedActorName = actorDisplayName
   if (!resolvedActorName || resolvedActorName === "Someone") {
@@ -62,13 +85,7 @@ export async function addConversationParticipants(
     resolvedActorName = (actorNameRes.rows[0]?.display_name as string | undefined) ?? "Someone"
   }
 
-  const conversationTypeRes = await client.query(
-    `SELECT type::text AS type FROM conversations WHERE id = $1 LIMIT 1`,
-    [conversationId],
-  )
-  const conversationType = conversationTypeRes.rows[0]?.type as string | undefined
-
-  if (conversationType === "DIRECT") {
+  if (access.type === "DIRECT") {
     throw new ChatConversationError(
       "Cannot add participants to a direct conversation",
       "invalid_participants",
@@ -97,6 +114,8 @@ export async function addConversationParticipants(
     )
   }
 
+  const requireStaff = staffOnly || access.type === "SUPPORT"
+
   const validRes = await client.query(
     `SELECT
        ci.id,
@@ -107,16 +126,23 @@ export async function addConversationParticipants(
     WHERE ci.id = ANY($1::uuid[])
       AND ci.institution_id = $2
       AND ci.is_active = TRUE
-      AND ci.is_system = FALSE`,
-    [uniqueIds, access.institutionId],
+      AND ci.is_system = FALSE
+      AND ($3::boolean = FALSE OR ci.user_id IS NOT NULL)`,
+    [uniqueIds, access.institutionId, requireStaff],
   )
 
   if ((validRes.rowCount ?? 0) !== uniqueIds.length) {
-    throw new ChatConversationError("One or more participants are invalid", "invalid_participants")
+    throw new ChatConversationError(
+      requireStaff
+        ? "Only staff can be added to support conversations"
+        : "One or more participants are invalid",
+      "invalid_participants",
+    )
   }
 
   const addedNames = validRes.rows.map((row) => row.display_name as string)
   const systemBody = formatParticipantsAddedBody(addedNames, resolvedActorName)
+  const systemVisibility = access.type === "SUPPORT" ? "INTERNAL" : "PUBLIC"
 
   await client.query("BEGIN")
 
@@ -138,25 +164,41 @@ export async function addConversationParticipants(
          institution_id,
          sender_id,
          message_type,
+         visibility,
          body
        )
-       VALUES ($1, $2, $3, 'SYSTEM', $4)
+       VALUES ($1, $2, $3, 'SYSTEM', $4, $5)
        RETURNING id, created_at`,
-      [conversationId, access.institutionId, systemIdentityId, systemBody],
+      [
+        conversationId,
+        access.institutionId,
+        systemIdentityId,
+        systemVisibility,
+        systemBody,
+      ],
     )
 
     const messageId = messageRes.rows[0].id as string
     const messageCreatedAt = messageRes.rows[0].created_at as string
 
-    await client.query(
-      `UPDATE conversations
-          SET last_message_id = $2,
-              last_message_at = $3,
-              last_message_preview = $4,
-              updated_at = NOW()
-        WHERE id = $1`,
-      [conversationId, messageId, messageCreatedAt, systemBody],
-    )
+    if (systemVisibility === "PUBLIC") {
+      await client.query(
+        `UPDATE conversations
+            SET last_message_id = $2,
+                last_message_at = $3,
+                last_message_preview = $4,
+                updated_at = NOW()
+          WHERE id = $1`,
+        [conversationId, messageId, messageCreatedAt, systemBody],
+      )
+    } else {
+      await client.query(
+        `UPDATE conversations
+            SET updated_at = NOW()
+          WHERE id = $1`,
+        [conversationId],
+      )
+    }
 
     await client.query("COMMIT")
 
@@ -165,6 +207,7 @@ export async function addConversationParticipants(
       conversationId,
       actorChatIdentityId,
       access.institutionId,
+      { hasManageSupportParticipants },
     )
     if (!conversation) {
       throw new Error("add_participants_failed")
@@ -173,12 +216,22 @@ export async function addConversationParticipants(
     const systemMessage = await loadMessageById(client, messageId)
     const participantIds = await getConversationParticipantIdentityIds(client, conversationId)
 
-    await notifyConversationParticipants(participantIds, {
-      type: "participants:added",
-      conversationId,
-      systemMessage: systemMessage ?? undefined,
-      participantIds: uniqueIds,
-    })
+    if (systemVisibility === "INTERNAL") {
+      const staffIds = await getConversationStaffParticipantIdentityIds(client, conversationId)
+      await notifyConversationParticipants(staffIds, {
+        type: "participants:added",
+        conversationId,
+        systemMessage: systemMessage ?? undefined,
+        participantIds: uniqueIds,
+      })
+    } else {
+      await notifyConversationParticipants(participantIds, {
+        type: "participants:added",
+        conversationId,
+        systemMessage: systemMessage ?? undefined,
+        participantIds: uniqueIds,
+      })
+    }
 
     return {
       ok: true,

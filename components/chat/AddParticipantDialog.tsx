@@ -23,6 +23,7 @@ type AddParticipantDialogProps = {
   contacts?: ChatContact[]
   contactsApiBase?: string | null
   onAdd: (participants: ChatContact[]) => void
+  staffOnly?: boolean
 }
 
 export function AddParticipantDialog({
@@ -32,6 +33,7 @@ export function AddParticipantDialog({
   contacts = [],
   contactsApiBase = null,
   onAdd,
+  staffOnly = false,
 }: AddParticipantDialogProps) {
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [selectedContacts, setSelectedContacts] = useState<ChatContact[]>([])
@@ -66,24 +68,38 @@ export function AddParticipantDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <UserPlus className="h-5 w-5 text-[#f08c2b]" />
-            Add participants
+            {staffOnly ? "Add support agents" : "Add participants"}
           </DialogTitle>
           <DialogDescription>
-            Add members or staff to <span className="font-medium text-foreground">{conversation.title}</span>.
-            Current participants are excluded from the list.
+            {staffOnly
+              ? (
+                <>
+                  Add staff agents to{" "}
+                  <span className="font-medium text-foreground">{conversation.title}</span>.
+                  The member will not see who was added.
+                </>
+              )
+              : (
+                <>
+                  Add members or staff to{" "}
+                  <span className="font-medium text-foreground">{conversation.title}</span>.
+                  Current participants are excluded from the list.
+                </>
+              )}
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-2">
-          <Label>Select participants</Label>
+          <Label>{staffOnly ? "Select staff" : "Select participants"}</Label>
           <ContactPicker
-            contacts={contacts}
+            contacts={staffOnly ? contacts.filter((c) => c.role === "staff") : contacts}
             contactsApiBase={contactsApiBase}
             mode="multiple"
             selectedIds={selectedIds}
             onSelectedIdsChange={setSelectedIds}
             onSelectedContactsChange={setSelectedContacts}
             excludeIds={existingParticipantIds}
+            roleFilter={staffOnly ? "staff" : undefined}
           />
           {resolvedSelectedContacts.length > 0 ? (
             <p className="text-xs text-muted-foreground">

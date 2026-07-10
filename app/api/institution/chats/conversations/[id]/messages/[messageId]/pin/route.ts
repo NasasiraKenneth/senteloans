@@ -1,14 +1,20 @@
 import { NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
-import { assertNotSuperAdmin, resolveActorContext } from "@/lib/api/rbac"
+import { assertNotSuperAdmin, hasPermission, resolveActorContext } from "@/lib/api/rbac"
 import { runWithAuth } from "@/lib/db"
+import {
+  assertChatsModuleEnabled,
+  ChatsDisabledError,
+  chatsDisabledResponse,
+} from "@/lib/chats/server/assert-chats-enabled"
 import {
   ChatMessageError,
   mapChatMessageError,
 } from "@/lib/chats/server/chat-message-error"
 import { ensureStaffChatIdentity } from "@/lib/chats/server/identity"
 import { togglePinMessage } from "@/lib/chats/server/toggle-pin-message"
+import { CHAT_PERMISSIONS } from "@/lib/chats/permissions"
 
 type RouteContext = { params: Promise<{ id: string; messageId: string }> }
 
@@ -34,9 +40,20 @@ export async function POST(_req: Request, { params }: RouteContext) {
       }
 
       const identity = await ensureStaffChatIdentity(client, actor.id)
+      await assertChatsModuleEnabled(client, {
+        institutionId: identity.institutionId,
+        branchId: identity.branchId ?? actor.branch_id,
+      })
+      const canManageSupport = await hasPermission(
+        client,
+        actor,
+        CHAT_PERMISSIONS.manageSupportChatParticipants,
+      )
       return {
         kind: "ok" as const,
-        payload: await togglePinMessage(client, conversationId, messageId, identity.id),
+        payload: await togglePinMessage(client, conversationId, messageId, identity.id, {
+          hasManageSupportParticipants: canManageSupport,
+        }),
       }
     })
 
@@ -49,6 +66,9 @@ export async function POST(_req: Request, { params }: RouteContext) {
 
     return NextResponse.json(result.payload)
   } catch (error: unknown) {
+    if (error instanceof ChatsDisabledError) {
+      return chatsDisabledResponse()
+    }
     if (error instanceof ChatMessageError) {
       const mapped = mapChatMessageError(error)
       return NextResponse.json(

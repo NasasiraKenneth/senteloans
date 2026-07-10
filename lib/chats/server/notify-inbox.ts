@@ -12,10 +12,12 @@ export async function notifyInboxParticipants(chatIdentityIds: string[]): Promis
 
 export async function notifyConversationParticipants(
   chatIdentityIds: string[],
-  threadEvent: Omit<ThreadEvent, "at">,
+  threadEvent: Omit<Extract<ThreadEvent, { type: "message:new" }>, "at">
+    | Omit<Extract<ThreadEvent, { type: "message:updated" }>, "at">
+    | Omit<Extract<ThreadEvent, { type: "participants:added" }>, "at">,
 ): Promise<void> {
   await notifyInboxParticipants(chatIdentityIds)
-  await publishThreadEvent(threadEvent.conversationId, threadEvent)
+  await publishThreadEvent(threadEvent.conversationId, threadEvent as Omit<ThreadEvent, "at">)
 }
 
 export async function getConversationParticipantIdentityIds(

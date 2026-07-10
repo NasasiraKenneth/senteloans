@@ -1,5 +1,5 @@
 import type { PoolClient } from "@/lib/db"
-import type { ChatConversation, ChatParticipant } from "@/lib/chats/types"
+import type { ChatConversation, ChatParticipant, SupportTicketStatus } from "@/lib/chats/types"
 import {
   mapParticipantRow,
   mapReferenceRow,
@@ -8,6 +8,15 @@ import {
   type ParticipantRow,
   type ReferenceRow,
 } from "./map-conversation"
+import { presentSupportConversationForMember } from "./support-access"
+
+export type LoadConversationOptions = {
+  /** When true, unread counts exclude INTERNAL messages (member viewers). */
+  publicMessagesOnly?: boolean
+  /** Allow loading SUPPORT rows without being a participant (queue managers). */
+  allowMissingParticipant?: boolean
+  viewerRole?: "staff" | "member"
+}
 
 const PARTICIPANTS_SQL = `SELECT
    cp.conversation_id,
@@ -56,13 +65,27 @@ const REFERENCES_SQL = `SELECT
   AND mem.id = cr.reference_id
 WHERE cr.conversation_id = ANY($1::uuid[])`
 
+type ExtendedConversationRow = ConversationRow & {
+  support_status: SupportTicketStatus | null
+  assignee_chat_identity_id: string | null
+  last_message_visibility?: string | null
+}
+
 function mapConversationRow(
-  row: ConversationRow,
+  row: ExtendedConversationRow,
   participants: ChatParticipant[],
   reference: ReturnType<typeof mapReferenceRow>,
   currentIdentityId: string,
+  options: LoadConversationOptions,
 ): ChatConversation {
-  return {
+  const publicOnly = options.publicMessagesOnly === true
+  const lastIsInternal = row.last_message_visibility === "INTERNAL"
+  const includeLastMessage =
+    row.last_message_at &&
+    row.last_message_preview &&
+    !(publicOnly && lastIsInternal)
+
+  const conversation: ChatConversation = {
     id: row.id,
     type: row.type,
     title: resolveConversationDisplayTitle(row, participants, currentIdentityId),
@@ -71,24 +94,49 @@ function mapConversationRow(
     latestPinnedAt: row.latest_pinned_at,
     reference,
     messages: [],
-    lastMessage:
-      row.last_message_at && row.last_message_preview
-        ? {
-            body: row.last_message_preview,
-            sentAt: new Date(row.last_message_at).toISOString(),
-            senderId: row.last_message_sender_id ?? "system",
-            type: row.last_message_type ?? "TEXT",
-          }
-        : undefined,
+    supportStatus: row.support_status,
+    assigneeChatIdentityId: row.assignee_chat_identity_id,
+    lastMessage: includeLastMessage
+      ? {
+          body: row.last_message_preview!,
+          sentAt: new Date(row.last_message_at!).toISOString(),
+          senderId: row.last_message_sender_id ?? "system",
+          type: row.last_message_type ?? "TEXT",
+        }
+      : undefined,
   }
+
+  if (options.viewerRole === "member") {
+    return presentSupportConversationForMember(conversation)
+  }
+
+  return conversation
 }
 
 export async function loadConversationRows(
   client: PoolClient,
   conversationIds: string[],
   currentIdentityId: string,
+  options: LoadConversationOptions = {},
 ): Promise<ChatConversation[]> {
   if (conversationIds.length === 0) return []
+
+  const publicOnly = options.publicMessagesOnly === true
+  const allowMissing = options.allowMissingParticipant === true
+
+  const visibilitySql = publicOnly
+    ? `AND COALESCE(msg.visibility::text, 'PUBLIC') = 'PUBLIC'`
+    : ""
+
+  const participantJoin = allowMissing
+    ? `LEFT JOIN conversation_participants cp
+         ON cp.conversation_id = c.id
+        AND cp.chat_identity_id = $2
+        AND cp.left_at IS NULL`
+    : `INNER JOIN conversation_participants cp
+         ON cp.conversation_id = c.id
+        AND cp.chat_identity_id = $2
+        AND cp.left_at IS NULL`
 
   const rowsRes = await client.query(
     `SELECT
@@ -98,28 +146,32 @@ export async function loadConversationRows(
        c.last_message_at,
        c.last_message_preview,
        c.latest_pinned_at,
+       c.support_status::text AS support_status,
+       c.assignee_chat_identity_id,
        lm.sender_id AS last_message_sender_id,
        lm.message_type::text AS last_message_type,
-       (
-         SELECT COUNT(*)::int
-           FROM messages msg
-          WHERE msg.conversation_id = c.id
-            AND msg.is_deleted = FALSE
-            AND msg.sender_id <> $2
-            AND (
-              cp.last_read_message_id IS NULL
-              OR msg.created_at > (
-                SELECT m2.created_at
-                  FROM messages m2
-                 WHERE m2.id = cp.last_read_message_id
+       lm.visibility::text AS last_message_visibility,
+       CASE
+         WHEN cp.chat_identity_id IS NULL THEN 0
+         ELSE (
+           SELECT COUNT(*)::int
+             FROM messages msg
+            WHERE msg.conversation_id = c.id
+              AND msg.is_deleted = FALSE
+              AND msg.sender_id <> $2
+              ${visibilitySql}
+              AND (
+                cp.last_read_message_id IS NULL
+                OR msg.created_at > (
+                  SELECT m2.created_at
+                    FROM messages m2
+                   WHERE m2.id = cp.last_read_message_id
+                )
               )
-            )
-       ) AS unread_count
+         )
+       END AS unread_count
      FROM conversations c
-     INNER JOIN conversation_participants cp
-       ON cp.conversation_id = c.id
-      AND cp.chat_identity_id = $2
-      AND cp.left_at IS NULL
+     ${participantJoin}
      LEFT JOIN messages lm ON lm.id = c.last_message_id
     WHERE c.id = ANY($1::uuid[])`,
     [conversationIds, currentIdentityId],
@@ -145,13 +197,16 @@ export async function loadConversationRows(
 
   return conversationIds
     .map((conversationId) => {
-      const row = (rowsRes.rows as ConversationRow[]).find((item) => item.id === conversationId)
+      const row = (rowsRes.rows as ExtendedConversationRow[]).find(
+        (item) => item.id === conversationId,
+      )
       if (!row) return null
       return mapConversationRow(
         row,
         participantsByConversation.get(row.id) ?? [],
         referencesByConversation.get(row.id),
         currentIdentityId,
+        options,
       )
     })
     .filter((conversation): conversation is ChatConversation => conversation !== null)
@@ -162,20 +217,47 @@ export async function fetchConversationById(
   conversationId: string,
   currentIdentityId: string,
   institutionId: string,
+  options: LoadConversationOptions & {
+    hasManageSupportParticipants?: boolean
+  } = {},
 ): Promise<ChatConversation | null> {
   const access = await client.query(
-    `SELECT 1
-       FROM conversation_participants cp
-       INNER JOIN conversations c ON c.id = cp.conversation_id
-      WHERE cp.conversation_id = $1
-        AND cp.chat_identity_id = $2
-        AND cp.left_at IS NULL
-        AND c.institution_id = $3
-      LIMIT 1`,
+    `SELECT
+       c.type::text AS type,
+       EXISTS (
+         SELECT 1
+           FROM conversation_participants cp
+          WHERE cp.conversation_id = c.id
+            AND cp.chat_identity_id = $2
+            AND cp.left_at IS NULL
+       ) AS is_participant
+     FROM conversations c
+    WHERE c.id = $1
+      AND c.institution_id = $3
+    LIMIT 1`,
     [conversationId, currentIdentityId, institutionId],
   )
   if ((access.rowCount ?? 0) === 0) return null
 
-  const conversations = await loadConversationRows(client, [conversationId], currentIdentityId)
+  const isParticipant = Boolean(access.rows[0]?.is_participant)
+  const type = access.rows[0]?.type as string
+  const allowMissing =
+    options.allowMissingParticipant === true ||
+    (type === "SUPPORT" &&
+      !isParticipant &&
+      options.hasManageSupportParticipants === true)
+
+  if (!isParticipant && !allowMissing) return null
+
+  const conversations = await loadConversationRows(
+    client,
+    [conversationId],
+    currentIdentityId,
+    {
+      ...options,
+      allowMissingParticipant: allowMissing,
+      publicMessagesOnly: options.viewerRole === "member" || options.publicMessagesOnly,
+    },
+  )
   return conversations[0] ?? null
 }

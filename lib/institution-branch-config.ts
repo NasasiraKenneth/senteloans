@@ -5,6 +5,7 @@ export type BranchConfigModules = {
   shares: boolean
   savings: boolean
   mobile_money: boolean
+  chats: boolean
 }
 
 export type NormalizedBranchConfig = {
@@ -85,6 +86,7 @@ export function normalizeBranchConfig(
       shares: toConfigFlag(row.shares, false),
       savings: toConfigFlag(row.savings, false),
       mobile_money: toConfigFlag(row.mobile_money, false),
+      chats: toConfigFlag(row.chats, false),
     },
     currency: readString(row, "currency") || "UGX",
     clientTerminology: clientTerminologyForInstitutionType(institutionType),

@@ -147,6 +147,7 @@ export async function GET(req: Request) {
           shares: toFlag(cfg.shares, false),
           savings: toFlag(cfg.savings, false),
           mobile_money: toFlag(cfg.mobile_money, false),
+          chats: toFlag(cfg.chats, false),
         },
         currency: readString(cfg, "currency") || "UGX",
         currencyInWords: readString(cfg, "currency_inwords") || "Ugandan shillings only",
@@ -191,7 +192,7 @@ export async function PUT(req: Request) {
 
     const body = (await req.json()) as {
       config?: {
-        modules?: { loans?: boolean; shares?: boolean; savings?: boolean; mobile_money?: boolean }
+        modules?: { loans?: boolean; shares?: boolean; savings?: boolean; mobile_money?: boolean; chats?: boolean }
         currency?: string
         currencyInWords?: string
         shareValue?: number
@@ -247,6 +248,7 @@ export async function PUT(req: Request) {
       const shares = String(payload.modules?.shares ?? toFlag(current.shares, false))
       const savings = String(payload.modules?.savings ?? toFlag(current.savings, false))
       const mobileMoney = String(payload.modules?.mobile_money ?? toFlag(current.mobile_money, true))
+      const chats = String(payload.modules?.chats ?? toFlag(current.chats, false))
       const autoInvoices = String(payload.autoInvoices ?? toFlag(current.auto_invoices, false))
 
       const isSaccoOrMfi = profile.type === "SACCO" || profile.type === "MFI"
@@ -365,6 +367,14 @@ export async function PUT(req: Request) {
         params,
       )
 
+      await client.query(
+        `UPDATE config
+            SET chats = $2,
+                updated_at = NOW()
+          WHERE branch_id = $1`,
+        [profile.branch_id, chats],
+      )
+
       const cfgOut = await client.query(
         `SELECT c.*, i.id AS institution_id, i.type
          FROM config c
@@ -395,6 +405,7 @@ export async function PUT(req: Request) {
           shares: toFlag(s2.shares, false),
           savings: toFlag(s2.savings, false),
           mobile_money: toFlag(s2.mobile_money, false),
+          chats: toFlag(s2.chats, false),
         },
         currency: readString(s2, "currency") || "UGX",
         currencyInWords: readString(s2, "currency_inwords") || "Ugandan shillings only",

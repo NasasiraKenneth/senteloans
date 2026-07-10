@@ -146,17 +146,40 @@ export function MessageBubble({
           className={cn(
             "flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[11px] text-muted-foreground",
             "bg-background/80 shadow-sm ring-1 ring-border/60 backdrop-blur-sm",
+            message.visibility === "INTERNAL" && "bg-amber-50 text-amber-900 ring-amber-200",
             BUBBLE_MAX_WIDTH,
           )}
         >
           <Info className="h-3 w-3 shrink-0 text-muted-foreground/70" />
-          <span className="wrap-break-word">{message.body}</span>
+          <span className="wrap-break-word">
+            {message.visibility === "INTERNAL" ? `Note · ${message.body}` : message.body}
+          </span>
+        </div>
+      </div>
+    )
+  }
+
+  if (message.visibility === "INTERNAL") {
+    return (
+      <div className="flex justify-center py-1" ref={messageRef}>
+        <div
+          className={cn(
+            "w-full rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-[13px] text-amber-950",
+            BUBBLE_MAX_WIDTH,
+          )}
+        >
+          <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-amber-800">
+            Internal note{sender?.name ? ` · ${sender.name}` : ""}
+          </p>
+          <p className="whitespace-pre-wrap">{message.body}</p>
+          <p className="mt-1 text-[11px] text-amber-800/70">{formatBubbleTime(message.sentAt)}</p>
         </div>
       </div>
     )
   }
 
   const isFile = message.type === "FILE" && !message.forwardedFrom
+  const isImage = message.type === "IMAGE" && !message.forwardedFrom
   const hasCaption = message.body.trim().length > 0
   const isRead = Boolean(message.readAt)
   const isPinned = Boolean(message.pinned)
@@ -270,6 +293,30 @@ export function MessageBubble({
                 <BubbleMeta sentAt={message.sentAt} isOwn={isOwn} isRead={isRead} />
               </div>
             </div>
+          ) : isImage && message.attachmentUrl ? (
+            <div className="overflow-hidden px-1.5 pt-1.5 pb-2">
+              <a
+                href={message.attachmentUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="block overflow-hidden rounded-xl"
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={message.attachmentUrl}
+                  alt={message.attachmentName ?? "Image"}
+                  className="max-h-64 w-full object-cover"
+                />
+              </a>
+              {hasCaption ? (
+                <p className="mt-2 px-1.5 whitespace-pre-wrap wrap-break-word text-foreground/95">
+                  {renderHighlightedText(message.body)}
+                </p>
+              ) : null}
+              <div className="mt-1 flex justify-end px-1.5">
+                <BubbleMeta sentAt={message.sentAt} isOwn={isOwn} isRead={isRead} />
+              </div>
+            </div>
           ) : isFile ? (
             <div className="px-3 pt-2.5 pb-2">
               <div
@@ -289,9 +336,20 @@ export function MessageBubble({
                   <FileText className="h-4 w-4" />
                 </div>
                 <div className="min-w-0 flex-1">
-                  <p className="wrap-break-word text-sm font-medium text-foreground">
-                    {renderHighlightedText(message.attachmentName ?? message.body)}
-                  </p>
+                  {message.attachmentUrl ? (
+                    <a
+                      href={message.attachmentUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="wrap-break-word text-sm font-medium text-foreground underline-offset-2 hover:underline"
+                    >
+                      {renderHighlightedText(message.attachmentName ?? message.body)}
+                    </a>
+                  ) : (
+                    <p className="wrap-break-word text-sm font-medium text-foreground">
+                      {renderHighlightedText(message.attachmentName ?? message.body)}
+                    </p>
+                  )}
                   <p className="mt-0.5 text-[11px] text-muted-foreground">
                     {previewMessage(message.body, message.type)}
                   </p>

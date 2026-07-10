@@ -50,6 +50,9 @@ function ClientPortalShell({ children }: { children: React.ReactNode }) {
     if (pathname.startsWith("/client-portal/shares") && !modules?.shares) {
       router.replace("/client-portal")
     }
+    if (pathname.startsWith("/client-portal/messages") && !modules?.chats) {
+      router.replace("/client-portal")
+    }
   }, [pathname, data, router])
 
   useEffect(() => {

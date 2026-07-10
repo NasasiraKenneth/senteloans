@@ -1,34 +1,38 @@
 import type { PoolClient } from "@/lib/db"
 import { ChatMessageError } from "./chat-message-error"
+import { canAccessSupportQueue } from "./support-access"
 
 export type ConversationAccess = {
   conversationId: string
   institutionId: string
+  branchId: string | null
+  type: string
+  isParticipant: boolean
 }
 
 export async function requireConversationAccess(
   client: PoolClient,
   conversationId: string,
   chatIdentityId: string,
+  options?: {
+    hasManageSupportParticipants?: boolean
+  },
 ): Promise<ConversationAccess> {
-  const res = await client.query(
-    `SELECT c.id, c.institution_id
-       FROM conversations c
-      INNER JOIN conversation_participants cp
-        ON cp.conversation_id = c.id
-       AND cp.chat_identity_id = $2
-       AND cp.left_at IS NULL
-      WHERE c.id = $1
-      LIMIT 1`,
-    [conversationId, chatIdentityId],
-  )
+  const access = await canAccessSupportQueue(client, {
+    conversationId,
+    chatIdentityId,
+    hasManageSupportParticipants: options?.hasManageSupportParticipants ?? false,
+  })
 
-  if ((res.rowCount ?? 0) === 0) {
+  if (!access.allowed) {
     throw new ChatMessageError("Conversation not found", "not_found")
   }
 
   return {
-    conversationId: res.rows[0].id as string,
-    institutionId: res.rows[0].institution_id as string,
+    conversationId,
+    institutionId: access.institutionId,
+    branchId: access.branchId,
+    type: access.type,
+    isParticipant: access.isParticipant,
   }
 }
