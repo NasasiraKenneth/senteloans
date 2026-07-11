@@ -109,6 +109,38 @@ async function seedAuthUsers(pool: Pool) {
   }
 }
 
+async function seedMemberSupportConversations(pool: Pool) {
+  const filePath = path.join(MIGRATIONS_DIR, "seed-member-support-conversations.sql")
+  if (!fs.existsSync(filePath)) {
+    console.log("Skipping member support seed (seed-member-support-conversations.sql not found)")
+    return
+  }
+
+  console.log("Seeding SUPPORT conversations for portal-authenticated members...")
+  const sql = fs.readFileSync(filePath, "utf8")
+  const client = await pool.connect()
+  try {
+    await client.query(sql)
+    const countRes = await client.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count
+         FROM conversations c
+        WHERE c.type = 'SUPPORT'`,
+    )
+    console.log(`  OK: SUPPORT conversations present=${countRes.rows[0]?.count ?? "0"}`)
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err)
+    // Fresh DBs without chat schema yet should not hard-fail unrelated setups.
+    if (/relation .* does not exist/i.test(message) || /type .* does not exist/i.test(message)) {
+      console.log(`  SKIP: chat schema not ready (${message})`)
+      return
+    }
+    console.error("  FAIL: seed-member-support-conversations.sql", message)
+    throw err
+  } finally {
+    client.release()
+  }
+}
+
 async function main() {
   const url = process.env.DATABASE_URL
   if (!url) {
@@ -141,6 +173,7 @@ async function main() {
   }
 
   await seedAuthUsers(pool)
+  await seedMemberSupportConversations(pool)
 
   await pool.end()
   console.log("Migrations complete.")

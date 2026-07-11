@@ -6,6 +6,7 @@ import {
   getConversationParticipantIdentityIds,
   notifyInboxParticipants,
 } from "./notify-inbox"
+import { ensureSupportManagerParticipants } from "./support-access"
 
 export type DomainConversationKind = "loan" | "branch" | "support" | "committee"
 
@@ -331,6 +332,19 @@ export async function createOrOpenDomainConversation(
 
   const existingId = await findByReference(client, institutionId, referenceType, referenceId)
   if (existingId) {
+    // Ensure creator is a participant when reopening
+    await client.query(
+      `INSERT INTO conversation_participants (conversation_id, chat_identity_id, role)
+       VALUES ($1, $2, 'MEMBER')
+       ON CONFLICT (conversation_id, chat_identity_id) DO UPDATE
+         SET left_at = NULL`,
+      [existingId, creatorChatIdentityId],
+    )
+
+    if (params.kind === "support") {
+      await ensureSupportManagerParticipants(client, existingId, institutionId, branchId)
+    }
+
     const conversation = await fetchConversationById(
       client,
       existingId,
@@ -340,15 +354,6 @@ export async function createOrOpenDomainConversation(
     if (!conversation) {
       throw new ChatConversationError("Conversation not found", "target_not_found")
     }
-
-    // Ensure creator is a participant when reopening
-    await client.query(
-      `INSERT INTO conversation_participants (conversation_id, chat_identity_id, role)
-       VALUES ($1, $2, 'MEMBER')
-       ON CONFLICT (conversation_id, chat_identity_id) DO UPDATE
-         SET left_at = NULL`,
-      [existingId, creatorChatIdentityId],
-    )
 
     return { conversation, created: false }
   }
@@ -419,6 +424,10 @@ export async function createOrOpenDomainConversation(
           WHERE id = $1`,
         [conversationId],
       )
+    }
+
+    if (params.kind === "support") {
+      await ensureSupportManagerParticipants(client, conversationId, institutionId, branchId)
     }
 
     await client.query("COMMIT")

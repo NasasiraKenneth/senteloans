@@ -1,7 +1,10 @@
 import type { PoolClient } from "@/lib/db"
 import type { ChatConversation } from "@/lib/chats/types"
 import { fetchConversationById } from "./fetch-conversation"
-import { presentSupportConversationForMember } from "./support-access"
+import {
+  ensureSupportManagerParticipants,
+  presentSupportConversationForMember,
+} from "./support-access"
 import {
   getConversationParticipantIdentityIds,
   notifyInboxParticipants,
@@ -13,8 +16,8 @@ export type EnsureMemberSupportResult = {
 }
 
 /**
- * Ensures the member has a branch SUPPORT ticket with only the member as participant.
- * Staff are never auto-added — agents join via manage_support_chat_participants.
+ * Ensures the member has a branch SUPPORT ticket.
+ * Participants: the member + staff with manage_support_chat_participants (same as seed).
  */
 export async function ensureMemberSupportConversation(
   client: PoolClient,
@@ -55,6 +58,13 @@ export async function ensureMemberSupportConversation(
       [existingId, memberChatIdentityId],
     )
 
+    const managerIds = await ensureSupportManagerParticipants(
+      client,
+      existingId,
+      institutionId,
+      branchId,
+    )
+
     const conversation = await fetchConversationById(
       client,
       existingId,
@@ -63,6 +73,10 @@ export async function ensureMemberSupportConversation(
       { viewerRole: "member" },
     )
     if (!conversation) throw new Error("support_thread_open_failed")
+
+    if (managerIds.length > 0) {
+      await notifyInboxParticipants(managerIds)
+    }
 
     return {
       conversation: presentSupportConversationForMember(conversation),
@@ -117,7 +131,7 @@ export async function ensureMemberSupportConversation(
       [conversationId, institutionId, memberId],
     )
 
-    const messageRes = await client.query(
+    await client.query(
       `INSERT INTO messages (
          conversation_id,
          institution_id,
@@ -126,8 +140,7 @@ export async function ensureMemberSupportConversation(
          visibility,
          body
        )
-       VALUES ($1, $2, $3, 'SYSTEM', 'INTERNAL', $4)
-       RETURNING id, created_at`,
+       VALUES ($1, $2, $3, 'SYSTEM', 'INTERNAL', $4)`,
       [conversationId, institutionId, systemIdentityId, systemBody],
     )
 
@@ -139,7 +152,12 @@ export async function ensureMemberSupportConversation(
       [conversationId],
     )
 
-    void messageRes
+    const managerIds = await ensureSupportManagerParticipants(
+      client,
+      conversationId,
+      institutionId,
+      branchId,
+    )
 
     await client.query("COMMIT")
 
@@ -153,7 +171,7 @@ export async function ensureMemberSupportConversation(
     if (!conversation) throw new Error("support_thread_create_failed")
 
     const ids = await getConversationParticipantIdentityIds(client, conversationId)
-    await notifyInboxParticipants(ids)
+    await notifyInboxParticipants([...new Set([...ids, ...managerIds])])
 
     return {
       conversation: presentSupportConversationForMember(conversation),

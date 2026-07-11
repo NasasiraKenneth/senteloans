@@ -125,6 +125,28 @@ export async function listSupportQueueManagerIdentityIds(
   institutionId: string,
   branchId: string | null,
 ): Promise<string[]> {
+  // Ensure staff with the permission have chat identities first.
+  await client.query(
+    `
+    INSERT INTO chat_identities (institution_id, branch_id, user_id)
+    SELECT u.institution_id, u.branch_id, u.id
+      FROM users u
+      INNER JOIN role_permissions rp
+        ON rp.role_id = u.role_id
+       AND rp.branch_id = u.branch_id
+      INNER JOIN permissions p ON p.id = rp.permission_id
+     WHERE u.institution_id = $1
+       AND u.status = 'Active'
+       AND u.branch_id IS NOT NULL
+       AND p.name = $2
+       AND ($3::uuid IS NULL OR u.branch_id = $3)
+       AND NOT EXISTS (
+         SELECT 1 FROM chat_identities ci WHERE ci.user_id = u.id
+       )
+    `,
+    [institutionId, CHAT_PERMISSIONS.manageSupportChatParticipants, branchId],
+  )
+
   const res = await client.query(
     `
     SELECT DISTINCT ci.id
@@ -138,12 +160,34 @@ export async function listSupportQueueManagerIdentityIds(
        AND ci.is_active = TRUE
        AND ci.is_system = FALSE
        AND p.name = $2
-       AND ($3::uuid IS NULL OR ci.branch_id IS NULL OR ci.branch_id = $3)
+       AND ($3::uuid IS NULL OR ci.branch_id IS NULL OR ci.branch_id = $3 OR u.branch_id = $3)
     `,
     [institutionId, CHAT_PERMISSIONS.manageSupportChatParticipants, branchId],
   )
 
   return res.rows.map((row) => row.id as string)
+}
+
+/**
+ * Adds staff with manage_support_chat_participants as agents on a SUPPORT ticket.
+ */
+export async function ensureSupportManagerParticipants(
+  client: PoolClient,
+  conversationId: string,
+  institutionId: string,
+  branchId: string | null,
+): Promise<string[]> {
+  const managerIds = await listSupportQueueManagerIdentityIds(client, institutionId, branchId)
+  for (const managerId of managerIds) {
+    await client.query(
+      `INSERT INTO conversation_participants (conversation_id, chat_identity_id, role)
+       VALUES ($1, $2, 'MEMBER')
+       ON CONFLICT (conversation_id, chat_identity_id) DO UPDATE
+         SET left_at = NULL`,
+      [conversationId, managerId],
+    )
+  }
+  return managerIds
 }
 
 export async function getConversationStaffParticipantIdentityIds(
