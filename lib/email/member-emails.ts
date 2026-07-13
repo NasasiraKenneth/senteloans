@@ -6,6 +6,7 @@ export const EMAIL_TEMPLATES = {
   memberWelcome: "member.welcome",
   memberKycRequired: "member.kyc_required",
   memberInvoice: "member.invoice",
+  memberPortalCredentials: "member.portal_credentials",
 } as const
 
 export interface MemberSummary {
@@ -118,5 +119,53 @@ export async function enqueueMemberRegistrationEmails(
     await enqueueMemberEmail(memberId, invoiceJob, "invoice", result)
   }
 
+  return result
+}
+
+export interface MemberPortalCredentialsEmailInput {
+  member: MemberSummary
+  institutionName: string
+  loginEmail: string
+  temporaryPassword: string
+  loginUrl: string
+  passwordReset?: boolean
+  context?: EmailContext
+}
+
+/**
+ * Email the member their client-portal login email + temporary password.
+ * Advises them to change the password immediately after first login.
+ */
+export async function enqueueMemberPortalCredentialsEmail(
+  input: MemberPortalCredentialsEmailInput,
+): Promise<EnqueuedEmailsResult> {
+  const result: EnqueuedEmailsResult = { enqueued: [], skipped: [], errors: [] }
+
+  const email = input.member.email?.trim() || input.loginEmail?.trim()
+  if (!email) {
+    result.skipped.push("portal_credentials:no_email")
+    return result
+  }
+
+  const passwordReset = Boolean(input.passwordReset)
+  const job: EmailJobData = {
+    to: email,
+    subject: passwordReset
+      ? `Your ${input.institutionName} portal password was reset`
+      : `Your ${input.institutionName} client portal access is ready`,
+    template: EMAIL_TEMPLATES.memberPortalCredentials,
+    kind: "template",
+    data: {
+      memberName: input.member.full_name,
+      memberNumber: input.member.member_number,
+      institutionName: input.institutionName,
+      loginEmail: input.loginEmail,
+      temporaryPassword: input.temporaryPassword,
+      loginUrl: input.loginUrl,
+      passwordReset,
+    },
+    context: input.context,
+  }
+  await enqueueMemberEmail(input.member.id, job, "portal_credentials", result)
   return result
 }

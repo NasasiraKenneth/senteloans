@@ -3,6 +3,7 @@ import type { NotificationType } from "@/lib/notifications/notification-types"
 /** Maps email template ids to notification_preferences.notification_type. */
 export const EMAIL_TEMPLATE_NOTIFICATION_TYPE: Record<string, NotificationType> = {
   "member.welcome": "member_welcome",
+  "member.portal_credentials": "member_portal_access_enabled",
   "member.kyc_required": "kyc_verification_required",
   "kyc.submitted": "kyc_submitted",
   "kyc.uploaded": "kyc_submitted",

@@ -75,7 +75,7 @@ function mapMemberFromApi(member: Record<string, unknown>) {
     id: String(member.id),
     clientNumber: member.member_number,
     fullName: member.full_name,
-    supabaseUserId: member.auth_id || null,
+    authId: member.auth_id || null,
     dateOfBirth: member.date_of_birth,
     gender: member.gender,
     maritalStatus: member.marital_status,
@@ -151,6 +151,7 @@ export default function UserProfilePage() {
   const [showOpeningBalanceModal, setShowOpeningBalanceModal] = useState(false)
   const [showAddKycModal, setShowAddKycModal] = useState(false)
   const [showReviewKycModal, setShowReviewKycModal] = useState(false)
+  const [canEditMember, setCanEditMember] = useState(false)
   const [canEditShares, setCanEditShares] = useState(false)
   const [canEditMembershipFee, setCanEditMembershipFee] = useState(false)
   const [canEditOpeningSavings, setCanEditOpeningSavings] = useState(false)
@@ -252,6 +253,7 @@ export default function UserProfilePage() {
         if (!res.ok) return
         const data = (await res.json()) as {
           permissions?: {
+            editMember?: boolean
             editShares?: boolean
             editMembershipFee?: boolean
             editOpeningSavings?: boolean
@@ -260,6 +262,7 @@ export default function UserProfilePage() {
           }
         }
         if (cancelled) return
+        setCanEditMember(Boolean(data.permissions?.editMember))
         setCanEditShares(Boolean(data.permissions?.editShares))
         setCanEditMembershipFee(Boolean(data.permissions?.editMembershipFee))
         setCanEditOpeningSavings(Boolean(data.permissions?.editOpeningSavings))
@@ -371,16 +374,47 @@ export default function UserProfilePage() {
     return Array.from(arr, (n) => chars[n % chars.length]).join("")
   }
 
+  function mapEnableLoginError(code: unknown, fallback?: string): string {
+    switch (String(code || "")) {
+      case "missing_permission:edit_member":
+        return "You do not have permission to enable client login."
+      case "email_required":
+        return "Client email is required. Please add an email on the profile first."
+      case "email_mismatch":
+        return "The email no longer matches this member's profile. Refresh and try again."
+      case "email_in_use":
+        return "This email is already used by a staff or other non-member account."
+      case "email_already_linked":
+        return "This email is already linked to another member's portal login."
+      case "member_inactive":
+        return "This member is not active. Reactivate the member before enabling login."
+      case "branch_inactive":
+        return "This member's branch is not active. Reactivate the branch before enabling login."
+      case "cross_branch_operation_forbidden":
+        return "You can only enable login for members in your branch."
+      default:
+        return fallback || String(code || "Failed to enable client login")
+    }
+  }
+
   async function handleEnableClientLogin() {
     setEnableError(null)
     setGeneratedPassword(null)
     setCopied(false)
+    if (!canEditMember) {
+      setEnableError("You do not have permission to enable client login.")
+      return
+    }
     if (!user?.email) {
       setEnableError("Client email is required. Please add an email on the profile first.")
       return
     }
+    if (user?.status !== "Active") {
+      setEnableError("This member is not active. Reactivate the member before enabling login.")
+      return
+    }
     // Confirm if this is a password reset (already enabled)
-    if (user?.supabaseUserId) {
+    if (user?.authId) {
       const ok = window.confirm("This will reset the client's password and invalidate the old one. Continue?")
       if (!ok) return
     }
@@ -393,7 +427,9 @@ export default function UserProfilePage() {
         body: JSON.stringify({ email: String(user.email).trim().toLowerCase(), password }),
       })
       const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data?.error || "Failed to enable client login")
+      if (!res.ok) {
+        throw new Error(mapEnableLoginError(data?.code || data?.error, data?.message || data?.error))
+      }
       setGeneratedPassword(password)
       // Refresh client to reflect auth_id linkage
       try {
@@ -401,7 +437,7 @@ export default function UserProfilePage() {
         if (res2.ok) {
           const payload = await res2.json()
           const c = payload?.member
-          if (c) setUser((prev: any) => ({ ...prev, supabaseUserId: c.auth_id || prev?.supabaseUserId || null }))
+          if (c) setUser((prev: any) => ({ ...prev, authId: c.auth_id || prev?.authId || null }))
         }
       } catch { /* ignore */ }
     } catch (e: any) {
@@ -668,17 +704,26 @@ export default function UserProfilePage() {
                     </Button>
                   </Link>
                   <div className="flex-1" />
-                  <Button
-                    size="sm"
-                    variant={user?.supabaseUserId ? "outline" : "default"}
-                    onClick={handleEnableClientLogin}
-                    disabled={enableLoading || !user.email}
-                  >
-                    <Shield className="h-4 w-4 mr-2" />
-                    {user?.supabaseUserId
-                      ? (enableLoading ? "Resetting..." : "Reset Password")
-                      : (enableLoading ? "Enabling..." : "Enable Login")}
-                  </Button>
+                  {canEditMember && (
+                    <Button
+                      size="sm"
+                      variant={user?.authId ? "outline" : "default"}
+                      onClick={handleEnableClientLogin}
+                      disabled={enableLoading || !user.email || user.status !== "Active"}
+                      title={
+                        !user.email
+                          ? "Add an email on the profile first"
+                          : user.status !== "Active"
+                            ? "Member must be Active to enable login"
+                            : undefined
+                      }
+                    >
+                      <Shield className="h-4 w-4 mr-2" />
+                      {user?.authId
+                        ? (enableLoading ? "Resetting..." : "Reset Password")
+                        : (enableLoading ? "Enabling..." : "Enable Login")}
+                    </Button>
+                  )}
                 </div>
               </div>
             </motion.div>
@@ -695,7 +740,7 @@ export default function UserProfilePage() {
                     <div>
                       <div className="text-sm font-semibold text-green-800">Client login credentials generated</div>
                       <div className="text-sm text-green-900 mt-1">
-                        Share the temporary password securely with the client. They can log in via <code>/client-login</code> using:
+                        Credentials were emailed to the member. You can also share the temporary password securely. They can log in via <code>/client-login</code> using:
                       </div>
                       <div className="mt-2 grid gap-2 sm:grid-cols-2">
                         <div>

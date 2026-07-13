@@ -9,6 +9,7 @@ type ConversationListProps = {
   activeId: string | null
   currentUserId: string
   onSelect: (id: string) => void
+  typingByConversation?: Record<string, string>
 }
 
 export function ConversationList({
@@ -16,6 +17,7 @@ export function ConversationList({
   activeId,
   currentUserId,
   onSelect,
+  typingByConversation = {},
 }: ConversationListProps) {
   if (conversations.length === 0) {
     return (
@@ -41,6 +43,7 @@ export function ConversationList({
               isActive={conversation.id === activeId}
               currentUserId={currentUserId}
               onSelect={onSelect}
+              typingLabel={typingByConversation[conversation.id]}
             />
           ))}
         </div>
@@ -60,6 +63,7 @@ export function ConversationList({
               isActive={conversation.id === activeId}
               currentUserId={currentUserId}
               onSelect={onSelect}
+              typingLabel={typingByConversation[conversation.id]}
             />
           ))}
         </div>

@@ -7,6 +7,13 @@ import { PinnedMessagesBar } from "./PinnedMessagesBar"
 import { MessageBubble } from "./MessageBubble"
 import { ChatComposer, type ReplyPreview, type SendMessagePayload } from "./ChatComposer"
 import { buildChatsQueryString } from "@/lib/chats/client/build-query"
+import {
+  emitTypingStart,
+  emitTypingStop,
+  formatTypingLabel,
+  subscribeTypingUpdates,
+} from "@/lib/chats/client/thread-realtime"
+import { dedupeMessagesById } from "@/lib/chats/conversation-inbox"
 import { formatMessageDayLabel } from "@/lib/chats/format"
 import { findMessageHits } from "@/lib/chats/search-messages"
 import type { ChatConversation, ChatMessage, ListMessagesResponse } from "@/lib/chats/types"
@@ -73,9 +80,31 @@ export function ChatThread({
   const [activeMatchIndex, setActiveMatchIndex] = useState(0)
   const [replyTo, setReplyTo] = useState<ReplyPreview | null>(null)
   const [jumpHighlightId, setJumpHighlightId] = useState<string | null>(null)
+  const [typingLabel, setTypingLabel] = useState<string | null>(null)
   const jumpHighlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const useServerSearch = Boolean(messagesApiBase)
+
+  useEffect(() => {
+    if (!messagesApiBase || !conversation.id || !currentUserId) {
+      setTypingLabel(null)
+      return
+    }
+
+    return subscribeTypingUpdates(conversation.id, currentUserId, (typers) => {
+      setTypingLabel(formatTypingLabel(typers))
+    })
+  }, [conversation.id, currentUserId, messagesApiBase])
+
+  const handleTypingActivity = useCallback(() => {
+    if (!messagesApiBase) return
+    emitTypingStart(conversation.id)
+  }, [conversation.id, messagesApiBase])
+
+  const handleTypingStop = useCallback(() => {
+    if (!messagesApiBase) return
+    emitTypingStop(conversation.id)
+  }, [conversation.id, messagesApiBase])
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedSearchQuery(searchQuery), 300)
@@ -129,9 +158,10 @@ export function ChatThread({
 
   const displayMessages = useMemo(() => {
     const query = searchQuery.trim()
-    if (!searchOpen || !query) return conversation.messages
-    if (useServerSearch) return searchResults
-    return conversation.messages
+    const messages = dedupeMessagesById(conversation.messages)
+    if (!searchOpen || !query) return messages
+    if (useServerSearch) return dedupeMessagesById(searchResults)
+    return messages
   }, [conversation.messages, searchOpen, searchQuery, searchResults, useServerSearch])
 
   const matchIds = useMemo(() => {
@@ -366,6 +396,12 @@ export function ChatThread({
         <div ref={bottomRef} />
       </div>
 
+      {typingLabel ? (
+        <div className="px-4 pb-1">
+          <p className="text-xs italic text-muted-foreground">{typingLabel}</p>
+        </div>
+      ) : null}
+
       <ChatComposer
         onSend={onSend}
         replyTo={replyTo}
@@ -374,6 +410,8 @@ export function ChatThread({
         conversationId={conversation.id}
         showDemoBanner={!messagesApiBase}
         enableInternalNotes={enableInternalNotes}
+        onTypingActivity={handleTypingActivity}
+        onTypingStop={handleTypingStop}
       />
     </div>
   )

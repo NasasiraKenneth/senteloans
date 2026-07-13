@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { ChatInboxToolbar } from "./ChatInboxToolbar"
 import { ConversationList } from "./ConversationList"
 import { ChatThread } from "./ChatThread"
@@ -21,9 +21,13 @@ import {
 import { buildForwardedMessage, getForwardedLastMessagePreview } from "@/lib/chats/forward-message"
 import { useToast } from "@/components/ui/toast"
 import { subscribeInboxUpdates } from "@/lib/chats/client/inbox-realtime"
-import { subscribeThreadUpdates } from "@/lib/chats/client/thread-realtime"
+import {
+  subscribeInboxTyping,
+  subscribeThreadUpdates,
+  type TypingUpdate,
+} from "@/lib/chats/client/thread-realtime"
 import { buildChatsQueryString } from "@/lib/chats/client/build-query"
-import { sortConversationsForInbox } from "@/lib/chats/conversation-inbox"
+import { sortConversationsForInbox, dedupeMessagesById } from "@/lib/chats/conversation-inbox"
 import type {
   ChatContact,
   ChatConversation,
@@ -83,12 +87,17 @@ export function ChatsShell({
     sourceConversationId: string
   } | null>(null)
   const [messagesLoadingId, setMessagesLoadingId] = useState<string | null>(null)
+  const [typingByConversation, setTypingByConversation] = useState<Record<string, string>>({})
+  const activeIdRef = useRef<string | null>(null)
+  const typingTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
 
   const fetchInbox = useCallback(
-    async (options?: { skipCache?: boolean }) => {
+    async (options?: { skipCache?: boolean; quiet?: boolean }) => {
       if (!apiBase) return
 
-      setInboxLoading(true)
+      if (!options?.quiet) {
+        setInboxLoading(true)
+      }
       setInboxError(null)
 
       try {
@@ -112,18 +121,46 @@ export function ChatsShell({
           throw new Error(data.message || data.error || "Failed to load inbox")
         }
 
-        setConversations(data.conversations ?? [])
+        const incoming = data.conversations ?? []
+        const openId = activeIdRef.current
+
+        // Inbox payloads ship messages: [] — merge so realtime thread messages
+        // and an open conversation are not wiped on every inbox:updated.
+        setConversations((prev) => {
+          const prevById = new Map(prev.map((conversation) => [conversation.id, conversation]))
+          return incoming.map((conversation) => {
+            const existing = prevById.get(conversation.id)
+            if (!existing) return conversation
+
+            const messages =
+              conversation.messages.length > 0 ? conversation.messages : existing.messages
+
+            return {
+              ...conversation,
+              messages,
+              participants:
+                conversation.participants.length > 0
+                  ? conversation.participants
+                  : existing.participants,
+              unreadCount: conversation.id === openId ? 0 : conversation.unreadCount,
+            }
+          })
+        })
         setCurrentIdentityId(data.currentIdentityId ?? "")
         setTotalUnread(data.totalUnread ?? 0)
         setCanManageSupportParticipants(Boolean(data.canManageSupportParticipants))
       } catch (error: unknown) {
         const message = error instanceof Error ? error.message : "Failed to load inbox"
         setInboxError(message)
-        setConversations([])
-        setCurrentIdentityId("")
-        setTotalUnread(0)
+        if (!options?.quiet) {
+          setConversations([])
+          setCurrentIdentityId("")
+          setTotalUnread(0)
+        }
       } finally {
-        setInboxLoading(false)
+        if (!options?.quiet) {
+          setInboxLoading(false)
+        }
       }
     },
     [apiBase, debouncedSearch, filter, toast],
@@ -139,11 +176,54 @@ export function ChatsShell({
   }, [fetchInbox])
 
   useEffect(() => {
+    activeIdRef.current = activeId
+  }, [activeId])
+
+  useEffect(() => {
     if (!apiBase || !currentIdentityId) return
     return subscribeInboxUpdates(currentIdentityId, () => {
-      void fetchInbox({ skipCache: true })
+      void fetchInbox({ skipCache: true, quiet: true })
     })
   }, [apiBase, currentIdentityId, fetchInbox])
+
+  useEffect(() => {
+    if (!apiBase || !currentIdentityId) return
+
+    const handleInboxTyping = (payload: TypingUpdate) => {
+      const conversationId = payload.conversationId
+      const existingTimer = typingTimersRef.current.get(conversationId)
+      if (existingTimer) clearTimeout(existingTimer)
+
+      if (!payload.isTyping) {
+        setTypingByConversation((prev) => {
+          if (!prev[conversationId]) return prev
+          const next = { ...prev }
+          delete next[conversationId]
+          return next
+        })
+        typingTimersRef.current.delete(conversationId)
+        return
+      }
+
+      setTypingByConversation((prev) => ({
+        ...prev,
+        [conversationId]: `${payload.displayName || "Someone"} is typing…`,
+      }))
+
+      const timer = setTimeout(() => {
+        setTypingByConversation((prev) => {
+          if (!prev[conversationId]) return prev
+          const next = { ...prev }
+          delete next[conversationId]
+          return next
+        })
+        typingTimersRef.current.delete(conversationId)
+      }, 3500)
+      typingTimersRef.current.set(conversationId, timer)
+    }
+
+    return subscribeInboxTyping(currentIdentityId, handleInboxTyping)
+  }, [apiBase, currentIdentityId])
 
   const fetchMessages = useCallback(
     async (conversationId: string) => {
@@ -192,23 +272,28 @@ export function ChatsShell({
       message?: ChatMessage
       latestPinnedAt?: string | null
       systemMessage?: ChatMessage
+      readerChatIdentityId?: string
+      lastReadMessageId?: string
+      readAt?: string
     }) => {
       if (event.type === "message:new" && event.message) {
         const incoming = event.message
+        const isActive = activeIdRef.current === event.conversationId
+        const fromSelf = incoming.senderId === currentIdentityId
+
         setConversations((prev) =>
           sortConversationsForInbox(
             prev.map((conversation) => {
               if (conversation.id !== event.conversationId) return conversation
 
               const hasMessage = conversation.messages.some((message) => message.id === incoming.id)
-              const messages = hasMessage
-                ? conversation.messages.map((message) =>
-                    message.id === incoming.id ? incoming : message,
-                  )
-                : [...conversation.messages, incoming]
-
-              const isActive = activeId === conversation.id
-              const fromSelf = incoming.senderId === currentIdentityId
+              const messages = dedupeMessagesById(
+                hasMessage
+                  ? conversation.messages.map((message) =>
+                      message.id === incoming.id ? incoming : message,
+                    )
+                  : [...conversation.messages, incoming],
+              )
 
               return {
                 ...conversation,
@@ -228,6 +313,60 @@ export function ChatsShell({
               }
             }),
           ),
+        )
+
+        if (!isActive && !fromSelf) {
+          setTotalUnread((current) => current + 1)
+        } else if (isActive && !fromSelf) {
+          // Keep header badge in sync when reading live.
+          setTotalUnread((current) => Math.max(0, current))
+        }
+
+        setTypingByConversation((prev) => {
+          if (!prev[event.conversationId]) return prev
+          const next = { ...prev }
+          delete next[event.conversationId]
+          return next
+        })
+
+        // Persist read cursor when the open thread receives a message.
+        if (isActive && !fromSelf && messagesApiBase) {
+          void fetch(
+            `${messagesApiBase}/${event.conversationId}/messages?limit=1&markRead=true`,
+            { cache: "no-store" },
+          ).catch(() => undefined)
+        }
+        return
+      }
+
+      if (event.type === "conversation:read" && event.readAt) {
+        const readAt = event.readAt
+        const readerId = event.readerChatIdentityId
+        if (!readerId || readerId === currentIdentityId) return
+
+        setConversations((prev) =>
+          prev.map((conversation) => {
+            if (conversation.id !== event.conversationId) return conversation
+
+            const cursorMessage = event.lastReadMessageId
+              ? conversation.messages.find((message) => message.id === event.lastReadMessageId)
+              : undefined
+            const cursorMs = cursorMessage
+              ? new Date(cursorMessage.sentAt).getTime()
+              : Number.POSITIVE_INFINITY
+
+            return {
+              ...conversation,
+              messages: conversation.messages.map((message) => {
+                if (message.senderId !== currentIdentityId) return message
+                if (message.readAt) return message
+                if (new Date(message.sentAt).getTime() <= cursorMs) {
+                  return { ...message, readAt }
+                }
+                return message
+              }),
+            }
+          }),
         )
         return
       }
@@ -253,7 +392,7 @@ export function ChatsShell({
       }
 
       if (event.type === "participants:added") {
-        void fetchInbox({ skipCache: true })
+        void fetchInbox({ skipCache: true, quiet: true })
         if (activeId === event.conversationId) {
           void fetchMessages(event.conversationId)
         }
@@ -282,7 +421,7 @@ export function ChatsShell({
         )
       }
     },
-    [activeId, currentIdentityId, fetchInbox, fetchMessages],
+    [activeId, currentIdentityId, fetchInbox, fetchMessages, messagesApiBase],
   )
 
   useEffect(() => {
@@ -552,9 +691,19 @@ export function ChatsShell({
                 const withoutOptimistic = conversation.messages.filter(
                   (message) => message.id !== clientMessageId,
                 )
+                const alreadyPresent = withoutOptimistic.some(
+                  (message) => message.id === data.message.id,
+                )
+                const messages = dedupeMessagesById(
+                  alreadyPresent
+                    ? withoutOptimistic.map((message) =>
+                        message.id === data.message.id ? data.message : message,
+                      )
+                    : [...withoutOptimistic, data.message],
+                )
                 const next = {
                   ...conversation,
-                  messages: [...withoutOptimistic, data.message],
+                  messages,
                 }
                 if ((data.message.visibility ?? "PUBLIC") === "PUBLIC") {
                   next.lastMessage = {
@@ -948,6 +1097,7 @@ export function ChatsShell({
               activeId={activeId}
               currentUserId={currentIdentityId}
               onSelect={handleSelect}
+              typingByConversation={typingByConversation}
             />
           )}
         </aside>

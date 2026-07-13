@@ -216,22 +216,6 @@ BEGIN
     END IF;
 END $$;
 
--- Add bank_accounts.modified_by FK after users exists.
-DO $$
-BEGIN
-    IF NOT EXISTS (
-        SELECT 1
-        FROM pg_constraint
-        WHERE conname = 'fk_bank_accounts_modified_by_user'
-    ) THEN
-        ALTER TABLE bank_accounts
-            ADD CONSTRAINT fk_bank_accounts_modified_by_user
-            FOREIGN KEY (modified_by)
-            REFERENCES users(id)
-            ON DELETE RESTRICT;
-    END IF;
-END $$;
-
 -- 4b. THIRD PARTY AGENTS DIRECTORY TABLE (Institution-level third_party_agent organizations/contacts)
 CREATE TABLE IF NOT EXISTS third_party_agents (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -268,6 +252,22 @@ CREATE TABLE IF NOT EXISTS bank_accounts (
     CONSTRAINT chk_bank_accounts_number_not_blank CHECK (btrim(bank_account_number) <> ''),
     CONSTRAINT uk_bank_account_per_institution UNIQUE (institution_id, bank_account_number)
 );
+
+-- Add bank_accounts.modified_by FK after users and bank_accounts exist.
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'fk_bank_accounts_modified_by_user'
+    ) THEN
+        ALTER TABLE bank_accounts
+            ADD CONSTRAINT fk_bank_accounts_modified_by_user
+            FOREIGN KEY (modified_by)
+            REFERENCES users(id)
+            ON DELETE RESTRICT;
+    END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS grants (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),

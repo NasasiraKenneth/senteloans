@@ -80,15 +80,15 @@ created AS (
   SELECT
     institution_id,
     branch_id,
-    'SUPPORT',
+    'SUPPORT'::conversation_type,
     'Support — ' || COALESCE(full_name, 'Member'),
     member_chat_identity_id,
-    'OPEN'
+    'OPEN'::support_ticket_status
   FROM missing
   RETURNING id, institution_id, branch_id, created_by
 )
 INSERT INTO conversation_participants (conversation_id, chat_identity_id, role)
-SELECT c.id, c.created_by, 'OWNER'
+SELECT c.id, c.created_by, 'OWNER'::conversation_participant_role
 FROM created c;
 
 -- 5) MEMBER references for SUPPORT threads missing them
@@ -101,7 +101,7 @@ INSERT INTO conversation_references (
 SELECT
   c.id,
   c.institution_id,
-  'MEMBER',
+  'MEMBER'::conversation_reference_type,
   ci.member_id
 FROM conversations c
 INNER JOIN chat_identities ci ON ci.id = c.created_by
@@ -123,7 +123,7 @@ INSERT INTO conversation_participants (conversation_id, chat_identity_id, role)
 SELECT DISTINCT
   c.id,
   sci.id,
-  'MEMBER'
+  'MEMBER'::conversation_participant_role
 FROM conversations c
 INNER JOIN conversation_references cr
   ON cr.conversation_id = c.id
@@ -161,10 +161,13 @@ WHERE c.type = 'SUPPORT'
 UPDATE conversation_participants cp
    SET left_at = NULL,
        joined_at = NOW()
-  FROM conversations c
-  INNER JOIN chat_identities sci ON sci.id = cp.chat_identity_id
-  INNER JOIN users u ON u.id = sci.user_id AND u.status = 'Active'
+  FROM conversations c,
+       chat_identities sci,
+       users u
  WHERE cp.conversation_id = c.id
+   AND sci.id = cp.chat_identity_id
+   AND u.id = sci.user_id
+   AND u.status = 'Active'
    AND c.type = 'SUPPORT'
    AND cp.left_at IS NOT NULL
    AND sci.institution_id = c.institution_id
@@ -196,8 +199,8 @@ SELECT
   c.id,
   c.institution_id,
   sys.id,
-  'SYSTEM',
-  'INTERNAL',
+  'SYSTEM'::message_type,
+  'INTERNAL'::message_visibility,
   'Support thread opened for ' || COALESCE(m.full_name, 'Member')
 FROM conversations c
 INNER JOIN conversation_references cr

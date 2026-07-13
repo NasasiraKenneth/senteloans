@@ -42,6 +42,10 @@ type ChatComposerProps = {
   showDemoBanner?: boolean
   /** Staff SUPPORT threads: allow internal notes */
   enableInternalNotes?: boolean
+  /** Fired while the user is composing (throttled by parent/socket). */
+  onTypingActivity?: () => void
+  /** Fired when typing should clear (send, blur, empty, unmount). */
+  onTypingStop?: () => void
 }
 
 const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024
@@ -56,12 +60,15 @@ export function ChatComposer({
   conversationId,
   showDemoBanner = false,
   enableInternalNotes = false,
+  onTypingActivity,
+  onTypingStop,
 }: ChatComposerProps) {
   const [value, setValue] = useState("")
   const [pendingFile, setPendingFile] = useState<File | null>(null)
   const [uploading, setUploading] = useState(false)
   const [internalNote, setInternalNote] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const lastTypingEmitRef = useRef(0)
 
   useEffect(() => {
     if (replyTo) setValue("")
@@ -70,6 +77,24 @@ export function ChatComposer({
   useEffect(() => {
     if (!enableInternalNotes) setInternalNote(false)
   }, [enableInternalNotes])
+
+  useEffect(() => {
+    return () => {
+      onTypingStop?.()
+    }
+  }, [conversationId, onTypingStop])
+
+  const notifyTyping = (nextValue: string) => {
+    if (!onTypingActivity || !onTypingStop) return
+    if (!nextValue.trim()) {
+      onTypingStop()
+      return
+    }
+    const now = Date.now()
+    if (now - lastTypingEmitRef.current < 1200) return
+    lastTypingEmitRef.current = now
+    onTypingActivity()
+  }
 
   const clearPendingFile = () => {
     setPendingFile(null)
@@ -84,6 +109,7 @@ export function ChatComposer({
 
     try {
       setUploading(true)
+      onTypingStop?.()
 
       let attachment: ComposerAttachment | undefined
       let messageType: MessageType = "TEXT"
@@ -254,8 +280,13 @@ export function ChatComposer({
         <div className="relative min-w-0 flex-1">
           <textarea
             value={value}
-            onChange={(e) => setValue(e.target.value)}
+            onChange={(e) => {
+              const next = e.target.value
+              setValue(next)
+              notifyTyping(next)
+            }}
             onKeyDown={handleKeyDown}
+            onBlur={() => onTypingStop?.()}
             rows={1}
             disabled={disabled || uploading}
             placeholder={

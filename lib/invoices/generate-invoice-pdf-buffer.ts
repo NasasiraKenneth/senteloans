@@ -80,11 +80,12 @@ export async function generateInvoicePdfBuffer(
   )
 
   const bankAccountsRes = await client.query(
-    `SELECT bank_name, bank_account_number
-     FROM bank_accounts
-     WHERE institution_id = $1
-       AND branch_id = $2
-     ORDER BY created_at ASC`,
+    `SELECT tpa.name AS bank_name, ba.bank_account_number
+     FROM bank_accounts ba
+     INNER JOIN third_party_agents tpa ON tpa.id = ba.third_party_agent_id
+     WHERE ba.institution_id = $1
+       AND ba.branch_id = $2
+     ORDER BY ba.created_at ASC`,
     [institutionId, String(invoice.branch_id || branchId || "")],
   )
 

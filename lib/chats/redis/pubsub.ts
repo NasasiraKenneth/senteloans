@@ -29,6 +29,14 @@ export type ThreadEvent =
       participantIds: string[]
       at: string
     }
+  | {
+      type: "conversation:read"
+      conversationId: string
+      readerChatIdentityId: string
+      lastReadMessageId: string
+      readAt: string
+      at: string
+    }
 
 export async function publishInboxInvalidate(chatIdentityId: string): Promise<void> {
   const payload: InboxInvalidateEvent = {
@@ -37,9 +45,12 @@ export async function publishInboxInvalidate(chatIdentityId: string): Promise<vo
     at: new Date().toISOString(),
   }
   try {
-    await getRedis().publish(inboxChannel(chatIdentityId), JSON.stringify(payload))
-  } catch {
-    // Realtime refresh is best-effort until Socket.IO server is connected.
+    const receivers = await getRedis().publish(inboxChannel(chatIdentityId), JSON.stringify(payload))
+    if (process.env.NODE_ENV === "development") {
+      console.log("[chat:pubsub] inbox invalidate", { chatIdentityId, receivers })
+    }
+  } catch (error) {
+    console.warn("[chat:pubsub] inbox publish failed", (error as Error)?.message)
   }
 }
 
@@ -53,8 +64,15 @@ export async function publishThreadEvent(
   } as ThreadEvent
 
   try {
-    await getRedis().publish(threadChannel(conversationId), JSON.stringify(payload))
-  } catch {
-    // Best-effort realtime delivery.
+    const receivers = await getRedis().publish(threadChannel(conversationId), JSON.stringify(payload))
+    if (process.env.NODE_ENV === "development") {
+      console.log("[chat:pubsub] thread event", {
+        conversationId,
+        type: event.type,
+        receivers,
+      })
+    }
+  } catch (error) {
+    console.warn("[chat:pubsub] thread publish failed", (error as Error)?.message)
   }
 }

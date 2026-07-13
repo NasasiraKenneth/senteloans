@@ -49,6 +49,30 @@ export function renderEmailTemplate(template: string, data: TemplateData = {}): 
       )
     }
 
+    case "member.portal_credentials": {
+      const loginEmail = String(data.loginEmail || "")
+      const temporaryPassword = String(data.temporaryPassword || "")
+      const loginUrl = String(data.loginUrl || "/client-login")
+      const passwordReset = Boolean(data.passwordReset)
+      const title = passwordReset ? "Portal password reset" : "Client portal access ready"
+      return layout(
+        title,
+        `<p>Hello ${esc(memberName)},</p>
+         <p>${
+           passwordReset
+             ? `Your client portal password for <strong>${esc(institutionName)}</strong> has been reset.`
+             : `You can now access the <strong>${esc(institutionName)}</strong> client portal.`
+         }</p>
+         <p>Member number: <strong>${esc(memberNumber)}</strong></p>
+         <p>Sign in at: <a href="${esc(loginUrl)}">${esc(loginUrl)}</a></p>
+         <p>Email: <strong>${esc(loginEmail)}</strong></p>
+         <p>Temporary password: <strong>${esc(temporaryPassword)}</strong></p>
+         <p><strong>Important:</strong> Change this password immediately after you log in.</p>
+         <p>Do not share this email with anyone. If you did not expect this message, contact your branch.</p>`,
+        institutionName,
+      )
+    }
+
     case "member.kyc_required":
       return layout(
         "KYC verification required",

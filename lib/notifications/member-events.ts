@@ -335,3 +335,132 @@ export async function notifyMemberProfileUpdated(
     errors,
   }
 }
+
+export interface MemberPortalLoginActor {
+  id: string
+  institution_id: string
+  branch_id: string
+}
+
+export interface MemberPortalLoginSummary {
+  id: string
+  full_name: string
+  member_number: string
+}
+
+export interface NotifyMemberPortalLoginInput {
+  client?: PoolClient
+  actor: MemberPortalLoginActor
+  member: MemberPortalLoginSummary
+  institutionName?: string
+  /** True when the member already had portal auth and only the password was reset. */
+  passwordReset?: boolean
+}
+
+export interface NotifyMemberPortalLoginResult {
+  ok: boolean
+  memberNotifications: number
+  staffNotifications: number
+  errors: string[]
+}
+
+/**
+ * Fan out in-app notifications when staff enables or resets member portal login.
+ *
+ * Member receives a welcome / password-reset notice (no password in the message).
+ * Staff with `edit_member` (excluding the actor) receive `member_login_enabled`.
+ */
+export async function notifyMemberPortalLoginEnabled(
+  input: NotifyMemberPortalLoginInput,
+): Promise<NotifyMemberPortalLoginResult> {
+  const errors: string[] = []
+  let memberNotifications = 0
+  let staffNotifications = 0
+  const passwordReset = Boolean(input.passwordReset)
+
+  const memberTpl = passwordReset
+    ? NotificationTemplates.memberPortalPasswordReset()
+    : NotificationTemplates.memberPortalAccessEnabled(
+        input.member.full_name,
+        input.institutionName,
+      )
+
+  const memberRes = await notificationService.create(
+    {
+      institutionId: input.actor.institution_id,
+      branchId: input.actor.branch_id,
+      recipientType: "member",
+      recipientId: input.member.id,
+      type: "member_portal_access_enabled",
+      title: memberTpl.title,
+      message: memberTpl.message,
+      actionUrl: memberTpl.actionUrl,
+      metadata: {
+        member_id: input.member.id,
+        member_number: input.member.member_number,
+        reason: passwordReset ? "password_reset" : "login_enabled",
+      },
+    },
+    input.client,
+  )
+  if (memberRes.ok) {
+    memberNotifications = 1
+  } else if (memberRes.error) {
+    errors.push(`member_notifications:${memberRes.error}`)
+  }
+
+  if (input.client) {
+    let recipients: { id: string; branch_id: string | null }[] = []
+    try {
+      recipients = await getInstitutionRecipientsWithPermission(
+        input.client,
+        input.actor.institution_id,
+        "edit_member",
+        { excludeUserId: input.actor.id },
+      )
+      recipients = recipients.filter(
+        (r) => !r.branch_id || r.branch_id === input.actor.branch_id,
+      )
+    } catch (e) {
+      errors.push(`recipients:edit_member:${(e as Error)?.message || "lookup_failed"}`)
+    }
+
+    if (recipients.length > 0) {
+      const staffTpl = NotificationTemplates.memberLoginEnabledForStaff(
+        input.member.full_name,
+        input.member.member_number,
+        input.member.id,
+        passwordReset,
+      )
+      const staffMessages: CreateNotificationInput[] = recipients.map((r) => ({
+        institutionId: input.actor.institution_id,
+        branchId: r.branch_id ?? input.actor.branch_id,
+        recipientType: "institution_user",
+        recipientId: r.id,
+        type: "member_login_enabled",
+        title: staffTpl.title,
+        message: staffTpl.message,
+        actionUrl: staffTpl.actionUrl,
+        metadata: {
+          member_id: input.member.id,
+          member_name: input.member.full_name,
+          member_number: input.member.member_number,
+          reason: passwordReset ? "password_reset" : "login_enabled",
+        },
+      }))
+      const staffRes = await notificationService.createBulk(staffMessages, input.client)
+      if (staffRes.ok) {
+        staffNotifications = staffRes.count ?? staffMessages.length
+      } else if (staffRes.error) {
+        errors.push(`staff_notifications:member_login_enabled:${staffRes.error}`)
+      }
+    }
+  }
+
+  return {
+    ok: errors.length === 0,
+    memberNotifications,
+    staffNotifications,
+    errors,
+  }
+}

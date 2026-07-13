@@ -46,6 +46,15 @@ export function sortConversationsForInbox(
   })
 }
 
+/** Keep last occurrence of each message id (realtime upserts win over stale copies). */
+export function dedupeMessagesById(messages: ChatMessage[]): ChatMessage[] {
+  const byId = new Map<string, ChatMessage>()
+  for (const message of messages) {
+    byId.set(message.id, message)
+  }
+  return Array.from(byId.values()).sort((a, b) => a.sentAt.localeCompare(b.sentAt))
+}
+
 export function splitInboxSections(conversations: ChatConversation[]): {
   pinned: ChatConversation[]
   recent: ChatConversation[]

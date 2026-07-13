@@ -338,3 +338,6 @@ MFI Client: grace.namugga@email.com
 
 Money Lender Borrower: moses.kiprotich@email.com
 
+npm run dev
+npm run socket
+npm run workers

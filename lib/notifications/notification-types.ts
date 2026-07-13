@@ -32,6 +32,8 @@ export type NotificationType =
   | 'new_member_registered'
   // Member lifecycle events
   | 'member_welcome'
+  | 'member_portal_access_enabled'
+  | 'member_login_enabled'
   | 'membership_invoice_created'
   | 'kyc_verification_required'
   // Shares events
@@ -432,6 +434,34 @@ export const NotificationTemplates = {
       ? `Your membership at ${institutionName} has been created. Explore your portal to manage savings, loans, and your KYC.`
       : `Your membership has been created. Explore your portal to manage savings, loans, and your KYC.`,
     actionUrl: '/client-portal',
+  }),
+
+  memberPortalAccessEnabled: (memberName: string, institutionName?: string) => ({
+    title: `Welcome${memberName ? ', ' + memberName.split(' ')[0] : ''} — portal access ready`,
+    message: institutionName
+      ? `Your client portal login for ${institutionName} is ready. Sign in at /client-login with the email and temporary password we sent you, then change your password immediately.`
+      : `Your client portal login is ready. Sign in at /client-login with the email and temporary password we sent you, then change your password immediately.`,
+    actionUrl: '/client-portal',
+  }),
+
+  memberPortalPasswordReset: () => ({
+    title: 'Portal password reset',
+    message:
+      'Your client portal password was reset. Sign in at /client-login with the temporary password we sent you, then change it immediately.',
+    actionUrl: '/client-portal',
+  }),
+
+  memberLoginEnabledForStaff: (
+    memberName: string,
+    memberNumber: string,
+    memberId: string,
+    passwordReset?: boolean,
+  ) => ({
+    title: passwordReset ? 'Member Portal Password Reset' : 'Member Portal Login Enabled',
+    message: passwordReset
+      ? `Portal password was reset for ${memberName} (${memberNumber}).`
+      : `Client portal login was enabled for ${memberName} (${memberNumber}).`,
+    actionUrl: `/members/${memberId}`,
   }),
 
   membershipInvoiceCreated: (

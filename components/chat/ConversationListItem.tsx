@@ -17,6 +17,7 @@ type ConversationListItemProps = {
   isActive: boolean
   currentUserId: string
   onSelect: (id: string) => void
+  typingLabel?: string
 }
 
 function typeAccent(type: ChatConversation["type"]): string {
@@ -45,6 +46,7 @@ export function ConversationListItem({
   isActive,
   currentUserId,
   onSelect,
+  typingLabel,
 }: ConversationListItemProps) {
   const { lastMessage, unreadCount, title, type } = conversation
   const hasPinnedMessages = conversationHasPinnedMessages(conversation)
@@ -109,14 +111,20 @@ export function ConversationListItem({
           <p
             className={cn(
               "truncate text-xs",
-              unreadCount > 0 ? "font-medium text-foreground" : "text-muted-foreground",
+              typingLabel
+                ? "font-medium italic text-[#c46f12]"
+                : unreadCount > 0
+                  ? "font-medium text-foreground"
+                  : "text-muted-foreground",
             )}
           >
-            {lastMessage
-              ? `${previewSender}${previewMessage(lastMessage.body, lastMessage.type)}`
-              : "No messages yet"}
+            {typingLabel
+              ? typingLabel
+              : lastMessage
+                ? `${previewSender}${previewMessage(lastMessage.body, lastMessage.type)}`
+                : "No messages yet"}
           </p>
-          {unreadCount > 0 ? (
+          {!typingLabel && unreadCount > 0 ? (
             <Badge className="h-5 min-w-5 shrink-0 justify-center bg-[#f08c2b] px-1.5 text-[10px] hover:bg-[#f08c2b]">
               {unreadCount > 9 ? "9+" : unreadCount}
             </Badge>
