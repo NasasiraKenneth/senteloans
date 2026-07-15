@@ -1,23 +1,102 @@
 "use client"
 
-import { useState, useEffect } from "react"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { useState, useEffect, useMemo } from "react"
+import { motion } from "framer-motion"
+import {
+  ArrowUpRight,
+  ArrowDownRight,
+  Eye,
+  EyeOff,
+  History,
+  PiggyBank,
+  TrendingUp,
+} from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Plus, Download, TrendingUp, ArrowUpRight, ArrowDownRight, History } from "lucide-react"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import { ClientPortalPageHeader } from "@/components/client-portal-page-header"
+import {
+  SavingsAccountCard,
+  SavingsAccountCardSkeleton,
+} from "@/components/client-portal-account-card"
+import {
+  ClientPortalSummaryCard,
+  ClientPortalSummaryCardSkeleton,
+} from "@/components/client-portal-summary-card"
 import { useClientSession } from "@/components/client-session-provider"
 import { useClientModuleGuard } from "@/hooks/use-client-module-guard"
-import { SavingsAccountCard } from "@/components/client-portal-account-card"
+import { cn } from "@/lib/utils"
+
+type SavingsAccount = {
+  id: string
+  account_number: string
+  account_type: string
+  available_balance: number
+  total_balance: number
+  status: string
+  open_date?: string
+}
+
+type SavingsTransaction = {
+  id: string
+  type: string
+  amount: number
+  mode?: string
+  description?: string
+  balance?: number
+  date: string
+  account_id?: string | null
+}
+
+function normalizeTxKind(type: string): "deposit" | "withdrawal" | "other" {
+  const s = String(type || "").toLowerCase()
+  if (s.includes("deposit")) return "deposit"
+  if (s.includes("withdraw")) return "withdrawal"
+  return "other"
+}
+
+function formatTxDate(value: string): string {
+  const d = new Date(value)
+  if (Number.isNaN(d.getTime())) return value
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })
+}
+
+function SavingsPageSkeleton() {
+  return (
+    <div className="space-y-8 animate-in fade-in duration-300">
+      <div className="space-y-2">
+        <div className="h-8 w-48 animate-pulse rounded-lg bg-muted" />
+        <div className="h-4 w-64 animate-pulse rounded bg-muted" />
+      </div>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <ClientPortalSummaryCardSkeleton />
+        <ClientPortalSummaryCardSkeleton />
+      </div>
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        {[1, 2].map((i) => (
+          <SavingsAccountCardSkeleton key={i} />
+        ))}
+      </div>
+      <div className="h-64 animate-pulse rounded-2xl border border-border bg-muted/40" />
+    </div>
+  )
+}
 
 export default function ClientSavingsPage() {
   const { data, formatMoney } = useClientSession()
   const currentClient = data?.client
   const institution = data?.institution
   const { enabled, isLoading: guardLoading } = useClientModuleGuard("savings")
-  const [accounts, setAccounts] = useState<any[]>([])
-  const [clientTransactions, setClientTransactions] = useState<any[]>([])
+  const [accounts, setAccounts] = useState<SavingsAccount[]>([])
+  const [transactions, setTransactions] = useState<SavingsTransaction[]>([])
   const [transactionFilter, setTransactionFilter] = useState("all")
+  const [showBalance, setShowBalance] = useState(true)
   const [isLoading, setIsLoading] = useState(true)
 
   useEffect(() => {
@@ -32,210 +111,249 @@ export default function ClientSavingsPage() {
         const tx = txRes.ok ? await txRes.json() : { transactions: [] }
         if (cancelled) return
         setAccounts(sav.accounts || [])
-        setClientTransactions(tx.transactions || [])
+        setTransactions(tx.transactions || [])
       } finally {
         if (!cancelled) setIsLoading(false)
       }
     }
-    load()
-    return () => { cancelled = true }
+    void load()
+    return () => {
+      cancelled = true
+    }
   }, [])
 
-  const getFilteredTransactions = () => {
-    const normalizeType = (t: string) => {
-      const s = String(t || "").toLowerCase()
-      if (s.includes("deposit")) return "deposit"
-      if (s.includes("withdraw")) return "withdrawal"
-      return "other"
-    }
-    // Savings-related transactions: those linked to an account_id
-    let filtered = clientTransactions.filter((tx: any) => !!tx.account_id)
-    if (transactionFilter !== "all") {
-      filtered = filtered.filter((tx: any) => normalizeType(tx.type) === transactionFilter)
-    }
-    return filtered.sort((a: any, b: any) => new Date(b.date) as any - (new Date(a.date) as any))
-  }
+  const savingsTransactions = useMemo(() => {
+    return transactions
+      .filter((tx) => !!tx.account_id)
+      .filter((tx) => {
+        if (transactionFilter === "all") return true
+        return normalizeTxKind(tx.type) === transactionFilter
+      })
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+  }, [transactions, transactionFilter])
+
+  const totals = useMemo(() => {
+    const totalAvailable = accounts.reduce((s, a) => s + Number(a.available_balance || 0), 0)
+    const totalBalance = accounts.reduce((s, a) => s + Number(a.total_balance || 0), 0)
+    const now = new Date()
+    const thisMonth = now.getMonth()
+    const thisYear = now.getFullYear()
+    const monthlyGrowth = transactions
+      .filter((tx) => !!tx.account_id)
+      .reduce((acc, t) => {
+        const dt = new Date(t.date)
+        if (dt.getFullYear() !== thisYear || dt.getMonth() !== thisMonth) return acc
+        const kind = normalizeTxKind(t.type)
+        if (kind === "deposit") return acc + Number(t.amount || 0)
+        if (kind === "withdrawal") return acc - Number(t.amount || 0)
+        return acc
+      }, 0)
+    return { totalAvailable, totalBalance, monthlyGrowth }
+  }, [accounts, transactions])
 
   if (isLoading || guardLoading || !enabled) {
-    return <div className="text-center py-8">Loading...</div>
+    return <SavingsPageSkeleton />
   }
 
-  const filteredTransactions = getFilteredTransactions()
-  const totalAvailable = accounts.reduce((s, a) => s + Number(a.available_balance || 0), 0)
-  // This month net movement (deposits - withdrawals) from savings transactions
-  const now = new Date()
-  const thisMonth = now.getMonth()
-  const thisYear = now.getFullYear()
-  const monthlyGrowth = filteredTransactions.reduce((acc: number, t: any) => {
-    const dt = new Date(t.date)
-    if (dt.getFullYear() !== thisYear || dt.getMonth() !== thisMonth) return acc
-    const k = String(t.type || "").toLowerCase()
-    if (k.includes("deposit")) return acc + Number(t.amount || 0)
-    if (k.includes("withdraw")) return acc - Number(t.amount || 0)
-    return acc
-  }, 0)
+  if (!currentClient || !institution) return null
+
+  const masked = "••••••"
+  const monthlyLabel =
+    totals.monthlyGrowth >= 0
+      ? `+${formatMoney(Math.abs(totals.monthlyGrowth))}`
+      : `−${formatMoney(Math.abs(totals.monthlyGrowth))}`
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">My Savings</h1>
-          <p className="text-gray-600">Track your savings and transaction history</p>
-        </div>
-        <div className="flex space-x-2">
-          <Select value={transactionFilter} onValueChange={setTransactionFilter}>
-            <SelectTrigger className="w-32">
-              <SelectValue placeholder="Filter" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All</SelectItem>
-              <SelectItem value="deposit">Deposits</SelectItem>
-              <SelectItem value="withdrawal">Withdrawals</SelectItem>
-            </SelectContent>
-          </Select>
-          <div className="relative">
-            <Button size="sm" variant="outline" disabled>
-              <History className="h-4 w-4 mr-2" />
-              Export
+    <motion.div
+      className="space-y-8"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: 0.35 }}
+    >
+      <ClientPortalPageHeader
+        title="Savings"
+        description="Your accounts and recent savings activity"
+        backHref="/client-portal"
+        action={
+          <div className="flex flex-wrap items-center gap-2">
+            <Select value={transactionFilter} onValueChange={setTransactionFilter}>
+              <SelectTrigger className="w-[140px]">
+                <SelectValue placeholder="Filter" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All activity</SelectItem>
+                <SelectItem value="deposit">Deposits</SelectItem>
+                <SelectItem value="withdrawal">Withdrawals</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setShowBalance((v) => !v)}
+              className="gap-2"
+              aria-label={showBalance ? "Hide balances" : "Show balances"}
+            >
+              {showBalance ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
             </Button>
-            <Badge className="absolute -top-2 -right-2 text-xs" variant="secondary">
-              Coming Soon
-            </Badge>
           </div>
-        </div>
+        }
+      />
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        <ClientPortalSummaryCard
+          variant="savings"
+          label="Available balance"
+          value={showBalance ? formatMoney(totals.totalAvailable) : masked}
+          sub={
+            accounts.length === 0
+              ? "No accounts yet"
+              : `${accounts.length} ${accounts.length === 1 ? "account" : "accounts"}`
+          }
+          icon={PiggyBank}
+          index={0}
+        />
+        <ClientPortalSummaryCard
+          variant="savings"
+          label="This month"
+          value={showBalance ? monthlyLabel : masked}
+          sub={
+            totals.monthlyGrowth >= 0
+              ? "Net deposits into savings"
+              : "Net withdrawals from savings"
+          }
+          icon={TrendingUp}
+          index={1}
+        />
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Savings Accounts</CardTitle>
-          <CardDescription>Summary across your savings accounts</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <p className="text-muted-foreground text-sm">Available Balance</p>
-              <p className="text-2xl font-bold text-primary">{formatMoney(totalAvailable)}</p>
-            </div>
-            <div>
-              <p className="text-muted-foreground text-sm">This Month</p>
-              <p className="text-lg font-semibold text-green-600 flex items-center">
-                <TrendingUp className="h-4 w-4 mr-1" />
-                {monthlyGrowth >= 0 ? "+" : "-"}
-                {formatMoney(Math.abs(monthlyGrowth))}
-              </p>
-            </div>
+      <section className="space-y-4">
+        <div className="flex items-end justify-between gap-4">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wider text-primary">Accounts</p>
+            <h2 className="mt-1 text-lg font-semibold text-foreground">Your savings cards</h2>
           </div>
+          <p className="text-sm text-muted-foreground">
+            {showBalance ? formatMoney(totals.totalBalance) : masked} total
+          </p>
+        </div>
 
-          <div className="flex space-x-2">
-            <div className="flex-1 relative">
-              <Button size="sm" className="w-full" disabled>
-                <Plus className="h-4 w-4 mr-2" />
-                Deposit
-              </Button>
-              <Badge className="absolute -top-2 -right-2 text-xs" variant="secondary">
-                Coming Soon
-              </Badge>
-            </div>
-            <div className="flex-1 relative">
-              <Button size="sm" variant="outline" className="w-full bg-transparent" disabled>
-                <Download className="h-4 w-4 mr-2" />
-                Withdraw
-              </Button>
-              <Badge className="absolute -top-2 -right-2 text-xs" variant="secondary">
-                Coming Soon
-              </Badge>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Savings account cards */}
-      <div>
-        <h2 className="mb-4 text-base font-semibold">Your accounts</h2>
         {accounts.length > 0 ? (
-          <div className="-mx-1 flex flex-wrap gap-4 px-1 pb-1">
-            {accounts.map((a, i) => (
+          <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
+            {accounts.map((account, i) => (
               <SavingsAccountCard
-                key={a.id}
-                accountType={a.account_type}
-                accountNumber={a.account_number}
-                availableBalance={formatMoney(Number(a.available_balance || 0))}
-                totalBalance={formatMoney(Number(a.total_balance || 0))}
-                status={a.status}
-                openDate={a.open_date}
-                cardholderName={currentClient?.fullName || "Account holder"}
-                institutionName={institution?.name}
-                href={`/client-portal/savings/${a.id}`}
+                key={account.id}
+                accountType={account.account_type}
+                accountNumber={account.account_number}
+                availableBalance={formatMoney(Number(account.available_balance || 0))}
+                totalBalance={formatMoney(Number(account.total_balance || 0))}
+                status={account.status}
+                openDate={account.open_date}
+                cardholderName={currentClient.fullName}
+                institutionName={institution.name}
+                balanceHidden={!showBalance}
+                href={`/client-portal/savings/${account.id}`}
                 themeIndex={i}
                 index={i}
+                className="max-w-none"
               />
             ))}
           </div>
         ) : (
-          <div className="rounded-xl border border-dashed border-border py-12 text-center text-muted-foreground">
-            No savings accounts found
+          <div className="flex flex-col items-center rounded-2xl border border-dashed border-border bg-muted/20 px-6 py-16 text-center">
+            <PiggyBank className="mb-3 h-10 w-10 text-muted-foreground/40" />
+            <p className="text-sm font-medium text-foreground">No savings accounts yet</p>
+            <p className="mt-1 max-w-sm text-xs text-muted-foreground">
+              Contact {institution.name} to open a savings account.
+            </p>
           </div>
         )}
-      </div>
+      </section>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Transaction History</CardTitle>
+      <Card className="overflow-hidden border-border/80 shadow-sm">
+        <CardHeader className="flex flex-row items-center justify-between border-b border-border/60 bg-muted/20 pb-4">
+          <CardTitle className="text-base font-semibold">Savings activity</CardTitle>
+          <span className="text-xs text-muted-foreground">
+            {savingsTransactions.length}{" "}
+            {savingsTransactions.length === 1 ? "transaction" : "transactions"}
+          </span>
         </CardHeader>
-        <CardContent>
-          <div className="space-y-3">
-            {filteredTransactions.map((transaction) => (
-              <div
-                key={transaction.id}
-                className="flex items-center justify-between p-3 rounded-lg border hover:bg-muted/50"
-              >
-                <div className="flex items-center space-x-3">
-                  <div
-                    className={`h-10 w-10 rounded-full flex items-center justify-center ${
-                      transaction.type === "Deposit" ? "bg-green-100 text-green-600" : "bg-red-100 text-red-600"
-                    }`}
-                  >
-                    {transaction.type === "Deposit" ? (
-                      <ArrowDownRight className="h-5 w-5" />
-                    ) : (
-                      <ArrowUpRight className="h-5 w-5" />
-                    )}
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium">{transaction.type}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {transaction.date} • {transaction.mode}
-                    </p>
-                    {transaction.description && (
-                      <p className="text-xs text-muted-foreground">{transaction.description}</p>
-                    )}
-                  </div>
-                </div>
-                <div className="text-right">
-                  <p
-                    className={`text-sm font-medium ${
-                      transaction.type === "Deposit" ? "text-green-600" : "text-red-600"
-                    }`}
-                  >
-                    {String(transaction.type || "").toLowerCase().includes("deposit") ? "+" : "-"}
-                    {formatMoney(transaction.amount)}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    Balance: {formatMoney(transaction.balance)}
-                  </p>
-                </div>
-              </div>
-            ))}
-          </div>
-          {filteredTransactions.length === 0 && (
-            <div className="text-center py-8">
-              <History className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-              <h3 className="text-lg font-medium mb-2">No transactions found</h3>
-              <p className="text-muted-foreground">Try adjusting your filter settings</p>
+        <CardContent className="p-0">
+          {savingsTransactions.length === 0 ? (
+            <div className="flex flex-col items-center py-14 text-center">
+              <History className="mb-3 h-10 w-10 text-muted-foreground/40" />
+              <p className="text-sm font-medium">No transactions found</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {transactionFilter === "all"
+                  ? "Deposits and withdrawals will appear here"
+                  : "Try a different filter"}
+              </p>
             </div>
+          ) : (
+            <ul>
+              {savingsTransactions.slice(0, 25).map((tx, index) => {
+                const kind = normalizeTxKind(tx.type)
+                const isCredit = kind === "deposit"
+                return (
+                  <motion.li
+                    key={tx.id}
+                    initial={{ opacity: 0, x: -8 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: Math.min(index, 12) * 0.04, duration: 0.28 }}
+                    className="flex items-center justify-between gap-4 border-b border-border/60 px-6 py-4 last:border-0 transition-colors hover:bg-muted/30"
+                  >
+                    <div className="flex min-w-0 items-center gap-3">
+                      <div
+                        className={cn(
+                          "flex h-10 w-10 shrink-0 items-center justify-center rounded-xl",
+                          kind === "deposit" && "bg-emerald-500/10 text-emerald-600",
+                          kind === "withdrawal" && "bg-red-500/10 text-red-600",
+                          kind === "other" && "bg-primary/10 text-primary",
+                        )}
+                      >
+                        {kind === "deposit" ? (
+                          <ArrowDownRight className="h-4 w-4" />
+                        ) : (
+                          <ArrowUpRight className="h-4 w-4" />
+                        )}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium">{tx.type}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {formatTxDate(tx.date)}
+                          {tx.mode ? ` · ${tx.mode}` : ""}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="shrink-0 text-right">
+                      <p
+                        className={cn(
+                          "text-sm font-semibold tabular-nums",
+                          isCredit && showBalance && "text-emerald-600",
+                          kind === "withdrawal" && showBalance && "text-red-600",
+                        )}
+                      >
+                        {showBalance ? (
+                          <>
+                            {isCredit ? "+" : kind === "withdrawal" ? "−" : ""}
+                            {formatMoney(Number(tx.amount || 0))}
+                          </>
+                        ) : (
+                          masked
+                        )}
+                      </p>
+                      {typeof tx.balance === "number" ? (
+                        <p className="text-xs text-muted-foreground tabular-nums">
+                          Bal: {showBalance ? formatMoney(tx.balance) : masked}
+                        </p>
+                      ) : null}
+                    </div>
+                  </motion.li>
+                )
+              })}
+            </ul>
           )}
         </CardContent>
       </Card>
-    </div>
+    </motion.div>
   )
 }
