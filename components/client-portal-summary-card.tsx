@@ -18,25 +18,25 @@ const VARIANTS: Record<
   }
 > = {
   savings: {
-    iconBg: "bg-blue-500/10",
-    iconColor: "text-blue-600",
-    accent: "from-blue-500/8 via-blue-400/5 to-transparent",
-    glow: "group-hover:shadow-blue-500/10",
-    bar: "bg-blue-500",
+    iconBg: "bg-accent/10 dark:bg-accent/20",
+    iconColor: "text-accent",
+    accent: "from-accent/8 via-accent/5 to-transparent",
+    glow: "group-hover:shadow-accent/10",
+    bar: "bg-accent",
   },
   loans: {
-    iconBg: "bg-slate-500/10",
-    iconColor: "text-slate-700",
-    accent: "from-slate-500/10 via-slate-400/5 to-transparent",
-    glow: "group-hover:shadow-slate-500/10",
-    bar: "bg-slate-600",
+    iconBg: "bg-primary/10 dark:bg-primary/20",
+    iconColor: "text-primary dark:text-foreground",
+    accent: "from-primary/8 via-primary/5 to-transparent",
+    glow: "group-hover:shadow-primary/10",
+    bar: "bg-primary dark:bg-foreground",
   },
   shares: {
-    iconBg: "bg-teal-500/10",
-    iconColor: "text-teal-600",
-    accent: "from-teal-500/8 via-cyan-400/5 to-transparent",
-    glow: "group-hover:shadow-teal-500/10",
-    bar: "bg-teal-500",
+    iconBg: "bg-amber-500/10 dark:bg-amber-500/20",
+    iconColor: "text-amber-600 dark:text-amber-400",
+    accent: "from-amber-500/8 via-amber-400/5 to-transparent",
+    glow: "group-hover:shadow-amber-500/10",
+    bar: "bg-amber-500",
   },
 }
 

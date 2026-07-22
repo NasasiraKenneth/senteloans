@@ -89,7 +89,7 @@ export default function ClientTransactionsPage() {
             {filtered.map((t) => (
               <div key={t.id} className="flex items-center justify-between p-3 rounded-lg border hover:bg-muted/50">
                 <div className="flex items-center gap-3">
-                  <div className={`h-10 w-10 rounded-full flex items-center justify-center ${normalizeType(t.type)==="deposit"?"bg-green-100 text-green-600": normalizeType(t.type)==="withdrawal"?"bg-red-100 text-red-600":"bg-blue-100 text-blue-600"}`}>
+                  <div className={`h-10 w-10 rounded-full flex items-center justify-center ${normalizeType(t.type)==="deposit"?"bg-green-100 text-green-600": normalizeType(t.type)==="withdrawal"?"bg-red-100 text-red-600":"bg-accent/10 text-accent"}`}>
                     {normalizeType(t.type) === "deposit" ? <ArrowDownRight className="w-5 h-5"/> : normalizeType(t.type) === "withdrawal" ? <ArrowUpRight className="w-5 h-5"/> : <CreditCard className="w-5 h-5"/>}
                   </div>
                   <div>
@@ -99,7 +99,7 @@ export default function ClientTransactionsPage() {
                   </div>
                 </div>
                 <div className="text-right">
-                  <div className={`text-sm font-semibold ${normalizeType(t.type)==="deposit"?"text-green-600": normalizeType(t.type)==="withdrawal"?"text-red-600":"text-blue-600"}`}>
+                  <div className={`text-sm font-semibold ${normalizeType(t.type)==="deposit"?"text-green-600": normalizeType(t.type)==="withdrawal"?"text-red-600":"text-accent"}`}>
                     {normalizeType(t.type)==="deposit" ? "+" : normalizeType(t.type)==="withdrawal" ? "-" : ""}UGX {(Number(t.amount||0)/1000).toFixed(0)}K
                   </div>
                   <div className="text-xs text-muted-foreground">Bal: UGX {(Number(t.balance||0)/1000).toFixed(0)}K</div>

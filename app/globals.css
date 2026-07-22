@@ -61,24 +61,24 @@
   --sidebar-ring: rgba(240, 140, 43, 0.5); /* Orange focus ring */
 }
 
-/* Client portal — blue palette (scoped, does not affect staff dashboard) */
+/* Client portal — black & orange brand palette (scoped, does not affect staff dashboard) */
 .client-portal-theme {
-  --background: #f8fafc;
-  --foreground: #0f172a;
+  --background: #f9fafb; /* Soft light background */
+  --foreground: #1a1a1a; /* Near-black for main text */
   --card: #ffffff;
-  --card-foreground: #0f172a;
-  --primary: #2563eb;
+  --card-foreground: #1a1a1a;
+  --primary: #0f0f12; /* Black primary */
   --primary-foreground: #ffffff;
-  --secondary: #eff6ff;
-  --secondary-foreground: #1d4ed8;
-  --accent: #dbeafe;
-  --accent-foreground: #1e40af;
-  --muted: #eff6ff;
-  --muted-foreground: #64748b;
-  --border: #dbeafe;
-  --ring: rgba(37, 99, 235, 0.35);
+  --secondary: #f5f5f5; /* Light gray */
+  --secondary-foreground: #1a1a1a;
+  --accent: #f08c2b; /* Warm orange */
+  --accent-foreground: #ffffff;
+  --muted: #f5f5f5;
+  --muted-foreground: #6b7280;
+  --border: #e5e7eb;
+  --ring: rgba(240, 140, 43, 0.5);
   --popover: #ffffff;
-  --popover-foreground: #0f172a;
+  --popover-foreground: #1a1a1a;
 }
 
 .dark {
