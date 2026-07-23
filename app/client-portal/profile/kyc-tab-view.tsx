@@ -113,7 +113,7 @@ function KycDocumentViewCard({
                 href={previewUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-xs text-primary hover:underline"
+                className="text-xs text-[#f08c2b] hover:underline"
               >
                 View file
               </a>
@@ -127,7 +127,7 @@ function KycDocumentViewCard({
             className="flex h-full w-full flex-col items-center justify-center gap-2 p-6 text-center transition-colors hover:bg-muted/40 disabled:cursor-wait"
           >
             {uploading ? (
-              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+              <Loader2 className="h-8 w-8 animate-spin text-[#f08c2b]" />
             ) : (
               <>
                 <ImageIcon className="h-8 w-8 text-muted-foreground/60" />
@@ -141,7 +141,7 @@ function KycDocumentViewCard({
 
         {uploading ? (
           <div className="absolute inset-0 flex items-center justify-center bg-background/60">
-            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            <Loader2 className="h-8 w-8 animate-spin text-[#f08c2b]" />
           </div>
         ) : null}
       </div>
@@ -286,7 +286,7 @@ export function KycTabView({
             </div>
             <div className="mt-3 h-2 overflow-hidden rounded-full bg-muted">
               <div
-                className="h-full rounded-full bg-primary transition-all duration-500"
+                className="h-full rounded-full bg-[#f08c2b] transition-all duration-500"
                 style={{
                   width: `${progress.total ? (progress.uploaded / progress.total) * 100 : 0}%`,
                 }}

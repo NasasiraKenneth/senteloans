@@ -3,8 +3,7 @@
 import { Suspense, useState, useEffect, useCallback, useMemo } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Eye, EyeOff, CreditCard, Lock, Shield, User } from "lucide-react"
+import { Eye, EyeOff, CreditCard, Lock, Shield, User, Mail, Phone, Calendar, Heart, Wallet, Sparkles } from "lucide-react"
 import { useToast } from "@/components/ui/toast"
 import { KycTabView } from "@/app/client-portal/profile/kyc-tab-view"
 import {
@@ -24,6 +23,7 @@ import type { ClientPortalClient } from "@/lib/client-session-types"
 import { computeClientKycProgress, parseProfileTab, type ProfileTab } from "@/lib/client-portal-kyc"
 import type { KycDocType, KycUploadField, MemberKycDocRow } from "@/lib/members/kyc-docs"
 import { MEMBER_TRANSACTIONAL_EMAIL_TYPES } from "@/lib/email/seed-member-preferences"
+import { Badge } from "@/components/ui/badge"
 
 function seedProfileForms(client: ClientPortalClient) {
   return {
@@ -411,32 +411,87 @@ function ProfilePageContent() {
       {activeTab === "personal" ? (
         <ProfileTabPanel tabKey="personal">
           <div className="grid gap-6 lg:grid-cols-2">
-            <ProfileCard title="Identity" description="Details captured at onboarding">
-              <div className="divide-y divide-border/60">
-                <ProfileRow label="Full name" value={personalInfo.fullName || "—"} />
-                <ProfileRow label="Email" value={personalInfo.email || "—"} />
-                <ProfileRow label="Phone" value={personalInfo.phoneNumber || "—"} />
-                <ProfileRow label="Date of birth" value={personalInfo.dateOfBirth || "—"} />
-                <ProfileRow
-                  label="Gender"
-                  value={
-                    personalInfo.gender
-                      ? personalInfo.gender.charAt(0).toUpperCase() + personalInfo.gender.slice(1)
-                      : "—"
-                  }
-                />
-                <ProfileRow
-                  label="Marital status"
-                  value={
-                    personalInfo.maritalStatus
-                      ? personalInfo.maritalStatus.charAt(0).toUpperCase() + personalInfo.maritalStatus.slice(1)
-                      : "—"
-                  }
-                />
-                <ProfileRow
-                  label={`Income (${currency})`}
-                  value={personalInfo.monthlyIncome ? formatMoney(Number(personalInfo.monthlyIncome)) : "—"}
-                />
+            <ProfileCard title="Identity" description="Immutable registration details from Sacco records">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="flex items-center gap-3 p-3 bg-muted/20 border border-border/40 rounded-lg">
+                  <div className="h-8 w-8 rounded-full bg-[#f08c2b]/10 flex items-center justify-center text-[#f08c2b] shrink-0">
+                    <User className="h-4 w-4" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-[9px] uppercase font-bold tracking-widest text-muted-foreground">Full Name</p>
+                    <p className="text-sm font-semibold text-foreground truncate">{personalInfo.fullName || "—"}</p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3 p-3 bg-muted/20 border border-border/40 rounded-lg">
+                  <div className="h-8 w-8 rounded-full bg-[#f08c2b]/10 flex items-center justify-center text-[#f08c2b] shrink-0">
+                    <Mail className="h-4 w-4" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-[9px] uppercase font-bold tracking-widest text-muted-foreground">Email Address</p>
+                    <p className="text-sm font-semibold text-foreground truncate">{personalInfo.email || "—"}</p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3 p-3 bg-muted/20 border border-border/40 rounded-lg">
+                  <div className="h-8 w-8 rounded-full bg-[#f08c2b]/10 flex items-center justify-center text-[#f08c2b] shrink-0">
+                    <Phone className="h-4 w-4" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-[9px] uppercase font-bold tracking-widest text-muted-foreground">Phone Number</p>
+                    <p className="text-sm font-semibold text-foreground">{personalInfo.phoneNumber || "—"}</p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3 p-3 bg-muted/20 border border-border/40 rounded-lg">
+                  <div className="h-8 w-8 rounded-full bg-[#f08c2b]/10 flex items-center justify-center text-[#f08c2b] shrink-0">
+                    <Calendar className="h-4 w-4" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-[9px] uppercase font-bold tracking-widest text-muted-foreground">Date of Birth</p>
+                    <p className="text-sm font-semibold text-foreground">{personalInfo.dateOfBirth || "—"}</p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3 p-3 bg-muted/20 border border-border/40 rounded-lg">
+                  <div className="h-8 w-8 rounded-full bg-[#f08c2b]/10 flex items-center justify-center text-[#f08c2b] shrink-0">
+                    <Sparkles className="h-4 w-4" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-[9px] uppercase font-bold tracking-widest text-muted-foreground">Gender</p>
+                    <p className="text-sm font-semibold text-foreground">
+                      {personalInfo.gender
+                        ? personalInfo.gender.charAt(0).toUpperCase() + personalInfo.gender.slice(1)
+                        : "—"}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3 p-3 bg-muted/20 border border-border/40 rounded-lg">
+                  <div className="h-8 w-8 rounded-full bg-[#f08c2b]/10 flex items-center justify-center text-[#f08c2b] shrink-0">
+                    <Heart className="h-4 w-4" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-[9px] uppercase font-bold tracking-widest text-muted-foreground">Marital Status</p>
+                    <p className="text-sm font-semibold text-foreground">
+                      {personalInfo.maritalStatus
+                        ? personalInfo.maritalStatus.charAt(0).toUpperCase() + personalInfo.maritalStatus.slice(1)
+                        : "—"}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3 p-3 bg-muted/20 border border-border/40 rounded-lg sm:col-span-2">
+                  <div className="h-8 w-8 rounded-full bg-[#f08c2b]/10 flex items-center justify-center text-[#f08c2b] shrink-0">
+                    <Wallet className="h-4 w-4" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-[9px] uppercase font-bold tracking-widest text-muted-foreground">Monthly Net Income</p>
+                    <p className="text-sm font-bold text-emerald-600 font-mono">
+                      {personalInfo.monthlyIncome ? formatMoney(Number(personalInfo.monthlyIncome)) : "—"}
+                    </p>
+                  </div>
+                </div>
               </div>
             </ProfileCard>
 
@@ -452,7 +507,7 @@ function ProfilePageContent() {
             >
               <div className="grid gap-4 sm:grid-cols-2">
                 <ProfileField label="Occupation" className="sm:col-span-2">
-                  <Input
+                  <input
                     id="occupation"
                     value={personalInfo.occupation}
                     onChange={(e) => setPersonalInfo((prev) => ({ ...prev, occupation: e.target.value }))}
@@ -462,7 +517,7 @@ function ProfilePageContent() {
                   />
                 </ProfileField>
                 <ProfileField label="Village / area">
-                  <Input
+                  <input
                     id="village"
                     value={personalInfo.village}
                     onChange={(e) => setPersonalInfo((prev) => ({ ...prev, village: e.target.value }))}
@@ -472,7 +527,7 @@ function ProfilePageContent() {
                   />
                 </ProfileField>
                 <ProfileField label="District">
-                  <Input
+                  <input
                     id="district"
                     value={personalInfo.district}
                     onChange={(e) => setPersonalInfo((prev) => ({ ...prev, district: e.target.value }))}
@@ -482,7 +537,7 @@ function ProfilePageContent() {
                   />
                 </ProfileField>
                 <ProfileField label="Next of kin" className="sm:col-span-2">
-                  <Input
+                  <input
                     id="nokName"
                     placeholder="Name"
                     value={personalInfo.nextOfKinName}
@@ -493,7 +548,7 @@ function ProfilePageContent() {
                   />
                 </ProfileField>
                 <ProfileField label="Relationship">
-                  <Input
+                  <input
                     id="nokRelationship"
                     value={personalInfo.nextOfKinRelationship}
                     onChange={(e) =>
@@ -505,7 +560,7 @@ function ProfilePageContent() {
                   />
                 </ProfileField>
                 <ProfileField label="Next of kin phone">
-                  <Input
+                  <input
                     id="nokPhone"
                     value={personalInfo.nextOfKinPhone}
                     onChange={(e) => setPersonalInfo((prev) => ({ ...prev, nextOfKinPhone: e.target.value }))}
@@ -550,8 +605,8 @@ function ProfilePageContent() {
       {activeTab === "payment" ? (
         <ProfileTabPanel tabKey="payment">
           <ProfileCard
-            title="Payment details"
-            description="Mobile money and bank account for disbursements"
+            title="Settlement Details"
+            description="Mobile money and bank account settings for automated payouts"
             editable
             editing={isEditingPayment}
             saving={isSavingPayment}
@@ -559,67 +614,100 @@ function ProfilePageContent() {
             onCancel={cancelPaymentEdit}
             onSave={handlePaymentSave}
           >
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              <ProfileField label="Mobile money provider">
-                <Input
-                  id="mmProvider"
-                  value={paymentInfo.mobileMoneyProvider}
-                  onChange={(e) => setPaymentInfo((p) => ({ ...p, mobileMoneyProvider: e.target.value }))}
-                  disabled={!isEditingPayment}
-                  readOnly={!isEditingPayment}
-                  className={profileInputClass(isEditingPayment)}
-                />
-              </ProfileField>
-              <ProfileField label="Mobile money number">
-                <Input
-                  id="mmNumber"
-                  value={paymentInfo.mobileMoneyNumber}
-                  onChange={(e) => setPaymentInfo((p) => ({ ...p, mobileMoneyNumber: e.target.value }))}
-                  disabled={!isEditingPayment}
-                  readOnly={!isEditingPayment}
-                  className={profileInputClass(isEditingPayment)}
-                />
-              </ProfileField>
-              <ProfileField label="Bank">
-                <Input
-                  id="bankName"
-                  value={paymentInfo.bankName}
-                  onChange={(e) => setPaymentInfo((p) => ({ ...p, bankName: e.target.value }))}
-                  disabled={!isEditingPayment}
-                  readOnly={!isEditingPayment}
-                  className={profileInputClass(isEditingPayment)}
-                />
-              </ProfileField>
-              <ProfileField label="Branch">
-                <Input
-                  id="bankBranch"
-                  value={paymentInfo.bankBranch}
-                  onChange={(e) => setPaymentInfo((p) => ({ ...p, bankBranch: e.target.value }))}
-                  disabled={!isEditingPayment}
-                  readOnly={!isEditingPayment}
-                  className={profileInputClass(isEditingPayment)}
-                />
-              </ProfileField>
-              <ProfileField label="Account name">
-                <Input
-                  id="accountName"
-                  value={paymentInfo.bankAccountName}
-                  onChange={(e) => setPaymentInfo((p) => ({ ...p, bankAccountName: e.target.value }))}
-                  disabled={!isEditingPayment}
-                  readOnly={!isEditingPayment}
-                  className={profileInputClass(isEditingPayment)}
-                />
-              </ProfileField>
-              <ProfileField label="Account number">
-                <Input
-                  id="accountNumber"
-                  value={paymentInfo.bankAccountNumber}
-                  onChange={(e) => setPaymentInfo((p) => ({ ...p, bankAccountNumber: e.target.value }))}
-                  disabled={!isEditingPayment}
-                  readOnly={!isEditingPayment}
-                  className={profileInputClass(isEditingPayment)}
-                />
-              </ProfileField>
+            <div className="space-y-6">
+              {/* Section 1: Mobile Money Wallet */}
+              <div className="space-y-3.5">
+                <div className="flex items-center gap-2 border-b border-border/40 pb-2">
+                  <span className="text-[10px] uppercase font-bold tracking-widest text-[#f08c2b]">
+                    Mobile Money Wallet (Primary Payout)
+                  </span>
+                  <Badge variant="secondary" className="bg-[#f08c2b]/10 text-[#f08c2b] border-[#f08c2b]/20 text-[9px] font-bold px-2 py-0.5">
+                    RECOMMENDED
+                  </Badge>
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <ProfileField label="Mobile money provider">
+                    <input
+                      id="mmProvider"
+                      placeholder="e.g. MTN Uganda"
+                      value={paymentInfo.mobileMoneyProvider}
+                      onChange={(e) => setPaymentInfo((p) => ({ ...p, mobileMoneyProvider: e.target.value }))}
+                      disabled={!isEditingPayment}
+                      readOnly={!isEditingPayment}
+                      className={profileInputClass(isEditingPayment)}
+                    />
+                  </ProfileField>
+                  <ProfileField label="Mobile money number">
+                    <input
+                      id="mmNumber"
+                      placeholder="e.g. +256770123456"
+                      value={paymentInfo.mobileMoneyNumber}
+                      onChange={(e) => setPaymentInfo((p) => ({ ...p, mobileMoneyNumber: e.target.value }))}
+                      disabled={!isEditingPayment}
+                      readOnly={!isEditingPayment}
+                      className={profileInputClass(isEditingPayment)}
+                    />
+                  </ProfileField>
+                </div>
+              </div>
+
+              {/* Section 2: Bank Account Details */}
+              <div className="space-y-3.5 pt-2">
+                <div className="flex items-center gap-2 border-b border-border/40 pb-2">
+                  <span className="text-[10px] uppercase font-bold tracking-widest text-muted-foreground">
+                    Bank Account Details (Alternate Cashout)
+                  </span>
+                  <Badge variant="outline" className="text-[9px] font-semibold text-muted-foreground border-border/60">
+                    EFT / RTGS
+                  </Badge>
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                  <ProfileField label="Bank">
+                    <input
+                      id="bankName"
+                      placeholder="e.g. Centenary Bank"
+                      value={paymentInfo.bankName}
+                      onChange={(e) => setPaymentInfo((p) => ({ ...p, bankName: e.target.value }))}
+                      disabled={!isEditingPayment}
+                      readOnly={!isEditingPayment}
+                      className={profileInputClass(isEditingPayment)}
+                    />
+                  </ProfileField>
+                  <ProfileField label="Branch">
+                    <input
+                      id="bankBranch"
+                      placeholder="e.g. Kampala Corporate"
+                      value={paymentInfo.bankBranch}
+                      onChange={(e) => setPaymentInfo((p) => ({ ...p, bankBranch: e.target.value }))}
+                      disabled={!isEditingPayment}
+                      readOnly={!isEditingPayment}
+                      className={profileInputClass(isEditingPayment)}
+                    />
+                  </ProfileField>
+                  <ProfileField label="Account name">
+                    <input
+                      id="accountName"
+                      placeholder="e.g. John Doe"
+                      value={paymentInfo.bankAccountName}
+                      onChange={(e) => setPaymentInfo((p) => ({ ...p, bankAccountName: e.target.value }))}
+                      disabled={!isEditingPayment}
+                      readOnly={!isEditingPayment}
+                      className={profileInputClass(isEditingPayment)}
+                    />
+                  </ProfileField>
+                  <ProfileField label="Account number">
+                    <input
+                      id="accountNumber"
+                      placeholder="e.g. 31000..."
+                      value={paymentInfo.bankAccountNumber}
+                      onChange={(e) => setPaymentInfo((p) => ({ ...p, bankAccountNumber: e.target.value }))}
+                      disabled={!isEditingPayment}
+                      readOnly={!isEditingPayment}
+                      className={profileInputClass(isEditingPayment)}
+                    />
+                  </ProfileField>
+                </div>
+              </div>
             </div>
           </ProfileCard>
         </ProfileTabPanel>
@@ -632,20 +720,20 @@ function ProfilePageContent() {
               <div className="space-y-4">
                 <ProfileField label="Current password">
                   <div className="relative">
-                    <Input
+                    <input
                       id="currentPassword"
                       type={showPassword ? "text" : "password"}
                       value={securitySettings.currentPassword}
                       onChange={(e) =>
                         setSecuritySettings((prev) => ({ ...prev, currentPassword: e.target.value }))
                       }
-                      className="pr-10"
+                      className={`${profileInputClass(true)} pr-10`}
                     />
                     <Button
                       type="button"
                       variant="ghost"
                       size="sm"
-                      className="absolute right-0 top-0 h-9 px-2 hover:bg-transparent"
+                      className="absolute right-0 top-0 h-10 px-2 hover:bg-transparent"
                       onClick={() => setShowPassword(!showPassword)}
                     >
                       {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
@@ -653,21 +741,23 @@ function ProfilePageContent() {
                   </div>
                 </ProfileField>
                 <ProfileField label="New password">
-                  <Input
+                  <input
                     id="newPassword"
                     type="password"
                     value={securitySettings.newPassword}
                     onChange={(e) => setSecuritySettings((prev) => ({ ...prev, newPassword: e.target.value }))}
+                    className={profileInputClass(true)}
                   />
                 </ProfileField>
                 <ProfileField label="Confirm password">
-                  <Input
+                  <input
                     id="confirmPassword"
                     type="password"
                     value={securitySettings.confirmPassword}
                     onChange={(e) =>
                       setSecuritySettings((prev) => ({ ...prev, confirmPassword: e.target.value }))
                     }
+                    className={profileInputClass(true)}
                   />
                 </ProfileField>
                 <Button onClick={handlePasswordChange} disabled={isChangingPassword} className="w-full">
@@ -677,24 +767,26 @@ function ProfilePageContent() {
             </ProfileCard>
 
             <ProfileCard title="Notifications" description="How we reach you">
-              <ProfileToggleRow
-                label="SMS"
-                description="Payment reminders and alerts"
-                checked={securitySettings.smsNotifications}
-                disabled={prefsSaving}
-                onCheckedChange={(checked) =>
-                  void updateNotificationPrefs(securitySettings.emailNotifications, checked)
-                }
-              />
-              <ProfileToggleRow
-                label="Email"
-                description="Statements and account updates"
-                checked={securitySettings.emailNotifications}
-                disabled={prefsSaving}
-                onCheckedChange={(checked) =>
-                  void updateNotificationPrefs(checked, securitySettings.smsNotifications)
-                }
-              />
+              <div className="bg-muted/10 border border-border/40 rounded-lg divide-y divide-border/40 overflow-hidden px-4">
+                <ProfileToggleRow
+                  label="SMS Notifications"
+                  description="Payment reminders, security codes and transactional alerts"
+                  checked={securitySettings.smsNotifications}
+                  disabled={prefsSaving}
+                  onCheckedChange={(checked) =>
+                    void updateNotificationPrefs(securitySettings.emailNotifications, checked)
+                  }
+                />
+                <ProfileToggleRow
+                  label="Email Notifications"
+                  description="Monthly statements, invoice receipts and account updates"
+                  checked={securitySettings.emailNotifications}
+                  disabled={prefsSaving}
+                  onCheckedChange={(checked) =>
+                    void updateNotificationPrefs(checked, securitySettings.smsNotifications)
+                  }
+                />
+              </div>
             </ProfileCard>
           </div>
         </ProfileTabPanel>

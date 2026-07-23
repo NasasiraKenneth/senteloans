@@ -5,7 +5,7 @@ import { motion } from "framer-motion"
 import { ChevronRight, type LucideIcon } from "lucide-react"
 import { cn } from "@/lib/utils"
 
-export type SummaryCardVariant = "savings" | "loans" | "shares"
+export type SummaryCardVariant = "savings" | "loans" | "shares" | "default"
 
 const VARIANTS: Record<
   SummaryCardVariant,
@@ -38,6 +38,13 @@ const VARIANTS: Record<
     glow: "group-hover:shadow-amber-500/10",
     bar: "bg-amber-500",
   },
+  default: {
+    iconBg: "bg-zinc-500/10 dark:bg-zinc-500/20",
+    iconColor: "text-zinc-600 dark:text-zinc-400",
+    accent: "from-zinc-500/8 via-zinc-400/5 to-transparent",
+    glow: "group-hover:shadow-zinc-500/10",
+    bar: "bg-zinc-500",
+  },
 }
 
 export type ClientPortalSummaryCardProps = {
@@ -61,7 +68,7 @@ export function ClientPortalSummaryCard({
   index = 0,
   className,
 }: ClientPortalSummaryCardProps) {
-  const theme = VARIANTS[variant]
+  const theme = VARIANTS[variant] || VARIANTS["default"]
 
   const content = (
     <motion.div

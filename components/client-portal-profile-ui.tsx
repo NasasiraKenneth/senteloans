@@ -103,34 +103,40 @@ export function ProfileHeader({
   const verified = kycStatus === "Verified"
 
   return (
-    <Card className="overflow-hidden border-border/80 shadow-sm">
+    <Card className="overflow-hidden border-border/80 border-t-2 border-t-[#f08c2b] shadow-sm">
       <CardContent className="p-6">
         <Link
           href={backHref}
-          className="mb-5 inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
+          className="mb-5 inline-flex items-center gap-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider transition-colors hover:text-foreground"
         >
-          <ArrowLeft className="h-4 w-4" />
+          <ArrowLeft className="h-4 w-4 text-[#f08c2b]" />
           Back
         </Link>
 
         <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex items-center gap-5">
-            <Avatar className="h-20 w-20 ring-1 ring-border">
+            <Avatar className="h-20 w-20 ring-2 ring-[#f08c2b]/30 ring-offset-2 ring-offset-background shadow-sm">
               {avatarUrl ? <AvatarImage src={avatarUrl} alt={fullName} className="object-cover" /> : null}
               <AvatarFallback className="bg-muted text-lg font-medium text-muted-foreground">
                 {initials}
               </AvatarFallback>
             </Avatar>
             <div className="min-w-0">
-              <h1 className="text-2xl font-semibold tracking-tight">{fullName}</h1>
+              <h1 className="text-2xl font-bold tracking-tight text-foreground">{fullName}</h1>
               <p className="mt-0.5 text-sm text-muted-foreground">{phone}</p>
-              <p className="mt-2 text-sm text-muted-foreground">
-                <span className={cn(verified && "font-medium text-emerald-600")}>
+              <div className="flex items-center gap-2 mt-2 flex-wrap">
+                <span className={cn(
+                  "text-[9px] font-bold px-2 py-0.5 rounded border uppercase tracking-widest",
+                  verified 
+                    ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/25" 
+                    : "bg-amber-500/10 text-amber-600 border-amber-500/25"
+                )}>
                   {verified ? "Verified" : kycStatus}
                 </span>
-                <span className="mx-1.5">·</span>
-                {clientTerminology} since {joinDate}
-              </p>
+                <span className="text-xs text-muted-foreground">
+                  · {clientTerminology} since {joinDate}
+                </span>
+              </div>
             </div>
           </div>
 
@@ -140,13 +146,13 @@ export function ProfileHeader({
               onClick={onKycClick}
               className="w-full max-w-sm text-left transition-opacity hover:opacity-80 lg:shrink-0"
             >
-              <div className="mb-2 flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">Complete verification</span>
-                <span className="tabular-nums font-medium">{kycPercent}%</span>
+              <div className="mb-2 flex items-center justify-between text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                <span>Complete verification</span>
+                <span className="tabular-nums font-bold text-foreground">{kycPercent}%</span>
               </div>
               <div className="h-1.5 overflow-hidden rounded-full bg-muted">
                 <motion.div
-                  className="h-full rounded-full bg-primary"
+                  className="h-full rounded-full bg-[#f08c2b]"
                   initial={{ width: 0 }}
                   animate={{ width: `${kycPercent}%` }}
                   transition={{ duration: 0.6, ease: [0.25, 0.1, 0.25, 1] }}
@@ -178,16 +184,16 @@ export function ProfileTabNav({ tabs, activeTab, onTabChange }: ProfileTabNavPro
             type="button"
             onClick={() => onTabChange(tab.id)}
             className={cn(
-              "relative flex shrink-0 items-center gap-2 pb-3 text-sm font-medium transition-colors",
+              "relative flex shrink-0 items-center gap-2 pb-3 text-xs uppercase font-bold tracking-wider transition-colors",
               isActive ? "text-foreground" : "text-muted-foreground hover:text-foreground",
             )}
           >
-            <Icon className="h-4 w-4 shrink-0" />
+            <Icon className="h-3.5 w-3.5 shrink-0" />
             {tab.label}
             {isActive ? (
               <motion.div
                 layoutId="profile-tab-indicator"
-                className="absolute inset-x-0 -bottom-px h-0.5 bg-primary"
+                className="absolute inset-x-0 -bottom-px h-0.5 bg-[#f08c2b]"
                 transition={{ type: "spring", stiffness: 400, damping: 30 }}
               />
             ) : null}
@@ -300,7 +306,7 @@ type ProfileFieldProps = {
 export function ProfileField({ label, children, className }: ProfileFieldProps) {
   return (
     <div className={cn("space-y-1.5", className)}>
-      <p className="text-xs font-medium text-muted-foreground">{label}</p>
+      <p className="text-[10px] uppercase font-bold tracking-widest text-[#f08c2b]/95">{label}</p>
       {children}
     </div>
   )
@@ -324,18 +330,20 @@ export function ProfileToggleRow({
   return (
     <div className="flex items-center justify-between gap-4 border-b border-border/60 py-4 last:border-0">
       <div className="min-w-0">
-        <p className="text-sm font-medium">{label}</p>
-        {description ? <p className="mt-0.5 text-sm text-muted-foreground">{description}</p> : null}
+        <p className="text-sm font-semibold text-foreground">{label}</p>
+        {description ? <p className="mt-0.5 text-xs text-muted-foreground">{description}</p> : null}
       </div>
       <Switch checked={checked} disabled={disabled} onCheckedChange={onCheckedChange} />
     </div>
   )
 }
 
-export function profileInputClass(editing: boolean) {
+export function profileInputClass(editing: boolean, hasError = false) {
   return editing
-    ? undefined
-    : "border-0 bg-transparent px-0 shadow-none focus-visible:border-transparent focus-visible:ring-0 disabled:cursor-default disabled:opacity-100"
+    ? `w-full px-3 py-2.5 text-sm border rounded-md transition-all duration-200 focus:ring-[1.5px] focus:ring-[#f08c2b] focus:border-transparent focus:outline-none bg-background ${
+        hasError ? "border-red-500" : "border-gray-300 hover:border-gray-400"
+      }`
+    : "w-full border-0 bg-transparent px-0 shadow-none focus:outline-none focus:ring-0 cursor-default disabled:cursor-default disabled:opacity-100"
 }
 
 // Legacy alias

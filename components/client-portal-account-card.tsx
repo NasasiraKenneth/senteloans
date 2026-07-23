@@ -7,24 +7,24 @@ import { cn } from "@/lib/utils"
 
 const SAVINGS_THEMES = [
   {
-    gradient: "from-[#1d4ed8] via-[#2563eb] to-[#1e3a8a]",
+    gradient: "from-[#f08c2b] via-[#ffa750] to-[#e07b1b]",
     chip: "bg-amber-300/90",
-    glow: "shadow-blue-500/25",
+    glow: "shadow-orange-500/20",
   },
   {
-    gradient: "from-[#0d9488] via-[#0891b2] to-[#155e75]",
-    chip: "bg-cyan-200/90",
-    glow: "shadow-teal-500/25",
+    gradient: "from-[#1f1f24] via-[#0f0f12] to-[#050507]",
+    chip: "bg-amber-300/90",
+    glow: "shadow-black/30",
   },
   {
-    gradient: "from-[#4338ca] via-[#6366f1] to-[#312e81]",
-    chip: "bg-violet-200/90",
-    glow: "shadow-indigo-500/30",
+    gradient: "from-[#b45309] via-[#d97706] to-[#78350f]",
+    chip: "bg-amber-300/90",
+    glow: "shadow-amber-500/20",
   },
   {
-    gradient: "from-[#0369a1] via-[#0284c7] to-[#0c4a6e]",
-    chip: "bg-sky-200/90",
-    glow: "shadow-sky-500/25",
+    gradient: "from-[#2e231b] via-[#1a1410] to-[#0c0c0e]",
+    chip: "bg-amber-300/90",
+    glow: "shadow-orange-500/10",
   },
 ] as const
 
@@ -119,7 +119,7 @@ export function SavingsAccountCard({
               <span
                 className={cn(
                   "rounded-full px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide",
-                  isActive ? "bg-emerald-400/20 text-emerald-100" : "bg-white/15 text-white/70",
+                  isActive ? "bg-emerald-500 text-white" : "bg-white/20 text-white/80",
                 )}
               >
                 {status}
