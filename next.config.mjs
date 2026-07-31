@@ -1,5 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  basePath: '/sacco',
   eslint: {
     ignoreDuringBuilds: true,
   },
