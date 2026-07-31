@@ -115,6 +115,7 @@ CREATE TABLE IF NOT EXISTS config (
     membership_overdue_period INT,
     membership_overdue_interest NUMERIC(18,2) NOT NULL CHECK (membership_overdue_interest >= 0),
     membership_overdue_interest_per VARCHAR(20) NOT NULL DEFAULT 'day',
+    financial_year_end DATE, -- ignore year always
     created_at TIMESTAMPTZ DEFAULT NOW(),
     -- Added as plain UUID first to avoid forward-reference before users exists.
     modified_by UUID,
