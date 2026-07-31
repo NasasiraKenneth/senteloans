@@ -51,7 +51,7 @@ export default function AdminLoginPage() {
       if (!result?.ok) {
         throw new Error(LOGIN_ERROR_MESSAGES.signInFailed)
       }
-      const sessionRes = await fetch("/api/auth/session")
+      const sessionRes = await fetch(`${getAppSubpath()}/api/auth/session`)
       const session = sessionRes.ok ? await sessionRes.json() : null
       if (session?.user?.role !== "system_admin") {
         throw new Error("Not authorized for admin portal")
