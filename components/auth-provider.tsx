@@ -4,7 +4,6 @@ import { useEffect, useRef } from "react"
 import { SessionProvider, signOut } from "next-auth/react"
 import { usePathname } from "next/navigation"
 import {
-  getAppSubpath,
   isAuthSessionUnusable,
   isPublicAuthPath,
   pathRequiresAuth,
@@ -41,11 +40,8 @@ function AuthSessionGuard({ children }: { children: React.ReactNode }) {
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const subpath = getAppSubpath()
-  const basePath = `${subpath}/api/auth`
-
   return (
-    <SessionProvider basePath={basePath} refetchOnWindowFocus={false}>
+    <SessionProvider refetchOnWindowFocus={false}>
       <AuthSessionGuard>{children}</AuthSessionGuard>
     </SessionProvider>
   )

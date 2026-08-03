@@ -10,7 +10,6 @@ import { Eye, EyeOff, Lock, Mail, Loader2, Shield, ArrowRight, Sparkles, AlertCi
 import { useToast } from "@/components/ui/toast"
 import { LOGIN_ERROR_MESSAGES, LOGIN_SUCCESS_MESSAGES, resolveSignInErrorMessage } from "@/lib/auth-login-messages"
 import { showPostLoginGreetingToast } from "@/lib/greeting"
-import { getAppSubpath } from "@/lib/auth-session-guard"
 import { motion, AnimatePresence } from "framer-motion"
 
 export default function ClientLoginPage() {
@@ -91,7 +90,7 @@ function ClientLoginForm() {
       if (!result?.ok) {
         throw new Error(LOGIN_ERROR_MESSAGES.signInFailed)
       }
-      const sessionRes = await fetch(`${getAppSubpath()}/api/auth/session`)
+      const sessionRes = await fetch("/api/auth/session")
       const session = sessionRes.ok ? await sessionRes.json() : null
       if (session?.user?.type !== "client") {
         showLoginError(LOGIN_ERROR_MESSAGES.useStaffLogin)

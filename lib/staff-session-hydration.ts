@@ -35,15 +35,12 @@ export function seedStaffSessionFromAuthUser(user: AuthSessionUser): SessionData
   })
 }
 
-import { getAppSubpath } from "@/lib/auth-session-guard"
-
 /** Merge NextAuth staff session + institution APIs into localStorage. */
 export async function hydrateStaffSession(): Promise<SessionData | null> {
   const localSession = getSession()
 
   try {
-    const subpath = getAppSubpath()
-    const authRes = await fetch(`${subpath}/api/auth/session`, {
+    const authRes = await fetch("/api/auth/session", {
       credentials: "include",
       cache: "no-store",
       headers: { Accept: "application/json" },

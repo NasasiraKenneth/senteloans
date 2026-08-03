@@ -30,27 +30,13 @@ export function pathRequiresAuth(pathname: string): boolean {
   return isInstitutionProtectedPath(pathname)
 }
 
-export function getAppSubpath(): string {
-  if (typeof window !== "undefined" && window.location.pathname.startsWith("/sacco")) {
-    return "/sacco"
-  }
-  if (process.env.NEXT_PUBLIC_APP_URL) {
-    try {
-      const pathname = new URL(process.env.NEXT_PUBLIC_APP_URL).pathname.replace(/\/$/, "")
-      if (pathname) return pathname
-    } catch {}
-  }
-  return ""
-}
-
 /**
  * True when `/api/auth/session` is missing, returns HTML (Next.js 404 page),
  * or otherwise cannot be read as a NextAuth JSON session — the CLIENT_FETCH_ERROR case.
  */
 export async function isAuthSessionUnusable(): Promise<boolean> {
   try {
-    const subpath = getAppSubpath()
-    const res = await fetch(`${subpath}/api/auth/session`, {
+    const res = await fetch("/api/auth/session", {
       credentials: "include",
       cache: "no-store",
       headers: { Accept: "application/json" },

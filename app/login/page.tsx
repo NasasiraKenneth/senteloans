@@ -14,8 +14,6 @@ import { isAllowedInstitutionRedirect } from "@/lib/institution-protected-routes
 import { showPostLoginGreetingToast } from "@/lib/greeting"
 import { seedStaffSessionFromAuthUser } from "@/lib/staff-session-hydration"
 
-import { getAppSubpath } from "@/lib/auth-session-guard"
-
 export default function LoginPage() {
   return (
     <Suspense
@@ -87,7 +85,7 @@ function LoginForm() {
       if (!result?.ok) {
         throw new Error(LOGIN_ERROR_MESSAGES.signInFailed)
       }
-      const sessionRes = await fetch(`${getAppSubpath()}/api/auth/session`)
+      const sessionRes = await fetch("/api/auth/session")
       const session = sessionRes.ok ? await sessionRes.json() : null
       if (session?.user?.type === "client") {
         showLoginError(LOGIN_ERROR_MESSAGES.useClientLogin)
