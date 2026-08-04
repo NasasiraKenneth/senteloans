@@ -294,7 +294,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
             branchId: loanBranchId,
             amount: disbursementAmount,
             mode: disbursement_mode,
-            flow: "outflow",
+            flow: "inflow",
             actor,
             bankAccountId: bank_account_id || null,
             referenceNumber: reference_number,

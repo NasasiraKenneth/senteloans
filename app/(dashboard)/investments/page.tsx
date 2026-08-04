@@ -15,6 +15,7 @@ import AddNewInvestment from "./components/add/new"
 import EditInvestment from "./components/edit/edit"
 import { ActionButtons } from "@/components/datatables/ActionButtons"
 import { downloadInvestmentsExport } from "./export/export"
+import { formatCurrency } from "@/lib/format-currency"
 
 type InvestmentRow = {
   id: string
@@ -31,12 +32,6 @@ type InvestmentRow = {
   status: string
 }
 
-const formatCurrency = (amount: number) =>
-  new Intl.NumberFormat("en-UG", {
-    style: "currency",
-    currency: "UGX",
-    minimumFractionDigits: 0,
-  }).format(Number(amount || 0))
 
 const formatDate = (value: string | null) => {
   if (!value) return "—"

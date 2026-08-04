@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { ArrowLeft, Calendar, CreditCard, User, Receipt, Hash, CheckCircle2, AlertTriangle, Download } from "lucide-react"
 import { useToast } from "@/components/ui/toast"
+import { formatCurrency } from "@/lib/format-currency"
 
 export default function TransactionDetailPage() {
   const params = useParams()
@@ -39,8 +40,6 @@ export default function TransactionDetailPage() {
     return () => { abort = true }
   }, [id])
 
-  const formatCurrency = (amount: number) =>
-    new Intl.NumberFormat("en-UG", { style: "currency", currency: "UGX", minimumFractionDigits: 0 }).format(amount)
 
   const formatDateTime = (dateString: string) =>
     new Date(dateString).toLocaleString("en-UG", { year: "numeric", month: "long", day: "numeric", hour: "2-digit", minute: "2-digit" })

@@ -34,6 +34,7 @@ import { useToast } from "@/components/ui/toast";
 import { withBranchFilterFirst } from "@/lib/filters/branch-first-filter";
 import { downloadTransactionsExport } from "./export/export";
 import AddTransactionModal from "./components/add/new";
+import { formatCurrency } from "@/lib/format-currency"
 
 type TransactionRow = {
   id: string;
@@ -48,13 +49,6 @@ type TransactionRow = {
   accountNumber: string;
 };
 
-function formatCurrency(amount: number): string {
-  return new Intl.NumberFormat("en-UG", {
-    style: "currency",
-    currency: "UGX",
-    minimumFractionDigits: 0,
-  }).format(amount);
-}
 
 function formatDate(iso: string | null): string {
   if (!iso) return "—";

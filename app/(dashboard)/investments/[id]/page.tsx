@@ -22,6 +22,7 @@ import type { FundingFormRow } from "../components/forms/fundingForm"
 import InvestmentCashflowExpandableContent from "../components/InvestmentCashflowExpandableContent"
 import AddReport from "../components/report/add"
 import { buildReportPeriod, ReportFormData } from "../components/forms/reportsForm"
+import { formatCurrency } from "@/lib/format-currency"
 
 type InvestmentDetails = {
   id: string
@@ -68,8 +69,6 @@ type CashflowRow = {
   report_number: string | null
 }
 
-const formatCurrency = (v: number) =>
-  new Intl.NumberFormat("en-UG", { style: "currency", currency: "UGX", minimumFractionDigits: 0 }).format(Number(v || 0))
 
 const formatDate = (v?: string | null) => (v ? new Date(v).toLocaleDateString("en-UG") : "—")
 const titleCase = (v: string) => String(v || "").replaceAll("_", " ").replace(/\b\w/g, (c) => c.toUpperCase())
