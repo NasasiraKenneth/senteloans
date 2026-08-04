@@ -19,7 +19,7 @@ export interface InstitutionConfig {
 // Default configuration - can be made dynamic from admin settings
 export const institutionConfig: InstitutionConfig = {
   type: "sacco", // This would be configurable in admin settings
-  name: "Sente Loans",
+  name: "Mikopo",
   clientTerminology: "Member", // Dynamic based on institution type
   modules: {
     savings: true, // Can be disabled for money lenders

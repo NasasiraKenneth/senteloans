@@ -6,7 +6,7 @@ import { signIn } from "next-auth/react"
 import Image from "next/image"
 import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
-import { Eye, EyeOff, Lock, Mail, Loader2, Shield, ArrowRight, Sparkles, AlertCircle } from "lucide-react"
+import { Eye, EyeOff, Lock, Mail, Loader2, Shield, ArrowRight, Sparkles, AlertCircle, Coins } from "lucide-react"
 import { useToast } from "@/components/ui/toast"
 import { LOGIN_ERROR_MESSAGES, LOGIN_SUCCESS_MESSAGES, resolveSignInErrorMessage } from "@/lib/auth-login-messages"
 import { showPostLoginGreetingToast } from "@/lib/greeting"
@@ -140,18 +140,12 @@ function ClientLoginForm() {
 
         {/* Top: Logo & Title */}
         <div className="relative z-10 flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#131317] border border-white/10 shadow-md">
-            <Image
-              src="https://res.cloudinary.com/hatari/image/upload/v1756391632/sente-loans/logos/sente-loans-symbol-logo_jyteeu.png"
-              alt="Sente Loan"
-              width={24}
-              height={24}
-              className="brightness-0 invert"
-            />
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#f08c2b] shadow-md">
+            <Coins className="h-5 w-5 text-black" />
           </div>
-          <span className="text-md font-bold tracking-tight text-white flex items-center gap-1">
-            Sente Loan
-            <span className="text-[#f08c2b] text-[13px] font-medium tracking-normal border border-[#f08c2b]/25 bg-[#f08c2b]/10 px-2 py-0.5 rounded-full">SACCO</span>
+          <span className="text-md font-bold tracking-tight text-white flex items-center gap-1.5">
+            MIKOPO<span className="text-[#f08c2b]">.</span>
+            <span className="text-[#f08c2b] text-[12px] font-medium tracking-normal border border-[#f08c2b]/25 bg-[#f08c2b]/10 px-2 py-0.5 rounded-full">SACCO</span>
           </span>
         </div>
 
@@ -250,16 +244,13 @@ function ClientLoginForm() {
         {/* Top: Mobile branding header */}
         <div className="relative z-10 flex justify-between items-center md:justify-end">
           <div className="flex items-center gap-2.5 md:hidden">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-[#1a1a1f] to-[#09090b] border border-white/10">
-              <Image
-                src="https://res.cloudinary.com/hatari/image/upload/v1756391632/sente-loans/logos/sente-loans-symbol-logo_jyteeu.png"
-                alt="Sente Loan"
-                width={20}
-                height={20}
-                className="brightness-0 invert"
-              />
-            </div>
-            <span className="text-sm font-bold text-white">Sente Loan SACCO</span>
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#f08c2b] shadow-md">
+            <Coins className="h-5 w-5 text-black" />
+          </div>
+          <span className="text-md font-bold tracking-tight text-white flex items-center gap-1.5">
+            MIKOPO<span className="text-[#f08c2b]">.</span>
+            <span className="text-[#f08c2b] text-[12px] font-medium tracking-normal border border-[#f08c2b]/25 bg-[#f08c2b]/10 px-2 py-0.5 rounded-full">SACCO</span>
+          </span>
           </div>
 
           <div className="flex items-center gap-1.5 text-xs text-white/35">

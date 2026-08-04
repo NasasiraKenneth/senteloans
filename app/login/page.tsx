@@ -1,13 +1,25 @@
 "use client"
 
 import type React from "react"
-
 import { Suspense, useState } from "react"
 import { signIn } from "next-auth/react"
 import Link from "next/link"
-import Image from "next/image"
 import { useRouter, useSearchParams } from "next/navigation"
-import { Eye, EyeOff, Lock, ArrowLeft, Loader2 } from "lucide-react"
+import { motion, AnimatePresence } from "framer-motion"
+import {
+  Eye,
+  EyeOff,
+  Lock,
+  Mail,
+  Loader2,
+  Shield,
+  ArrowRight,
+  Sparkles,
+  TrendingUp,
+  Users,
+  Settings,
+  Coins,
+} from "lucide-react"
 import { useToast } from "@/components/ui/toast"
 import { LOGIN_ERROR_MESSAGES, LOGIN_SUCCESS_MESSAGES, resolveSignInErrorMessage } from "@/lib/auth-login-messages"
 import { isAllowedInstitutionRedirect } from "@/lib/institution-protected-routes"
@@ -18,8 +30,8 @@ export default function LoginPage() {
   return (
     <Suspense
       fallback={
-        <div className="flex min-h-screen items-center justify-center bg-[#09090b]">
-          <Loader2 className="h-5 w-5 animate-spin text-[#f08c2b]" />
+        <div className="flex min-h-screen items-center justify-center bg-zinc-950">
+          <Loader2 className="h-6 w-6 animate-spin text-[#f08c2b]" />
         </div>
       }
     >
@@ -33,7 +45,9 @@ function LoginForm() {
   const [password, setPassword] = useState("")
   const [showPassword, setShowPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
-  const [focused, setFocused] = useState<string | null>(null)
+  const [rememberMe, setRememberMe] = useState(false)
+  const [errors, setErrors] = useState<{ email?: string; password?: string }>({})
+
   const router = useRouter()
   const searchParams = useSearchParams()
   const redirectTo = searchParams.get("redirect") || "/dashboard"
@@ -50,28 +64,39 @@ function LoginForm() {
   const showLoginSuccess = () => {
     toast({
       variant: "success",
-      title: "Signed in",
+      title: "Signed in successfully",
       description: LOGIN_SUCCESS_MESSAGES.institution,
     })
   }
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
+    if (isLoading) return
+
+    const newErrors: { email?: string; password?: string } = {}
     if (!email.trim()) {
-      showLoginError("Email is required")
-      return
+      newErrors.email = "Email address is required"
+    } else {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+      if (!emailRegex.test(email.trim())) {
+        newErrors.email = "Please enter a valid email address"
+      }
     }
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-    if (!emailRegex.test(email)) {
-      showLoginError("Enter a valid email address")
-      return
+
+    if (!password) {
+      newErrors.password = "Password is required"
+    } else if (password.length < 6) {
+      newErrors.password = "Password must be at least 6 characters"
     }
-    if (!password || password.length < 6) {
-      showLoginError("Password must be at least 6 characters")
+
+    if (Object.keys(newErrors).length > 0) {
+      setErrors(newErrors)
       return
     }
 
+    setErrors({})
     setIsLoading(true)
+
     try {
       const result = await signIn("credentials", {
         email: email.trim().toLowerCase(),
@@ -79,23 +104,29 @@ function LoginForm() {
         loginContext: "institution",
         redirect: false,
       })
+
       if (result?.error) {
         throw new Error(resolveSignInErrorMessage(result.error))
       }
       if (!result?.ok) {
         throw new Error(LOGIN_ERROR_MESSAGES.signInFailed)
       }
+
       const sessionRes = await fetch("/api/auth/session")
       const session = sessionRes.ok ? await sessionRes.json() : null
+
       if (session?.user?.type === "client") {
         showLoginError(LOGIN_ERROR_MESSAGES.useClientLogin)
         return
       }
+
       seedStaffSessionFromAuthUser(session.user)
+
       let target = redirectTo
       if (typeof target !== "string" || !isAllowedInstitutionRedirect(target)) {
         target = "/dashboard"
       }
+
       showLoginSuccess()
       showPostLoginGreetingToast(toast, session?.user?.name)
       router.push(target)
@@ -107,239 +138,295 @@ function LoginForm() {
     }
   }
 
+  const containerVariants = {
+    hidden: { opacity: 0 },
+    visible: {
+      opacity: 1,
+      transition: {
+        duration: 0.6,
+        staggerChildren: 0.1,
+      },
+    },
+  }
+
+  const itemVariants = {
+    hidden: { opacity: 0, y: 20 },
+    visible: {
+      opacity: 1,
+      y: 0,
+      transition: { duration: 0.5 },
+    },
+  }
+
+  const features = [
+    { icon: Shield, title: "Postgres RLS Security", desc: "Multi-tenant data protection" },
+    { icon: TrendingUp, title: "SACCO Accounting", desc: "Real-time ledger analytics" },
+    { icon: Users, title: "Member Management", desc: "KYC & Share registers" },
+    { icon: Settings, title: "Configurable Modules", desc: "Flexible SACCO settings" },
+  ]
+
   return (
-    <div className="min-h-screen relative overflow-hidden bg-[#09090b]">
-
-      {/* ── Floating tilted dashboard cards ── */}
-      <div className="pointer-events-none absolute inset-0 overflow-hidden">
-
-        {/* Card 1 — Bar chart, top-right */}
-        <div
-          className="absolute -right-10 top-[8%] hidden h-[300px] w-[360px] rounded-[28px] border border-white/6 p-8 lg:block"
-          style={{
-            transform: "rotate(45deg)",
-            background: "linear-gradient(135deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0.01) 100%)",
-          }}
-        >
-          <div className="flex h-full items-end gap-[10px]">
-            <div className="w-7 rounded-t-md bg-[#f08c2b]/10" style={{ height: "35%" }} />
-            <div className="w-7 rounded-t-md bg-[#f08c2b]/20" style={{ height: "60%" }} />
-            <div className="w-7 rounded-t-md bg-[#f08c2b]/15" style={{ height: "45%" }} />
-            <div className="w-7 rounded-t-md bg-[#f08c2b]/30" style={{ height: "80%" }} />
-            <div className="w-7 rounded-t-md bg-[#f08c2b]/18" style={{ height: "55%" }} />
-            <div className="w-7 rounded-t-md bg-[#f08c2b]/25" style={{ height: "70%" }} />
-            <div className="w-7 rounded-t-md bg-[#f08c2b]/12" style={{ height: "40%" }} />
-          </div>
+    <div className="min-h-screen w-full bg-white flex flex-col lg:flex-row overflow-hidden selection:bg-[#f08c2b] selection:text-black">
+      {/* ── Left: Dark Black & Orange Brand & Features Showcase ── */}
+      <motion.div
+        className="hidden lg:flex flex-1 bg-gradient-to-br from-black via-zinc-950 to-[#180d04] items-center rounded-br-[8rem] rounded-r-2xl justify-center p-12 relative overflow-hidden border-r border-zinc-900"
+        variants={containerVariants}
+        initial="hidden"
+        animate="visible"
+      >
+        {/* Animated Background Orbs */}
+        <div className="absolute inset-0 overflow-hidden pointer-events-none">
+          <div className="absolute -top-40 -left-40 w-96 h-96 bg-[#f08c2b]/15 rounded-full blur-3xl animate-pulse" />
+          <div className="absolute -bottom-40 -right-40 w-96 h-96 bg-orange-600/10 rounded-full blur-3xl animate-pulse" />
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-80 h-80 bg-[#f08c2b]/5 rounded-full blur-3xl" />
         </div>
 
-        {/* Card 2 — Data rows, bottom-left */}
-        <div
-          className="absolute -left-16 bottom-[5%] hidden h-[260px] w-[320px] rounded-[28px] border border-white/6 p-8 lg:block"
-          style={{
-            transform: "rotate(45deg)",
-            background: "linear-gradient(135deg, rgba(255,255,255,0.025) 0%, transparent 100%)",
-          }}
-        >
-          <div className="space-y-5">
-            <div className="flex items-center gap-3">
-              <div className="h-3 w-3 rounded-full bg-[#f08c2b]/25" />
-              <div className="h-2.5 w-28 rounded-full bg-white/6" />
-            </div>
-            <div className="flex items-center gap-3">
-              <div className="h-3 w-3 rounded-full bg-[#f08c2b]/15" />
-              <div className="h-2.5 w-20 rounded-full bg-white/4" />
-            </div>
-            <div className="flex items-center gap-3">
-              <div className="h-3 w-3 rounded-full bg-[#f08c2b]/20" />
-              <div className="h-2.5 w-24 rounded-full bg-white/5" />
-            </div>
-            <div className="flex items-center gap-3">
-              <div className="h-3 w-3 rounded-full bg-[#f08c2b]/10" />
-              <div className="h-2.5 w-16 rounded-full bg-white/3" />
-            </div>
-          </div>
+        {/* Grid Pattern Overlay */}
+        <div className="absolute inset-0 opacity-10 pointer-events-none">
+          <div className="absolute inset-0 bg-[radial-gradient(#f08c2b_1px,transparent_1px)] [background-size:24px_24px]" />
         </div>
 
-        {/* Card 3 — Stat card, upper-left */}
-        <div
-          className="absolute left-[3%] top-[18%] hidden h-[200px] w-[220px] rounded-[22px] border border-[#f08c2b]/8 p-6 md:block"
-          style={{
-            transform: "rotate(45deg)",
-            background: "linear-gradient(135deg, rgba(240,140,43,0.04) 0%, transparent 100%)",
-          }}
-        >
-          <div className="h-9 w-9 rounded-xl bg-[#f08c2b]/15" />
-          <div className="mt-5 h-2.5 w-3/4 rounded-full bg-white/7" />
-          <div className="mt-3 h-2 w-1/2 rounded-full bg-white/4" />
-          <div className="mt-4 h-1.5 w-full rounded-full bg-white/3">
-            <div className="h-full w-[65%] rounded-full bg-[#f08c2b]/20" />
-          </div>
-        </div>
+        <div className="max-w-lg text-center relative z-10">
+          {/* Logo & Brand Showcase */}
+          <motion.div className="relative mb-10" variants={itemVariants}>
+            <div className="w-64 h-64 mx-auto bg-zinc-900/80 backdrop-blur-md rounded-3xl shadow-2xl flex flex-col items-center justify-center p-8 border border-white/10 group">
+              <div className="w-20 h-20 rounded-2xl bg-[#f08c2b] flex items-center justify-center shadow-xl shadow-[#f08c2b]/30 mb-4 transform group-hover:scale-105 transition-transform duration-300">
+                <Coins className="h-10 w-10 text-black" />
+              </div>
+              <span className="text-3xl font-black tracking-tight text-white flex items-center">
+                MIKOPO<span className="text-[#f08c2b] ml-0.5">.</span>
+              </span>
+              <span className="text-xs text-zinc-400 font-mono uppercase tracking-widest mt-1">
+                SACCO Management Engine
+              </span>
+            </div>
 
-        {/* Card 4 — Outline only, bottom-right */}
-        <div
-          className="absolute bottom-[15%] right-[3%] hidden h-[170px] w-[190px] rounded-[20px] border border-white/4 md:block"
-          style={{ transform: "rotate(45deg)" }}
-        />
+            {/* Floating Elements */}
+            <motion.div
+              className="absolute top-6 right-6 w-6 h-6 bg-[#f08c2b]/30 rounded-full blur-[1px]"
+              animate={{ y: [0, -10, 0] }}
+              transition={{ duration: 2, repeat: Number.POSITIVE_INFINITY }}
+            />
+            <motion.div
+              className="absolute bottom-6 left-6 w-4 h-4 bg-white/20 rounded-full"
+              animate={{ y: [0, 10, 0] }}
+              transition={{ duration: 2.5, repeat: Number.POSITIVE_INFINITY }}
+            />
+            <motion.div
+              className="absolute top-1/2 left-2 w-3 h-3 bg-[#f08c2b]/40 rounded-full"
+              animate={{ x: [0, 10, 0] }}
+              transition={{ duration: 3, repeat: Number.POSITIVE_INFINITY }}
+            />
+          </motion.div>
 
-        {/* Card 5 — Tiny accent, mid-left (visible on tablet+) */}
-        <div
-          className="absolute bottom-[40%] left-[8%] hidden h-[120px] w-[130px] rounded-2xl border border-[#f08c2b]/6 md:block"
-          style={{ transform: "rotate(45deg)" }}
-        />
-
-        {/* Decorative dots */}
-        <div className="absolute left-[20%] top-[12%] h-2 w-2 rounded-full bg-[#f08c2b]/20" />
-        <div className="absolute right-[22%] top-[22%] h-1.5 w-1.5 rounded-full bg-[#f08c2b]/15" />
-        <div className="absolute bottom-[18%] left-[30%] h-2 w-2 rounded-full bg-white/6" />
-        <div className="absolute bottom-[30%] right-[18%] h-1.5 w-1.5 rounded-full bg-[#f08c2b]/12" />
-        <div className="absolute right-[35%] top-[8%] h-1 w-1 rounded-full bg-white/8" />
-      </div>
-
-      {/* Warm ambient glow behind center */}
-      <div
-        className="pointer-events-none absolute left-1/2 top-1/2 h-[600px] w-[600px] -translate-x-1/2 -translate-y-1/2 rounded-full"
-        style={{
-          background: "radial-gradient(circle, rgba(240,140,43,0.045) 0%, transparent 65%)",
-          filter: "blur(60px)",
-        }}
-      />
-
-      {/* ── Page content ── */}
-      <div className="relative z-10 flex min-h-screen flex-col items-center justify-center px-4 py-10">
-        {/* Logo */}
-        <Link href="/" className="mb-10 inline-flex items-center gap-3 transition-opacity hover:opacity-80">
-          <Image
-            src="https://res.cloudinary.com/hatari/image/upload/v1756391632/sente-loans/logos/sente-loans-symbol-logo_jyteeu.png"
-            alt="Sente Loan"
-            width={36}
-            height={36}
-            className="h-9 w-auto brightness-0 invert"
-          />
-          <span className="text-[22px] font-semibold tracking-tight text-white">
-            Sente Loan
-          </span>
-        </Link>
-
-        {/* Login form */}
-        <div className="w-full max-w-[400px] p-2">
-          {/* Header */}
-          <div className="mb-8 text-center">
-            <h1 className="text-[28px] font-bold tracking-tight text-white">
-              Welcome back
-            </h1>
-            <p className="mt-2 text-[15px] text-white/50">
-              Sign in to your institution dashboard
+          {/* Feature Cards Grid */}
+          <motion.div className="space-y-4" variants={itemVariants}>
+            <h3 className="text-2xl sm:text-3xl font-black text-white tracking-tight mb-2">
+              Professional SACCO Infrastructure
+            </h3>
+            <p className="text-zinc-400 text-sm mb-8 leading-relaxed">
+              Empowering Savings and Credit Cooperatives across Africa with automated credit, savings, and share capital ledgers.
             </p>
-          </div>
 
-          {/* Form */}
-          <form onSubmit={handleSubmit} className="space-y-5" noValidate>
-            {/* Email */}
-            <div className="space-y-2">
-              <label htmlFor="email" className="block text-[13px] font-medium text-white/70">
-                Email address
-              </label>
-              <input
-                id="email"
-                type="email"
-                placeholder="you@institution.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                onFocus={() => setFocused("email")}
-                onBlur={() => setFocused(null)}
-                autoComplete="email"
-                autoFocus
-                required
-                className={`
-                  block w-full rounded-xl border bg-white/6 px-4 py-3 text-[15px] text-white
-                  placeholder:text-white/30 outline-none transition-all duration-200
-                  ${focused === "email"
-                    ? "border-[#f08c2b] ring-4 ring-[#f08c2b]/10 bg-white/8"
-                    : "border-white/10 hover:border-white/20"
-                  }
-                `}
-              />
-            </div>
-
-            {/* Password */}
-            <div className="space-y-2">
-              <label htmlFor="password" className="block text-[13px] font-medium text-white/70">
-                Password
-              </label>
-              <div className="relative">
-                <input
-                  id="password"
-                  type={showPassword ? "text" : "password"}
-                  placeholder="Enter your password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  onFocus={() => setFocused("password")}
-                  onBlur={() => setFocused(null)}
-                  autoComplete="current-password"
-                  required
-                  className={`
-                    block w-full rounded-xl border bg-white/6 px-4 py-3 pr-12 text-[15px] text-white
-                    placeholder:text-white/30 outline-none transition-all duration-200
-                    ${focused === "password"
-                      ? "border-[#f08c2b] ring-4 ring-[#f08c2b]/10 bg-white/8"
-                      : "border-white/10 hover:border-white/20"
-                    }
-                  `}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-4 top-1/2 -translate-y-1/2 text-white/30 transition-colors hover:text-white/60"
-                  tabIndex={-1}
-                  aria-label={showPassword ? "Hide password" : "Show password"}
+            <div className="grid grid-cols-2 gap-4">
+              {features.map((feature, index) => (
+                <motion.div
+                  key={index}
+                  className="bg-zinc-900/70 backdrop-blur-md rounded-xl p-4 border border-white/10 hover:border-[#f08c2b]/40 hover:bg-zinc-900 transition-all duration-300 text-left"
+                  whileHover={{ scale: 1.03, y: -2 }}
+                  variants={itemVariants}
                 >
-                  {showPassword ? (
-                    <EyeOff className="h-[18px] w-[18px]" />
-                  ) : (
-                    <Eye className="h-[18px] w-[18px]" />
+                  <feature.icon className="w-5 h-5 text-[#f08c2b] mb-2" />
+                  <h4 className="text-white font-bold text-xs mb-0.5">{feature.title}</h4>
+                  <p className="text-zinc-400 text-[11px] leading-tight">{feature.desc}</p>
+                </motion.div>
+              ))}
+            </div>
+          </motion.div>
+        </div>
+      </motion.div>
+
+      {/* ── Right: Clean White Form Container ── */}
+      <motion.div
+        className="flex-1 flex items-center justify-center p-6 sm:p-10 lg:p-14 relative z-10 bg-white"
+        variants={containerVariants}
+        initial="hidden"
+        animate="visible"
+      >
+        <div className="w-full max-w-md space-y-8">
+          {/* Logo & Brand Header */}
+          <motion.div className="text-center" variants={itemVariants}>
+            <Link href="/" className="inline-flex items-center gap-3 mb-3 group">
+              <div className="w-12 h-12 rounded-xl bg-[#f08c2b] flex items-center justify-center shadow-lg shadow-[#f08c2b]/25 group-hover:scale-105 transition-transform">
+                <Coins className="h-6 w-6 text-black" />
+              </div>
+              <span className="text-2xl font-black tracking-tight text-zinc-900 flex items-center">
+                MIKOPO<span className="text-[#f08c2b] ml-0.5">.</span>
+              </span>
+            </Link>
+            <p className="text-xs font-mono font-semibold uppercase tracking-widest text-[#f08c2b]">
+              Staff Dashboard Terminal
+            </p>
+          </motion.div>
+
+          {/* Welcome Section */}
+          <motion.div className="text-center space-y-1.5" variants={itemVariants}>
+            <h2 className="text-2xl sm:text-3xl font-extrabold text-zinc-900 tracking-tight">
+              Welcome Back
+            </h2>
+            <p className="text-zinc-500 text-sm">
+              Sign in to manage your SACCO workspace & accounts
+            </p>
+          </motion.div>
+
+          {/* Login Form */}
+          <motion.form
+            onSubmit={handleSubmit}
+            className="space-y-6"
+            variants={itemVariants}
+            noValidate
+            aria-label="Staff Login Form"
+          >
+            <div className="space-y-5">
+              {/* Email Field */}
+              <div className="space-y-2">
+                <label htmlFor="email" className="text-zinc-700 font-semibold text-xs flex items-center gap-2">
+                  <Mail className="w-3.5 h-3.5 text-[#f08c2b]" />
+                  Email Address
+                </label>
+                <div className="relative">
+                  <input
+                    id="email"
+                    type="email"
+                    placeholder="you@institution.com"
+                    required
+                    value={email}
+                    onChange={(e) => {
+                      setEmail(e.target.value)
+                      if (errors.email) setErrors((prev) => ({ ...prev, email: undefined }))
+                    }}
+                    autoComplete="email"
+                    autoFocus
+                    className={`w-full h-12 px-4 pl-11 rounded-xl border-2 text-sm text-zinc-900 bg-white placeholder:text-zinc-400 transition-all duration-200 outline-none ${
+                      errors.email
+                        ? "border-red-400 bg-red-50/50"
+                        : "border-zinc-200 hover:border-[#f08c2b]/40 focus:border-[#f08c2b] focus:ring-4 focus:ring-[#f08c2b]/15"
+                    }`}
+                  />
+                  <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-400 w-4 h-4" />
+                </div>
+                <AnimatePresence>
+                  {errors.email && (
+                    <motion.p
+                      initial={{ opacity: 0, y: -8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -8 }}
+                      className="text-red-500 text-xs font-medium pt-0.5"
+                    >
+                      {errors.email}
+                    </motion.p>
                   )}
-                </button>
+                </AnimatePresence>
+              </div>
+
+              {/* Password Field */}
+              <div className="space-y-2">
+                <label htmlFor="password" className="text-zinc-700 font-semibold text-xs flex items-center gap-2">
+                  <Lock className="w-3.5 h-3.5 text-[#f08c2b]" />
+                  Password
+                </label>
+                <div className="relative">
+                  <input
+                    id="password"
+                    type={showPassword ? "text" : "password"}
+                    placeholder="Enter your password"
+                    required
+                    value={password}
+                    onChange={(e) => {
+                      setPassword(e.target.value)
+                      if (errors.password) setErrors((prev) => ({ ...prev, password: undefined }))
+                    }}
+                    autoComplete="current-password"
+                    className={`w-full h-12 px-4 pl-11 pr-11 rounded-xl border-2 text-sm text-zinc-900 bg-white placeholder:text-zinc-400 transition-all duration-200 outline-none ${
+                      errors.password
+                        ? "border-red-400 bg-red-50/50"
+                        : "border-zinc-200 hover:border-[#f08c2b]/40 focus:border-[#f08c2b] focus:ring-4 focus:ring-[#f08c2b]/15"
+                    }`}
+                  />
+                  <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-400 w-4 h-4" />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((v) => !v)}
+                    className="absolute right-3.5 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-700 transition-colors"
+                    aria-label="Toggle password visibility"
+                    tabIndex={-1}
+                  >
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+                <AnimatePresence>
+                  {errors.password && (
+                    <motion.p
+                      initial={{ opacity: 0, y: -8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -8 }}
+                      className="text-red-500 text-xs font-medium pt-0.5"
+                    >
+                      {errors.password}
+                    </motion.p>
+                  )}
+                </AnimatePresence>
               </div>
             </div>
 
-            {/* Submit */}
-            <button
+            {/* Remember Me & Client Link */}
+            <div className="flex items-center justify-between text-xs">
+              <label className="flex items-center gap-2 cursor-pointer text-zinc-600 hover:text-zinc-900">
+                <input
+                  type="checkbox"
+                  checked={rememberMe}
+                  onChange={(e) => setRememberMe(e.target.checked)}
+                  className="w-4 h-4 text-[#f08c2b] bg-zinc-100 border-zinc-300 rounded focus:ring-[#f08c2b] focus:ring-2 accent-[#f08c2b]"
+                />
+                <span className="font-medium">Remember me</span>
+              </label>
+              <Link href="/client-login" className="text-[#f08c2b] hover:underline font-semibold">
+                Member Portal?
+              </Link>
+            </div>
+
+            {/* Submit Button */}
+            <motion.button
+              whileHover={{ scale: isLoading ? 1 : 1.01 }}
+              whileTap={{ scale: isLoading ? 1 : 0.99 }}
               type="submit"
               disabled={isLoading}
-              className="relative mt-2 flex w-full items-center justify-center gap-2 rounded-xl bg-[#f08c2b] px-4 py-3.5 text-[15px] font-semibold text-white transition-all duration-200 hover:bg-[#d97b1e] active:scale-[0.98] disabled:pointer-events-none disabled:opacity-50"
-              style={{
-                boxShadow: "0 0 20px rgba(240,140,43,0.2), 0 4px 12px rgba(240,140,43,0.25)",
-              }}
+              className={`w-full h-12 bg-gradient-to-r from-zinc-900 via-black to-[#f08c2b] text-white rounded-xl font-extrabold text-sm transition-all duration-200 shadow-xl shadow-black/10 hover:shadow-2xl ${
+                isLoading ? "opacity-70 cursor-not-allowed" : ""
+              }`}
             >
               {isLoading ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  <span>Signing in...</span>
-                </>
+                <div className="flex items-center justify-center gap-2">
+                  <Loader2 className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  <span>Signing in to Staff Portal...</span>
+                </div>
               ) : (
-                "Sign in"
+                <div className="flex items-center justify-center gap-2">
+                  <span>Sign In</span>
+                  <ArrowRight className="w-4 h-4 text-[#f08c2b]" />
+                </div>
               )}
-            </button>
-          </form>
-        </div>
+            </motion.button>
 
-        {/* Footer */}
-        <div className="mt-10 flex flex-col items-center gap-5">
-          <div className="flex items-center gap-1.5 text-[12px] text-white/20">
-            <Lock className="h-3 w-3" />
-            <span>Protected by 256-bit SSL encryption</span>
-          </div>
-
-          <Link
-            href="/"
-            className="inline-flex items-center gap-1.5 text-[13px] text-white/35 transition-colors hover:text-white/60"
-          >
-            <ArrowLeft className="h-3.5 w-3.5" />
-            Back to homepage
-          </Link>
+            {/* Navigation back */}
+            <div className="text-center pt-2">
+              <Link href="/" className="text-xs text-zinc-500 hover:text-zinc-800 transition-colors inline-flex items-center gap-1 font-medium">
+                ← Back to Homepage
+              </Link>
+            </div>
+          </motion.form>
         </div>
-      </div>
+      </motion.div>
     </div>
   )
 }

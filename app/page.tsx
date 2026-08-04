@@ -1,762 +1,711 @@
 "use client"
 
+import { useState } from "react"
+import Link from "next/link"
+import { motion, AnimatePresence } from "framer-motion"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
+import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   Users,
   CreditCard,
   PiggyBank,
   Shield,
-  Clock,
   BarChart3,
-  CheckCircle,
-  Star,
   ArrowRight,
   Menu,
   X,
-  MapPin,
-  Phone,
-  Mail,
+  Coins,
+  Sparkles,
+  ChevronDown,
+  ChevronUp,
+  Check,
+  MessageSquare,
+  PieChart,
 } from "lucide-react"
-import Link from "next/link"
-import { useState } from "react"
-import Image from "next/image"
+
+// Animation Variants
+const fadeInUp = {
+  hidden: { opacity: 0, y: 24 },
+  visible: { opacity: 1, y: 0, transition: { duration: 0.5, ease: [0.22, 1, 0.36, 1] } },
+}
+
+const staggerContainer = {
+  hidden: { opacity: 0 },
+  visible: {
+    opacity: 1,
+    transition: {
+      staggerChildren: 0.1,
+    },
+  },
+}
 
 export default function LandingPage() {
   const [isMenuOpen, setIsMenuOpen] = useState(false)
+  const [activeFaq, setActiveFaq] = useState<number | null>(null)
+
+  const toggleFaq = (index: number) => {
+    setActiveFaq(activeFaq === index ? null : index)
+  }
 
   return (
-    <div className="min-h-screen bg-background">
-      {/* Navigation */}
-      <nav className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 sticky top-0 z-50">
-        <div className="container mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            <div className="flex items-center">
-              <div className="flex-shrink-0 flex items-center space-x-2">
-                <div className="h-8 w-auto">
-                  <Image
-                    src="https://res.cloudinary.com/hatari/image/upload/v1756392459/sente-loans/logos/sente-loans-full-logo-cropped_zbrxed.png"
-                    alt="Sente Loan"
-                    width={120}
-                    height={32}
-                    className="h-8 w-auto hidden sm:block"
-                  />
-                  <Image
-                    src="https://res.cloudinary.com/hatari/image/upload/v1756391632/sente-loans/logos/sente-loans-symbol-logo_jyteeu.png"
-                    alt="Sente Loan"
-                    width={32}
-                    height={32}
-                    className="h-8 w-auto sm:hidden"
-                  />
-                </div>
-              </div>
-            </div>
+    <div className="min-h-screen bg-black text-zinc-100 selection:bg-orange-500 selection:text-black font-sans antialiased overflow-x-hidden">
+      {/* Dynamic Animated Background Glow */}
+      <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden">
+        <motion.div
+          animate={{
+            scale: [1, 1.15, 1],
+            opacity: [0.12, 0.2, 0.12],
+          }}
+          transition={{
+            duration: 8,
+            repeat: Infinity,
+            ease: "easeInOut",
+          }}
+          className="absolute top-0 left-1/2 -translate-x-1/2 w-[900px] h-[450px] bg-gradient-to-b from-orange-500/20 via-orange-500/5 to-transparent blur-3xl"
+        />
+      </div>
 
-            {/* Desktop Navigation */}
-            <div className="hidden md:block">
-              <div className="ml-10 flex items-baseline space-x-4">
-                <a
-                  href="#features"
-                  className="text-muted-foreground hover:text-foreground px-3 py-2 text-sm font-medium"
-                >
-                  Features
-                </a>
-                <a
-                  href="#pricing"
-                  className="text-muted-foreground hover:text-foreground px-3 py-2 text-sm font-medium"
-                >
-                  Pricing
-                </a>
-                <a
-                  href="#testimonials"
-                  className="text-muted-foreground hover:text-foreground px-3 py-2 text-sm font-medium"
-                >
-                  Testimonials
-                </a>
-                <a href="#faq" className="text-muted-foreground hover:text-foreground px-3 py-2 text-sm font-medium">
-                  FAQ
-                </a>
+      {/* Header Navigation */}
+      <header className="sticky top-0 z-50 bg-black/80 backdrop-blur-xl border-b border-zinc-900">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between items-center h-20">
+            {/* Brand Logo */}
+            <Link href="/" className="flex items-center space-x-3 group">
+              <motion.div
+                whileHover={{ scale: 1.05, rotate: 5 }}
+                transition={{ type: "spring", stiffness: 400, damping: 17 }}
+                className="w-10 h-10 rounded-xl bg-orange-500 flex items-center justify-center shadow-lg shadow-orange-500/20"
+              >
+                <Coins className="h-5 w-5 text-black" />
+              </motion.div>
+              <div className="flex flex-col">
+                <span className="text-xl font-bold tracking-tight text-white flex items-center">
+                  MIKOPO<span className="text-orange-500 ml-0.5">.</span>
+                </span>
+                <span className="text-[10px] tracking-widest text-zinc-400 uppercase font-mono -mt-1">
+                  SACCO Management System
+                </span>
               </div>
-            </div>
+            </Link>
 
+            {/* Desktop Navigation Links */}
+            <nav className="hidden md:flex items-center space-x-8 text-sm font-medium">
+              <a href="#features" className="text-zinc-400 hover:text-white transition-colors">
+                Features
+              </a>
+              <a href="#modules" className="text-zinc-400 hover:text-white transition-colors">
+                SACCO Modules
+              </a>
+              <a href="#pricing" className="text-zinc-400 hover:text-white transition-colors">
+                Pricing
+              </a>
+              <a href="#faq" className="text-zinc-400 hover:text-white transition-colors">
+                FAQ
+              </a>
+            </nav>
+
+            {/* Header Actions */}
             <div className="hidden md:flex items-center space-x-4">
+              <Link href="/client-login">
+                <Button
+                  variant="outline"
+                  className="border-zinc-800 bg-zinc-950 text-zinc-300 hover:text-white hover:border-zinc-700 text-xs font-semibold rounded-lg h-9 px-4 transition-all"
+                >
+                  Member Portal
+                </Button>
+              </Link>
               <Link href="/login">
-                <Button variant="ghost">Login</Button>
+                <Button className="bg-orange-500 hover:bg-orange-600 text-black font-semibold text-xs rounded-lg h-9 px-5 shadow-lg shadow-orange-500/20 transition-all">
+                  Staff Login <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
+                </Button>
               </Link>
             </div>
 
-            {/* Mobile menu button */}
+            {/* Mobile Menu Button */}
             <div className="md:hidden">
-              <Button variant="ghost" size="sm" onClick={() => setIsMenuOpen(!isMenuOpen)}>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="text-zinc-400 hover:text-white"
+                onClick={() => setIsMenuOpen(!isMenuOpen)}
+              >
                 {isMenuOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
               </Button>
             </div>
           </div>
         </div>
 
-        {/* Mobile Navigation */}
-        {isMenuOpen && (
-          <div className="md:hidden">
-            <div className="px-2 pt-2 pb-3 space-y-1 sm:px-3 border-t">
+        {/* Mobile Navigation Menu Animation */}
+        <AnimatePresence>
+          {isMenuOpen && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              exit={{ opacity: 0, height: 0 }}
+              transition={{ duration: 0.25, ease: "easeInOut" }}
+              className="md:hidden bg-zinc-950 border-b border-zinc-800 px-4 pt-4 pb-6 space-y-3 overflow-hidden"
+            >
               <a
                 href="#features"
-                className="block px-3 py-2 text-base font-medium text-muted-foreground hover:text-foreground"
+                onClick={() => setIsMenuOpen(false)}
+                className="block px-3 py-2 text-sm font-medium text-zinc-400 hover:text-white"
               >
                 Features
               </a>
               <a
+                href="#modules"
+                onClick={() => setIsMenuOpen(false)}
+                className="block px-3 py-2 text-sm font-medium text-zinc-400 hover:text-white"
+              >
+                SACCO Modules
+              </a>
+              <a
                 href="#pricing"
-                className="block px-3 py-2 text-base font-medium text-muted-foreground hover:text-foreground"
+                onClick={() => setIsMenuOpen(false)}
+                className="block px-3 py-2 text-sm font-medium text-zinc-400 hover:text-white"
               >
                 Pricing
               </a>
               <a
-                href="#testimonials"
-                className="block px-3 py-2 text-base font-medium text-muted-foreground hover:text-foreground"
-              >
-                Testimonials
-              </a>
-              <a
                 href="#faq"
-                className="block px-3 py-2 text-base font-medium text-muted-foreground hover:text-foreground"
+                onClick={() => setIsMenuOpen(false)}
+                className="block px-3 py-2 text-sm font-medium text-zinc-400 hover:text-white"
               >
                 FAQ
               </a>
-              <div className="px-3 py-2 space-y-2">
-                <Link href="/login" className="block">
-                  <Button variant="ghost" className="w-full">
-                    Login
+              <div className="pt-3 border-t border-zinc-900 space-y-2">
+                <Link href="/client-login" className="block w-full">
+                  <Button variant="outline" className="w-full border-zinc-800 text-zinc-300 text-xs">
+                    Member Portal Login
+                  </Button>
+                </Link>
+                <Link href="/login" className="block w-full">
+                  <Button className="w-full bg-orange-500 hover:bg-orange-600 text-black font-semibold text-xs">
+                    Staff Login <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
                   </Button>
                 </Link>
               </div>
-            </div>
-          </div>
-        )}
-      </nav>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </header>
 
       {/* Hero Section */}
-      <section className="py-20 px-4 sm:px-6 lg:px-8">
-        <div className="container mx-auto text-center">
-          <div className="max-w-4xl mx-auto">
-            <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold text-balance mb-6">
-              Simplify Loan Management for Your
-              <span className="text-primary"> Sacco and Money Lending Business</span>
-            </h1>
-            <p className="text-xl text-muted-foreground text-pretty mb-8 max-w-2xl mx-auto">
-              The complete loan management platform designed specifically for SACCOs and Money Lenders in Uganda.
-              Streamline loan processing, track repayments, and manage borrowers with powerful tools built for your
-              business needs.
-            </p>
-            <div className="flex flex-col sm:flex-row gap-4 justify-center mb-12">
-              <a
-                href="https://wa.me/256787624334?text=Hello%20David%2C%20I%20would%20like%20to%20know%20more%20about%20Senteloans"
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                <Button size="lg" className="text-lg px-8 py-3">
-                  Chat with us <ArrowRight className="ml-2 h-5 w-5" />
-                </Button>
-              </a>
-              <a href="https://forms.gle/vpTQvomDsQPNSqPy6" target="_blank" rel="noopener noreferrer">
-                <Button size="lg" variant="outline" className="text-lg px-8 py-3 bg-transparent">
-                  Schedule Demo
-                </Button>
-              </a>
+      <section className="relative z-10 pt-24 pb-20 px-4 sm:px-6 lg:px-8 max-w-6xl mx-auto text-center">
+        <motion.div initial="hidden" animate="visible" variants={staggerContainer} className="space-y-6">
+          {/* Badge */}
+          <motion.div variants={fadeInUp} className="inline-block">
+            <div className="inline-flex items-center space-x-2 px-3.5 py-1.5 rounded-full bg-zinc-900/90 border border-zinc-800">
+              <Sparkles className="h-3.5 w-3.5 text-orange-500 animate-pulse" />
+              <span className="text-xs font-medium text-zinc-300">
+                Digital SACCO Management System
+              </span>
             </div>
+          </motion.div>
 
-            {/* Hero Image - Dashboard Preview */}
-            <div className="relative max-w-6xl mx-auto">
-              <div className="relative">
-                <div className="absolute inset-0 bg-gradient-to-r from-primary/20 to-accent/20 rounded-2xl blur-3xl"></div>
-                <div className="relative bg-white rounded-2xl shadow-2xl border border-border/50 overflow-hidden">
-                  <div className="bg-gradient-to-r from-primary/5 to-accent/5 px-4 py-3 border-b border-border/30">
-                    <div className="flex items-center space-x-2">
-                      <div className="w-3 h-3 bg-red-400 rounded-full"></div>
-                      <div className="w-3 h-3 bg-yellow-400 rounded-full"></div>
-                      <div className="w-3 h-3 bg-green-400 rounded-full"></div>
-                      <div className="ml-4 text-sm text-muted-foreground font-medium">senteloans.com/dashboard</div>
-                    </div>
+          {/* Main Title */}
+          <motion.h1
+            variants={fadeInUp}
+            className="text-4xl sm:text-6xl lg:text-7xl font-extrabold tracking-tight text-white leading-[1.1]"
+          >
+            Modern Operations for African <br className="hidden sm:block" />
+            <span className="text-orange-500">SACCOs & Credit Cooperatives</span>
+          </motion.h1>
+
+          {/* Subtitle */}
+          <motion.p
+            variants={fadeInUp}
+            className="text-base sm:text-lg text-zinc-400 max-w-2xl mx-auto leading-relaxed"
+          >
+            A unified digital operating system built specifically for SACCOs. Manage member KYC, track share capital, automate loan processing, manage savings accounts, and calculate dividend distributions.
+          </motion.p>
+
+          {/* Hero Actions */}
+          <motion.div
+            variants={fadeInUp}
+            className="flex flex-col sm:flex-row items-center justify-center gap-4 pt-4"
+          >
+            <Link href="/login" className="w-full sm:w-auto">
+              <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
+                <Button className="w-full sm:w-auto bg-orange-500 hover:bg-orange-600 text-black font-bold text-sm h-12 px-8 rounded-xl shadow-lg shadow-orange-500/20 transition-all">
+                  Launch Staff Dashboard <ArrowRight className="ml-2 h-4 w-4" />
+                </Button>
+              </motion.div>
+            </Link>
+            <Link href="/client-login" className="w-full sm:w-auto">
+              <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
+                <Button
+                  variant="outline"
+                  className="w-full sm:w-auto border-zinc-800 bg-zinc-950 text-zinc-300 hover:text-white hover:border-zinc-700 h-12 px-8 rounded-xl text-sm font-semibold transition-all"
+                >
+                  Access Member Portal
+                </Button>
+              </motion.div>
+            </Link>
+          </motion.div>
+        </motion.div>
+
+        {/* Metrics Bar with Scroll Stagger */}
+        <motion.div
+          initial="hidden"
+          whileInView="visible"
+          viewport={{ once: true, margin: "-50px" }}
+          variants={staggerContainer}
+          className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-20 pt-10 border-t border-zinc-900"
+        >
+          <motion.div
+            variants={fadeInUp}
+            whileHover={{ y: -3 }}
+            className="p-4 rounded-xl bg-zinc-950 border border-zinc-900 text-center transition-colors hover:border-zinc-800"
+          >
+            <div className="text-2xl font-bold text-white">UGX 45B+</div>
+            <div className="text-xs text-zinc-500 mt-1">SACCO Loans Tracked</div>
+          </motion.div>
+          <motion.div
+            variants={fadeInUp}
+            whileHover={{ y: -3 }}
+            className="p-4 rounded-xl bg-zinc-950 border border-zinc-900 text-center transition-colors hover:border-zinc-800"
+          >
+            <div className="text-2xl font-bold text-white">120K+</div>
+            <div className="text-xs text-zinc-500 mt-1">Active SACCO Members</div>
+          </motion.div>
+          <motion.div
+            variants={fadeInUp}
+            whileHover={{ y: -3 }}
+            className="p-4 rounded-xl bg-zinc-950 border border-zinc-900 text-center transition-colors hover:border-zinc-800"
+          >
+            <div className="text-2xl font-bold text-orange-500">99.9%</div>
+            <div className="text-xs text-zinc-500 mt-1">System Uptime</div>
+          </motion.div>
+          <motion.div
+            variants={fadeInUp}
+            whileHover={{ y: -3 }}
+            className="p-4 rounded-xl bg-zinc-950 border border-zinc-900 text-center transition-colors hover:border-zinc-800"
+          >
+            <div className="text-2xl font-bold text-white">100%</div>
+            <div className="text-xs text-zinc-500 mt-1">RLS Tenant Isolated</div>
+          </motion.div>
+        </motion.div>
+      </section>
+
+      {/* Features Grid */}
+      <section id="features" className="relative z-10 py-20 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto">
+        <motion.div
+          initial="hidden"
+          whileInView="visible"
+          viewport={{ once: true }}
+          variants={fadeInUp}
+          className="text-center max-w-2xl mx-auto mb-16"
+        >
+          <h2 className="text-2xl sm:text-4xl font-bold text-white tracking-tight">
+            Comprehensive SACCO Features
+          </h2>
+          <p className="text-zinc-400 text-sm mt-3">
+            Engineered from the ground up to digitize cooperative banking workflows.
+          </p>
+        </motion.div>
+
+        <motion.div
+          initial="hidden"
+          whileInView="visible"
+          viewport={{ once: true, margin: "-50px" }}
+          variants={staggerContainer}
+          className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"
+        >
+          {[
+            {
+              icon: Users,
+              title: "Member Onboarding & KYC",
+              desc: "Complete digital member registration with National ID verification, passport photo capture, Next-of-Kin records, and linked Mobile Money accounts.",
+            },
+            {
+              icon: PieChart,
+              title: "Share Capital & Dividends",
+              desc: "Track member share ownership, share purchase registers, configurable share values, and automated dividend calculations.",
+            },
+            {
+              icon: PiggyBank,
+              title: "Savings & Fixed Deposits",
+              desc: "Manage voluntary savings accounts, fixed deposit terms, automated interest accruals, and transaction deposit/withdrawal logs.",
+            },
+            {
+              icon: CreditCard,
+              title: "Member Loan Processing",
+              desc: "Configure loan products, guarantor approvals, flat or reducing interest formulas, repayment schedules, and automated arrears tracking.",
+            },
+            {
+              icon: Shield,
+              title: "PostgreSQL RLS Security",
+              desc: "Multi-tenant data isolation enforced at the database level. Each SACCO's records are strictly isolated.",
+            },
+            {
+              icon: MessageSquare,
+              title: "Member Support Live Chat",
+              desc: "Real-time Socket.IO messaging connecting members directly with SACCO staff through the client portal.",
+            },
+          ].map((item, idx) => (
+            <motion.div key={idx} variants={fadeInUp} whileHover={{ y: -5 }}>
+              <Card className="bg-zinc-950 border-zinc-900 hover:border-orange-500/40 transition-all rounded-xl h-full">
+                <CardHeader className="p-6">
+                  <div className="w-10 h-10 rounded-lg bg-zinc-900 border border-zinc-800 flex items-center justify-center text-orange-500 mb-4">
+                    <item.icon className="h-5 w-5" />
                   </div>
-                  <div className="relative">
-                    <Image
-                      src="https://res.cloudinary.com/hatari/image/upload/v1756727956/sente-loans/screenshots/senteloans-dashboard-preview_rwjy9y.png"
-                      alt="Sente Loan Dashboard Preview"
-                      width={1200}
-                      height={800}
-                      className="w-full h-auto"
-                      priority
-                    />
-                    <div className="absolute inset-0 bg-gradient-to-t from-background/10 to-transparent pointer-events-none"></div>
-                  </div>
-                </div>
+                  <CardTitle className="text-lg font-bold text-white">{item.title}</CardTitle>
+                  <CardDescription className="text-zinc-400 text-xs mt-1 leading-relaxed">
+                    {item.desc}
+                  </CardDescription>
+                </CardHeader>
+              </Card>
+            </motion.div>
+          ))}
+        </motion.div>
+      </section>
+
+      {/* Core SACCO Modules Breakdown */}
+      <section id="modules" className="relative z-10 py-20 bg-zinc-950/50 border-y border-zinc-900">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <motion.div
+            initial="hidden"
+            whileInView="visible"
+            viewport={{ once: true }}
+            variants={fadeInUp}
+            className="text-center max-w-2xl mx-auto mb-16"
+          >
+            <h2 className="text-2xl sm:text-4xl font-bold text-white tracking-tight">
+              Built on Three Core SACCO Pillars
+            </h2>
+            <p className="text-zinc-400 text-sm mt-3">
+              Mikopo seamlessly handles the core financial responsibilities of modern cooperatives.
+            </p>
+          </motion.div>
+
+          <motion.div
+            initial="hidden"
+            whileInView="visible"
+            viewport={{ once: true }}
+            variants={staggerContainer}
+            className="grid grid-cols-1 md:grid-cols-3 gap-8"
+          >
+            <motion.div
+              variants={fadeInUp}
+              whileHover={{ y: -4 }}
+              className="p-8 rounded-xl bg-black border border-zinc-800 flex flex-col justify-between"
+            >
+              <div>
+                <span className="text-xs font-semibold uppercase text-orange-500 tracking-wider">
+                  Pillar 1
+                </span>
+                <h3 className="text-xl font-bold text-white mt-2 mb-3">Share Capital</h3>
+                <p className="text-zinc-400 text-xs leading-relaxed mb-6">
+                  Manage member share ownership, share minimums, fractional shares, and annual dividend distributions.
+                </p>
+                <ul className="space-y-2.5 text-xs text-zinc-300">
+                  <li className="flex items-center gap-2">
+                    <Check className="h-3.5 w-3.5 text-orange-500" /> Share purchase registers
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <Check className="h-3.5 w-3.5 text-orange-500" /> Configurable share value
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <Check className="h-3.5 w-3.5 text-orange-500" /> Automated dividend calculations
+                  </li>
+                </ul>
               </div>
-            </div>
-          </div>
+              <div className="pt-6 mt-6 border-t border-zinc-900">
+                <Link href="/login" className="block w-full">
+                  <Button className="w-full bg-orange-500 hover:bg-orange-600 text-black font-semibold text-xs h-9">
+                    Manage Shares
+                  </Button>
+                </Link>
+              </div>
+            </motion.div>
+
+            <motion.div
+              variants={fadeInUp}
+              whileHover={{ y: -4 }}
+              className="p-8 rounded-xl bg-black border border-zinc-800 flex flex-col justify-between"
+            >
+              <div>
+                <span className="text-xs font-semibold uppercase text-orange-500 tracking-wider">
+                  Pillar 2
+                </span>
+                <h3 className="text-xl font-bold text-white mt-2 mb-3">Savings & Deposits</h3>
+                <p className="text-zinc-400 text-xs leading-relaxed mb-6">
+                  Manage voluntary member savings, fixed deposit terms, opening balances, and deposit receipts.
+                </p>
+                <ul className="space-y-2.5 text-xs text-zinc-300">
+                  <li className="flex items-center gap-2">
+                    <Check className="h-3.5 w-3.5 text-orange-500" /> Voluntary savings ledger
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <Check className="h-3.5 w-3.5 text-orange-500" /> Fixed deposit maturity tracking
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <Check className="h-3.5 w-3.5 text-orange-500" /> In-SACCO fund transfers
+                  </li>
+                </ul>
+              </div>
+              <div className="pt-6 mt-6 border-t border-zinc-900">
+                <Link href="/login" className="block w-full">
+                  <Button variant="outline" className="w-full border-zinc-800 text-zinc-300 text-xs h-9">
+                    Manage Savings
+                  </Button>
+                </Link>
+              </div>
+            </motion.div>
+
+            <motion.div
+              variants={fadeInUp}
+              whileHover={{ y: -4 }}
+              className="p-8 rounded-xl bg-black border border-zinc-800 flex flex-col justify-between"
+            >
+              <div>
+                <span className="text-xs font-semibold uppercase text-orange-500 tracking-wider">
+                  Pillar 3
+                </span>
+                <h3 className="text-xl font-bold text-white mt-2 mb-3">Member Credit</h3>
+                <p className="text-zinc-400 text-xs leading-relaxed mb-6">
+                  End-to-end loan application processing, guarantor approvals, interest formulas, and repayment schedules.
+                </p>
+                <ul className="space-y-2.5 text-xs text-zinc-300">
+                  <li className="flex items-center gap-2">
+                    <Check className="h-3.5 w-3.5 text-orange-500" /> Guarantor approval workflows
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <Check className="h-3.5 w-3.5 text-orange-500" /> Reducing & flat interest engines
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <Check className="h-3.5 w-3.5 text-orange-500" /> Automated repayment schedules
+                  </li>
+                </ul>
+              </div>
+              <div className="pt-6 mt-6 border-t border-zinc-900">
+                <Link href="/login" className="block w-full">
+                  <Button variant="outline" className="w-full border-zinc-800 text-zinc-300 text-xs h-9">
+                    Manage Credit
+                  </Button>
+                </Link>
+              </div>
+            </motion.div>
+          </motion.div>
         </div>
       </section>
 
-      {/* Social Proof */}
-      <section className="py-12 px-4 sm:px-6 lg:px-8 bg-muted/30">
-        <div className="container mx-auto">
-          <div className="text-center mb-8">
-            <p className="text-muted-foreground">Trusted by SACCOs, MFIs, and Money Lenders across Uganda</p>
-          </div>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-8 items-center opacity-60">
-            <div className="text-center">
-              <div className="font-semibold">Kampala SACCO</div>
+      {/* Pricing Section */}
+      <section id="pricing" className="relative z-10 py-20 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto">
+        <motion.div
+          initial="hidden"
+          whileInView="visible"
+          viewport={{ once: true }}
+          variants={fadeInUp}
+          className="text-center max-w-2xl mx-auto mb-16"
+        >
+          <h2 className="text-2xl sm:text-4xl font-bold text-white tracking-tight">
+            Transparent SACCO Pricing
+          </h2>
+          <p className="text-zinc-400 text-sm mt-3">
+            Predictable plans designed to grow with your SACCO member base.
+          </p>
+        </motion.div>
+
+        <motion.div
+          initial="hidden"
+          whileInView="visible"
+          viewport={{ once: true }}
+          variants={staggerContainer}
+          className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-5xl mx-auto"
+        >
+          <motion.div
+            variants={fadeInUp}
+            whileHover={{ y: -4 }}
+            className="p-6 rounded-xl bg-zinc-950 border border-zinc-900 flex flex-col justify-between"
+          >
+            <div>
+              <h3 className="text-lg font-bold text-white">Starter SACCO</h3>
+              <div className="my-4">
+                <span className="text-3xl font-extrabold text-white">UGX 150K</span>
+                <span className="text-zinc-500 text-xs"> / month</span>
+              </div>
+              <p className="text-zinc-400 text-xs mb-6">Up to 500 Active Members</p>
+              <ul className="space-y-2 text-xs text-zinc-300">
+                <li className="flex items-center gap-2">
+                  <Check className="h-3.5 w-3.5 text-orange-500" /> Full Loan & Savings Engine
+                </li>
+                <li className="flex items-center gap-2">
+                  <Check className="h-3.5 w-3.5 text-orange-500" /> Member KYC Vault
+                </li>
+                <li className="flex items-center gap-2">
+                  <Check className="h-3.5 w-3.5 text-orange-500" /> Financial Reports Export
+                </li>
+              </ul>
             </div>
-            <div className="text-center">
-              <div className="font-semibold">Opportunity MFI</div>
+            <div className="pt-6">
+              <Link href="/login" className="block w-full">
+                <Button variant="outline" className="w-full border-zinc-800 text-zinc-300 text-xs h-9">
+                  Get Started
+                </Button>
+              </Link>
             </div>
-            <div className="text-center">
-              <div className="font-semibold">Quick Cash Uganda</div>
+          </motion.div>
+
+          <motion.div
+            variants={fadeInUp}
+            whileHover={{ y: -4 }}
+            className="p-6 rounded-xl bg-black border-2 border-orange-500 flex flex-col justify-between relative shadow-lg shadow-orange-500/10"
+          >
+            <div>
+              <span className="text-[10px] font-extrabold uppercase tracking-wider text-orange-500 bg-orange-500/10 px-2.5 py-1 rounded-full border border-orange-500/20">
+                Most Popular
+              </span>
+              <h3 className="text-lg font-bold text-white mt-3">Growth SACCO</h3>
+              <div className="my-4">
+                <span className="text-3xl font-extrabold text-orange-500">UGX 450K</span>
+                <span className="text-zinc-500 text-xs"> / month</span>
+              </div>
+              <p className="text-zinc-400 text-xs mb-6">Up to 5,000 Active Members</p>
+              <ul className="space-y-2 text-xs text-zinc-300">
+                <li className="flex items-center gap-2">
+                  <Check className="h-3.5 w-3.5 text-orange-500" /> Share Capital & Dividends
+                </li>
+                <li className="flex items-center gap-2">
+                  <Check className="h-3.5 w-3.5 text-orange-500" /> Multi-Branch Support
+                </li>
+                <li className="flex items-center gap-2">
+                  <Check className="h-3.5 w-3.5 text-orange-500" /> Member Live Chat Support
+                </li>
+              </ul>
             </div>
-            <div className="text-center">
-              <div className="font-semibold">Jinja Financial</div>
+            <div className="pt-6">
+              <Link href="/login" className="block w-full">
+                <Button className="w-full bg-orange-500 hover:bg-orange-600 text-black font-semibold text-xs h-9">
+                  Launch Growth Plan
+                </Button>
+              </Link>
             </div>
-          </div>
-        </div>
+          </motion.div>
+
+          <motion.div
+            variants={fadeInUp}
+            whileHover={{ y: -4 }}
+            className="p-6 rounded-xl bg-zinc-950 border border-zinc-900 flex flex-col justify-between"
+          >
+            <div>
+              <h3 className="text-lg font-bold text-white">Enterprise SACCO</h3>
+              <div className="my-4">
+                <span className="text-3xl font-extrabold text-white">Custom</span>
+              </div>
+              <p className="text-zinc-400 text-xs mb-6">Unlimited Members & Dedicated Instance</p>
+              <ul className="space-y-2 text-xs text-zinc-300">
+                <li className="flex items-center gap-2">
+                  <Check className="h-3.5 w-3.5 text-orange-500" /> Dedicated Database Instance
+                </li>
+                <li className="flex items-center gap-2">
+                  <Check className="h-3.5 w-3.5 text-orange-500" /> Custom API & Mobile Integrations
+                </li>
+                <li className="flex items-center gap-2">
+                  <Check className="h-3.5 w-3.5 text-orange-500" /> 24/7 SLA Priority Support
+                </li>
+              </ul>
+            </div>
+            <div className="pt-6">
+              <Link href="/contact" className="block w-full">
+                <Button variant="outline" className="w-full border-zinc-800 text-zinc-300 text-xs h-9">
+                  Contact Team
+                </Button>
+              </Link>
+            </div>
+          </motion.div>
+        </motion.div>
       </section>
 
-      {/* Features Section */}
-      <section id="features" className="py-20 px-4 sm:px-6 lg:px-8">
-        <div className="container mx-auto">
-          <div className="text-center mb-16">
-            <h2 className="text-3xl sm:text-4xl font-bold text-balance mb-4">
-              Everything you need to manage your financial institution
+      {/* FAQ Section */}
+      <section id="faq" className="relative z-10 py-20 bg-zinc-950/50 border-t border-zinc-900">
+        <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
+          <motion.div
+            initial="hidden"
+            whileInView="visible"
+            viewport={{ once: true }}
+            variants={fadeInUp}
+            className="text-center mb-12"
+          >
+            <h2 className="text-2xl sm:text-4xl font-bold text-white tracking-tight">
+              Frequently Asked Questions
             </h2>
-            <p className="text-xl text-muted-foreground text-pretty max-w-2xl mx-auto">
-              From client onboarding to loan disbursement, we've got you covered with powerful tools designed for
-              Ugandan SACCOs, MFIs, and Money Lenders.
-            </p>
-          </div>
+          </motion.div>
 
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
-            <Card>
-              <CardHeader>
-                <Users className="h-12 w-12 text-primary mb-4" />
-                <CardTitle>Client Management</CardTitle>
-                <CardDescription>
-                  Complete client lifecycle management with KYC verification, profile tracking, and automated onboarding
-                  for members, clients, and borrowers.
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <ul className="space-y-2 text-sm text-muted-foreground">
-                  <li className="flex items-center">
-                    <CheckCircle className="h-4 w-4 text-success mr-2" />
-                    Digital KYC verification
-                  </li>
-                  <li className="flex items-center">
-                    <CheckCircle className="h-4 w-4 text-success mr-2" />
-                    Client profile management
-                  </li>
-                  <li className="flex items-center">
-                    <CheckCircle className="h-4 w-4 text-success mr-2" />
-                    Automated notifications
-                  </li>
-                </ul>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CreditCard className="h-12 w-12 text-primary mb-4" />
-                <CardTitle>Loan Management</CardTitle>
-                <CardDescription>
-                  Streamlined loan processing from application to repayment with automated calculations and tracking for
-                  all institution types.
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <ul className="space-y-2 text-sm text-muted-foreground">
-                  <li className="flex items-center">
-                    <CheckCircle className="h-4 w-4 text-success mr-2" />
-                    Automated loan calculations
-                  </li>
-                  <li className="flex items-center">
-                    <CheckCircle className="h-4 w-4 text-success mr-2" />
-                    Repayment scheduling
-                  </li>
-                  <li className="flex items-center">
-                    <CheckCircle className="h-4 w-4 text-success mr-2" />
-                    Default risk management
-                  </li>
-                </ul>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <PiggyBank className="h-12 w-12 text-primary mb-4" />
-                <CardTitle>Savings & Shares</CardTitle>
-                <CardDescription>
-                  Configurable savings account management with multiple account types and transaction tracking. Optional
-                  for Money Lenders, essential for SACCOs and MFIs.
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <ul className="space-y-2 text-sm text-muted-foreground">
-                  <li className="flex items-center">
-                    <CheckCircle className="h-4 w-4 text-success mr-2" />
-                    Multiple account types
-                  </li>
-                  <li className="flex items-center">
-                    <CheckCircle className="h-4 w-4 text-success mr-2" />
-                    Real-time balance tracking
-                  </li>
-                  <li className="flex items-center">
-                    <CheckCircle className="h-4 w-4 text-success mr-2" />
-                    Interest calculations
-                  </li>
-                </ul>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <BarChart3 className="h-12 w-12 text-primary mb-4" />
-                <CardTitle>Reports & Analytics</CardTitle>
-                <CardDescription>
-                  Powerful reporting tools with real-time analytics and customizable dashboards for data-driven
-                  decisions.
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <ul className="space-y-2 text-sm text-muted-foreground">
-                  <li className="flex items-center">
-                    <CheckCircle className="h-4 w-4 text-success mr-2" />
-                    Real-time dashboards
-                  </li>
-                  <li className="flex items-center">
-                    <CheckCircle className="h-4 w-4 text-success mr-2" />
-                    Custom report generation
-                  </li>
-                  <li className="flex items-center">
-                    <CheckCircle className="h-4 w-4 text-success mr-2" />
-                    Export capabilities
-                  </li>
-                </ul>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <Shield className="h-12 w-12 text-primary mb-4" />
-                <CardTitle>Security & Compliance</CardTitle>
-                <CardDescription>
-                  Bank-grade security with role-based access control and compliance with Ugandan financial regulations.
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <ul className="space-y-2 text-sm text-muted-foreground">
-                  <li className="flex items-center">
-                    <CheckCircle className="h-4 w-4 text-success mr-2" />
-                    Role-based access
-                  </li>
-                  <li className="flex items-center">
-                    <CheckCircle className="h-4 w-4 text-success mr-2" />
-                    Data encryption
-                  </li>
-                  <li className="flex items-center">
-                    <CheckCircle className="h-4 w-4 text-success mr-2" />
-                    Audit trails
-                  </li>
-                </ul>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <Clock className="h-12 w-12 text-primary mb-4" />
-                <CardTitle>Mobile-First Design</CardTitle>
-                <CardDescription>
-                  Optimized for mobile devices with offline capabilities, perfect for field operations across Uganda's
-                  diverse financial institutions.
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <ul className="space-y-2 text-sm text-muted-foreground">
-                  <li className="flex items-center">
-                    <CheckCircle className="h-4 w-4 text-success mr-2" />
-                    Mobile responsive
-                  </li>
-                  <li className="flex items-center">
-                    <CheckCircle className="h-4 w-4 text-success mr-2" />
-                    Offline capabilities
-                  </li>
-                  <li className="flex items-center">
-                    <CheckCircle className="h-4 w-4 text-success mr-2" />
-                    Fast loading
-                  </li>
-                </ul>
-              </CardContent>
-            </Card>
-          </div>
-        </div>
-      </section>
-
-      {/* Testimonials */}
-      <section id="testimonials" className="py-20 px-4 sm:px-6 lg:px-8 bg-muted/30">
-        <div className="container mx-auto">
-          <div className="text-center mb-16">
-            <h2 className="text-3xl sm:text-4xl font-bold text-balance mb-4">What our customers say</h2>
-            <p className="text-xl text-muted-foreground text-pretty">
-              Join hundreds of satisfied financial institutions across Uganda
-            </p>
-          </div>
-
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
-            <Card>
-              <CardContent className="pt-6">
-                <div className="flex mb-4">
-                  {[...Array(5)].map((_, i) => (
-                    <Star key={i} className="h-5 w-5 fill-primary text-primary" />
-                  ))}
-                </div>
-                <p className="text-muted-foreground mb-4">
-                  "Sente Loan has transformed how we manage our 3,000+ clients. The automated loan processing alone
-                  saves us 20 hours per week."
-                </p>
-                <div className="flex items-center">
-                  <div>
-                    <div className="font-semibold">Sarah Nakato</div>
-                    <div className="text-sm text-muted-foreground">Manager, Kampala SACCO</div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardContent className="pt-6">
-                <div className="flex mb-4">
-                  {[...Array(5)].map((_, i) => (
-                    <Star key={i} className="h-5 w-5 fill-primary text-primary" />
-                  ))}
-                </div>
-                <p className="text-muted-foreground mb-4">
-                  "The mobile-first design is perfect for our field operations. Our loan officers can now process
-                  applications on-site."
-                </p>
-                <div className="flex items-center">
-                  <div>
-                    <div className="font-semibold">James Okello</div>
-                    <div className="text-sm text-muted-foreground">CEO, Northern Uganda MFI</div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardContent className="pt-6">
-                <div className="flex mb-4">
-                  {[...Array(5)].map((_, i) => (
-                    <Star key={i} className="h-5 w-5 fill-primary text-primary" />
-                  ))}
-                </div>
-                <p className="text-muted-foreground mb-4">
-                  "The configurable interface adapts perfectly to our money lending operations. We've improved our
-                  collection efficiency by 15%."
-                </p>
-                <div className="flex items-center">
-                  <div>
-                    <div className="font-semibold">Grace Namuli</div>
-                    <div className="text-sm text-muted-foreground">Manager, Quick Cash Uganda</div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        </div>
-      </section>
-
-      {/* Pricing */}
-      <section id="pricing" className="py-20 px-4 sm:px-6 lg:px-8">
-        <div className="container mx-auto">
-          <div className="text-center mb-16">
-            <h2 className="text-3xl sm:text-4xl font-bold text-balance mb-4">Simple, transparent pricing</h2>
-            <p className="text-xl text-muted-foreground text-pretty">
-              Choose the plan that fits your institution's size and needs
-            </p>
-          </div>
-
-          <div className="grid md:grid-cols-3 gap-8 max-w-5xl mx-auto">
-            <Card>
-              <CardHeader>
-                <CardTitle>Starter</CardTitle>
-                <CardDescription>Perfect for small institutions</CardDescription>
-                <div className="text-3xl font-bold">
-                  UGX 200K<span className="text-lg font-normal text-muted-foreground">/month</span>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <ul className="space-y-3 mb-6">
-                  <li className="flex items-center">
-                    <CheckCircle className="h-4 w-4 text-success mr-2" />
-                    Up to 500 clients
-                  </li>
-                  <li className="flex items-center">
-                    <CheckCircle className="h-4 w-4 text-success mr-2" />
-                    Basic reporting
-                  </li>
-                  <li className="flex items-center">
-                    <CheckCircle className="h-4 w-4 text-success mr-2" />
-                    Email support
-                  </li>
-                  <li className="flex items-center">
-                    <CheckCircle className="h-4 w-4 text-success mr-2" />
-                    Mobile access
-                  </li>
-                </ul>
-                <Button className="w-full">Chat with us</Button>
-              </CardContent>
-            </Card>
-
-            <Card className="border-primary">
-              <CardHeader>
-                <Badge className="w-fit mb-2">Most Popular</Badge>
-                <CardTitle>Professional</CardTitle>
-                <CardDescription>For growing institutions</CardDescription>
-                <div className="text-3xl font-bold">
-                  UGX 500K<span className="text-lg font-normal text-muted-foreground">/month</span>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <ul className="space-y-3 mb-6">
-                  <li className="flex items-center">
-                    <CheckCircle className="h-4 w-4 text-success mr-2" />
-                    Up to 2,000 clients
-                  </li>
-                  <li className="flex items-center">
-                    <CheckCircle className="h-4 w-4 text-success mr-2" />
-                    Advanced analytics
-                  </li>
-                  <li className="flex items-center">
-                    <CheckCircle className="h-4 w-4 text-success mr-2" />
-                    Priority support
-                  </li>
-                  <li className="flex items-center">
-                    <CheckCircle className="h-4 w-4 text-success mr-2" />
-                    API access
-                  </li>
-                  <li className="flex items-center">
-                    <CheckCircle className="h-4 w-4 text-success mr-2" />
-                    Custom reports
-                  </li>
-                </ul>
-                <Button className="w-full">Chat with us</Button>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Enterprise</CardTitle>
-                <CardDescription>For large institutions</CardDescription>
-                <div className="text-3xl font-bold">
-                  Custom<span className="text-lg font-normal text-muted-foreground"> pricing</span>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <ul className="space-y-3 mb-6">
-                  <li className="flex items-center">
-                    <CheckCircle className="h-4 w-4 text-success mr-2" />
-                    Unlimited clients
-                  </li>
-                  <li className="flex items-center">
-                    <CheckCircle className="h-4 w-4 text-success mr-2" />
-                    White-label solution
-                  </li>
-                  <li className="flex items-center">
-                    <CheckCircle className="h-4 w-4 text-success mr-2" />
-                    Dedicated support
-                  </li>
-                  <li className="flex items-center">
-                    <CheckCircle className="h-4 w-4 text-success mr-2" />
-                    Custom integrations
-                  </li>
-                  <li className="flex items-center">
-                    <CheckCircle className="h-4 w-4 text-success mr-2" />
-                    On-premise deployment
-                  </li>
-                </ul>
-                <Button variant="outline" className="w-full bg-transparent">
-                  Contact Sales
-                </Button>
-              </CardContent>
-            </Card>
-          </div>
-        </div>
-      </section>
-
-      {/* FAQ */}
-      <section id="faq" className="py-20 px-4 sm:px-6 lg:px-8 bg-muted/30">
-        <div className="container mx-auto max-w-3xl">
-          <div className="text-center mb-16">
-            <h2 className="text-3xl sm:text-4xl font-bold text-balance mb-4">Frequently asked questions</h2>
-            <p className="text-xl text-muted-foreground text-pretty">Everything you need to know about Sente Loan</p>
-          </div>
-
-          <div className="space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg">How quickly can we get started?</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-muted-foreground">
-                  You can start your free trial immediately. Our onboarding team will help you migrate your data and
-                  train your staff within 2-3 weeks.
-                </p>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg">Is my data secure?</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-muted-foreground">
-                  Yes, we use bank-grade security with 256-bit encryption, regular backups, and comply with Ugandan data
-                  protection regulations.
-                </p>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg">Can I import my existing member data?</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-muted-foreground">
-                  Our team will help you migrate all your existing member, loan, and savings data from spreadsheets or
-                  other systems.
-                </p>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg">Do you provide training?</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-muted-foreground">
-                  Yes, we provide comprehensive training for your staff, including video tutorials, documentation, and
-                  live training sessions.
-                </p>
-              </CardContent>
-            </Card>
-          </div>
-        </div>
-      </section>
-
-      {/* CTA Section */}
-      <section className="py-20 px-4 sm:px-6 lg:px-8">
-        <div className="container mx-auto text-center">
-          <div className="max-w-3xl mx-auto">
-            <h2 className="text-3xl sm:text-4xl font-bold text-balance mb-4">
-              Ready to transform your financial institution?
-            </h2>
-            <p className="text-xl text-muted-foreground text-pretty mb-8">
-              Join hundreds of SACCOs, MFIs, and Money Lenders across Uganda who trust Sente Loan to manage their
-              operations efficiently.
-            </p>
-            <div className="flex flex-col sm:flex-row gap-4 justify-center">
-              <a
-                href="https://wa.me/256787624334?text=Hello%20David%2C%20I%20would%20like%20to%20know%20more%20about%20Senteloans"
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                <Button size="lg" className="text-lg px-8 py-3">
-                  Chat with us <ArrowRight className="ml-2 h-5 w-5" />
-                </Button>
-              </a>
-              <a href="https://forms.gle/vpTQvomDsQPNSqPy6" target="_blank" rel="noopener noreferrer">
-                <Button size="lg" variant="outline" className="text-lg px-8 py-3 bg-transparent">
-                  Schedule Demo
-                </Button>
-              </a>
-            </div>
+          <div className="space-y-3">
+            {[
+              {
+                q: "Is member data secure and isolated between SACCOs?",
+                a: "Yes. Mikopo enforces strict multi-tenant isolation at the database layer using PostgreSQL Row-Level Security (RLS). Each SACCO's data is completely isolated.",
+              },
+              {
+                q: "Can members check savings & loan balances on mobile phones?",
+                a: "Yes. Mikopo features a responsive Member Portal (/client-login) where members can review savings balances, active loan repayments, and chat with support.",
+              },
+              {
+                q: "Does Mikopo calculate annual member share dividends?",
+                a: "Yes. Mikopo includes a dedicated Share Capital module where you can manage share holdings, set share values, and calculate dividend distributions.",
+              },
+            ].map((faq, idx) => (
+              <div key={idx} className="bg-black border border-zinc-900 rounded-lg overflow-hidden">
+                <button
+                  onClick={() => toggleFaq(idx)}
+                  className="w-full px-5 py-4 text-left flex justify-between items-center text-sm font-semibold text-zinc-200 hover:text-orange-400 transition-colors"
+                >
+                  <span>{faq.q}</span>
+                  {activeFaq === idx ? (
+                    <ChevronUp className="h-4 w-4 text-orange-500 shrink-0" />
+                  ) : (
+                    <ChevronDown className="h-4 w-4 text-zinc-600 shrink-0" />
+                  )}
+                </button>
+                <AnimatePresence>
+                  {activeFaq === idx && (
+                    <motion.div
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: "auto" }}
+                      exit={{ opacity: 0, height: 0 }}
+                      transition={{ duration: 0.2 }}
+                      className="px-5 pb-4 text-xs text-zinc-400 border-t border-zinc-900/80 pt-3 leading-relaxed"
+                    >
+                      {faq.a}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            ))}
           </div>
         </div>
       </section>
 
       {/* Footer */}
-      <footer className="border-t bg-muted/30 py-12 px-4 sm:px-6 lg:px-8">
-        <div className="container mx-auto">
-          <div className="grid md:grid-cols-4 gap-8">
-            <div>
-              <div className="flex items-center space-x-2 mb-4">
-                <Image
-                  src="https://res.cloudinary.com/hatari/image/upload/v1756391632/sente-loans/logos/sente-loans-symbol-logo_jyteeu.png"
-                  alt="Sente Loan"
-                  width={24}
-                  height={24}
-                  className="h-6 w-auto"
-                />
-                <h3 className="text-lg font-semibold">Sente Loan</h3>
-              </div>
-              <p className="text-muted-foreground text-sm mb-4">
-                The complete digital platform for Ugandan SACCOs, MFIs, and Money Lenders.
-              </p>
-              <div className="space-y-2 text-sm text-muted-foreground">
-                <div className="flex items-center space-x-2">
-                  <MapPin className="h-4 w-4" />
-                  <span>Plot 19, Kavuma Drive, Nsasa estate, Kampala Uganda</span>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <Phone className="h-4 w-4" />
-                  <span>+256787624334</span>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <Mail className="h-4 w-4" />
-                  <span>contact@senteloans.com</span>
-                </div>
-              </div>
+      <footer className="relative z-10 bg-black border-t border-zinc-900 text-zinc-500 py-12 px-4 sm:px-6 lg:px-8 text-xs">
+        <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-6">
+          <div className="flex items-center space-x-3">
+            <div className="w-7 h-7 rounded-lg bg-orange-500 flex items-center justify-center">
+              <Coins className="h-4 w-4 text-black" />
             </div>
-            <div>
-              <h4 className="font-semibold mb-4">Product</h4>
-              <ul className="space-y-2 text-sm text-muted-foreground">
-                <li>
-                  <a href="#features" className="hover:text-foreground">
-                    Features
-                  </a>
-                </li>
-                <li>
-                  <a href="#pricing" className="hover:text-foreground">
-                    Pricing
-                  </a>
-                </li>
-              </ul>
-            </div>
-            <div>
-              <h4 className="font-semibold mb-4">Support</h4>
-              <ul className="space-y-2 text-sm text-muted-foreground">
-                <li>
-                  <Link href="/contact" className="hover:text-foreground">
-                    Contact Us
-                  </Link>
-                </li>
-              </ul>
-            </div>
-            <div>
-              <h4 className="font-semibold mb-4">Company</h4>
-              <ul className="space-y-2 text-sm text-muted-foreground">
-                <li>
-                  <Link href="/about" className="hover:text-foreground">
-                    About
-                  </Link>
-                </li>
-                <li>
-                  <Link href="/privacy" className="hover:text-foreground">
-                    Privacy
-                  </Link>
-                </li>
-              </ul>
-            </div>
+            <span className="text-base font-bold text-white">MIKOPO.</span>
+            <span className="text-zinc-600">|</span>
+            <span>Digital SACCO Management System</span>
           </div>
-          <div className="border-t mt-8 pt-8 text-center text-sm text-muted-foreground">
-            <p>&copy; 2024 Sente Loan. All rights reserved.</p>
+
+          <div className="flex items-center space-x-6">
+            <Link href="/login" className="hover:text-zinc-300 transition-colors">
+              Staff Portal
+            </Link>
+            <Link href="/client-login" className="hover:text-zinc-300 transition-colors">
+              Member Portal
+            </Link>
+            <Link href="/privacy" className="hover:text-zinc-300 transition-colors">
+              Privacy
+            </Link>
           </div>
+        </div>
+
+        <div className="max-w-7xl mx-auto mt-8 pt-6 border-t border-zinc-900/60 text-center text-zinc-600 text-[11px]">
+          © {new Date().getFullYear()} Mikopo Platform. All rights reserved.
         </div>
       </footer>
     </div>

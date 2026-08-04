@@ -8,14 +8,10 @@ import { SessionBootstrap } from "@/components/session-bootstrap"
 import { ToastProvider } from "@/components/ui/toast"
 
 export const metadata: Metadata = {
-  title: "Sente Loan - SACCO Management System",
+  title: "Mikopo - Digital SACCO Management System",
   description:
-    "Complete digital platform for Ugandan Saccos and credit cooperatives to manage members, track loans, and generate reports.",
+    "Complete digital platform for African SACCOs and credit cooperatives to manage members, share capital, savings, loans, and audit reports.",
   generator: "v0.app",
-  icons: {
-    icon: "https://res.cloudinary.com/hatari/image/upload/v1756391810/sente-loans/logos/favicon_f7tsiy.ico",
-    apple: "https://res.cloudinary.com/hatari/image/upload/v1756391810/sente-loans/logos/favicon_f7tsiy.ico",
-  },
 }
 
 export default function RootLayout({
