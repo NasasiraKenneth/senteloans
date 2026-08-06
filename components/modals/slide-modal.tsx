@@ -111,10 +111,10 @@ export function SlideModal({
                 )}
                 {showCloseButton && (
                   <Button
-                    variant="ghost"
+                    variant='ghost'
                     size="sm"
                     onClick={onClose}
-                    className="h-8 w-8 p-0 hover:bg-muted"
+                    className="h-8 w-8 p-0"
                   >
                     <X className="h-4 w-4" />
                     <span className="sr-only">Close</span>

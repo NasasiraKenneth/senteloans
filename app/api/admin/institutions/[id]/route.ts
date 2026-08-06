@@ -112,6 +112,20 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
         [id]
       )
 
+      // 5. Branch Members Totals
+      const branchMembersRes = await client.query(
+        `SELECT 
+           b.id AS branch_id,
+           b.name AS branch_name,
+           COUNT(m.id)::int AS members_count
+         FROM branches b
+         LEFT JOIN members m ON m.branch_id = b.id
+         WHERE b.institution_id = $1
+         GROUP BY b.id, b.name
+         ORDER BY members_count DESC`,
+        [id]
+      )
+
       return {
         institution,
         branches: branchesRes.rows,
@@ -121,6 +135,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
           staffUsersCount: counts.staff_users_count || 0,
           avgMonthlyMessages: Number(counts.avg_monthly_messages || 0),
           monthlyGrowth: growthRes.rows,
+          branchMembers: branchMembersRes.rows,
         },
       }
     })

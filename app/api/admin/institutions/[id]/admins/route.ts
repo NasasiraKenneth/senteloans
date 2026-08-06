@@ -18,7 +18,9 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
            u.full_name,
            u.email,
            u.phone_number,
+           u.branch_id,
            u.status,
+           a.username,
            CASE
              WHEN r.name = 'System Admin' THEN 'system_admin'
              WHEN r.name = 'Super Admin' THEN 'super_admin'
@@ -30,6 +32,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
            u.created_at
          FROM users u
          LEFT JOIN roles r ON r.id = u.role_id
+         LEFT JOIN app_auth_users a ON a.id = u.auth_id
          WHERE u.institution_id = $1
            AND (
              CASE
@@ -59,18 +62,30 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     if (!session?.user?.authUserId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     if (session.user.role !== "system_admin") return NextResponse.json({ error: "Forbidden" }, { status: 403 })
 
-    const body = await req.json().catch(() => ({})) as { name?: string; email?: string; phone?: string; password?: string }
-    const { name, email, phone, password } = body
+    const body = (await req.json().catch(() => ({}))) as {
+      name?: string
+      username?: string
+      email?: string
+      phone?: string
+      password?: string
+      branch_id?: string
+      branchId?: string
+    }
+    const { name, username: customUsername, email, phone, password } = body
+    const requestedBranchId = body.branch_id || body.branchId
     if (!name || !email || !password) return NextResponse.json({ error: "name, email and password are required" }, { status: 400 })
     const emailLower = String(email).trim().toLowerCase()
 
     const result = await runWithoutAuth(async (client) => {
-      const branchRes = await client.query(
-        `SELECT id FROM branches WHERE institution_id = $1 ORDER BY created_at ASC LIMIT 1`,
-        [institutionId]
-      )
-      const branchId = branchRes.rows[0]?.id
-      if (!branchId) return { error: "No branch found for institution" as const }
+      let targetBranchId = requestedBranchId
+      if (!targetBranchId) {
+        const branchRes = await client.query(
+          `SELECT id FROM branches WHERE institution_id = $1 ORDER BY created_at ASC LIMIT 1`,
+          [institutionId]
+        )
+        targetBranchId = branchRes.rows[0]?.id
+      }
+      if (!targetBranchId) return { error: "No branch found for institution" as const }
 
       const roleRes = await client.query(
         `SELECT id FROM roles WHERE name = 'Admin' LIMIT 1`
@@ -82,7 +97,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       if (existing.rows.length > 0) return { error: "Auth email already exists" as const }
 
       const password_hash = await hash(password, 10)
-      const username = await getUniqueUsername(client, emailLower)
+      const username = customUsername?.trim() || (await getUniqueUsername(client, emailLower))
       const authRes = await client.query(
         `INSERT INTO app_auth_users (user_type, username, email, password_hash) VALUES ($1, $2, $3, $4) RETURNING id`,
         [AUTH_USER_TYPE_INSTITUTION_STAFF, username, emailLower, password_hash]
@@ -93,7 +108,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       await client.query(
         `INSERT INTO users (auth_id, institution_id, branch_id, role_id, email, full_name, phone_number, status)
          VALUES ($1, $2, $3, $4, $5, $6, $7, 'Active')`,
-        [authUserId, institutionId, branchId, adminRoleId, emailLower, String(name).trim(), phone ? String(phone).trim() : null]
+        [authUserId, institutionId, targetBranchId, adminRoleId, emailLower, String(name).trim(), phone ? String(phone).trim() : null]
       )
       return { ok: true, user_id: authUserId }
     })

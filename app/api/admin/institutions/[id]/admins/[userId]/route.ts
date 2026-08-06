@@ -11,14 +11,25 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     if (!session?.user?.authUserId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     if (session.user.role !== "system_admin") return NextResponse.json({ error: "Forbidden" }, { status: 403 })
 
-    const body = await req.json().catch(() => ({})) as Record<string, unknown>
+    const body = (await req.json().catch(() => ({}))) as Record<string, unknown>
     const update: Record<string, unknown> = {}
-    if (typeof body.full_name === "string") update.full_name = body.full_name
-    if (typeof body.phone_number === "string") update.phone_number = body.phone_number
-    if (typeof body.status === "string") update.status = body.status
-    const newPassword = typeof body.new_password === "string" ? body.new_password : undefined
 
-    if (Object.keys(update).length === 0 && !newPassword) {
+    const nameVal = typeof body.full_name === "string" ? body.full_name : typeof body.name === "string" ? body.name : undefined
+    if (nameVal !== undefined) update.full_name = nameVal.trim()
+
+    const phoneVal = typeof body.phone_number === "string" ? body.phone_number : typeof body.phone === "string" ? body.phone : undefined
+    if (phoneVal !== undefined) update.phone_number = phoneVal.trim() || null
+
+    const branchVal = typeof body.branch_id === "string" ? body.branch_id : typeof body.branchId === "string" ? body.branchId : undefined
+    if (branchVal !== undefined) update.branch_id = branchVal
+
+    if (typeof body.status === "string") update.status = body.status
+
+    const emailVal = typeof body.email === "string" ? body.email.trim().toLowerCase() : undefined
+    const usernameVal = typeof body.username === "string" ? body.username.trim() : undefined
+    const newPassword = typeof body.new_password === "string" ? body.new_password : typeof body.password === "string" ? body.password : undefined
+
+    if (Object.keys(update).length === 0 && !newPassword && !emailVal && !usernameVal) {
       return NextResponse.json({ error: "No valid fields to update" }, { status: 400 })
     }
 
@@ -27,6 +38,8 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       const adminRoleId = adminRoleRes.rows[0]?.id
       if (!adminRoleId) throw new Error("Admin role is not seeded")
 
+      if (emailVal !== undefined) update.email = emailVal
+
       if (Object.keys(update).length > 0) {
         const setClause = Object.keys(update).map((k, i) => `${k} = $${i + 4}`).join(", ")
         await client.query(
@@ -34,15 +47,40 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
           [userId, institutionId, adminRoleId, ...Object.values(update)]
         )
       }
-      if (newPassword && newPassword.length >= 8) {
+
+      if (newPassword || emailVal || usernameVal) {
         const appUserRes = await client.query(
           `SELECT auth_id FROM users WHERE id = $1 AND institution_id = $2 AND role_id = $3`,
           [userId, institutionId, adminRoleId]
         )
         const authUserId = appUserRes.rows[0]?.auth_id
         if (authUserId) {
-          const password_hash = await hash(newPassword, 10)
-          await client.query(`UPDATE app_auth_users SET password_hash = $1, updated_at = NOW() WHERE id = $2`, [password_hash, authUserId])
+          const authUpdates: string[] = []
+          const authValues: any[] = []
+          let paramIdx = 1
+
+          if (emailVal) {
+            authUpdates.push(`email = $${paramIdx++}`)
+            authValues.push(emailVal)
+          }
+          if (usernameVal) {
+            authUpdates.push(`username = $${paramIdx++}`)
+            authValues.push(usernameVal)
+          }
+          if (newPassword && newPassword.length >= 6) {
+            const password_hash = await hash(newPassword, 10)
+            authUpdates.push(`password_hash = $${paramIdx++}`)
+            authValues.push(password_hash)
+          }
+
+          if (authUpdates.length > 0) {
+            authUpdates.push(`updated_at = NOW()`)
+            authValues.push(authUserId)
+            await client.query(
+              `UPDATE app_auth_users SET ${authUpdates.join(", ")} WHERE id = $${paramIdx}`,
+              authValues
+            )
+          }
         }
       }
     })
