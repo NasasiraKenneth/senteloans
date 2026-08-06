@@ -9,6 +9,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { runWithoutAuth } from "@/lib/db"
 import { AdminInstitutionAdminsSection } from "@/components/admin-institution-admins-section"
+import EditInstitutionModal from "../components/edit/edit"
 
 interface InstitutionDetailPageProps {
   params: Promise<{ id: string }>
@@ -22,7 +23,46 @@ export default async function InstitutionDetailPage({ params }: InstitutionDetai
 
   const institution = await runWithoutAuth(async (client) => {
     const res = await client.query(
-      "SELECT id, name, type, status, registration_number, license_number, address, phone_number, email, website, established_date, settings, created_at, updated_at FROM institutions WHERE id = $1",
+      `SELECT 
+         i.id, 
+         i.name, 
+         i.type, 
+         i.status, 
+         i.registration_number, 
+         i.license_number, 
+         i.website, 
+         i.logo, 
+         i.created_at, 
+         i.updated_at,
+         b.name AS branch_name,
+         bt.name AS branch_type,
+         b.address AS address, 
+         b.phone_number AS phone_number, 
+         b.email AS email, 
+         b.established_date AS established_date,
+         json_build_object(
+           'loans', COALESCE(c.loans, 'false'),
+           'shares', COALESCE(c.shares, 'false'),
+           'savings', COALESCE(c.savings, 'false'),
+           'mobile_money', COALESCE(c.mobile_money, 'false'),
+           'auto_invoices', COALESCE(c.auto_invoices, 'false'),
+           'chats', COALESCE(c.chats, 'false'),
+           'currency', COALESCE(c.currency, 'UGX'),
+           'membership_fee', c.membership_fee,
+           'share_value', c.share_value,
+           'minimum_shares', c.minimum_shares
+         ) AS settings
+       FROM institutions i
+       LEFT JOIN LATERAL (
+         SELECT id, name, branch_type_id, address, phone_number, email, established_date
+         FROM branches
+         WHERE institution_id = i.id
+         ORDER BY created_at ASC
+         LIMIT 1
+       ) b ON true
+       LEFT JOIN branch_types bt ON bt.id = b.branch_type_id
+       LEFT JOIN config c ON c.branch_id = b.id
+       WHERE i.id = $1`,
       [id]
     )
     return res.rows[0] ?? null
@@ -31,7 +71,7 @@ export default async function InstitutionDetailPage({ params }: InstitutionDetai
   if (!institution) notFound()
 
   const settings = (institution.settings as Record<string, unknown>) || {}
-  const modules = (settings.modules as Record<string, unknown>) || {}
+  const modules = (settings.modules as Record<string, boolean>) || {}
   const clientTerminology = (settings.clientTerminology as string) || "Client"
 
   return (
@@ -51,12 +91,7 @@ export default async function InstitutionDetailPage({ params }: InstitutionDetai
           </div>
         </div>
         <div className="flex space-x-2">
-          <Link href={`/admin/institutions/${institution.id}/edit`}>
-            <Button>
-              <Edit className="mr-2 h-4 w-4" />
-              Edit Institution
-            </Button>
-          </Link>
+          <EditInstitutionModal institution={institution} buttonText="Edit Institution" buttonSize="default" />
         </div>
       </div>
 
@@ -196,7 +231,7 @@ export default async function InstitutionDetailPage({ params }: InstitutionDetai
                 <div className="text-2xl font-bold text-primary">UGX 0</div>
                 <p className="text-sm text-muted-foreground">Total Loans</p>
               </div>
-              {modules.savings && (
+              {Boolean(modules.savings) && (
                 <>
                   <Separator />
                   <div className="text-center">
@@ -246,7 +281,7 @@ export default async function InstitutionDetailPage({ params }: InstitutionDetai
                 <DollarSign className="mr-2 h-4 w-4" />
                 View Loans
               </Button>
-              {modules.savings && (
+              {Boolean(modules.savings) && (
                 <Button variant="outline" className="w-full justify-start bg-transparent">
                   <Building2 className="mr-2 h-4 w-4" />
                   View Savings

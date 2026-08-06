@@ -47,6 +47,7 @@ RETURNS TEXT AS $$
     -- Role mapping:
     -- - System Admin: platform/global admin.
     -- - Super Admin: institution-wide admin (all branches in own institution).
+    WHEN a.user_type = 'system_admin' THEN 'system_admin'
     WHEN r.name = 'System Admin' THEN 'system_admin'
     WHEN r.name = 'Super Admin' THEN 'super_admin'
     WHEN r.name = 'Admin' THEN 'institution_admin'
@@ -55,6 +56,7 @@ RETURNS TEXT AS $$
     ELSE NULL
   END
   FROM users u
+  LEFT JOIN app_auth_users a ON a.id = u.auth_id
   LEFT JOIN roles r ON r.id = u.role_id
   WHERE u.auth_id = auth.uid()
   LIMIT 1

@@ -4,6 +4,7 @@ import { normalizeRole } from "@/lib/api/rbac"
 export const VALID_STAFF_STATUSES = ["Active", "Inactive", "Suspended"] as const
 
 export const ROLE_NAME_TO_APP_ROLE_SQL = `CASE
+  WHEN a.user_type = 'system_admin' THEN 'system_admin'
   WHEN r.name = 'System Admin' THEN 'system_admin'
   WHEN r.name = 'Super Admin' THEN 'super_admin'
   WHEN r.name = 'Admin' THEN 'institution_admin'

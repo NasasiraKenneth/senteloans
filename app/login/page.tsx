@@ -194,7 +194,7 @@ function LoginForm() {
                 <Coins className="h-10 w-10 text-black" />
               </div>
               <span className="text-3xl font-black tracking-tight text-white flex items-center">
-                MIKOPO<span className="text-[#f08c2b] ml-0.5">.</span>
+                NYUKI<span className="text-[#f08c2b] ml-0.5">.</span>
               </span>
               <span className="text-xs text-zinc-400 font-mono uppercase tracking-widest mt-1">
                 SACCO Management Engine
@@ -261,7 +261,7 @@ function LoginForm() {
                 <Coins className="h-6 w-6 text-black" />
               </div>
               <span className="text-2xl font-black tracking-tight text-zinc-900 flex items-center">
-                MIKOPO<span className="text-[#f08c2b] ml-0.5">.</span>
+                NYUKI<span className="text-[#f08c2b] ml-0.5">.</span>
               </span>
             </Link>
             <p className="text-xs font-mono font-semibold uppercase tracking-widest text-[#f08c2b]">
@@ -298,7 +298,7 @@ function LoginForm() {
                   <input
                     id="email"
                     type="email"
-                    placeholder="you@institution.com"
+                    placeholder="Enter your email address"
                     required
                     value={email}
                     onChange={(e) => {

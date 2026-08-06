@@ -229,9 +229,9 @@ BEGIN
 
     -- Platform super admin
     INSERT INTO users (
-        id, auth_id, institution_id, branch_id, role_id, email, full_name, phone_number, status
+        id, auth_id, institution_id, branch_id, email, full_name, phone_number, status
     ) VALUES (
-        uuid_generate_v4(), NULL::uuid, platform_id, platform_branch_id, role_super_admin_id,
+        uuid_generate_v4(), NULL::uuid, platform_id, platform_branch_id,
         'admin@senteloans.com', 'SenteLoans System Admin', '+256000000000', 'Active'
     )
     ON CONFLICT (email) DO NOTHING;

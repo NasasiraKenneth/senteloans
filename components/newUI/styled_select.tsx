@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Popover from "@mui/material/Popover";
 
-type SelectOption = { value: string; label: string };
+type SelectOption = { value: string; label: string; description?: string };
 
 interface StyledSelectProps {
   value: string;
@@ -24,12 +24,13 @@ export default function StyledSelect({
   const [search, setSearch] = useState(""); // search term
   const open = Boolean(anchor);
   const safeText = (v: unknown) => String(v ?? "");
-  const selectedLabel = safeText(options.find((o) => o.value === value)?.label);
+  const selectedOpt = options.find((o) => o.value === value);
 
   // Filter options if searchable
   const filteredOptions = searchable
     ? options.filter((o) =>
-        safeText(o?.label).toLowerCase().includes(search.toLowerCase()),
+        safeText(o?.label).toLowerCase().includes(search.toLowerCase()) ||
+        safeText(o?.description).toLowerCase().includes(search.toLowerCase())
       )
     : options;
 
@@ -37,17 +38,24 @@ export default function StyledSelect({
     <>
       <div
         onClick={(e) => setAnchor(e.currentTarget)}
-        className={`flex items-center justify-between w-full px-3 py-2.5 text-sm border rounded-md cursor-pointer transition-all duration-200 ${
+        className={`flex items-center justify-between w-full px-3 py-2 text-sm border rounded-md cursor-pointer transition-all duration-200 ${
           open
             ? "ring-[1.5px] ring-[#f08c2b] border-transparent"
             : "border-gray-300 hover:border-gray-400"
         }`}
       >
-        <span className={value ? "text-gray-900" : "text-gray-400"}>
-          {selectedLabel || placeholder}
-        </span>
+        <div className="flex flex-col text-left overflow-hidden">
+          <span className={value ? "text-gray-900 font-medium truncate" : "text-gray-400 truncate"}>
+            {selectedOpt ? safeText(selectedOpt.label) : placeholder}
+          </span>
+          {selectedOpt?.description && (
+            <span className="text-xs text-gray-500 font-normal truncate">
+              {safeText(selectedOpt.description)}
+            </span>
+          )}
+        </div>
         <svg
-          className={`h-4 w-4 text-gray-400 transition-transform ${open ? "rotate-180" : ""}`}
+          className={`h-4 w-4 text-gray-400 transition-transform flex-shrink-0 ml-2 ${open ? "rotate-180" : ""}`}
           fill="none"
           viewBox="0 0 24 24"
           stroke="currentColor"
@@ -72,7 +80,7 @@ export default function StyledSelect({
         transformOrigin={{ vertical: "top", horizontal: "left" }}
         PaperProps={{
           sx: {
-            width: anchor?.offsetWidth || 200,
+            width: anchor?.offsetWidth || 220,
             borderRadius: "10px",
             boxShadow: "0 10px 40px rgba(0,0,0,0.15)",
             mt: 0.5,
@@ -101,10 +109,10 @@ export default function StyledSelect({
                     setAnchor(null);
                     setSearch(""); // reset search after selection
                   }}
-                  className="flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-gray-50 rounded-lg transition-colors"
+                  className="flex items-start gap-3 px-3 py-2.5 cursor-pointer hover:bg-gray-50 rounded-lg transition-colors"
                 >
                   <div
-                    className={`relative w-4.5 h-4.5 border-2 flex items-center justify-center rounded-md transition-all ${
+                    className={`relative w-4.5 h-4.5 border-2 flex items-center justify-center rounded-md transition-all mt-0.5 flex-shrink-0 ${
                       isSelected
                         ? "bg-[#f08c2b] border-[#f08c2b]"
                         : "bg-white border-gray-400 hover:border-gray-600"
@@ -126,7 +134,14 @@ export default function StyledSelect({
                       </svg>
                     )}
                   </div>
-                  <span className="text-sm text-gray-800">{safeText(opt?.label)}</span>
+                  <div className="flex flex-col text-left">
+                    <span className="text-sm font-medium text-gray-800">{safeText(opt?.label)}</span>
+                    {opt.description && (
+                      <span className="text-xs text-gray-500 font-normal mt-0.5 leading-snug">
+                        {safeText(opt.description)}
+                      </span>
+                    )}
+                  </div>
                 </div>
               );
             })}

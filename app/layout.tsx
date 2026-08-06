@@ -8,7 +8,7 @@ import { SessionBootstrap } from "@/components/session-bootstrap"
 import { ToastProvider } from "@/components/ui/toast"
 
 export const metadata: Metadata = {
-  title: "Mikopo - Digital SACCO Management System",
+  title: "NYUKI - Digital SACCO Management System",
   description:
     "Complete digital platform for African SACCOs and credit cooperatives to manage members, share capital, savings, loans, and audit reports.",
   generator: "v0.app",

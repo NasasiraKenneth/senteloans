@@ -17,15 +17,17 @@ export async function GET() {
       const res = await client.query(
         `SELECT u.id, u.full_name, u.email, u.phone_number, u.status, u.created_at,
                 CASE
+                  WHEN a.user_type = 'system_admin' THEN 'system_admin'
                   WHEN r.name = 'System Admin' THEN 'system_admin'
                   WHEN r.name = 'Super Admin' THEN 'super_admin'
                   WHEN r.name = 'Admin' THEN 'institution_admin'
                   WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
-                  ELSE NULL
+                  ELSE 'staff'
                 END AS role,
                 i.name AS institution_name, i.id AS institution_id
          FROM users u
          JOIN institutions i ON i.id = u.institution_id
+         LEFT JOIN app_auth_users a ON a.id = u.auth_id
          LEFT JOIN roles r ON r.id = u.role_id
          ORDER BY i.name, role, u.full_name`
       )

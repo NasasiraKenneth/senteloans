@@ -198,10 +198,7 @@ function AdminLoginForm() {
             <Coins className="h-5 w-5 text-black" />
           </div>
           <span className="text-[22px] font-bold tracking-tight text-white flex items-center gap-1.5">
-            MIKOPO<span className="text-[#f08c2b]">.</span>
-            <span className="text-[#f08c2b] text-[11px] font-mono tracking-wider border border-[#f08c2b]/25 bg-[#f08c2b]/10 px-2 py-0.5 rounded-full uppercase">
-              ADMIN
-            </span>
+            NYUKI
           </span>
         </Link>
 
@@ -210,7 +207,7 @@ function AdminLoginForm() {
           {/* Header */}
           <div className="mb-8 text-center">
             <h1 className="text-[28px] font-bold tracking-tight text-white">
-              System Admin Portal
+              System Portal Login
             </h1>
             <p className="mt-2 text-[15px] text-white/50">
               Sign in to manage institutions and system settings
@@ -222,12 +219,12 @@ function AdminLoginForm() {
             {/* Email */}
             <div className="space-y-2">
               <label htmlFor="email" className="block text-[13px] font-medium text-white/70">
-                Admin email address
+                Email Address
               </label>
               <input
                 id="email"
                 type="email"
-                placeholder="admin@mikopo.africa"
+                placeholder="Enter your email address"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 onFocus={() => setFocused("email")}
@@ -304,7 +301,7 @@ function AdminLoginForm() {
                   <span>Signing in...</span>
                 </>
               ) : (
-                "Sign in to Admin Portal"
+                "Sign in"
               )}
             </button>
           </form>

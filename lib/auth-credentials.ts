@@ -47,6 +47,7 @@ async function authenticateWithClient(
        u.institution_id,
        b.status::text AS branch_status,
        CASE
+         WHEN a.user_type = 'system_admin' THEN 'system_admin'
          WHEN r.name = 'System Admin' THEN 'system_admin'
          WHEN r.name = 'Super Admin' THEN 'super_admin'
          WHEN r.name = 'Admin' THEN 'institution_admin'
@@ -54,6 +55,7 @@ async function authenticateWithClient(
          ELSE NULL
        END AS role
      FROM users u
+     LEFT JOIN app_auth_users a ON a.id = u.auth_id
      LEFT JOIN roles r ON r.id = u.role_id
      LEFT JOIN branches b ON b.id = u.branch_id
      WHERE u.auth_id = $1 AND u.status = 'Active'`,
@@ -63,10 +65,10 @@ async function authenticateWithClient(
 
   if (staff) {
     if (loginContext === "institution") {
-      if (authRow.user_type !== AUTH_USER_TYPE_INSTITUTION_STAFF) {
+      if (authRow.user_type !== AUTH_USER_TYPE_INSTITUTION_STAFF && authRow.user_type !== "system_admin") {
         throw new AuthLoginError(LOGIN_ERROR_MESSAGES.invalidAccountType)
       }
-      if (staff.branch_status !== "Active") {
+      if (staff.branch_status && staff.branch_status !== "Active") {
         throw new AuthLoginError(LOGIN_ERROR_MESSAGES.branchInactive)
       }
     }
@@ -81,7 +83,7 @@ async function authenticateWithClient(
       authUserId,
       email,
       name: staff.full_name,
-      role: staff.role ?? "",
+      role: authRow.user_type === "system_admin" ? "system_admin" : (staff.role ?? ""),
       type: "staff",
       institutionId: staff.institution_id,
       userId: staff.id,

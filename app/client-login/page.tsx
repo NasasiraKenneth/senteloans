@@ -144,7 +144,7 @@ function ClientLoginForm() {
             <Coins className="h-5 w-5 text-black" />
           </div>
           <span className="text-md font-bold tracking-tight text-white flex items-center gap-1.5">
-            MIKOPO<span className="text-[#f08c2b]">.</span>
+            NYUKI<span className="text-[#f08c2b]">.</span>
             <span className="text-[#f08c2b] text-[12px] font-medium tracking-normal border border-[#f08c2b]/25 bg-[#f08c2b]/10 px-2 py-0.5 rounded-full">SACCO</span>
           </span>
         </div>
@@ -306,7 +306,7 @@ function ClientLoginForm() {
                   <input
                     id="email"
                     type="email"
-                    placeholder="name@example.com"
+                    placeholder="Enter your email address"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     onFocus={() => setFocused("email")}

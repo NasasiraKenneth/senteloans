@@ -81,7 +81,7 @@ export default async function AdminUsersPage() {
                     </Link>
                   </TableCell>
                   <TableCell>
-                    <Badge variant="outline">{user.role.replace(/_/g, " ")}</Badge>
+                    <Badge variant="outline">{(user.role || "staff").replace(/_/g, " ")}</Badge>
                   </TableCell>
                   <TableCell>
                     <Badge variant={user.status === "Active" ? "default" : "secondary"}>{user.status}</Badge>

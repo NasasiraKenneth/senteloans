@@ -75,6 +75,7 @@ export async function resolveActorContext(
        u.role_id,
        u.status::text AS status,
        CASE
+         WHEN a.user_type = 'system_admin' THEN 'system_admin'
          WHEN r.name = 'System Admin' THEN 'system_admin'
          WHEN r.name = 'Super Admin' THEN 'super_admin'
          WHEN r.name = 'Admin' THEN 'institution_admin'
@@ -82,6 +83,7 @@ export async function resolveActorContext(
          ELSE NULL
        END AS role
      FROM users u
+     LEFT JOIN app_auth_users a ON a.id = u.auth_id
      LEFT JOIN roles r ON r.id = u.role_id
      WHERE u.auth_id = $1
        ${activeOnly ? "AND u.status = 'Active'" : ""}

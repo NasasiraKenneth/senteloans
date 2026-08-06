@@ -1,6 +1,6 @@
 import type React from "react"
 import { redirect } from "next/navigation"
-import { AdminSidebar } from "@/components/admin-sidebar"
+import { AdminHeaderNav } from "@/components/admin-header-nav"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 
@@ -18,9 +18,14 @@ export default async function AdminLayout({
   }
 
   return (
-    <div className="flex h-screen bg-background">
-      <AdminSidebar />
-      <main className="flex-1 overflow-y-auto">{children}</main>
+    <div className="min-h-screen bg-slate-50/50 text-slate-900 flex flex-col font-sans">
+      <AdminHeaderNav />
+      <main className="flex-1 w-full px-6 lg:px-10 py-6 overflow-y-auto">
+        {children}
+      </main>
     </div>
   )
 }
+
+
+

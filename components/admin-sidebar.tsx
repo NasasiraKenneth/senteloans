@@ -56,7 +56,7 @@ export function AdminSidebar() {
         <Link href="/admin" className="flex items-center space-x-2">
           <Shield className="h-8 w-8 text-white" />
           <div className="text-white">
-            <div className="text-lg font-bold">SenteLoans</div>
+            <div className="text-lg font-bold">Nyuki</div>
             <div className="text-xs text-primary-foreground/70">System Admin</div>
           </div>
         </Link>

@@ -80,7 +80,7 @@ export default function LandingPage() {
               </motion.div>
               <div className="flex flex-col">
                 <span className="text-xl font-bold tracking-tight text-white flex items-center">
-                  MIKOPO<span className="text-orange-500 ml-0.5">.</span>
+                  NYUKI<span className="text-orange-500 ml-0.5">.</span>
                 </span>
                 <span className="text-[10px] tracking-widest text-zinc-400 uppercase font-mono -mt-1">
                   SACCO Management System
@@ -686,7 +686,7 @@ export default function LandingPage() {
             <div className="w-7 h-7 rounded-lg bg-orange-500 flex items-center justify-center">
               <Coins className="h-4 w-4 text-black" />
             </div>
-            <span className="text-base font-bold text-white">MIKOPO.</span>
+            <span className="text-base font-bold text-white">NYUKI.</span>
             <span className="text-zinc-600">|</span>
             <span>Digital SACCO Management System</span>
           </div>
@@ -705,7 +705,7 @@ export default function LandingPage() {
         </div>
 
         <div className="max-w-7xl mx-auto mt-8 pt-6 border-t border-zinc-900/60 text-center text-zinc-600 text-[11px]">
-          © {new Date().getFullYear()} Mikopo Platform. All rights reserved.
+          © {new Date().getFullYear()} Nyuki Platform. All rights reserved.
         </div>
       </footer>
     </div>
