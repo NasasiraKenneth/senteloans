@@ -132,7 +132,7 @@ export interface InvestmentDevelopmentStartedSummary {
   investment_number?: string | null
   principal_amount: number
   start_date: string
-  maturity_date: string
+  maturity_date?: string | null
 }
 
 export interface NotifyInvestmentDevelopmentStartedInput {
@@ -195,10 +195,9 @@ export async function notifyInvestmentDevelopmentStarted(
     investment_name: investment.investment_name ?? undefined,
     amount: investment.principal_amount,
     start_date: investment.start_date,
-    maturity_date: investment.maturity_date,
+    maturity_date: investment.maturity_date ?? undefined,
     status: "under_development",
   }
-
   const messages: CreateNotificationInput[] = recipients.map((r) => ({
     institutionId: actor.institution_id,
     branchId: r.branch_id ?? actor.branch_id,

@@ -240,12 +240,23 @@ export async function POST(req: Request) {
       body.extractedReturns ?? body.extracted_returns ?? body.expectedReturns ?? body.expected_returns ?? 0,
     )
     const periodUnitRaw = String(body.periodUnit || body.period_unit || "").trim().toLowerCase()
-    const periodValueRaw = Number(body.periodValue ?? body.period_value ?? 0)
+    const pValRaw = body.periodValue ?? body.period_value
+    const hasPVal = pValRaw !== null && typeof pValRaw !== "undefined" && pValRaw !== ""
     const periodInMonthsDirect = body.period_in_months
     const periodInYearsDirect = body.period_in_years
     const riskLevel = String(body.riskLevel || body.risk_level || "").trim().toLowerCase()
-    const startDate = normalizeDate(body.startDate ?? body.start_date)
-    const maturityDate = normalizeDate(body.maturityDate ?? body.maturity_date)
+
+    const startDateRaw = body.startDate ?? body.start_date
+    if (startDateRaw !== null && typeof startDateRaw !== "undefined" && String(startDateRaw).trim() !== "" && !normalizeDate(startDateRaw)) {
+      return NextResponse.json({ error: "invalid_start_date" }, { status: 400 })
+    }
+    const maturityDateRaw = body.maturityDate ?? body.maturity_date
+    if (maturityDateRaw !== null && typeof maturityDateRaw !== "undefined" && String(maturityDateRaw).trim() !== "" && !normalizeDate(maturityDateRaw)) {
+      return NextResponse.json({ error: "invalid_maturity_date" }, { status: 400 })
+    }
+
+    const startDate = normalizeDate(startDateRaw)
+    const maturityDate = normalizeDate(maturityDateRaw)
     const status = String(body.status || "pending").trim().toLowerCase()
     const partners = Array.isArray(body.partners) ? (body.partners as Array<Record<string, unknown>>) : []
     const funding = Array.isArray(body.funding) ? (body.funding as Array<Record<string, unknown>>) : []
@@ -255,8 +266,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "invalid_investment_type" }, { status: 400 })
     }
     if (!["low", "medium", "high"].includes(riskLevel)) return NextResponse.json({ error: "invalid_risk_level" }, { status: 400 })
-    if (!startDate) return NextResponse.json({ error: "start_date_required" }, { status: 400 })
-    if (maturityDate && maturityDate < startDate) {
+    if (startDate && maturityDate && maturityDate < startDate) {
       return NextResponse.json({ error: "maturity_before_start_date" }, { status: 400 })
     }
     if (Number.isNaN(initialAmount) || initialAmount < 0) return NextResponse.json({ error: "invalid_initial_amount" }, { status: 400 })
@@ -275,38 +285,32 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "project_investments_cannot_have_provider" }, { status: 400 })
     }
 
+    const parsePeriodVal = (val: unknown): number | null => {
+      if (val === null || typeof val === "undefined" || val === "") return null
+      const n = Number(val)
+      if (Number.isNaN(n) || n <= 0) return null
+      return n
+    }
+
     let periodInMonths: number | null = null
     let periodInYears: number | null = null
 
-    if (periodUnitRaw) {
-      if (!["months", "years"].includes(periodUnitRaw)) {
-        return NextResponse.json({ error: "invalid_period_unit" }, { status: 400 })
-      }
-      if (Number.isNaN(periodValueRaw) || periodValueRaw <= 0) {
-        return NextResponse.json({ error: "invalid_period_value" }, { status: 400 })
-      }
-      if (periodUnitRaw === "months") {
-        periodInMonths = periodValueRaw
-        periodInYears = null
-      } else {
-        periodInYears = periodValueRaw
-        periodInMonths = null
+    if (hasPVal) {
+      const pVal = parsePeriodVal(pValRaw)
+      if (pVal !== null) {
+        if (periodUnitRaw && !["months", "years"].includes(periodUnitRaw)) {
+          return NextResponse.json({ error: "invalid_period_unit" }, { status: 400 })
+        }
+        if (periodUnitRaw === "years") {
+          periodInYears = pVal
+        } else {
+          periodInMonths = pVal
+        }
       }
     } else {
-      // Allow direct payload usage too, while enforcing one-side null semantics.
-      const monthsVal = periodInMonthsDirect === null || typeof periodInMonthsDirect === "undefined"
-        ? null
-        : Number(periodInMonthsDirect)
-      const yearsVal = periodInYearsDirect === null || typeof periodInYearsDirect === "undefined"
-        ? null
-        : Number(periodInYearsDirect)
+      const monthsVal = parsePeriodVal(periodInMonthsDirect)
+      const yearsVal = parsePeriodVal(periodInYearsDirect)
 
-      if (monthsVal !== null && (Number.isNaN(monthsVal) || monthsVal <= 0)) {
-        return NextResponse.json({ error: "invalid_period_in_months" }, { status: 400 })
-      }
-      if (yearsVal !== null && (Number.isNaN(yearsVal) || yearsVal <= 0)) {
-        return NextResponse.json({ error: "invalid_period_in_years" }, { status: 400 })
-      }
       if (monthsVal !== null && yearsVal !== null) {
         return NextResponse.json({ error: "period_months_and_years_cannot_both_be_set" }, { status: 400 })
       }

@@ -115,25 +115,61 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     const extractedReturns = Number(
       body.extractedReturns ?? body.extracted_returns ?? body.expectedReturns ?? body.expected_returns ?? 0,
     )
+    const periodUnitRaw = String(body.periodUnit || body.period_unit || "").trim().toLowerCase()
+    const pValRaw = body.periodValue ?? body.period_value
+    const hasPVal = pValRaw !== null && typeof pValRaw !== "undefined" && pValRaw !== ""
     const riskLevel = String(body.riskLevel || body.risk_level || "").trim().toLowerCase()
-    const startDate = normalizeDate(body.startDate ?? body.start_date)
-    const maturityDate = normalizeDate(body.maturityDate ?? body.maturity_date)
+
+    const startDateRaw = body.startDate ?? body.start_date
+    if (startDateRaw !== null && typeof startDateRaw !== "undefined" && String(startDateRaw).trim() !== "" && !normalizeDate(startDateRaw)) {
+      return NextResponse.json({ error: "invalid_start_date" }, { status: 400 })
+    }
+    const maturityDateRaw = body.maturityDate ?? body.maturity_date
+    if (maturityDateRaw !== null && typeof maturityDateRaw !== "undefined" && String(maturityDateRaw).trim() !== "" && !normalizeDate(maturityDateRaw)) {
+      return NextResponse.json({ error: "invalid_maturity_date" }, { status: 400 })
+    }
+
+    const startDate = normalizeDate(startDateRaw)
+    const maturityDate = normalizeDate(maturityDateRaw)
     const status = String(body.status || "pending").trim().toLowerCase()
-    const periodInMonths = body.period_in_months === null || typeof body.period_in_months === "undefined" ? null : Number(body.period_in_months)
-    const periodInYears = body.period_in_years === null || typeof body.period_in_years === "undefined" ? null : Number(body.period_in_years)
+
+    const parsePeriodVal = (val: unknown): number | null => {
+      if (val === null || typeof val === "undefined" || val === "") return null
+      const n = Number(val)
+      if (Number.isNaN(n) || n <= 0) return null
+      return n
+    }
+
+    let periodInMonths: number | null = null
+    let periodInYears: number | null = null
+
+    if (hasPVal) {
+      const pVal = parsePeriodVal(pValRaw)
+      if (pVal !== null) {
+        if (periodUnitRaw && !["months", "years"].includes(periodUnitRaw)) return NextResponse.json({ error: "invalid_period_unit" }, { status: 400 })
+        if (periodUnitRaw === "years") {
+          periodInYears = pVal
+        } else {
+          periodInMonths = pVal
+        }
+      }
+    } else {
+      const monthsVal = parsePeriodVal(body.period_in_months)
+      const yearsVal = parsePeriodVal(body.period_in_years)
+
+      if (monthsVal !== null && yearsVal !== null) return NextResponse.json({ error: "period_months_and_years_cannot_both_be_set" }, { status: 400 })
+      periodInMonths = monthsVal
+      periodInYears = yearsVal
+    }
 
     if (!category) return NextResponse.json({ error: "investment_type_required" }, { status: 400 })
     if (!["fixed_income", "project", "equity", "partnership"].includes(category)) return NextResponse.json({ error: "invalid_investment_type" }, { status: 400 })
     if (category === "project" && providerId) return NextResponse.json({ error: "project_investments_cannot_have_provider" }, { status: 400 })
     if (!["low", "medium", "high"].includes(riskLevel)) return NextResponse.json({ error: "invalid_risk_level" }, { status: 400 })
-    if (!startDate) return NextResponse.json({ error: "start_date_required" }, { status: 400 })
-    if (maturityDate && maturityDate < startDate) return NextResponse.json({ error: "maturity_before_start" }, { status: 400 })
+    if (startDate && maturityDate && maturityDate < startDate) return NextResponse.json({ error: "maturity_before_start" }, { status: 400 })
     if (Number.isNaN(initialAmount) || initialAmount < 0) return NextResponse.json({ error: "invalid_initial_amount" }, { status: 400 })
     if (Number.isNaN(currentValue) || currentValue < 0) return NextResponse.json({ error: "invalid_current_value" }, { status: 400 })
     if (Number.isNaN(extractedReturns) || extractedReturns < 0) return NextResponse.json({ error: "invalid_extracted_returns" }, { status: 400 })
-    if (periodInMonths !== null && (Number.isNaN(periodInMonths) || periodInMonths <= 0)) return NextResponse.json({ error: "invalid_period_in_months" }, { status: 400 })
-    if (periodInYears !== null && (Number.isNaN(periodInYears) || periodInYears <= 0)) return NextResponse.json({ error: "invalid_period_in_years" }, { status: 400 })
-    if (periodInMonths !== null && periodInYears !== null) return NextResponse.json({ error: "period_months_and_years_cannot_both_be_set" }, { status: 400 })
     if (!["pending", "approved", "under_development", "active", "matured", "closed", "cancelled"].includes(status)) return NextResponse.json({ error: "invalid_status" }, { status: 400 })
 
     const result = await runWithAuth(session.user.authUserId, async (client) => {

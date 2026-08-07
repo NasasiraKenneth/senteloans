@@ -15,10 +15,10 @@ export interface ActivateFormData {
   bankAccountId?: string
   referenceNumber?: string
   transactionCharges?: number
-  periodValue: number
-  periodUnit: "months" | "years"
+  periodValue?: number
+  periodUnit?: "months" | "years"
   startDate: string
-  endDate: string
+  endDate?: string
   description: string
 }
 
@@ -27,14 +27,6 @@ interface ActivateFormProps {
   onClose: () => void
   onSubmit: (data: ActivateFormData) => Promise<void> | void
   loading?: boolean
-}
-
-const toYmd = (value: unknown): string => {
-  if (!value) return ""
-  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value.trim())) return value.trim()
-  const d = value instanceof Date ? value : new Date(String(value))
-  if (Number.isNaN(d.getTime())) return ""
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
 }
 
 export default function ActivateForm({ initialValues, onClose, onSubmit, loading = false }: ActivateFormProps) {
@@ -82,23 +74,6 @@ export default function ActivateForm({ initialValues, onClose, onSubmit, loading
     }
   }, [])
 
-  useEffect(() => {
-    const startDate = String(form.startDate || "").trim()
-    const periodValue = Number(form.periodValue || 0)
-    const periodUnit = form.periodUnit
-    if (!startDate || !(periodValue > 0)) return
-
-    const base = new Date(`${startDate}T00:00:00`)
-    if (Number.isNaN(base.getTime())) return
-    const maturity = new Date(base)
-    if (periodUnit === "years") maturity.setFullYear(maturity.getFullYear() + periodValue)
-    else maturity.setMonth(maturity.getMonth() + periodValue)
-
-    const nextEndDate = toYmd(maturity)
-    if (!nextEndDate || nextEndDate === form.endDate) return
-    setForm((prev) => ({ ...prev, endDate: nextEndDate }))
-  }, [form.startDate, form.periodValue, form.periodUnit, form.endDate])
-
   const isCashMode = form.transactionMode === "Cash"
   const isBankRoutedMode = isBankRoutedPaymentMode(form.transactionMode)
   const chargesNumber = transactionChargesInput.trim() === "" ? 0 : Number(transactionChargesInput)
@@ -111,8 +86,6 @@ export default function ActivateForm({ initialValues, onClose, onSubmit, loading
     const nextErrors: Record<string, string> = {}
     if (!form.transactionMode) nextErrors.transactionMode = "Transaction mode is required"
     if (!form.startDate) nextErrors.startDate = "Start date is required"
-    if (!form.endDate) nextErrors.endDate = "End date is required"
-    if (!(Number(form.periodValue || 0) > 0)) nextErrors.periodValue = "Period value must be greater than zero"
     if (!isCashMode && form.transactionMode && !referenceNumber.trim()) {
       nextErrors.referenceNumber = `Reference number is required for ${form.transactionMode} payments`
     }
@@ -251,52 +224,16 @@ export default function ActivateForm({ initialValues, onClose, onSubmit, loading
         </div>
       ) : null}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        <div className="space-y-1.5">
-          <Label>Period unit</Label>
-          <div className="pointer-events-none opacity-70">
-            <StyledSelect
-              value={form.periodUnit}
-              onChange={() => {}}
-              options={[
-                { value: "months", label: "Months" },
-                { value: "years", label: "Years" },
-              ]}
-              placeholder="Select unit"
-            />
-          </div>
-        </div>
-        <div className="space-y-1.5">
-          <Label>Period value</Label>
-          <input
-            type="number"
-            min={1}
-            value={form.periodValue || ""}
-            disabled
-            onChange={() => {}}
-            className="w-full px-3 py-2.5 text-sm border border-gray-300 rounded-md bg-gray-100 text-gray-600"
-          />
-          {errors.periodValue ? <p className="text-xs text-red-600">{errors.periodValue}</p> : null}
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        <div className="space-y-1.5">
-          <Label>Start date</Label>
-          <ReeveDatePicker
-            value={form.startDate}
-            onChange={(value) => {
-              setForm((prev) => ({ ...prev, startDate: value }))
-              setErrors((prev) => ({ ...prev, startDate: "" }))
-            }}
-          />
-          {errors.startDate ? <p className="text-xs text-red-600">{errors.startDate}</p> : null}
-        </div>
-        <div className="space-y-1.5">
-          <Label>End date</Label>
-          <ReeveDatePicker value={form.endDate} onChange={(value) => setForm((prev) => ({ ...prev, endDate: value }))} />
-          {errors.endDate ? <p className="text-xs text-red-600">{errors.endDate}</p> : null}
-        </div>
+      <div className="space-y-1.5">
+        <Label>Transaction date</Label>
+        <ReeveDatePicker
+          value={form.startDate}
+          onChange={(value) => {
+            setForm((prev) => ({ ...prev, startDate: value }))
+            setErrors((prev) => ({ ...prev, startDate: "" }))
+          }}
+        />
+        {errors.startDate ? <p className="text-xs text-red-600">{errors.startDate}</p> : null}
       </div>
 
       <div className="space-y-1.5">
@@ -321,3 +258,4 @@ export default function ActivateForm({ initialValues, onClose, onSubmit, loading
     </div>
   )
 }
+

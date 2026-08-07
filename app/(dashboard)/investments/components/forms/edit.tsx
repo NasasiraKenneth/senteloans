@@ -43,10 +43,10 @@ export interface EditInvestmentFormData {
   riskLevel: string
   expectedPercentagePerAnnum: number
   principalAmount: number
-  periodValue: number
   periodUnit: "months" | "years"
-  startDate: string
-  maturityDate: string
+  startDate: string | null
+  maturityDate: string | null
+  periodValue: number | null
   description: string
   partners: InvestmentPartnerItem[]
 }
@@ -120,7 +120,7 @@ export default function EditInvestmentForm({
     riskLevel: String(initialValues.riskLevel || ""),
     expectedPercentagePerAnnum: Number(initialValues.expectedPercentagePerAnnum || 0),
     principalAmount: Number(initialValues.principalAmount || 0),
-    periodValue: Number(initialValues.periodValue || 0),
+    periodValue: initialValues.periodValue != null && Number(initialValues.periodValue) > 0 ? Number(initialValues.periodValue) : null,
     periodUnit: (initialValues.periodUnit as "months" | "years") || "months",
     startDate: toYmd(initialValues.startDate),
     maturityDate: toYmd(initialValues.maturityDate),
@@ -156,32 +156,47 @@ export default function EditInvestmentForm({
   }, [])
 
   useEffect(() => {
-    const startDate = String(formData.startDate || "").trim()
-    const periodValue = Number(formData.periodValue || 0)
-    const periodUnit = formData.periodUnit
-    if (!startDate || !(periodValue > 0)) return
+      const startDate = String(formData.startDate || "").trim()
+      const periodValue = formData.periodValue
+      const periodUnit = formData.periodUnit
+  
+      if (!startDate || !periodValue || periodValue <= 0) {
+        if (formData.maturityDate) {
+          setFormData((prev) => ({
+            ...prev,
+            maturityDate: "",
+          }))
+        }
+        return
+      }
+  
+      const base = new Date(`${startDate}T00:00:00`)
+      if (Number.isNaN(base.getTime())) return
+  
+      const maturity = new Date(base)
+  
+      if (periodUnit === "years") {
+        maturity.setFullYear(maturity.getFullYear() + periodValue)
+      } else {
+        maturity.setMonth(maturity.getMonth() + periodValue)
+      }
+  
+      const nextMaturityDate = toYmd(maturity)
+  
+      if (nextMaturityDate !== formData.maturityDate) {
+        setFormData((prev) => ({
+          ...prev,
+          maturityDate: nextMaturityDate,
+        }))
+      }
+    }, [
+      formData.startDate,
+      formData.periodValue,
+      formData.periodUnit,
+      formData.maturityDate,
+    ])
 
-    const base = new Date(`${startDate}T00:00:00`)
-    if (Number.isNaN(base.getTime())) return
-
-    const maturity = new Date(base)
-    if (periodUnit === "years") {
-      maturity.setFullYear(maturity.getFullYear() + periodValue)
-    } else {
-      maturity.setMonth(maturity.getMonth() + periodValue)
-    }
-
-    const nextMaturityDate = toYmd(maturity)
-    if (!nextMaturityDate) return
-    if (nextMaturityDate === formData.maturityDate) return
-
-    setFormData((prev) => ({
-      ...prev,
-      maturityDate: nextMaturityDate,
-    }))
-  }, [formData.startDate, formData.periodValue, formData.periodUnit, formData.maturityDate])
-
-  const setField = (field: keyof EditInvestmentFormData, value: string | number) => {
+  const setField = <K extends keyof EditInvestmentFormData>(field: K, value: EditInvestmentFormData[K]) => {
     setFormData((prev) => {
       const next: EditInvestmentFormData = { ...prev, [field]: value }
 
@@ -216,11 +231,9 @@ export default function EditInvestmentForm({
     const nextErrors: Record<string, string> = {}
     if (!formData.investmentType) nextErrors.investmentType = "Investment type is required"
     if (!formData.riskLevel) nextErrors.riskLevel = "Risk level is required"
-    if (!formData.startDate) nextErrors.startDate = "Start date is required"
-    if (!formData.maturityDate) nextErrors.maturityDate = "Maturity date is required"
     if (formData.expectedPercentagePerAnnum < 0) nextErrors.expectedPercentagePerAnnum = "Expected percentage cannot be negative"
     if (formData.principalAmount <= 0) nextErrors.principalAmount = "Principal amount must be greater than zero"
-    if (formData.periodValue <= 0) nextErrors.periodValue = "Period must be greater than zero"
+
 
     const start = formData.startDate ? new Date(`${formData.startDate}T00:00:00`) : null
     const maturity = formData.maturityDate ? new Date(`${formData.maturityDate}T00:00:00`) : null
@@ -458,11 +471,11 @@ export default function EditInvestmentForm({
           <SectionHeader
             icon={<CalendarClock className="h-4 w-4" />}
             title="Schedule"
-            description="When the investment starts and matures. Choose a period and the maturity date updates automatically."
+            description="Optional schedule information. Add dates and duration if the investment has a defined timeline."
           />
           <div className="px-5 py-5 space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <Field label="Start Date" required error={errors.startDate}>
+              <Field label="Start Date" error={errors.startDate}>
                 <ReeveDatePicker
                   value={formData.startDate}
                   onChange={(value) => setField("startDate", value)}
@@ -475,7 +488,7 @@ export default function EditInvestmentForm({
                 required
                 error={errors.periodValue}
                 hint={
-                  !errors.periodValue && formData.periodValue > 0
+                  !errors.periodValue && formData.periodValue && formData.periodValue > 0
                     ? `Investment runs for ${formData.periodValue} ${formData.periodUnit}.`
                     : undefined
                 }
@@ -488,8 +501,8 @@ export default function EditInvestmentForm({
                   <input
                     type="number"
                     min={0}
-                    value={formData.periodValue || ""}
-                    onChange={(e) => setField("periodValue", Number(e.target.value || 0))}
+                    value={formData.periodValue ?? ""}
+                    onChange={(e) => setField("periodValue", e.target.value === "" || Number(e.target.value) <= 0 ? null : Number(e.target.value))}
                     placeholder={`e.g. ${formData.periodUnit === "years" ? "5" : "12"}`}
                     className="w-full bg-transparent px-3 py-2.5 text-sm focus:outline-none"
                   />
@@ -528,10 +541,9 @@ export default function EditInvestmentForm({
 
               <Field
                 label="Maturity Date"
-                required
                 error={errors.maturityDate}
                 hint={
-                  !errors.maturityDate && formData.startDate && formData.periodValue > 0
+                  !errors.maturityDate && formData.startDate && (formData.periodValue ?? 0) > 0
                     ? "Auto-calculated. You can still override it."
                     : undefined
                 }

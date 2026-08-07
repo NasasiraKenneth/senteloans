@@ -105,19 +105,12 @@ export default function LandingPage() {
             </nav>
 
             {/* Header Actions */}
-            <div className="hidden md:flex items-center space-x-4">
-              <Link href="/client-login">
-                <Button
-                  variant="outline"
-                  className="border-zinc-800 bg-zinc-950 text-zinc-300 hover:text-white hover:border-zinc-700 text-xs font-semibold rounded-lg h-9 px-4 transition-all"
-                >
-                  Member Portal
-                </Button>
-              </Link>
-              <Link href="/login">
-                <Button className="bg-orange-500 hover:bg-orange-600 text-black font-semibold text-xs rounded-lg h-9 px-5 shadow-lg shadow-orange-500/20 transition-all">
-                  Staff Login <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
-                </Button>
+            <div className="hidden md:flex items-center">
+              <Link
+                href="/login-select"
+                className="text-sm font-semibold text-orange-500 hover:text-orange-400 transition-colors flex items-center gap-1.5 group"
+              >
+                Login <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
               </Link>
             </div>
 
@@ -173,16 +166,13 @@ export default function LandingPage() {
               >
                 FAQ
               </a>
-              <div className="pt-3 border-t border-zinc-900 space-y-2">
-                <Link href="/client-login" className="block w-full">
-                  <Button variant="outline" className="w-full border-zinc-800 text-zinc-300 text-xs">
-                    Member Portal Login
-                  </Button>
-                </Link>
-                <Link href="/login" className="block w-full">
-                  <Button className="w-full bg-orange-500 hover:bg-orange-600 text-black font-semibold text-xs">
-                    Staff Login <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
-                  </Button>
+              <div className="pt-3 border-t border-zinc-900">
+                <Link
+                  href="/login-select"
+                  onClick={() => setIsMenuOpen(false)}
+                  className="flex items-center gap-2 px-3 py-2 text-base font-semibold text-orange-500 hover:text-orange-400 transition-colors group"
+                >
+                  Login <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
                 </Link>
               </div>
             </motion.div>
@@ -225,20 +215,10 @@ export default function LandingPage() {
             variants={fadeInUp}
             className="flex flex-col sm:flex-row items-center justify-center gap-4 pt-4"
           >
-            <Link href="/login" className="w-full sm:w-auto">
+            <Link href="/login-select" className="w-full sm:w-auto">
               <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
                 <Button className="w-full sm:w-auto bg-orange-500 hover:bg-orange-600 text-black font-bold text-sm h-12 px-8 rounded-xl shadow-lg shadow-orange-500/20 transition-all">
-                  Launch Staff Dashboard <ArrowRight className="ml-2 h-4 w-4" />
-                </Button>
-              </motion.div>
-            </Link>
-            <Link href="/client-login" className="w-full sm:w-auto">
-              <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
-                <Button
-                  variant="outline"
-                  className="w-full sm:w-auto border-zinc-800 bg-zinc-950 text-zinc-300 hover:text-white hover:border-zinc-700 h-12 px-8 rounded-xl text-sm font-semibold transition-all"
-                >
-                  Access Member Portal
+                  Login to Portal <ArrowRight className="ml-2 h-4 w-4" />
                 </Button>
               </motion.div>
             </Link>
@@ -412,7 +392,7 @@ export default function LandingPage() {
                 </ul>
               </div>
               <div className="pt-6 mt-6 border-t border-zinc-900">
-                <Link href="/login" className="block w-full">
+                <Link href="/login-select" className="block w-full">
                   <Button className="w-full bg-orange-500 hover:bg-orange-600 text-black font-semibold text-xs h-9">
                     Manage Shares
                   </Button>
@@ -446,7 +426,7 @@ export default function LandingPage() {
                 </ul>
               </div>
               <div className="pt-6 mt-6 border-t border-zinc-900">
-                <Link href="/login" className="block w-full">
+                <Link href="/login-select" className="block w-full">
                   <Button variant="outline" className="w-full border-zinc-800 text-zinc-300 text-xs h-9">
                     Manage Savings
                   </Button>
@@ -480,7 +460,7 @@ export default function LandingPage() {
                 </ul>
               </div>
               <div className="pt-6 mt-6 border-t border-zinc-900">
-                <Link href="/login" className="block w-full">
+                <Link href="/login-select" className="block w-full">
                   <Button variant="outline" className="w-full border-zinc-800 text-zinc-300 text-xs h-9">
                     Manage Credit
                   </Button>
@@ -540,7 +520,7 @@ export default function LandingPage() {
               </ul>
             </div>
             <div className="pt-6">
-              <Link href="/login" className="block w-full">
+              <Link href="/login-select" className="block w-full">
                 <Button variant="outline" className="w-full border-zinc-800 text-zinc-300 text-xs h-9">
                   Get Started
                 </Button>
@@ -576,7 +556,7 @@ export default function LandingPage() {
               </ul>
             </div>
             <div className="pt-6">
-              <Link href="/login" className="block w-full">
+              <Link href="/login-select" className="block w-full">
                 <Button className="w-full bg-orange-500 hover:bg-orange-600 text-black font-semibold text-xs h-9">
                   Launch Growth Plan
                 </Button>
@@ -692,11 +672,8 @@ export default function LandingPage() {
           </div>
 
           <div className="flex items-center space-x-6">
-            <Link href="/login" className="hover:text-zinc-300 transition-colors">
-              Staff Portal
-            </Link>
-            <Link href="/client-login" className="hover:text-zinc-300 transition-colors">
-              Member Portal
+            <Link href="/login-select" className="hover:text-zinc-300 transition-colors">
+              Login Portal
             </Link>
             <Link href="/privacy" className="hover:text-zinc-300 transition-colors">
               Privacy

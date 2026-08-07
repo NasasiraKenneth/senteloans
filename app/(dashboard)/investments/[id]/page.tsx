@@ -519,7 +519,7 @@ export default function InvestmentDetailsPage() {
 
   if (!investment && !loading) {
     return (
-      <div className="max-w-6xl mx-auto py-10">
+      <div className="w-full py-10">
         <p className="text-sm text-muted-foreground">Investment not found.</p>
         <Link href="/investments">
           <Button className="mt-4">Back to Investments</Button>
@@ -559,7 +559,7 @@ export default function InvestmentDetailsPage() {
 
   return (
     <div className="relative">
-      <div className="max-w-6xl mx-auto space-y-6">
+      <div className="w-full space-y-6">
       <div className="flex items-center justify-between">
         <Link href="/investments" className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground">
           <ArrowLeft className="h-4 w-4" />

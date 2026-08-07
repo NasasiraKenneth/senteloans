@@ -43,7 +43,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
   const body = (await req.json().catch(() => ({}))) as Record<string, unknown>
   const startDate = String(body.start_date ?? "").trim().slice(0, 10)
-  const maturityDate = String(body.maturity_date ?? "").trim().slice(0, 10)
+  const rawMaturityDate = String(body.maturity_date ?? body.endDate ?? "").trim().slice(0, 10)
+  const providedMaturityDate = rawMaturityDate ? rawMaturityDate : null
   const mode = String(body.mode ?? body.payment_mode ?? "").trim()
   const description = String(body.description ?? "").trim() || null
   const principalAmount = Number(body.principal_amount ?? 0)
@@ -56,8 +57,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       : Number(transactionChargesRaw)
 
   if (!isDateOnly(startDate)) return NextResponse.json({ error: "invalid_start_date" }, { status: 400 })
-  if (!isDateOnly(maturityDate)) return NextResponse.json({ error: "invalid_maturity_date" }, { status: 400 })
-  if (maturityDate < startDate) return NextResponse.json({ error: "maturity_before_start" }, { status: 400 })
+  if (providedMaturityDate && !isDateOnly(providedMaturityDate)) {
+    return NextResponse.json({ error: "invalid_maturity_date" }, { status: 400 })
+  }
+  if (providedMaturityDate && providedMaturityDate < startDate) {
+    return NextResponse.json({ error: "maturity_before_start" }, { status: 400 })
+  }
   if (!(PAYMENT_MODES as readonly string[]).includes(mode)) {
     return NextResponse.json({ error: "invalid_payment_mode" }, { status: 400 })
   }
@@ -119,6 +124,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const currentStatus = String(inv.status || "").toLowerCase()
     if (currentStatus !== "approved") {
       return { error: "investment_must_be_approved_first" as const }
+    }
+
+    const dbMaturityDate = inv.maturity_date ? String(inv.maturity_date).slice(0, 10) : null
+    const effectiveMaturityDate = providedMaturityDate || (dbMaturityDate && isDateOnly(dbMaturityDate) ? dbMaturityDate : null)
+    if (effectiveMaturityDate && effectiveMaturityDate < startDate) {
+      return { error: "maturity_before_start" as const }
     }
 
     const initialNum = Number(inv.initial_amount)
@@ -211,11 +222,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         `UPDATE investments
          SET status = 'under_development',
              start_date = $1::date,
-             maturity_date = $2::date,
+             maturity_date = COALESCE($2::date, maturity_date),
              modified_by = $3,
              updated_at = NOW()
          WHERE id = $4`,
-        [startDate, maturityDate, actor.id, id],
+        [startDate, effectiveMaturityDate, actor.id, id],
       )
 
       await auditLogger.logUpdate(
@@ -229,7 +240,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         {
           status: "under_development",
           start_date: startDate,
-          maturity_date: maturityDate,
+          maturity_date: effectiveMaturityDate,
         },
         inv.institution_id,
         actor.id,
@@ -257,7 +268,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
             investment_number: inv.investment_number,
             principal_amount: principalAmount,
             start_date: startDate,
-            maturity_date: maturityDate,
+            maturity_date: effectiveMaturityDate,
           },
         },
       }
