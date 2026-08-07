@@ -1,8 +1,7 @@
 "use client"
 
-import type React from "react"
-import { Suspense, useState } from "react"
-import { signIn } from "next-auth/react"
+import { Suspense, useState, useEffect } from "react"
+import { signIn, useSession } from "next-auth/react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { Eye, EyeOff, Lock, ArrowLeft, Loader2, Coins, Shield } from "lucide-react"
@@ -25,6 +24,7 @@ export default function AdminLoginPage() {
 }
 
 function AdminLoginForm() {
+  const { data: session, status } = useSession()
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [showPassword, setShowPassword] = useState(false)
@@ -32,6 +32,25 @@ function AdminLoginForm() {
   const [focused, setFocused] = useState<string | null>(null)
   const router = useRouter()
   const { toast } = useToast()
+
+  useEffect(() => {
+  if (status !== "authenticated" || !session?.user) return
+
+  if (session.user.role === "system_admin") {
+    router.replace("/admin")
+    return
+  }
+
+  router.replace("/admin-login?reason=forbidden")
+}, [status, session, router])
+
+  if (status === "loading") {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[#09090b]">
+        <Loader2 className="h-5 w-5 animate-spin text-[#f08c2b]" />
+      </div>
+    )
+  }
 
   const showLoginError = (message: string) => {
     toast({
@@ -85,6 +104,9 @@ function AdminLoginForm() {
       }
       showLoginSuccess()
       showPostLoginGreetingToast(toast, session?.user?.name)
+
+      await new Promise(resolve => setTimeout(resolve, 500))
+
       router.push("/admin")
       router.refresh()
     } catch (err: any) {

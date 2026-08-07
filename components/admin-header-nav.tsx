@@ -1,9 +1,10 @@
-"use client"
+"use client";
 
-import Link from "next/link"
-import { usePathname, useRouter } from "next/navigation"
-import { motion, AnimatePresence } from "framer-motion"
-import { useState } from "react"
+import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
+import { motion, AnimatePresence } from "framer-motion";
+import { useState, useEffect } from "react";
+import { useSession, signOut } from "next-auth/react";
 import {
   Building2,
   Users,
@@ -14,9 +15,9 @@ import {
   Menu,
   X,
   ChevronDown,
-} from "lucide-react"
-import { cn } from "@/lib/utils"
-import { Button } from "@/components/ui/button"
+} from "lucide-react";
+import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 
 const navigation = [
   {
@@ -39,26 +40,43 @@ const navigation = [
     href: "/admin/settings",
     icon: Settings,
   },
-]
+];
+
+function getInitials(name?: string | null, email?: string | null): string {
+  if (name && name.trim().length > 0) {
+    const parts = name.trim().split(/\s+/);
+    if (parts.length === 1) return parts[0].substring(0, 2).toUpperCase();
+    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  }
+  if (email && email.trim().length > 0) {
+    return email.substring(0, 2).toUpperCase();
+  }
+  return "SA";
+}
 
 export function AdminHeaderNav() {
-  const pathname = usePathname()
-  const router = useRouter()
-  const [loggingOut, setLoggingOut] = useState(false)
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
-  const [userDropdownOpen, setUserDropdownOpen] = useState(false)
+  const pathname = usePathname();
+  const router = useRouter();
+  const { data: session } = useSession();
+  const [loggingOut, setLoggingOut] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [userDropdownOpen, setUserDropdownOpen] = useState(false);
+
+  const userName = session?.user?.name || session?.user?.email?.split("@")[0] || "System Admin";
+  const userEmail = session?.user?.email || "admin@senteloans.com";
+  const userInitials = getInitials(session?.user?.name, session?.user?.email);
 
   const handleLogout = async () => {
     try {
-      setLoggingOut(true)
-      await fetch("/api/logout", { method: "POST" })
+      setLoggingOut(true);
+      await fetch("/api/logout", { method: "POST" });
+      await signOut({ callbackUrl: "/admin-login" });
     } catch {
-      // ignore
+      router.push("/admin-login");
     } finally {
-      setLoggingOut(false)
-      router.push("/admin-login")
+      setLoggingOut(false);
     }
-  }
+  };
 
   return (
     <header className="sticky top-0 z-50 w-full bg-white border-b border-slate-200 shadow-xs">
@@ -71,20 +89,20 @@ export function AdminHeaderNav() {
             className="flex items-center space-x-3 group transition-opacity hover:opacity-90"
           >
             <motion.div
-                            whileHover={{ scale: 1.05, rotate: 5 }}
-                            transition={{ type: "spring", stiffness: 400, damping: 17 }}
-                            className="w-10 h-10 rounded-xl bg-orange-500 flex items-center justify-center shadow-lg shadow-orange-500/20"
-                          >
-                            <Coins className="h-5 w-5 text-black" />
-                          </motion.div>
-                          <div className="flex flex-col">
-                            <span className="text-xl font-bold tracking-tight text-black flex items-center">
-                              NYUKI<span className="text-orange-500 ml-0.5">.</span>
-                            </span>
-                            <span className="text-[10px] tracking-widest text-zinc-400 uppercase font-mono -mt-1">
-                              SACCO Management System
-                            </span>
-                          </div>
+              whileHover={{ scale: 1.05, rotate: 5 }}
+              transition={{ type: "spring", stiffness: 400, damping: 17 }}
+              className="w-10 h-10 rounded-xl bg-orange-500 flex items-center justify-center shadow-lg shadow-orange-500/20"
+            >
+              <Coins className="h-5 w-5 text-black" />
+            </motion.div>
+            <div className="flex flex-col">
+              <span className="text-xl font-bold tracking-tight text-black flex items-center">
+                NYUKI<span className="text-orange-500 ml-0.5">.</span>
+              </span>
+              <span className="text-[10px] tracking-widest text-zinc-400 uppercase font-mono -mt-1">
+                SACCO Management System
+              </span>
+            </div>
           </Link>
 
           {/* Divider */}
@@ -96,7 +114,7 @@ export function AdminHeaderNav() {
               const isActive =
                 item.href === "/admin"
                   ? pathname === "/admin"
-                  : pathname.startsWith(item.href)
+                  : pathname.startsWith(item.href);
               return (
                 <Link
                   key={item.name}
@@ -105,18 +123,18 @@ export function AdminHeaderNav() {
                     "flex items-center px-3.5 py-2 text-sm font-medium rounded-lg transition-colors relative",
                     isActive
                       ? "text-orange-600 font-semibold bg-orange-50/70 border-b-2 border-orange-500 rounded-b-none"
-                      : "text-slate-600 hover:text-slate-900 hover:bg-slate-100/70"
+                      : "text-slate-600 hover:text-slate-900 hover:bg-slate-100/70",
                   )}
                 >
                   <item.icon
                     className={cn(
                       "mr-2 h-4 w-4",
-                      isActive ? "text-orange-500" : "text-slate-400"
+                      isActive ? "text-orange-500" : "text-slate-400",
                     )}
                   />
                   {item.name}
                 </Link>
-              )
+              );
             })}
           </nav>
         </div>
@@ -136,19 +154,23 @@ export function AdminHeaderNav() {
           <div className="relative">
             <button
               onClick={() => setUserDropdownOpen(!userDropdownOpen)}
-              className="flex items-center space-x-3 p-1.5 rounded-xl hover:bg-slate-100 transition-colors border border-transparent hover:border-slate-200"
+              className="flex items-center space-x-3 p-1.5 rounded-xl hover:bg-slate-100 transition-colors border border-transparent hover:border-slate-200 cursor-pointer"
             >
-              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-900 text-white font-bold text-xs">
-                SA
+              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-900 text-white font-bold text-xs uppercase">
+                {userInitials}
               </div>
               <div className="text-left hidden lg:block">
-                <div className="text-xs font-semibold text-slate-900">System Admin</div>
-                <div className="text-[11px] text-slate-500">administrator@nyuki</div>
+                <div className="text-xs font-semibold text-slate-900 max-w-[140px] truncate">
+                  {userName}
+                </div>
+                <div className="text-[11px] text-slate-500 max-w-[140px] truncate">
+                  {userEmail}
+                </div>
               </div>
               <ChevronDown
                 className={cn(
                   "h-4 w-4 text-slate-400 transition-transform duration-200",
-                  userDropdownOpen && "rotate-180"
+                  userDropdownOpen && "rotate-180",
                 )}
               />
             </button>
@@ -157,8 +179,12 @@ export function AdminHeaderNav() {
             {userDropdownOpen && (
               <div className="absolute right-0 mt-2 w-56 rounded-xl bg-white border border-slate-200 shadow-lg py-1.5 z-50 animate-in fade-in-50 zoom-in-95">
                 <div className="px-4 py-2 border-b border-slate-100">
-                  <p className="text-xs font-semibold text-slate-900">System Administrator</p>
-                  <p className="text-[11px] text-slate-500 truncate">administrator@nyuki</p>
+                  <p className="text-xs font-semibold text-slate-900 truncate">
+                    {userName}
+                  </p>
+                  <p className="text-[11px] text-slate-500 truncate">
+                    {userEmail}
+                  </p>
                 </div>
 
                 <div className="px-1 py-1">
@@ -186,7 +212,7 @@ export function AdminHeaderNav() {
                     variant="ghost"
                     size="sm"
                     disabled={loggingOut}
-                    className="w-full justify-start text-xs font-semibold text-rose-600 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-colors"
+                    className="w-full justify-start text-xs font-semibold text-rose-600 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
                   >
                     <LogOut className="mr-2.5 h-4 w-4" />
                     {loggingOut ? "Logging out..." : "Log out"}
@@ -203,9 +229,13 @@ export function AdminHeaderNav() {
             variant="ghost"
             size="icon"
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            className="text-slate-600 hover:text-slate-900 hover:bg-slate-100 border border-slate-200 rounded-lg"
+            className="text-slate-600 hover:text-slate-900 hover:bg-slate-100 border border-slate-200 rounded-lg cursor-pointer"
           >
-            {mobileMenuOpen ? <X className="h-5 w-5 text-orange-600" /> : <Menu className="h-5 w-5" />}
+            {mobileMenuOpen ? (
+              <X className="h-5 w-5 text-orange-600" />
+            ) : (
+              <Menu className="h-5 w-5" />
+            )}
           </Button>
         </div>
       </div>
@@ -218,7 +248,7 @@ export function AdminHeaderNav() {
               const isActive =
                 item.href === "/admin"
                   ? pathname === "/admin"
-                  : pathname.startsWith(item.href)
+                  : pathname.startsWith(item.href);
               return (
                 <Link
                   key={item.name}
@@ -228,24 +258,28 @@ export function AdminHeaderNav() {
                     "flex items-center px-4 py-3 text-sm font-medium rounded-lg transition-colors",
                     isActive
                       ? "bg-orange-50 text-orange-600 font-semibold border-l-4 border-orange-500"
-                      : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
+                      : "text-[#64748b] hover:text-slate-900 hover:bg-slate-100",
                   )}
                 >
                   <item.icon className="mr-3 h-5 w-5 text-orange-500" />
                   {item.name}
                 </Link>
-              )
+              );
             })}
           </div>
 
           <div className="pt-4 border-t border-slate-100 space-y-3">
             <div className="flex items-center px-4 space-x-3">
-              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-900 text-white font-bold text-xs">
-                SA
+              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-900 text-white font-bold text-xs uppercase">
+                {userInitials}
               </div>
-              <div>
-                <div className="text-sm font-semibold text-slate-900">System Administrator</div>
-                <div className="text-xs text-slate-500">administrator@nyuki</div>
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-semibold text-slate-900 truncate">
+                  {userName}
+                </div>
+                <div className="text-xs text-slate-500 truncate">
+                  {userEmail}
+                </div>
               </div>
             </div>
 
@@ -254,7 +288,7 @@ export function AdminHeaderNav() {
               variant="outline"
               size="sm"
               disabled={loggingOut}
-              className="w-full justify-center bg-rose-50 text-rose-600 border-rose-200 hover:bg-rose-100 hover:text-rose-700 rounded-lg"
+              className="w-full justify-center bg-rose-50 text-rose-600 border-rose-200 hover:bg-rose-100 hover:text-rose-700 rounded-lg cursor-pointer"
             >
               <LogOut className="mr-2 h-4 w-4" />
               {loggingOut ? "Logging out..." : "Log out"}
@@ -263,5 +297,5 @@ export function AdminHeaderNav() {
         </div>
       )}
     </header>
-  )
+  );
 }

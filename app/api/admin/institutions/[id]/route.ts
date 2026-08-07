@@ -6,6 +6,9 @@ import { runWithoutAuth } from "@/lib/db"
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params
+    if (!id || id === "list") {
+      return NextResponse.json({ error: "Invalid institution ID" }, { status: 400 })
+    }
     const session = await getServerSession(authOptions)
     if (!session?.user?.authUserId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     if (session.user.role !== "system_admin") return NextResponse.json({ error: "Forbidden" }, { status: 403 })

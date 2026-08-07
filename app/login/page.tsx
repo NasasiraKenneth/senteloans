@@ -1,8 +1,7 @@
 "use client"
 
-import type React from "react"
-import { Suspense, useState } from "react"
-import { signIn } from "next-auth/react"
+import React, { Suspense, useState, useEffect } from "react"
+import { signIn, useSession } from "next-auth/react"
 import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
 import { motion, AnimatePresence } from "framer-motion"
@@ -41,6 +40,7 @@ export default function LoginPage() {
 }
 
 function LoginForm() {
+  const { data: session, status } = useSession()
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [showPassword, setShowPassword] = useState(false)
@@ -52,6 +52,29 @@ function LoginForm() {
   const searchParams = useSearchParams()
   const redirectTo = searchParams.get("redirect") || "/dashboard"
   const { toast } = useToast()
+
+  useEffect(() => {
+    console.log("Staff Login Session Data:", { session, status })
+    if (status === "authenticated" && session?.user) {
+      if (session.user.role === "system_admin") {
+        router.replace("/admin")
+      } else if (session.user.type !== "client") {
+        let target = redirectTo
+        if (typeof target !== "string" || !isAllowedInstitutionRedirect(target)) {
+          target = "/dashboard"
+        }
+        router.replace(target)
+      }
+    }
+  }, [status, session, router, redirectTo])
+
+  if (status === "loading") {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-zinc-950">
+        <Loader2 className="h-6 w-6 animate-spin text-[#f08c2b]" />
+      </div>
+    )
+  }
 
   const showLoginError = (message: string) => {
     toast({
@@ -129,6 +152,7 @@ function LoginForm() {
 
       showLoginSuccess()
       showPostLoginGreetingToast(toast, session?.user?.name)
+      await new Promise(resolve => setTimeout(resolve, 500))
       router.push(target)
       router.refresh()
     } catch (err: any) {

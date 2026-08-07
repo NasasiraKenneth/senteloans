@@ -30,7 +30,7 @@ export async function GET(req: Request) {
            COUNT(*) FILTER (WHERE type = 'SACCO')::int AS saccos,
            COUNT(*) FILTER (WHERE type = 'MFI')::int AS mfis
          FROM institutions
-         WHERE type <> 'Money Lender'`
+         WHERE type IS NULL OR type <> 'Money Lender'`
       )
       const stats = {
         totalInstitutions: statsRes.rows[0]?.total_institutions || 0,
@@ -40,7 +40,7 @@ export async function GET(req: Request) {
       }
 
       // 2. Build filtered WHERE clause
-      const whereConditions: string[] = ["i.type <> 'Money Lender'"]
+      const whereConditions: string[] = ["(i.type IS NULL OR i.type <> 'Money Lender')"]
       const queryParams: unknown[] = []
       let paramIndex = 1
 

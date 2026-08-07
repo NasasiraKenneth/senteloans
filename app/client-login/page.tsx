@@ -1,8 +1,7 @@
 "use client"
 
-import type React from "react"
-import { Suspense, useState } from "react"
-import { signIn } from "next-auth/react"
+import { useEffect, useState, Suspense } from "react"
+import { signIn, useSession } from "next-auth/react"
 import Image from "next/image"
 import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
@@ -27,6 +26,7 @@ export default function ClientLoginPage() {
 }
 
 function ClientLoginForm() {
+  const { data: session, status } = useSession()
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [showPassword, setShowPassword] = useState(false)
@@ -37,6 +37,25 @@ function ClientLoginForm() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const { toast } = useToast()
+
+  useEffect(() => {
+    //console.log("Client Login Session Data:", { session, status })
+    if (status === "authenticated" && (session?.user?.type === "client" || session?.user?.role === "client")) {
+      let redirectUrl = searchParams?.get("redirect") || "/client-portal"
+      if (typeof redirectUrl !== "string" || !redirectUrl.startsWith("/client-portal")) {
+        redirectUrl = "/client-portal"
+      }
+      router.replace(redirectUrl)
+    }
+  }, [status, session, router, searchParams])
+
+  if (status === "loading") {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[#08080a]">
+        <Loader2 className="h-5 w-5 animate-spin text-[#f08c2b]" />
+      </div>
+    )
+  }
 
   const triggerError = (message: string) => {
     setErrorMsg(message)
@@ -93,7 +112,7 @@ function ClientLoginForm() {
       const sessionRes = await fetch("/api/auth/session")
       const session = sessionRes.ok ? await sessionRes.json() : null
       if (session?.user?.type !== "client") {
-        showLoginError(LOGIN_ERROR_MESSAGES.useStaffLogin)
+        triggerError(LOGIN_ERROR_MESSAGES.useStaffLogin)
         return
       }
       let redirect = searchParams?.get("redirect") || "/client-portal"
@@ -102,6 +121,7 @@ function ClientLoginForm() {
       }
       showLoginSuccess()
       showPostLoginGreetingToast(toast, session?.user?.name)
+      await new Promise(resolve => setTimeout(resolve, 500))
       router.push(redirect)
       router.refresh()
     } catch (err: any) {

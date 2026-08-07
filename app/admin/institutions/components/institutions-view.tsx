@@ -128,7 +128,10 @@ export function InstitutionsView() {
       params.set("page", String(currentPage))
       params.set("limit", "9")
 
-      const res = await fetch(`/api/admin/institutions/list?${params.toString()}`)
+      let res = await fetch(`/api/admin/institutions/list?${params.toString()}`)
+      if (!res.ok && res.status === 404) {
+        res = await fetch(`/api/admin/institutions?${params.toString()}`)
+      }
       if (res.ok) {
         const result = await res.json()
         if (Array.isArray(result)) {
