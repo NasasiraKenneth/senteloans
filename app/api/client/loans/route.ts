@@ -8,48 +8,137 @@ import { NotificationTemplates } from "@/lib/notifications/notification-types"
 import { getInstitutionAdminRecipients } from "@/lib/notifications/admin-recipients"
 import { calculateLoanTerms } from "@/lib/loans/calculations"
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
     const session = await getServerSession(authOptions)
     if (!session?.user?.authUserId) return NextResponse.json({ error: "unauthorized" }, { status: 401 })
 
+    const url = new URL(req.url)
+    const search = (url.searchParams.get("search") || "").trim()
+    const statusParam = (url.searchParams.get("status") || "").trim().toLowerCase()
+    const loanProductParam = (url.searchParams.get("loan_product") || url.searchParams.get("loanProduct") || "").trim()
+    const dateFrom = (
+      url.searchParams.get("date_from") ||
+      url.searchParams.get("dateStart") ||
+      url.searchParams.get("startDate") ||
+      ""
+    ).trim()
+    const dateTo = (
+      url.searchParams.get("date_to") ||
+      url.searchParams.get("dateEnd") ||
+      url.searchParams.get("endDate") ||
+      ""
+    ).trim()
+
     const result = await runWithAuth(session.user.authUserId, async (client) => {
       const clientRes = await client.query(
-        `SELECT id, institution_id FROM members WHERE auth_id = $1`,
+        `SELECT id, institution_id, full_name, member_number FROM members WHERE auth_id = $1`,
         [session!.user!.authUserId]
       )
-      const row = clientRes.rows[0]
-      if (!row) return null
+      const member = clientRes.rows[0]
+      if (!member) return null
 
-      const loansRes = await client.query(
-        `SELECT id, application_id, principal_amount, interest_rate, tenure_months, outstanding_balance, status, next_payment_date, loan_product_id, application_date
-         FROM loans WHERE member_id = $1 AND institution_id = $2 ORDER BY application_date DESC`,
-        [row.id, row.institution_id]
-      )
-      const productIds = [...new Set(loansRes.rows.map((l: Record<string, unknown>) => l.loan_product_id).filter(Boolean))]
-      let productMap: Record<string, string> = {}
-      if (productIds.length > 0) {
-        const prodRes = await client.query(
-          `SELECT id, product_name FROM loan_products WHERE id = ANY($1::uuid[])`,
-          [productIds]
-        )
-        productMap = Object.fromEntries(prodRes.rows.map((p: Record<string, unknown>) => [p.id, p.product_name as string]))
+      let query = `
+        SELECT 
+          l.id, 
+          l.application_id, 
+          l.principal_amount, 
+          l.interest_rate, 
+          l.tenure_months, 
+          l.outstanding_balance, 
+          l.status::text AS status, 
+          l.next_payment_date, 
+          l.loan_product_id, 
+          l.application_date,
+          l.disbursement_date,
+          l.overdue_days,
+          lp.product_name
+        FROM loans l
+        LEFT JOIN loan_products lp ON lp.id = l.loan_product_id
+        WHERE l.member_id = $1 AND l.institution_id = $2
+      `
+      const params: unknown[] = [member.id, member.institution_id]
+      let paramIdx = 3
+
+      if (statusParam && statusParam !== "all") {
+        query += ` AND LOWER(TRIM(l.status::text)) = $${paramIdx++}`
+        params.push(statusParam)
       }
-      return loansRes.rows.map((l: Record<string, unknown>) => ({
+
+      if (loanProductParam && loanProductParam !== "all") {
+        const products = loanProductParam.split(",").map((p) => p.trim().toLowerCase()).filter(Boolean)
+        if (products.length > 0) {
+          query += ` AND (LOWER(TRIM(lp.product_name)) = ANY($${paramIdx}) OR l.loan_product_id::text = ANY($${paramIdx}))`
+          params.push(products)
+          paramIdx++
+        }
+      }
+
+      if (search) {
+        query += ` AND (l.application_id ILIKE $${paramIdx} OR lp.product_name ILIKE $${paramIdx} OR l.status::text ILIKE $${paramIdx})`
+        params.push(`%${search}%`)
+        paramIdx++
+      }
+
+      if (dateFrom) {
+        query += ` AND l.application_date::date >= $${paramIdx++}::date`
+        params.push(dateFrom)
+      }
+
+      if (dateTo) {
+        query += ` AND l.application_date::date <= $${paramIdx++}::date`
+        params.push(dateTo)
+      }
+
+      query += ` ORDER BY l.application_date DESC, l.created_at DESC`
+
+      const loansRes = await client.query(query, params)
+
+      // Summary statistics
+      const aggRes = await client.query(
+        `SELECT
+           COALESCE(SUM(principal_amount), 0)::numeric AS total_principal,
+           COALESCE(SUM(outstanding_balance), 0)::numeric AS total_outstanding,
+           COUNT(*)::int AS total_loans,
+           COUNT(*) FILTER (WHERE LOWER(TRIM(status::text)) IN ('approved', 'disbursed', 'active', 'partially disbursed', 'fully disbursed'))::int AS active_loans
+         FROM loans
+         WHERE member_id = $1 AND institution_id = $2`,
+        [member.id, member.institution_id]
+      )
+      const agg = aggRes.rows[0] || {}
+
+      const mappedLoans = loansRes.rows.map((l: Record<string, unknown>) => ({
         id: l.id,
         applicationId: l.application_id,
+        memberName: member.full_name,
+        memberNumber: member.member_number,
         principalAmount: Number(l.principal_amount || 0),
         interestRate: Number(l.interest_rate || 0),
         tenure: Number(l.tenure_months || 0),
+        remainingTenure: Number(l.tenure_months || 0),
         outstandingBalance: Number(l.outstanding_balance || 0),
         status: String(l.status || "Applied"),
+        applicationDate: l.application_date,
+        disbursementDate: l.disbursement_date,
         nextPaymentDate: l.next_payment_date,
-        loanProduct: productMap[l.loan_product_id as string] || "Loan",
+        overdueDays: Number(l.overdue_days || 0),
+        loanProduct: (l.product_name as string) || "Standard Loan",
       }))
+
+      return {
+        loans: mappedLoans,
+        total: loansRes.rowCount || 0,
+        summaryStats: {
+          totalPrincipal: Number(agg.total_principal || 0),
+          totalOutstanding: Number(agg.total_outstanding || 0),
+          totalLoans: Number(agg.total_loans || 0),
+          activeLoans: Number(agg.active_loans || 0),
+        },
+      }
     })
 
     if (result === null) return NextResponse.json({ error: "client_not_found" }, { status: 404 })
-    return NextResponse.json({ loans: result })
+    return NextResponse.json(result)
   } catch (e: unknown) {
     const err = e as Error
     return NextResponse.json({ error: err?.message || "Unexpected error" }, { status: 500 })

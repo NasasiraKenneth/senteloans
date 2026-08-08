@@ -193,6 +193,7 @@ export async function recordBankAccountWithdraw(
     processedBy: actor.id,
     transactionDate: txDate,
     prefix: "TXN",
+    thirdPartyAgentId: sourceAccount.third_party_agent_id,
   })
 
   await settlePaymentByMode(client, {
@@ -250,6 +251,7 @@ export async function recordBankAccountWithdraw(
     processedBy: actor.id,
     transactionDate: txDate,
     prefix: "TXN",
+    thirdPartyAgentId: sourceAccount.third_party_agent_id,
   })
 
   await settlePaymentByMode(client, {

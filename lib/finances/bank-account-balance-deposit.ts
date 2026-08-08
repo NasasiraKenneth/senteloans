@@ -259,6 +259,7 @@ export async function recordBankAccountDeposit(
     processedBy: actor.id,
     transactionDate: txDate,
     prefix: "TXN",
+    thirdPartyAgentId: targetAccount.third_party_agent_id,
   })
 
   let chargesExpenseId: string | undefined
@@ -310,6 +311,7 @@ export async function recordBankAccountDeposit(
     processedBy: actor.id,
     transactionDate: txDate,
     prefix: "TXN",
+    thirdPartyAgentId: targetAccount.third_party_agent_id,
   })
 
   return {

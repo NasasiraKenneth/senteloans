@@ -29,7 +29,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
          WHERE id = $1
            AND member_id = $2
            AND institution_id = $3
-           AND LOWER(TRIM(status)) NOT IN ('draft', 'cancelled')
+           AND LOWER(TRIM(status::text)) NOT IN ('draft', 'cancelled')
          LIMIT 1`,
         [id, member.id, member.institution_id],
       )

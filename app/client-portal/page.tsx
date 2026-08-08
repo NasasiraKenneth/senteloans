@@ -8,6 +8,8 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { useToast } from "@/components/ui/toast"
+import { BsFileEarmarkPdf } from "react-icons/bs"
 import {
   SavingsAccountCard,
   SavingsAccountCardSkeleton,
@@ -31,6 +33,10 @@ import {
   PieChart,
   CalendarClock,
   TrendingUp,
+  TrendingDown,
+  ArrowUpDown,
+  Calendar,
+  Loader2,
 } from "lucide-react"
 import { useClientSession } from "@/components/client-session-provider"
 import { getGreeting } from "@/lib/greeting"
@@ -50,7 +56,7 @@ import {
   Cell,
   Legend,
 } from "recharts"
-import { DataTable } from "@/components/datatables"
+import DataTable from "@/components/datatables/DataTable"
 
 type ClientLoan = {
   id: string
@@ -72,23 +78,22 @@ type SavingsAccount = {
 
 type ClientTransaction = {
   id: string
+  transaction_number?: string
+  account_id?: string
+  memberName?: string
   type: string
   amount: number
-  date: string
-}
-
-// Data row structure for DataTable
-interface VisualTx {
-  id: string
-  date: string
-  type: string
-  amount: string
+  balance: number
   mode: string
+  date: string
+  description?: string
 }
 
 function clientInitials(fullName: string): string {
+  if (!fullName) return "?"
   return fullName
-    .split(" ")
+    .trim()
+    .split(/\s+/)
     .map((part) => part[0] ?? "")
     .join("")
     .slice(0, 2)
@@ -117,6 +122,7 @@ const PieTooltip = ({ active, payload }: any) => {
 
 export default function ClientPortalPage() {
   const { data, isMoneyLender, formatMoney } = useClientSession()
+  const { toast } = useToast()
   const currentClient = data?.client
   const institution = data?.institution
   const [savingsAccounts, setSavingsAccounts] = useState<SavingsAccount[]>([])
@@ -124,8 +130,11 @@ export default function ClientPortalPage() {
   const [clientTransactions, setClientTransactions] = useState<ClientTransaction[]>([])
   const [txAggregates, setTxAggregates] = useState({ totalSavings: 0, totalShares: 0 })
   const [shareUnits, setShareUnits] = useState(0)
-  const [showBalance, setShowBalance] = useState(true)
+  const [showBalance, setShowBalance] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
+  const [total, setTotal] = useState<number>(0)
+  const [exporting, setExporting] = useState<"excel" | "pdf" | null>(null)
+  const [downloadingId, setDownloadingId] = useState<string | null>(null)
 
   const hasSavings = institution?.config?.modules?.savings
   const hasShares = institution?.config?.modules?.shares
@@ -149,8 +158,10 @@ export default function ClientPortalPage() {
         const shares = sharesRes?.ok ? await sharesRes.json() : { totals: { units: 0 } }
 
         if (cancelled) return
+        const txItems = tx.transactions || []
         setClientLoans(loans.loans || [])
-        setClientTransactions(tx.transactions || [])
+        setClientTransactions(txItems)
+        setTotal(txItems.length)
         setTxAggregates(tx.aggregates || { totalSavings: 0, totalShares: 0 })
         setSavingsAccounts(sav.accounts || [])
         setShareUnits(Number(shares.totals?.units || 0))
@@ -187,30 +198,240 @@ export default function ClientPortalPage() {
       ? "No shares yet"
       : `${shareUnits.toLocaleString()} ${shareUnits === 1 ? "share" : "shares"}`
 
-  // Mock table rows requested by user
-  const recentTableRows: VisualTx[] = [
-    { id: "1", date: "Today", type: "Monthly Deposit", amount: "+150,000", mode: "Mobile Money" },
-    { id: "2", date: "Yesterday", type: "Loan Repayment", amount: "-350,000", mode: "Bank Transfer" },
-    { id: "3", date: "15 Jul", type: "Share Purchase", amount: "+500,000", mode: "Cash" }
-  ]
+  const getTransactionIcon = (type: string) => {
+    switch (type) {
+      case "Deposit":
+      case "Loan Disbursement":
+      case "Opening Balance":
+      case "Shares Purchase":
+        return <TrendingUp className="h-4 w-4 text-green-600 dark:text-green-400" />
+      case "Withdrawal":
+      case "Loan Repayment":
+        return <TrendingDown className="h-4 w-4 text-red-600 dark:text-red-400" />
+      default:
+        return <ArrowUpDown className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+    }
+  }
 
-  // Columns for DataTable component
+  const downloadExport = async (format: "excel" | "pdf") => {
+    setExporting(format)
+    try {
+      const res = await fetch(`/api/client/transactions/export?format=${format}`, {
+        method: "GET",
+        cache: "no-store",
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        throw new Error(body?.error || `Failed to download ${format.toUpperCase()}`)
+      }
+      const blob = await res.blob()
+      const disposition = res.headers.get("content-disposition") || ""
+      const match = disposition.match(/filename="?([^"]+)"?/)
+      const filename =
+        match?.[1] ||
+        `transactions-statement-${new Date().toISOString().slice(0, 10)}.${format === "excel" ? "xlsx" : "pdf"}`
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+      toast({
+        variant: "success",
+        title: `${format === "excel" ? "Excel" : "PDF"} downloaded`,
+        description: `Successfully downloaded transaction statement ${format.toUpperCase()} report.`,
+      })
+    } catch (e: any) {
+      toast({
+        variant: "destructive",
+        title: `Download ${format.toUpperCase()} failed`,
+        description: e?.message || `Failed to download ${format.toUpperCase()}.`,
+      })
+    } finally {
+      setExporting(null)
+    }
+  }
+
+  const downloadTransactionPdf = async (txId: string, txNumber?: string) => {
+    try {
+      setDownloadingId(txId)
+      const res = await fetch(`/api/client/transactions/${txId}/pdf?download=1`, {
+        cache: "no-store",
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.error || "Failed to download receipt")
+      }
+      const blob = await res.blob()
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = `receipt-${txNumber || txId}.pdf`
+      document.body.appendChild(a)
+      a.click()
+      window.URL.revokeObjectURL(url)
+      document.body.removeChild(a)
+      toast({
+        variant: "success",
+        title: "Receipt Downloaded",
+        description: `Receipt for ${txNumber || txId} downloaded successfully.`,
+      })
+    } catch (e: any) {
+      toast({
+        variant: "destructive",
+        title: "Download Failed",
+        description: e?.message || "Failed to download transaction receipt PDF.",
+      })
+    } finally {
+      setDownloadingId(null)
+    }
+  }
+
+  // Columns for DataTable component matching app/(dashboard)/transactions/page.tsx
   const recentTableColumns = [
-    { key: "date", header: "Date" },
-    { key: "type", header: "Transaction Type" },
+    {
+      key: "transaction_number",
+      header: "Transaction ID",
+      render: (row: ClientTransaction) => (
+        <div className="font-medium text-xs font-mono">{row.transaction_number || row.id}</div>
+      ),
+    },
+    {
+      key: "memberName",
+      header: "Assigned to",
+      render: (row: ClientTransaction) => (
+        <div className="flex items-center gap-2.5">
+          <div className="w-7 h-7 bg-linear-to-br from-[#f08c2b] to-[#d97b1e] rounded-full flex items-center justify-center text-white text-[11px] font-bold shrink-0 shadow-xs">
+            {clientInitials(row.memberName || currentClient?.fullName || "")}
+          </div>
+          <div className="font-medium text-xs truncate max-w-[130px]">
+            {row.memberName || currentClient?.fullName || "—"}
+          </div>
+        </div>
+      ),
+    },
+    {
+      key: "type",
+      header: "Type",
+      render: (row: ClientTransaction) => {
+        const typeStyles: Record<string, string> = {
+          Deposit: "bg-green-100 text-green-700 border border-green-200 dark:bg-green-950/40 dark:text-green-400 dark:border-green-800",
+          Withdrawal: "bg-red-100 text-red-700 border border-red-200 dark:bg-red-950/40 dark:text-red-400 dark:border-red-800",
+          "Loan Disbursement":
+            "bg-blue-100 text-blue-700 border border-blue-200 dark:bg-blue-950/40 dark:text-blue-400 dark:border-blue-800",
+          "Loan Repayment":
+            "bg-purple-100 text-purple-700 border border-purple-200 dark:bg-purple-950/40 dark:text-purple-400 dark:border-purple-800",
+          "Fee Payment":
+            "bg-orange-100 text-orange-700 border border-orange-200 dark:bg-orange-950/40 dark:text-orange-400 dark:border-orange-800",
+          Transfer: "bg-gray-100 text-gray-700 border border-gray-200 dark:bg-zinc-800 dark:text-zinc-300 dark:border-zinc-700",
+          "Interest Payment":
+            "bg-yellow-100 text-yellow-700 border border-yellow-200 dark:bg-yellow-950/40 dark:text-yellow-400 dark:border-yellow-800",
+          "Opening Balance": "bg-teal-100 text-teal-700 border border-teal-200 dark:bg-teal-950/40 dark:text-teal-400 dark:border-teal-800",
+          "Shares Purchase":
+            "bg-emerald-100 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-400 dark:border-emerald-800",
+        }
+        return (
+          <div className="flex items-center space-x-2">
+            {getTransactionIcon(row.type)}
+            <span
+              className={cn(
+                "inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium whitespace-nowrap",
+                typeStyles[row.type] || "bg-gray-100 text-gray-700 border border-gray-200 dark:bg-zinc-800 dark:text-zinc-300 dark:border-zinc-700"
+              )}
+            >
+              {row.type}
+            </span>
+          </div>
+        )
+      },
+    },
     {
       key: "amount",
       header: "Amount",
-      render: (row: VisualTx) => {
-        const isDeposit = row.amount.startsWith("+")
+      render: (row: ClientTransaction) => {
+        const isDeposit =
+          row.type === "Deposit" ||
+          row.type === "Shares Purchase" ||
+          row.type === "Loan Disbursement" ||
+          row.type === "Opening Balance"
         return (
-          <span className={cn("font-semibold", isDeposit ? "text-emerald-600" : "text-[#f08c2b]")}>
-            {row.amount}
-          </span>
+          <div className={cn("font-semibold text-xs font-mono", isDeposit ? "text-emerald-600 dark:text-emerald-400" : "text-[#f08c2b]")}>
+            {formatMoney(Number(row.amount))}
+          </div>
         )
-      }
+      },
     },
-    { key: "mode", header: "Mode" }
+    {
+      key: "mode",
+      header: "Mode",
+      render: (row: ClientTransaction) => (
+        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-muted/60 text-muted-foreground border border-border/60">
+          {row.mode}
+        </span>
+      ),
+    },
+    {
+      key: "date",
+      header: "Date",
+      render: (row: ClientTransaction) => (
+        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <Calendar className="h-3.5 w-3.5 text-muted-foreground/60" />
+          <span>
+            {new Date(row.date).toLocaleDateString("en-GB", {
+              day: "2-digit",
+              month: "short",
+              year: "numeric",
+            })}
+          </span>
+        </div>
+      ),
+    },
+    {
+      key: "balance",
+      header: "Balance",
+      render: (row: ClientTransaction) => (
+        <div>
+          <div className="font-semibold text-xs font-mono text-muted-foreground">
+            {formatMoney(Number(row.balance))}
+          </div>
+          {row.type === "Fee Payment" && (
+            <div className="text-[10px] text-muted-foreground">Remaining</div>
+          )}
+        </div>
+      ),
+    },
+    {
+      key: "actions",
+      header: "Actions",
+      headerClassName: "text-center",
+      cellClassName: "text-center",
+      render: (row: ClientTransaction) => {
+        const isDownloading = downloadingId === row.id
+        return (
+          <div className="flex justify-center">
+            <Button
+              size="icon"
+              variant="ghost"
+              onClick={(e) => {
+                e.stopPropagation()
+                void downloadTransactionPdf(row.id, row.transaction_number)
+              }}
+              disabled={isDownloading}
+              title="Download Receipt PDF"
+              className="h-8 w-8 text-rose-600 hover:bg-rose-50 hover:text-rose-700 dark:hover:bg-rose-950/40 rounded-lg transition-colors cursor-pointer"
+            >
+              {isDownloading ? (
+                <Loader2 className="h-4 w-4 animate-spin text-rose-600" />
+              ) : (
+                <BsFileEarmarkPdf className="h-4 w-4 text-rose-600" />
+              )}
+            </Button>
+          </div>
+        )
+      },
+    },
   ]
 
   // Recharts: Savings Growth Chart Data (Line Chart)
@@ -262,7 +483,7 @@ export default function ClientPortalPage() {
       transition={{ duration: 0.4 }}
     >
       {/* Profile header */}
-      <div className="relative overflow-hidden rounded-2xl border border-border/80 bg-card shadow-sm">
+      <div className="relative overflow-hidden rounded-2xl border border-border/80 bg-card shadow-xs">
         <div className="absolute inset-x-0 top-0 h-24 bg-gradient-to-r from-[#f08c2b]/10 via-[#f08c2b]/5 to-transparent" />
         <div className="relative flex flex-col gap-4 p-6 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-4">
@@ -318,7 +539,7 @@ export default function ClientPortalPage() {
               {showBalance ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
             </Button>
             <Link href="/client-portal/apply-loan">
-              <Button size="sm" className="gap-2 shadow-sm bg-[#f08c2b] text-white hover:bg-[#f08c2b]/90 border-transparent">
+              <Button size="sm" className="gap-2 shadow-xs bg-[#f08c2b] text-white hover:bg-[#f08c2b]/90 border-transparent cursor-pointer">
                 <Plus className="h-4 w-4" />
                 Apply for loan
               </Button>
@@ -384,7 +605,7 @@ export default function ClientPortalPage() {
           {/* Analytics Charts Grid */}
           <div className="grid gap-6 sm:grid-cols-2">
             {/* Savings Growth Line Chart */}
-            <Card className="border-border/80 shadow-sm">
+            <Card className="border-border/80 shadow-xs">
               <CardHeader className="pb-2">
                 <CardTitle className="text-base font-semibold flex items-center gap-2">
                   <TrendingUp className="h-4.5 w-4.5 text-[#f08c2b]" />
@@ -420,7 +641,7 @@ export default function ClientPortalPage() {
             </Card>
 
             {/* Loan Repayment Pie Chart */}
-            <Card className="border-border/80 shadow-sm">
+            <Card className="border-border/80 shadow-xs">
               <CardHeader className="pb-2">
                 <CardTitle className="text-base font-semibold flex items-center gap-2">
                   <PieChart className="h-4.5 w-4.5 text-[#f08c2b]" />
@@ -456,12 +677,12 @@ export default function ClientPortalPage() {
             </Card>
           </div>
 
-          {/* Recent activity datatable */}
-          <Card className="overflow-hidden border-border/80 shadow-sm">
+          {/* Recent activity datatable with live transactions & matching columns */}
+          <Card className="overflow-hidden border-border/80 shadow-xs">
             <CardHeader className="flex flex-row items-center justify-between border-b border-border/60 bg-muted/20 pb-4">
               <CardTitle className="text-base font-semibold">Recent Activity</CardTitle>
               <Link href="/client-portal/transactions">
-                <Button size="sm" variant="outline" className="gap-1 text-xs">
+                <Button size="sm" variant="outline" className="gap-1 text-xs cursor-pointer">
                   View All Transactions
                   <ChevronRight className="h-3 w-3" />
                 </Button>
@@ -469,10 +690,19 @@ export default function ClientPortalPage() {
             </CardHeader>
             <CardContent className="p-0">
               <DataTable
+                title={`Recent Transactions (${Math.min(clientTransactions.length, 10)}${total > 10 ? ` of ${total}` : ""})`}
                 columns={recentTableColumns}
-                rows={recentTableRows}
-                loading={false}
+                rows={clientTransactions.slice(0, 10)}
+                loading={isLoading}
                 emptyMessage="No recent transaction activities found"
+                exportActions={{
+                  onExcel: () => void downloadExport("excel"),
+                  onPdf: () => void downloadExport("pdf"),
+                  excelDisabled: isLoading || total === 0 || exporting !== null,
+                  pdfDisabled: isLoading || total === 0 || exporting !== null,
+                  excelLoading: exporting === "excel",
+                  pdfLoading: exporting === "pdf",
+                }}
               />
             </CardContent>
           </Card>
@@ -480,7 +710,7 @@ export default function ClientPortalPage() {
           <div className="flex justify-center lg:justify-start">
             <Link
               href="/client-portal/profile"
-              className="inline-flex items-center rounded-full border border-border bg-card px-4 py-2 text-sm text-muted-foreground shadow-sm transition-colors hover:border-primary/30 hover:text-[#f08c2b]"
+              className="inline-flex items-center rounded-full border border-border bg-card px-4 py-2 text-sm text-muted-foreground shadow-xs transition-colors hover:border-primary/30 hover:text-[#f08c2b]"
             >
               Manage profile & passport photo
               <ChevronRight className="ml-1 h-4 w-4" />
@@ -580,7 +810,7 @@ function DashboardCalendar() {
   const selectedEvents = selectedDay ? events[selectedDay] || [] : []
 
   return (
-    <Card className="overflow-hidden border-border/80 shadow-sm bg-card">
+    <Card className="overflow-hidden border-border/80 shadow-xs bg-card">
       <CardHeader className="border-b border-border/60 bg-muted/20 pb-3 flex flex-row items-center gap-2">
         <CalendarClock className="h-4.5 w-4.5 text-[#f08c2b]" />
         <CardTitle className="text-sm font-semibold">Payment Calendar</CardTitle>
@@ -615,7 +845,7 @@ function DashboardCalendar() {
                 onClick={() => setSelectedDay(day)}
                 type="button"
                 className={cn(
-                  "relative flex flex-col items-center justify-center py-1.5 rounded-lg transition-colors font-medium outline-none h-8 w-8 mx-auto",
+                  "relative flex flex-col items-center justify-center py-1.5 rounded-lg transition-colors font-medium outline-hidden h-8 w-8 mx-auto cursor-pointer",
                   isToday && "bg-muted font-bold text-[#f08c2b]",
                   isSelected && !isToday && "bg-[#f08c2b]/15 text-[#f08c2b]",
                   !isSelected && !isToday && "hover:bg-muted/40"

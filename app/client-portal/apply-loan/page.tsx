@@ -81,7 +81,6 @@ export default function ApplyLoanPage() {
   const [loanAmount, setLoanAmount] = useState("")
   const [tenure, setTenure] = useState("")
   const [purpose, setPurpose] = useState("")
-  const [monthlyIncome, setMonthlyIncome] = useState("")
   const [collateralDescription, setCollateralDescription] = useState("")
   const [selectedGuarantors, setSelectedGuarantors] = useState<Guarantor[]>([])
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -176,9 +175,7 @@ export default function ApplyLoanPage() {
     if (!purpose || purpose.trim().length < 10) {
       errors.purpose = "Purpose must be at least 10 characters"
     }
-    if (!monthlyIncome || Number.parseFloat(monthlyIncome) <= 0) {
-      errors.income = "Please enter a valid monthly income"
-    }
+
     if (requiresGuarantors && selectedGuarantors.length === 0) {
       errors.guarantors = "At least one guarantor is required"
     }
@@ -208,7 +205,7 @@ export default function ApplyLoanPage() {
         principal_amount: Number.parseFloat(loanAmount),
         tenure_months: Number.parseInt(tenure),
         purpose: purpose.trim(),
-        monthly_income: Number.parseFloat(monthlyIncome),
+
         ...(requiresCollateral && { collateral_description: collateralDescription.trim() }),
         ...(requiresGuarantors && { guarantor_ids: selectedGuarantors.map((g) => g.id) }),
       }
@@ -447,37 +444,20 @@ export default function ApplyLoanPage() {
 
                     <div>
                       <Label htmlFor="tenure" className={inputLabelClass}>Repayment Period (Months)</Label>
-                      <StyledSelect
+                      <input
+                        id="tenure"
+                        type="number"
+                        placeholder="Enter tenure in months"
                         value={tenure}
-                        onChange={setTenure}
-                        placeholder="Select tenure"
-                        options={Array.from({ length: selectedProduct.maxTenure - selectedProduct.minTenure + 1 }, (_, i) => {
-                          const months = selectedProduct.minTenure + i
-                          return {
-                            value: months.toString(),
-                            label: `${months} Months`,
-                          }
-                        })}
+                        onChange={(e) => setTenure(e.target.value)}
+                        min={selectedProduct.minTenure}
+                        max={selectedProduct.maxTenure}
+                        className={inputClass(!!validationErrors.tenure)}
                       />
                       {validationErrors.tenure && (
                         <p className="text-[10px] text-rose-600 mt-1 font-semibold">{validationErrors.tenure}</p>
                       )}
                     </div>
-                  </div>
-
-                  <div>
-                    <Label htmlFor="income" className={inputLabelClass}>Monthly Income (UGX)</Label>
-                    <input
-                      id="income"
-                      type="number"
-                      placeholder="Enter your monthly net income"
-                      value={monthlyIncome}
-                      onChange={(e) => setMonthlyIncome(e.target.value)}
-                      className={inputClass(!!validationErrors.income)}
-                    />
-                    {validationErrors.income && (
-                      <p className="text-[10px] text-rose-600 mt-1 font-semibold">{validationErrors.income}</p>
-                    )}
                   </div>
 
                   <div>
@@ -528,10 +508,6 @@ export default function ApplyLoanPage() {
                       }
                       if (!purpose || purpose.trim().length < 10) {
                         toast({ variant: "destructive", title: "Purpose required", description: "Please specify a clear purpose (min 10 characters)." })
-                        return
-                      }
-                      if (!monthlyIncome || Number(monthlyIncome) <= 0) {
-                        toast({ variant: "destructive", title: "Income required", description: "Please enter a valid monthly income." })
                         return
                       }
                       setCurrentStep(3)

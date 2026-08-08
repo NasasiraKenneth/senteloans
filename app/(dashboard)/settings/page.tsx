@@ -42,6 +42,7 @@ import { DEFAULT_CURRENCY_IN_WORDS } from "@/lib/invoices/utils"
 import { useToast } from "@/components/ui/toast"
 import { useStaffSession } from "@/components/staff-session-provider"
 import { upload } from "@vercel/blob/client"
+import ReeveDatePicker from "@/components/newUI/date_picker"
 
 interface InstitutionConfig {
   modules: { loans: boolean; shares: boolean; savings: boolean; mobile_money: boolean; chats: boolean }
@@ -1615,13 +1616,11 @@ export default function SettingsPage() {
                               </div>
                               <div className="space-y-2">
                                 <Label htmlFor="branchEstablished">Established date</Label>
-                                <Input
-                                  id="branchEstablished"
-                                  type="date"
+                                <ReeveDatePicker
                                   value={branchProfile.established_date}
-                                  onChange={(e) => setBranchField("established_date", e.target.value)}
+                                  onChange={(val) => setBranchField("established_date", val)}
+                                  placeholder="Established date"
                                   disabled={!canEditInstitutionWorkspace("general")}
-                                  className={memberInputClass}
                                 />
                               </div>
                               <div className="space-y-2">
