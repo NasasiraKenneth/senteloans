@@ -2101,13 +2101,11 @@ export default function SettingsPage() {
                           </div>
                           <div className="space-y-2">
                             <Label htmlFor="orgTabBranchEstablished">Established date</Label>
-                            <Input
-                              id="orgTabBranchEstablished"
-                              type="date"
+                            <ReeveDatePicker
                               value={branchProfile.established_date}
-                              onChange={(e) => setBranchField("established_date", e.target.value)}
+                              onChange={(val) => setBranchField("established_date", val)}
+                              placeholder="Established date"
                               disabled={!isOrgEditMode}
-                              className={memberInputClass}
                             />
                           </div>
                           <div className="space-y-2">

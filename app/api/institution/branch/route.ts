@@ -54,6 +54,10 @@ async function hasPermission(client: any, actor: ActorContext, permission: strin
 
 function formatDateOnly(value: unknown): string | null {
   if (value == null) return null
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) return null
+    return value.toISOString().split("T")[0]
+  }
   const s = String(value)
   if (!s) return null
   return s.includes("T") ? s.split("T")[0] : s.slice(0, 10)
