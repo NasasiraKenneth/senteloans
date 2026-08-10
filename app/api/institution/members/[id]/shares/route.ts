@@ -109,7 +109,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       if (memberRow.institution_id !== actor.institution_id) return { error: "forbidden" as const }
 
       const res = await client.query(
-        `SELECT id, number_of_shares, share_value, total_value, purchase_date, created_at FROM member_shares WHERE member_id = $1 ORDER BY created_at DESC`,
+        `SELECT id, transaction_id, number_of_shares, share_value, total_value, purchase_date, created_at FROM member_shares WHERE member_id = $1 ORDER BY created_at DESC`,
         [memberId]
       )
       return { shares: res.rows }
@@ -312,28 +312,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         const balanceBefore = Number(shareBalRes.rows[0]?.total_share_value || 0)
         const balanceAfter = balanceBefore + purchaseValue
 
-        const insRes = await client.query(
-          `INSERT INTO member_shares (member_id, number_of_shares, share_value, purchase_date) VALUES ($1, $2, $3, $4) RETURNING id`,
-          [memberId, numberOfShares, valuePerShare, purchaseDate]
-        )
-        const row = insRes.rows[0]
-        if (row?.id) {
-          await auditLogger.logInsert(
-            "member_shares",
-            row.id,
-            {
-              member_id: memberId,
-              number_of_shares: numberOfShares,
-              share_value: valuePerShare,
-              purchase_date: purchaseDate,
-            },
-            actor.institution_id,
-            actor.id,
-            { branch_id: memberRow.branch_id },
-            client
-          )
-        }
-
         // Use Shares Purchase when enum exists, fallback to Deposit to avoid runtime enum errors.
         const enumRes = await client.query(
           `SELECT 1
@@ -385,6 +363,30 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
           transactionDate: resolvedPaymentDate.toISOString(),
         })
         const txNumber = tx.transactionNumber
+
+        // Insert into member_shares with the created transaction_id
+        const insRes = await client.query(
+          `INSERT INTO member_shares (transaction_id, member_id, number_of_shares, share_value, purchase_date) VALUES ($1, $2, $3, $4, $5) RETURNING id, transaction_id`,
+          [tx.id, memberId, numberOfShares, valuePerShare, purchaseDate]
+        )
+        const row = insRes.rows[0]
+        if (row?.id) {
+          await auditLogger.logInsert(
+            "member_shares",
+            row.id,
+            {
+              transaction_id: tx.id,
+              member_id: memberId,
+              number_of_shares: numberOfShares,
+              share_value: valuePerShare,
+              purchase_date: purchaseDate,
+            },
+            actor.institution_id,
+            actor.id,
+            { branch_id: memberRow.branch_id },
+            client
+          )
+        }
 
         // Credit the selected branch bank account for bank-routed payments.
         if (bankAccount) {
@@ -480,7 +482,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         }
 
         await client.query("COMMIT")
-        return { ok: true, id: row?.id, transaction_number: txNumber, invoice_number: invoice.invoice_number }
+        return { ok: true, id: row?.id, transaction_id: tx.id, transaction_number: txNumber, invoice_number: invoice.invoice_number }
       } catch (e: unknown) {
         await client.query("ROLLBACK")
         const err = e as Error & { code?: string }

@@ -658,6 +658,7 @@ export default function InvoicesPage() {
     {
       key: "actions",
       header: "Actions",
+      cellClassName: "actions-cell",
       render: (row) => {
         const actions: SelectOption[] = [
           {
@@ -667,6 +668,7 @@ export default function InvoicesPage() {
             onClick: () => handleView(row),
           },
         ];
+
         if (invoicePermissions.editInvoice) {
           actions.push({
             value: "edit",
@@ -675,6 +677,7 @@ export default function InvoicesPage() {
             onClick: () => handleEdit(row),
           });
         }
+
         if (invoicePermissions.downloadInvoice) {
           actions.push({
             value: "download",
@@ -683,7 +686,11 @@ export default function InvoicesPage() {
             onClick: () => handleDownloadInvoicePdf(row),
           });
         }
-        if (invoicePermissions.editInvoice && canRecordInvoicePayment(row)) {
+
+        if (
+          invoicePermissions.editInvoice &&
+          canRecordInvoicePayment(row)
+        ) {
           actions.push({
             value: "record-payment",
             label: "Record payment",
@@ -699,17 +706,20 @@ export default function InvoicesPage() {
           : [];
 
         return (
-          <div className="flex justify-center">
-            {" "}
+          <div
+            className="flex justify-center"
+            onClick={(e) => e.stopPropagation()}
+          >
             <ActionSelect
               row={row}
               actions={actions}
               statusOptions={statusOptions}
-            />{" "}
+            />
           </div>
         );
       },
     },
+
   ];
 
   const filterFields: FilterField[] = useMemo(() => {

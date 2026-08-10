@@ -319,7 +319,13 @@ export default function DataTable<Row>({
                                     animate={{opacity: 1}}
                                     transition={{duration: 0.3}}
                                     className={`hover:bg-gray-50 ${onRowClick ? 'cursor-pointer' : ''}`}
-                                    onClick={() => onRowClick?.(row)}
+                                    onClick={(e) => {
+                                        const target = e.target as HTMLElement | null
+                                        if (target && target.closest('button, a, input, select, textarea, [data-no-row-click], .actions-cell, [role="button"]')) {
+                                            return
+                                        }
+                                        onRowClick?.(row)
+                                    }}
                                 >
                                     {hasDetail && (
                                         <td className="px-4 py-2 whitespace-nowrap">
@@ -344,6 +350,7 @@ export default function DataTable<Row>({
 
                                     {columns.map(col => (
                                         <td key={col.key}
+                                            onClick={col.key === 'actions' ? (e) => e.stopPropagation() : undefined}
                                             className={`px-4 py-2 whitespace-nowrap text-sm text-gray-900 ${col.cellClassName ?? ''}`}>
                                             {col.render ? col.render(row) : col.accessor ? col.accessor(row) : null}
                                         </td>

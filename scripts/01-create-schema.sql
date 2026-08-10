@@ -189,9 +189,9 @@ CREATE TABLE IF NOT EXISTS role_permissions (
 CREATE TABLE IF NOT EXISTS users (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     auth_id UUID UNIQUE REFERENCES app_auth_users(id) ON DELETE SET NULL,
-    institution_id UUID NOT NULL REFERENCES institutions(id) ON DELETE RESTRICT,
-    branch_id UUID NOT NULL REFERENCES branches(id) ON DELETE RESTRICT,
-    role_id UUID NOT NULL REFERENCES roles(id) ON DELETE RESTRICT,
+    institution_id UUID NULL REFERENCES institutions(id) ON DELETE RESTRICT,
+    branch_id UUID NULL REFERENCES branches(id) ON DELETE RESTRICT,
+    role_id UUID NULL REFERENCES roles(id) ON DELETE RESTRICT,
     email VARCHAR(255) UNIQUE NOT NULL,
     full_name VARCHAR(255) NOT NULL,
     phone_number VARCHAR(20),
@@ -349,6 +349,7 @@ CREATE INDEX IF NOT EXISTS idx_members_kyc_approved_by ON members(kyc_approved_b
 -- 6. MEMBER SHARES TABLE (For SACCO institutions only)
 CREATE TABLE IF NOT EXISTS member_shares (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    transaction_id UUID,
     member_id UUID NOT NULL REFERENCES members(id) ON DELETE CASCADE,
     number_of_shares INTEGER NOT NULL CHECK (number_of_shares > 0),
     share_value DECIMAL(15,2) NOT NULL CHECK (share_value > 0),

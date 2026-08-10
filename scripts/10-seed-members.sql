@@ -381,40 +381,98 @@ END $$;
 DO $$
 DECLARE
     member_rec RECORD;
+    staff_id UUID;
+    tx_id UUID;
+    shares_count INT;
+    purchase_dt DATE;
+    tx_num TEXT;
 BEGIN
+    -- Get a staff user for Kampala Central SACCO to record transactions
+    SELECT u.id INTO staff_id 
+    FROM users u
+    JOIN institutions i ON u.institution_id = i.id
+    WHERE i.name = 'Kampala Central SACCO'
+    LIMIT 1;
+
     -- Insert shares for Kampala Central SACCO members (one record per member; skip if exists)
     FOR member_rec IN 
-        SELECT c.id as member_id, c.member_number, c.full_name
+        SELECT c.id as member_id, c.institution_id, c.branch_id, c.member_number, c.full_name
         FROM members c
         JOIN institutions i ON c.institution_id = i.id
         WHERE i.name = 'Kampala Central SACCO'
     LOOP
         IF NOT EXISTS (SELECT 1 FROM member_shares WHERE member_id = member_rec.member_id) THEN
-        INSERT INTO member_shares (
-            id,
-            member_id,
-            number_of_shares,
-            share_value,
-            purchase_date
-        ) VALUES (
-            uuid_generate_v4(),
-            member_rec.member_id,
-            CASE 
+            shares_count := CASE 
                 WHEN member_rec.member_number = 'SL001' THEN 15  -- Sarah Nakamya
                 WHEN member_rec.member_number = 'SL002' THEN 10  -- David Ssemakula
                 WHEN member_rec.member_number = 'SL003' THEN 20  -- Grace Namugga
                 WHEN member_rec.member_number = 'SL004' THEN 25  -- Robert Kiwanuka
                 ELSE 5
-            END,
-            50000, -- Share value from institution settings
-            CASE 
+            END;
+
+            purchase_dt := CASE 
                 WHEN member_rec.member_number = 'SL001' THEN '2023-01-15'
                 WHEN member_rec.member_number = 'SL002' THEN '2023-02-20'
                 WHEN member_rec.member_number = 'SL003' THEN '2023-03-10'
                 WHEN member_rec.member_number = 'SL004' THEN '2023-04-12'
                 ELSE '2023-01-01'
-            END::date
-        );
+            END::date;
+
+            tx_id := uuid_generate_v4();
+            tx_num := 'TXN-SHARES-' || member_rec.member_number;
+
+            -- Create the share purchase transaction record
+            INSERT INTO transactions (
+                id,
+                institution_id,
+                branch_id,
+                member_id,
+                transaction_number,
+                type,
+                amount,
+                mode,
+                transaction_date,
+                description,
+                balance_after,
+                reference_number,
+                processed_by,
+                status
+            ) VALUES (
+                tx_id,
+                member_rec.institution_id,
+                member_rec.branch_id,
+                member_rec.member_id,
+                tx_num,
+                'Deposit',
+                shares_count * 50000,
+                'Cash',
+                purchase_dt,
+                'Initial member shares purchase: ' || shares_count || ' shares @ 50,000',
+                shares_count * 50000,
+                tx_num,
+                staff_id,
+                'Completed'
+            )
+            ON CONFLICT (institution_id, transaction_number) DO UPDATE
+            SET id = transactions.id
+            RETURNING id INTO tx_id;
+
+            -- Insert the member shares record with transaction_id
+            INSERT INTO member_shares (
+                id,
+                transaction_id,
+                member_id,
+                number_of_shares,
+                share_value,
+                purchase_date
+            ) VALUES (
+                uuid_generate_v4(),
+                tx_id,
+                member_rec.member_id,
+                shares_count,
+                50000, -- Share value from institution settings
+                purchase_dt
+            );
         END IF;
     END LOOP;
 END $$;

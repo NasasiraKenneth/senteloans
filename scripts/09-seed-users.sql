@@ -227,14 +227,17 @@ BEGIN
     SELECT id INTO role_admin_id FROM roles WHERE name = 'Admin' LIMIT 1;
     SELECT id INTO role_super_admin_id FROM roles WHERE name = 'Super Admin' LIMIT 1;
 
-    -- Platform super admin
+    -- Platform super admin (System Admin does not belong to any institution, branch, or tenant role)
     INSERT INTO users (
-        id, auth_id, institution_id, branch_id, email, full_name, phone_number, status
+        id, auth_id, institution_id, branch_id, role_id, email, full_name, phone_number, status
     ) VALUES (
-        uuid_generate_v4(), NULL::uuid, platform_id, platform_branch_id,
+        uuid_generate_v4(), NULL::uuid, NULL::uuid, NULL::uuid, NULL::uuid,
         'admin@senteloans.com', 'SenteLoans System Admin', '+256000000000', 'Active'
     )
-    ON CONFLICT (email) DO NOTHING;
+    ON CONFLICT (email) DO UPDATE
+    SET institution_id = NULL,
+        branch_id = NULL,
+        role_id = NULL;
 
     -- Institution admins
     INSERT INTO users (
@@ -301,14 +304,14 @@ SELECT
 FROM users;
 
 SELECT
-    i.name as institution_name,
-    b.name as branch_name,
+    COALESCE(i.name, 'Platform System') as institution_name,
+    COALESCE(b.name, 'N/A') as branch_name,
     u.full_name,
     u.email,
-    r.name as role_name,
+    COALESCE(r.name, 'System Admin') as role_name,
     u.status
 FROM users u
-JOIN institutions i ON u.institution_id = i.id
-JOIN branches b ON u.branch_id = b.id
-JOIN roles r ON u.role_id = r.id
-ORDER BY i.name, b.name, r.name, u.full_name;
+LEFT JOIN institutions i ON u.institution_id = i.id
+LEFT JOIN branches b ON u.branch_id = b.id
+LEFT JOIN roles r ON u.role_id = r.id
+ORDER BY i.name NULLS FIRST, b.name NULLS FIRST, r.name NULLS FIRST, u.full_name;

@@ -7,7 +7,7 @@ export interface SelectOption {
   value: string
   label: string
   icon?: React.ReactNode
-  onClick?: () => void
+  onClick?: (e?: React.MouseEvent) => void
   color?: string
   disabled?: boolean
 }
@@ -58,7 +58,7 @@ export function ActionSelect({
           },
         }}
       >
-        <div className="p-2">
+        <div className="p-2" onClick={(e) => e.stopPropagation()}>
           {/* Actions Section */}
           <div className="text-xs font-semibold text-gray-500 px-3 py-1">Actions</div>
           {actions.map((opt) => {
@@ -66,9 +66,10 @@ export function ActionSelect({
             return (
               <div
                 key={opt.value}
-                onClick={() => {
+                onClick={(e) => {
+                  e.stopPropagation()
                   if (dis) return
-                  opt.onClick?.()
+                  opt.onClick?.(e)
                   setAnchor(null)
                 }}
                 className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-colors ${
@@ -88,8 +89,9 @@ export function ActionSelect({
               {statusOptions.map((opt) => (
                 <div
                   key={opt.value}
-                  onClick={() => {
-                    opt.onClick?.()
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    opt.onClick?.(e)
                     setAnchor(null)
                   }}
                   className={`flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-gray-50 rounded-lg transition-colors ${opt.color}`}
