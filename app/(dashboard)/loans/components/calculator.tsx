@@ -7,12 +7,26 @@ interface LoanCalculatorModalProps {
   isOpen: boolean
   onClose: () => void
   onApplyLoan?: () => void
+  currency?: string
+  memberId?: string
+  memberLoans?: Array<{
+    id: string
+    application_id?: string
+    status?: string
+    outstanding_balance?: number
+    principal_amount?: number
+  }>
+  isClientPortal?: boolean
 }
 
 export default function LoanCalculatorModal({
   isOpen,
   onClose,
   onApplyLoan,
+  currency,
+  memberId,
+  memberLoans,
+  isClientPortal,
 }: LoanCalculatorModalProps) {
   return (
     <AnimatePresence>
@@ -31,7 +45,14 @@ export default function LoanCalculatorModal({
             exit={{ opacity: 0, scale: 0.96, y: 10 }}
             transition={{ duration: 0.2, ease: [0.4, 0, 0.2, 1] }}
           >
-            <LoanCalculatorForm onClose={onClose} onApplyLoan={onApplyLoan} />
+            <LoanCalculatorForm
+              onClose={onClose}
+              onApplyLoan={onApplyLoan}
+              currency={currency}
+              memberId={memberId}
+              memberLoans={memberLoans}
+              isClientPortal={isClientPortal}
+            />
           </motion.div>
         </motion.div>
       )}

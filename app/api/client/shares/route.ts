@@ -3,14 +3,14 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { runWithAuth } from "@/lib/db"
 
-export async function GET(req: Request) {
+export async function GET(req?: Request) {
   try {
     const session = await getServerSession(authOptions)
     if (!session?.user?.authUserId) {
       return NextResponse.json({ error: "unauthorized" }, { status: 401 })
     }
 
-    const url = new URL(req.url)
+    const url = req?.url ? new URL(req.url) : new URL("http://localhost/api/client/shares")
     const search = (url.searchParams.get("search") || "").trim()
     const dateFrom = (
       url.searchParams.get("date_from") ||
@@ -61,22 +61,9 @@ export async function GET(req: Request) {
          WHERE member_id = $1`,
         [member.id]
       )
-      const memberUnits = Number(memberTotalsRes.rows[0]?.total_units || 0)
-      const memberTotalValue = Number(memberTotalsRes.rows[0]?.total_value || 0)
-      const totalPurchases = Number(memberTotalsRes.rows[0]?.total_purchases || 0)
-
-      // Last share purchase price and date
-      const lastPurchaseRes = await client.query(
-        `SELECT share_value, purchase_date
-         FROM member_shares
-         WHERE member_id = $1
-         ORDER BY purchase_date DESC, created_at DESC
-         LIMIT 1`,
-        [member.id]
-      )
-      const lastShareValue = lastPurchaseRes.rows[0]
-        ? Number(lastPurchaseRes.rows[0].share_value || 0)
-        : institutionConfig.share_value ? Number(institutionConfig.share_value) : null
+      let memberUnits = Number(memberTotalsRes.rows[0]?.total_units || 0)
+      let memberTotalValue = Number(memberTotalsRes.rows[0]?.total_value || 0)
+      let totalPurchases = Number(memberTotalsRes.rows[0]?.total_purchases || 0)
 
       // 4. Query all historical purchases for timeline charting (sorted ascending)
       const allHistoryRes = await client.query(
@@ -92,6 +79,28 @@ export async function GET(req: Request) {
         totalValue: Number(r.total_value || 0),
         date: r.purchase_date,
       }))
+
+      // Last share purchase price and date
+      const lastPurchaseRes = await client.query(
+        `SELECT share_value, purchase_date
+         FROM member_shares
+         WHERE member_id = $1
+         ORDER BY purchase_date DESC, created_at DESC
+         LIMIT 1`,
+        [member.id]
+      )
+      const lastShareValue = lastPurchaseRes.rows[0]
+        ? Number(lastPurchaseRes.rows[0].share_value || 0)
+        : allPurchases.length > 0
+          ? allPurchases[allPurchases.length - 1].shareValue
+          : institutionConfig.share_value ? Number(institutionConfig.share_value) : null
+
+      // Fallback from allPurchases if aggregate query returned empty/mock rows
+      if (memberUnits === 0 && allPurchases.length > 0) {
+        memberUnits = allPurchases.reduce((acc: number, p: any) => acc + p.units, 0)
+        memberTotalValue = allPurchases.reduce((acc: number, p: any) => acc + p.totalValue, 0)
+        totalPurchases = allPurchases.length
+      }
 
       // 5. Build filtered paginated query for the DataTable
       let whereClause = `WHERE ms.member_id = $1`

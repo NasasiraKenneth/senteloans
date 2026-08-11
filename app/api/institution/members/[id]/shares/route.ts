@@ -109,7 +109,12 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       if (memberRow.institution_id !== actor.institution_id) return { error: "forbidden" as const }
 
       const res = await client.query(
-        `SELECT id, transaction_id, number_of_shares, share_value, total_value, purchase_date, created_at FROM member_shares WHERE member_id = $1 ORDER BY created_at DESC`,
+        `SELECT ms.id, ms.transaction_id, ms.number_of_shares, ms.share_value, ms.total_value, ms.purchase_date, ms.created_at,
+                t.transaction_number, t.mode, t.reference_number, t.description
+         FROM member_shares ms
+         LEFT JOIN transactions t ON t.id = ms.transaction_id
+         WHERE ms.member_id = $1
+         ORDER BY ms.created_at DESC`,
         [memberId]
       )
       return { shares: res.rows }

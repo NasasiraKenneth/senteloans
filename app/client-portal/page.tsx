@@ -37,6 +37,7 @@ import {
   ArrowUpDown,
   Calendar,
   Loader2,
+  Building2,
 } from "lucide-react"
 import { useClientSession } from "@/components/client-session-provider"
 import { getGreeting } from "@/lib/greeting"
@@ -130,6 +131,7 @@ export default function ClientPortalPage() {
   const [clientTransactions, setClientTransactions] = useState<ClientTransaction[]>([])
   const [txAggregates, setTxAggregates] = useState({ totalSavings: 0, totalShares: 0 })
   const [shareUnits, setShareUnits] = useState(0)
+  const [saccoTotalAmount, setSaccoTotalAmount] = useState<number>(0)
   const [showBalance, setShowBalance] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [total, setTotal] = useState<number>(0)
@@ -143,11 +145,12 @@ export default function ClientPortalPage() {
     let cancelled = false
     const load = async () => {
       try {
-        const [loansRes, txRes, savRes, sharesRes] = await Promise.all([
+        const [loansRes, txRes, savRes, sharesRes, saccoRes] = await Promise.all([
           fetch("/api/client/loans", { cache: "no-store" }),
           fetch("/api/client/transactions", { cache: "no-store" }),
           hasSavings ? fetch("/api/client/savings", { cache: "no-store" }) : Promise.resolve(null),
           hasShares ? fetch("/api/client/shares", { cache: "no-store" }) : Promise.resolve(null),
+          fetch("/api/client/sacco-amount", { cache: "no-store" }),
         ])
 
         const loans = loansRes.ok ? await loansRes.json() : { loans: [] }
@@ -156,6 +159,7 @@ export default function ClientPortalPage() {
           : { transactions: [], aggregates: { totalSavings: 0, totalShares: 0 } }
         const sav = savRes?.ok ? await savRes.json() : { accounts: [] }
         const shares = sharesRes?.ok ? await sharesRes.json() : { totals: { units: 0 } }
+        const sacco = saccoRes.ok ? await saccoRes.json() : { totalAmount: 0 }
 
         if (cancelled) return
         const txItems = tx.transactions || []
@@ -165,6 +169,7 @@ export default function ClientPortalPage() {
         setTxAggregates(tx.aggregates || { totalSavings: 0, totalShares: 0 })
         setSavingsAccounts(sav.accounts || [])
         setShareUnits(Number(shares.totals?.units || 0))
+        setSaccoTotalAmount(Number(sacco.totalAmount || 0))
       } finally {
         if (!cancelled) setIsLoading(false)
       }
@@ -529,17 +534,32 @@ export default function ClientPortalPage() {
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+          <div className="flex flex-wrap items-center gap-2.5 sm:justify-end">
+            <div className="flex items-center gap-2.5 px-3.5 py-1.5 rounded-xl border border-border/80 bg-background/80 backdrop-blur-xs shadow-xs">
+              <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-[#f08c2b]/10 text-[#f08c2b]">
+                <Building2 className="h-4 w-4" />
+              </div>
+              <div className="flex flex-col">
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  Total SACCO Amount
+                </span>
+                <span className="font-mono text-xs font-bold text-foreground">
+                  {showBalance ? formatMoney(saccoTotalAmount) : masked}
+                </span>
+              </div>
+            </div>
+
             <Button
               size="sm"
               variant="outline"
               onClick={() => setShowBalance((v) => !v)}
-              className="gap-2"
+              className="gap-2 h-9"
+              title={showBalance ? "Hide balances" : "Show balances"}
             >
               {showBalance ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
             </Button>
             <Link href="/client-portal/apply-loan">
-              <Button size="sm" className="gap-2 shadow-xs bg-[#f08c2b] text-white hover:bg-[#f08c2b]/90 border-transparent cursor-pointer">
+              <Button size="sm" className="gap-2 shadow-xs bg-[#f08c2b] text-white hover:bg-[#f08c2b]/90 border-transparent cursor-pointer h-9">
                 <Plus className="h-4 w-4" />
                 Apply for loan
               </Button>

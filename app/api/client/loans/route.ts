@@ -4,16 +4,17 @@ import { authOptions } from "@/lib/auth"
 import { runWithAuth } from "@/lib/db"
 import { auditLogger } from "@/lib/audit/audit-logger"
 import { notificationService } from "@/lib/notifications/notification-service"
+import { makePrefixedNumber } from "@/lib/ids/prefixed-number"
 import { NotificationTemplates } from "@/lib/notifications/notification-types"
 import { getInstitutionAdminRecipients } from "@/lib/notifications/admin-recipients"
 import { calculateLoanTerms } from "@/lib/loans/calculations"
 
-export async function GET(req: Request) {
+export async function GET(req?: Request) {
   try {
     const session = await getServerSession(authOptions)
     if (!session?.user?.authUserId) return NextResponse.json({ error: "unauthorized" }, { status: 401 })
 
-    const url = new URL(req.url)
+    const url = req?.url ? new URL(req.url) : new URL("http://localhost/api/client/loans")
     const search = (url.searchParams.get("search") || "").trim()
     const statusParam = (url.searchParams.get("status") || "").trim().toLowerCase()
     const loanProductParam = (url.searchParams.get("loan_product") || url.searchParams.get("loanProduct") || "").trim()
@@ -159,17 +160,22 @@ export async function POST(req: Request) {
       monthly_income,
       collateral_description,
       guarantor_ids,
+      loan_type,
+      existing_loan_id,
+      previous_loan_id,
     } = payload
 
     if (!loan_product_id) return NextResponse.json({ error: "Loan product is required" }, { status: 400 })
     if (!principal_amount || Number(principal_amount) <= 0) return NextResponse.json({ error: "Valid loan amount is required" }, { status: 400 })
     if (!tenure_months || Number(tenure_months) <= 0) return NextResponse.json({ error: "Valid tenure is required" }, { status: 400 })
     if (!purpose || String(purpose).trim().length < 10) return NextResponse.json({ error: "Purpose must be at least 10 characters" }, { status: 400 })
-    if (!monthly_income || Number(monthly_income) <= 0) return NextResponse.json({ error: "Valid monthly income is required" }, { status: 400 })
+
+    const creditType = String(loan_type || "").toLowerCase() === "top up" ? "top up" : "normal"
+    const topUpPreviousLoanId = (existing_loan_id || previous_loan_id) ? String(existing_loan_id || previous_loan_id) : null
 
     const result = await runWithAuth(session.user.authUserId, async (client) => {
       const clientRes = await client.query(
-        `SELECT id, institution_id, branch_id, full_name, status, kyc_status FROM members WHERE auth_id = $1`,
+        `SELECT id, institution_id, branch_id, full_name, status, kyc_status, monthly_income FROM members WHERE auth_id = $1`,
         [session!.user!.authUserId]
       )
       const clientRow = clientRes.rows[0]
@@ -178,7 +184,7 @@ export async function POST(req: Request) {
       if (clientRow.kyc_status !== "Verified") return { error: "KYC verification required before applying for loans" as const }
 
       const productRes = await client.query(
-        `SELECT id, product_name, interest_rate, interest_calculation_method, minimum_amount, maximum_amount, minimum_tenure_months, maximum_tenure_months
+        `SELECT id, product_name, interest_rate, interest_calculation_method, minimum_amount, maximum_amount, minimum_tenure_months, maximum_tenure_months, collateral_required
          FROM loan_products WHERE id = $1 AND institution_id = $2`,
         [loan_product_id, clientRow.institution_id]
       )
@@ -210,7 +216,9 @@ export async function POST(req: Request) {
         if (guarRes.rows.some((g: Record<string, unknown>) => g.status !== "Active")) return { error: "All guarantors must be active members" as const }
         if (guarRes.rows.some((g: Record<string, unknown>) => g.kyc_status !== "Verified")) return { error: "All guarantors must have verified KYC status" as const }
       }
-      if (institutionType === "Money Lender") {
+      
+      const isCollateralRequired = institutionType === "Money Lender" || Boolean(product.collateral_required)
+      if (isCollateralRequired) {
         const coll = String(collateral_description || "").trim()
         if (coll.length < 20) return { error: "Detailed collateral description is required (minimum 20 characters)" as const }
       }
@@ -223,49 +231,45 @@ export async function POST(req: Request) {
       )
       const monthlyPayment = terms.monthlyPayment
       const totalAmount = terms.totalAmount
-      const applicationId = `LA-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-${Math.floor(Math.random() * 1000000).toString().padStart(6, "0")}`
+      const today = new Date().toISOString().slice(0, 10)
+      const collDesc = typeof collateral_description === "string" ? collateral_description.trim() || null : null
 
-      const loanInsert = {
-        institution_id: clientRow.institution_id,
-        branch_id: clientRow.branch_id,
-        member_id: clientRow.id,
-        loan_product_id: product.id,
-        application_id: applicationId,
-        principal_amount: principal,
-        interest_rate: product.interest_rate,
-        tenure_months: tenure,
-        purpose: String(purpose).trim(),
-        monthly_payment: monthlyPayment,
-        total_amount: totalAmount,
-        outstanding_balance: principal,
-        collateral_description: typeof collateral_description === "string" ? collateral_description.trim() || null : null,
-        application_date: new Date().toISOString().slice(0, 10),
-        status: "Applied",
-        created_by: null,
+      let loan: { id: string; application_id: string } | null = null
+      let applicationId = ""
+      for (let i = 0; i < 8; i++) {
+        applicationId = makePrefixedNumber("LN")
+        try {
+          const loanRes = await client.query(
+            `INSERT INTO loans (institution_id, branch_id, member_id, loan_product_id, application_id, principal_amount, interest_rate, tenure_months, remaining_tenure_months, purpose, monthly_payment, total_amount, outstanding_balance, collateral_description, application_date, status, loan_type, previous_loan_id)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8, $9, $10, $11, $12, $13, $14, 'Applied', $15, $16)
+             RETURNING id, application_id`,
+            [
+              clientRow.institution_id,
+              clientRow.branch_id,
+              clientRow.id,
+              product.id,
+              applicationId,
+              principal,
+              product.interest_rate,
+              tenure,
+              String(purpose).trim(),
+              monthlyPayment,
+              totalAmount,
+              principal,
+              collDesc,
+              today,
+              creditType,
+              topUpPreviousLoanId,
+            ]
+          )
+          loan = loanRes.rows[0] || null
+          break
+        } catch (e: any) {
+          if (String(e?.code) === "23505") continue
+          throw e
+        }
       }
-
-      const loanRes = await client.query(
-        `INSERT INTO loans (institution_id, branch_id, member_id, loan_product_id, application_id, principal_amount, interest_rate, tenure_months, remaining_tenure_months, purpose, monthly_payment, total_amount, outstanding_balance, collateral_description, application_date, status)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8, $9, $10, $11, $12, $13, $14, 'Applied')
-         RETURNING id, application_id`,
-        [
-          loanInsert.institution_id,
-          loanInsert.branch_id,
-          loanInsert.member_id,
-          loanInsert.loan_product_id,
-          loanInsert.application_id,
-          loanInsert.principal_amount,
-          loanInsert.interest_rate,
-          loanInsert.tenure_months,
-          loanInsert.purpose,
-          loanInsert.monthly_payment,
-          loanInsert.total_amount,
-          loanInsert.outstanding_balance,
-          loanInsert.collateral_description,
-          loanInsert.application_date,
-        ]
-      )
-      const loan = loanRes.rows[0]
+      if (!loan) return { error: "insert_failed" as const }
 
       if (institutionType === "SACCO" && guarantorIds.length > 0) {
         const guaranteedAmount = Math.round((principal / guarantorIds.length) * 100) / 100
@@ -275,6 +279,27 @@ export async function POST(req: Request) {
             [loan.id, gid, guaranteedAmount]
           )
         }
+      }
+
+      const loanInsert = {
+        institution_id: clientRow.institution_id,
+        branch_id: clientRow.branch_id,
+        member_id: clientRow.id,
+        loan_product_id: product.id,
+        application_id: loan.application_id,
+        principal_amount: principal,
+        interest_rate: product.interest_rate,
+        tenure_months: tenure,
+        remaining_tenure_months: tenure,
+        purpose: String(purpose).trim(),
+        monthly_payment: monthlyPayment,
+        total_amount: totalAmount,
+        outstanding_balance: principal,
+        collateral_description: collDesc,
+        application_date: today,
+        status: "Applied",
+        loan_type: creditType,
+        previous_loan_id: topUpPreviousLoanId,
       }
 
       await auditLogger.logInsert(

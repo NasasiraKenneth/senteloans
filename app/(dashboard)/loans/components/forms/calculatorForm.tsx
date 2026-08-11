@@ -44,6 +44,9 @@ interface LoanCalculatorFormProps {
   onClose?: () => void
   onApplyLoan?: () => void
   currency?: string
+  memberId?: string
+  memberLoans?: MemberLoanOption[]
+  isClientPortal?: boolean
 }
 
 const inputClass =
@@ -68,6 +71,9 @@ export default function LoanCalculatorForm({
   onClose,
   onApplyLoan,
   currency,
+  memberId: initialMemberId,
+  memberLoans: initialMemberLoans,
+  isClientPortal = false,
 }: LoanCalculatorFormProps) {
   const [products, setProducts] = useState<LoanProductOption[]>([])
   const [loadingProducts, setLoadingProducts] = useState(true)
@@ -78,7 +84,7 @@ export default function LoanCalculatorForm({
 
   const [loanType, setLoanType] = useState<LoanType>("normal")
   const [loanProductId, setLoanProductId] = useState("")
-  const [memberId, setMemberId] = useState("")
+  const [memberId, setMemberId] = useState(initialMemberId || (isClientPortal ? "self" : ""))
   const [topUpLoanId, setTopUpLoanId] = useState("")
   const [externalOutstandingBalance, setExternalOutstandingBalance] = useState("")
   const [principal, setPrincipal] = useState("")
@@ -89,22 +95,33 @@ export default function LoanCalculatorForm({
     async function loadProducts() {
       setLoadingProducts(true)
       try {
-        const res = await fetch("/api/institution/loan-products?status=Active&pageSize=200", { cache: "no-store" })
+        const endpoint = isClientPortal
+          ? "/api/client/loan-products"
+          : "/api/institution/loan-products?status=Active&pageSize=200"
+        const res = await fetch(endpoint, { cache: "no-store" })
         if (!res.ok) return
         const json = await res.json()
         if (ignore) return
-        const items = Array.isArray(json.items) ? json.items : []
+        const items = Array.isArray(json.items)
+          ? json.items
+          : Array.isArray(json.products)
+            ? json.products
+            : []
         setProducts(
           items.map((p: Record<string, unknown>) => ({
             id: String(p.id || ""),
-            product_name: String(p.product_name || ""),
-            interest_rate: Number(p.interest_rate || 0),
-            interest_calculation_method: String(p.interest_calculation_method || "reducing_balance"),
-            processing_fee_percentage: Number(p.processing_fee_percentage || 0),
-            minimum_amount: Number(p.minimum_amount || 0),
-            maximum_amount: Number(p.maximum_amount || 0),
-            minimum_tenure_months: Number(p.minimum_tenure_months || 0),
-            maximum_tenure_months: Number(p.maximum_tenure_months || 0),
+            product_name: String(p.product_name || p.name || ""),
+            interest_rate: Number(p.interest_rate ?? p.interestRate ?? 0),
+            interest_calculation_method: String(
+              p.interest_calculation_method || p.interestCalculationMethod || "reducing_balance",
+            ),
+            processing_fee_percentage: Number(
+              p.processing_fee_percentage ?? p.processingFeePercentage ?? 0,
+            ),
+            minimum_amount: Number(p.minimum_amount ?? p.minAmount ?? 0),
+            maximum_amount: Number(p.maximum_amount ?? p.maxAmount ?? 0),
+            minimum_tenure_months: Number(p.minimum_tenure_months ?? p.minTenure ?? 0),
+            maximum_tenure_months: Number(p.maximum_tenure_months ?? p.maxTenure ?? 0),
           })),
         )
       } catch {
@@ -117,10 +134,14 @@ export default function LoanCalculatorForm({
     return () => {
       ignore = true
     }
-  }, [])
+  }, [isClientPortal])
 
   useEffect(() => {
     let ignore = false
+    if (isClientPortal) {
+      setLoadingMembers(false)
+      return
+    }
     async function loadMembers() {
       setLoadingMembers(true)
       try {
@@ -146,11 +167,58 @@ export default function LoanCalculatorForm({
     return () => {
       ignore = true
     }
-  }, [])
+  }, [isClientPortal])
 
   useEffect(() => {
     let ignore = false
-    if (loanType !== "top up" || !memberId) {
+    if (loanType !== "top up") {
+      if (!isClientPortal) {
+        setTopUpLoans([])
+      }
+      setLoadingTopUpLoans(false)
+      return
+    }
+
+    if (isClientPortal) {
+      if (initialMemberLoans && initialMemberLoans.length > 0) {
+        setTopUpLoans(initialMemberLoans)
+        setLoadingTopUpLoans(false)
+        return
+      }
+
+      async function loadClientLoans() {
+        setLoadingTopUpLoans(true)
+        try {
+          const res = await fetch("/api/client/loans", { cache: "no-store" })
+          if (!res.ok) return
+          const json = await res.json()
+          if (ignore) return
+          const items = Array.isArray(json.loans) ? json.loans : []
+          setTopUpLoans(
+            items
+              .filter((loan: any) => !["Rejected", "Closed", "Paid"].includes(String(loan.status || "")))
+              .map((loan: any) => ({
+                id: String(loan.id || ""),
+                application_id: String(loan.applicationId || loan.application_id || ""),
+                status: String(loan.status || ""),
+                outstanding_balance: Number(loan.outstandingBalance ?? loan.outstanding_balance ?? 0),
+                principal_amount: Number(loan.principalAmount ?? loan.principal_amount ?? 0),
+              })),
+          )
+        } catch {
+          if (!ignore) setTopUpLoans([])
+        } finally {
+          if (!ignore) setLoadingTopUpLoans(false)
+        }
+      }
+
+      void loadClientLoans()
+      return () => {
+        ignore = true
+      }
+    }
+
+    if (!memberId) {
       setTopUpLoans([])
       setLoadingTopUpLoans(false)
       return
@@ -184,12 +252,14 @@ export default function LoanCalculatorForm({
     return () => {
       ignore = true
     }
-  }, [loanType, memberId])
+  }, [loanType, memberId, isClientPortal, initialMemberLoans])
 
   const handleLoanTypeChange = (value: string) => {
     const next = value as LoanType
     setLoanType(next)
-    setMemberId("")
+    if (!isClientPortal) {
+      setMemberId("")
+    }
     setTopUpLoanId("")
     setExternalOutstandingBalance("")
   }
@@ -310,7 +380,7 @@ export default function LoanCalculatorForm({
 
   const hasLoanTypeInputs =
     loanType === "normal" ||
-    (loanType === "top up" && Boolean(memberId) && Boolean(topUpLoanId)) ||
+    (loanType === "top up" && Boolean(topUpLoanId) && (isClientPortal || Boolean(memberId))) ||
     (loanType === "buy off" && settlementAmount > 0)
 
   const canCalculate =
@@ -346,32 +416,34 @@ export default function LoanCalculatorForm({
 
         {loanType === "top up" && (
           <div className="space-y-3 rounded-lg border border-[#f08c2b]/20 bg-[#fff8f2] p-3">
-            <div className="space-y-1.5">
-              <label className="block text-sm font-medium text-gray-700">Member</label>
-              <StyledSelect
-                value={memberId}
-                onChange={(value) => {
-                  setMemberId(value)
-                  setTopUpLoanId("")
-                }}
-                placeholder={loadingMembers ? "Loading members…" : "Select member"}
-                options={memberSelectOptions}
-                searchable
-              />
-            </div>
+            {!isClientPortal && (
+              <div className="space-y-1.5">
+                <label className="block text-sm font-medium text-gray-700">Member</label>
+                <StyledSelect
+                  value={memberId}
+                  onChange={(value) => {
+                    setMemberId(value)
+                    setTopUpLoanId("")
+                  }}
+                  placeholder={loadingMembers ? "Loading members…" : "Select member"}
+                  options={memberSelectOptions}
+                  searchable
+                />
+              </div>
+            )}
             <div className="space-y-1.5">
               <label className="block text-sm font-medium text-gray-700">Existing Loan</label>
               <StyledSelect
                 value={topUpLoanId}
                 onChange={setTopUpLoanId}
                 placeholder={
-                  !memberId
+                  !isClientPortal && !memberId
                     ? "Select a member first"
                     : loadingTopUpLoans
                       ? "Loading member loans…"
                       : topUpLoanSelectOptions.length
                         ? "Select loan to top up"
-                        : "No active loans for this member"
+                        : "No active loans available to top up"
                 }
                 options={topUpLoanSelectOptions}
                 searchable

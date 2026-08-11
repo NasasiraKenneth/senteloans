@@ -703,6 +703,14 @@ export default function UserProfilePage() {
                       Edit Profile
                     </Button>
                   </Link>
+                  {showShares && (
+                    <Link href={`/members/${user.id}/shares`}>
+                      <Button variant="outline" size="sm">
+                        <TrendingUp className="h-4 w-4 mr-2" />
+                        Shares
+                      </Button>
+                    </Link>
+                  )}
                   <div className="flex-1" />
                   {canEditMember && (
                     <Button
@@ -843,7 +851,7 @@ export default function UserProfilePage() {
               >
                 {([
                   ...(showShares
-                    ? [{ key: "shares", label: "Share Value", value: formatCurrency(user.totalShareValue || 0), sub: `${user.numberOfShares || 0} ${(user.numberOfShares || 0) === 1 ? "share" : "shares"}`, icon: TrendingUp, accent: "text-violet-600", chip: "bg-violet-100" }]
+                    ? [{ key: "shares", label: "Share Value", value: formatCurrency(user.totalShareValue || 0), sub: `${user.numberOfShares || 0} ${(user.numberOfShares || 0) === 1 ? "share" : "shares"}`, icon: TrendingUp, accent: "text-orange-600", chip: "bg-orange-100" }]
                     : []),
                   ...(hasSavings
                     ? [{ key: "savings", label: "Savings Balance", value: formatCurrency(savingsBalance), icon: PiggyBank, accent: "text-emerald-600", chip: "bg-emerald-100" }]
@@ -1092,11 +1100,16 @@ export default function UserProfilePage() {
                 {/* Shares */}
                 {showShares && (
                   <motion.div variants={staggerItem} className="space-y-4 rounded-xl border border-border bg-card p-5 md:col-span-2">
-                    <div className="flex items-center gap-2.5">
-                      <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-violet-100">
-                        <TrendingUp className="h-4 w-4 text-violet-600" />
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2.5">
+                        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-orange-100">
+                          <TrendingUp className="h-4 w-4 text-orange-600" />
+                        </div>
+                        <h2 className="text-base font-semibold">Shares</h2>
                       </div>
-                      <h2 className="text-base font-semibold">Shares</h2>
+                      <Link href={`/members/${user.id}/shares`}>
+                        <Button variant="ghost" size="sm">View</Button>
+                      </Link>
                     </div>
                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                       <div className="rounded-lg border border-border bg-muted/30 p-4">
@@ -1109,7 +1122,7 @@ export default function UserProfilePage() {
                       </div>
                       <div className="rounded-lg border border-border bg-muted/30 p-4">
                         <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Total Share Value</p>
-                        <p className="mt-1 text-xl font-bold tracking-tight text-violet-600">{formatCurrency(user.totalShareValue || 0)}</p>
+                        <p className="mt-1 text-xl font-bold tracking-tight text-orange-600">{formatCurrency(user.totalShareValue || 0)}</p>
                       </div>
                     </div>
                   </motion.div>

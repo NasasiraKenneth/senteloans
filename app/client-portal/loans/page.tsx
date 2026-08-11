@@ -31,6 +31,7 @@ import {
   Clock,
   DollarSign,
   XCircle,
+  Loader2,
 } from "lucide-react"
 
 import { ClientPortalPageHeader } from "@/components/client-portal-page-header"
@@ -77,14 +78,16 @@ type SummaryStats = {
 }
 
 type CalendarEvent = {
+  id?: string
   dateStr: string // YYYY-MM-DD
   type: "status_change" | "repayment" | "overdue"
   appId: string
   product: string
   title: string
   amount: number
-  status: "Paid" | "Pending" | "Overdue" | "Disbursed"
+  status: "Paid" | "Pending" | "Overdue" | "Disbursed" | "Applied" | "Approved" | "Closed" | "Completed"
   description?: string
+  installmentNumber?: number
 }
 
 const PIE_COLORS = ["#f08c2b", "#3b82f6", "#10b981", "#8b5cf6", "#ec4899", "#6366f1"]
@@ -119,6 +122,7 @@ export default function ClientLoansPage() {
   const { toast } = useToast()
   const { data, formatMoney } = useClientSession()
   const currentClient = data?.client
+  const institution = data?.institution
   const { enabled, isLoading: guardLoading } = useClientModuleGuard("loans")
 
   const [loans, setLoans] = useState<ClientLoan[]>([])
@@ -137,8 +141,10 @@ export default function ClientLoansPage() {
   const [showCalculator, setShowCalculator] = useState(false)
 
   // Calendar configurations
-  const [currentDate, setCurrentDate] = useState(() => new Date(2026, 6, 23))
-  const [selectedDate, setSelectedDate] = useState<Date>(() => new Date(2026, 6, 23))
+  const [currentDate, setCurrentDate] = useState(() => new Date())
+  const [selectedDate, setSelectedDate] = useState<Date>(() => new Date())
+  const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([])
+  const [isLoadingCalendar, setIsLoadingCalendar] = useState(false)
 
   const onPageChange = (_: unknown, newPage: number) => {
     setPage(newPage)
@@ -155,12 +161,16 @@ export default function ClientLoansPage() {
     let ignore = false
     async function loadProducts() {
       try {
-        const res = await fetch("/api/institution/loan-products?status=Active&pageSize=200")
+        const res = await fetch("/api/client/loan-products")
         if (!res.ok) return
         const json = await res.json()
         if (ignore) return
-        const items = Array.isArray(json.items) ? json.items : []
-        setProducts(items.map((p: any) => ({ id: p.id, name: p.product_name })))
+        const items = Array.isArray(json.products)
+          ? json.products
+          : Array.isArray(json.items)
+            ? json.items
+            : []
+        setProducts(items.map((p: Record<string, unknown>) => ({ id: String(p.id), name: String(p.name || p.product_name) })))
       } catch {}
     }
     void loadProducts()
@@ -515,58 +525,52 @@ export default function ClientLoansPage() {
     [products]
   )
 
-  // Calendar mock/calculated events
-  const calendarEvents = useMemo<CalendarEvent[]>(() => {
-    return [
-      {
-        dateStr: "2026-07-05",
-        type: "repayment",
-        appId: "LN-2026-8802",
-        product: "Emergency Loan",
-        title: "Repayment Cleared",
-        amount: 350000,
-        status: "Paid",
-        description: "Scheduled installment #2 paid successfully via MTN Mobile Money.",
-      },
-      {
-        dateStr: "2026-07-15",
-        type: "overdue",
-        appId: "LN-2026-9041",
-        product: "Short-term Business Cap",
-        title: "Overdue Repayment Due",
-        amount: 180000,
-        status: "Overdue",
-        description: "Missed repayment deadline. Sacco overdue interest penalties apply.",
-      },
-      {
-        dateStr: "2026-07-20",
-        type: "status_change",
-        appId: "LN-2026-8802",
-        product: "Emergency Loan",
-        title: "Loan Status Changed to Disbursed",
-        amount: 1500000,
-        status: "Disbursed",
-        description: "Guarantor reviews completed. Loan disbursed to member wallet.",
-      },
-      {
-        dateStr: "2026-07-28",
-        type: "repayment",
-        appId: "LN-2026-9504",
-        product: "Development Capital Loan",
-        title: "Upcoming Installment Due",
-        amount: 420000,
-        status: "Pending",
-        description: "Next repayment billing cycle. Ensure mobile money/bank balances cover dues.",
-      },
-    ]
-  }, [])
+  // Fetch dynamic calendar events from API when currentDate (month/year) changes
+  useEffect(() => {
+    let ignore = false
+    async function loadCalendarEvents() {
+      setIsLoadingCalendar(true)
+      try {
+        const monthStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, "0")}`
+        const res = await fetch(`/api/client/loans/calendar?month=${monthStr}`, { cache: "no-store" })
+        if (!res.ok) return
+        const json = await res.json()
+        if (ignore) return
+        if (json.ok && Array.isArray(json.events)) {
+          setCalendarEvents(json.events)
+        }
+      } catch (err) {
+        console.error("Failed to load loan calendar events:", err)
+      } finally {
+        if (!ignore) setIsLoadingCalendar(false)
+      }
+    }
+    void loadCalendarEvents()
+    return () => {
+      ignore = true
+    }
+  }, [currentDate])
 
   const handlePrevMonth = () => {
-    setCurrentDate((prev) => new Date(prev.getFullYear(), prev.getMonth() - 1, 1))
+    setCurrentDate((prev) => {
+      const nextMonth = new Date(prev.getFullYear(), prev.getMonth() - 1, 1)
+      setSelectedDate(nextMonth)
+      return nextMonth
+    })
   }
 
   const handleNextMonth = () => {
-    setCurrentDate((prev) => new Date(prev.getFullYear(), prev.getMonth() + 1, 1))
+    setCurrentDate((prev) => {
+      const nextMonth = new Date(prev.getFullYear(), prev.getMonth() + 1, 1)
+      setSelectedDate(nextMonth)
+      return nextMonth
+    })
+  }
+
+  const handleToday = () => {
+    const today = new Date()
+    setCurrentDate(new Date(today.getFullYear(), today.getMonth(), 1))
+    setSelectedDate(today)
   }
 
   const calendarDays = useMemo(() => {
@@ -618,7 +622,7 @@ export default function ClientLoansPage() {
               variant="outline"
               size="sm"
               onClick={() => setShowCalculator(true)}
-              className="gap-2 font-semibold shadow-sm text-xs border-border/80 hover:bg-muted/40 cursor-pointer"
+              className="gap-2 font-semibold shadow-sm text-xs border-border/80 hover:bg-black/50 cursor-pointer"
             >
               <Calculator className="h-4 w-4 text-[#f08c2b]" />
               Loan Calculator
@@ -698,131 +702,151 @@ export default function ClientLoansPage() {
       )}
 
       {/* Main Grid: Interactive Calendar & Analytics */}
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3 items-stretch">
         {/* Repayment and Status Calendar */}
-        <Card className="border-border/80 shadow-sm bg-card overflow-hidden lg:col-span-2">
-          <CardHeader className="border-b border-border/60 bg-muted/20 pb-3.5 flex flex-row items-center justify-between">
+        <Card className="border-border/80 shadow-sm bg-card overflow-hidden lg:col-span-2 flex flex-col h-full">
+          <CardHeader className="border-b border-border/60 bg-muted/20 pb-3 flex flex-row items-center justify-between shrink-0">
             <div className="flex items-center gap-2">
               <Calendar className="h-4.5 w-4.5 text-[#f08c2b]" />
               <CardTitle className="text-sm font-semibold">Repayment & Status Tracker</CardTitle>
+              {isLoadingCalendar && <Loader2 className="h-3.5 w-3.5 animate-spin text-[#f08c2b]" />}
             </div>
-            <div className="flex items-center gap-2">
-              <Button variant="outline" size="icon" className="h-7 w-7" onClick={handlePrevMonth}>
+            <div className="flex items-center gap-1.5">
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 text-[10px] font-bold uppercase tracking-wider px-2"
+                onClick={handleToday}
+              >
+                Today
+              </Button>
+              <Button variant="outline" size="icon" className="h-7 w-7" onClick={handlePrevMonth} aria-label="Previous Month">
                 <ChevronLeft className="h-4 w-4" />
               </Button>
-              <span className="text-xs font-bold font-mono uppercase tracking-wider text-foreground w-28 text-center">
-                {currentDate.toLocaleDateString(undefined, { month: "long", year: "numeric" })}
+              <span className="text-xs font-bold font-mono uppercase tracking-wider text-foreground w-28 sm:w-32 text-center">
+                {currentDate.toLocaleDateString("en-US", { month: "long", year: "numeric" })}
               </span>
-              <Button variant="outline" size="icon" className="h-7 w-7" onClick={handleNextMonth}>
+              <Button variant="outline" size="icon" className="h-7 w-7" onClick={handleNextMonth} aria-label="Next Month">
                 <ChevronRight className="h-4 w-4" />
               </Button>
             </div>
           </CardHeader>
-          <CardContent className="p-4">
-            <div className="grid grid-cols-7 gap-1 text-center text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2">
-              <span>Sun</span>
-              <span>Mon</span>
-              <span>Tue</span>
-              <span>Wed</span>
-              <span>Thu</span>
-              <span>Fri</span>
-              <span>Sat</span>
-            </div>
-            <div className="grid grid-cols-7 gap-1">
-              {calendarDays.map((day, idx) => {
-                if (!day) return <div key={`empty-${idx}`} className="aspect-square bg-transparent" />
-                const dayStr = formatDateString(day)
-                const isSelected = selectedDateStr === dayStr
-                const dayEvents = calendarEvents.filter((ev) => ev.dateStr === dayStr)
-                const isToday = formatDateString(new Date()) === dayStr
+          <CardContent className="p-4 sm:p-5 flex-1 flex flex-col justify-between min-h-0 space-y-4">
+            {/* Top: Calendar Grid (Large & Prominent) */}
+            <div className="shrink-0">
+              <div className="grid grid-cols-7 gap-2 text-center text-xs sm:text-sm font-bold uppercase tracking-wider text-muted-foreground mb-2.5">
+                <span>Sun</span>
+                <span>Mon</span>
+                <span>Tue</span>
+                <span>Wed</span>
+                <span>Thu</span>
+                <span>Fri</span>
+                <span>Sat</span>
+              </div>
+              <div className="grid grid-cols-7 gap-2">
+                {calendarDays.map((day, idx) => {
+                  if (!day) return <div key={`empty-${idx}`} className="h-16 sm:h-18 md:h-20 w-full bg-transparent" />
+                  const dayStr = formatDateString(day)
+                  const isSelected = selectedDateStr === dayStr
+                  const dayEvents = calendarEvents.filter((ev) => ev.dateStr === dayStr)
+                  const isToday = formatDateString(new Date()) === dayStr
 
-                return (
-                  <button
-                    key={dayStr}
-                    onClick={() => setSelectedDate(day)}
-                    className={cn(
-                      "aspect-square flex flex-col items-center justify-between p-1.5 rounded-lg border border-border/40 relative transition-all duration-200",
-                      isSelected
-                        ? "border-[#f08c2b] bg-[#f08c2b]/5 text-[#f08c2b]"
-                        : "hover:bg-muted/30 hover:border-border text-foreground",
-                      isToday && !isSelected && "border-[#f08c2b]/40 font-bold bg-[#f08c2b]/2"
-                    )}
-                  >
-                    <span className="text-[11px] font-bold font-mono">{day.getDate()}</span>
-                    {dayEvents.length > 0 && (
-                      <div className="flex gap-0.5 justify-center mt-auto">
-                        {dayEvents.map((ev, eIdx) => (
-                          <span
-                            key={eIdx}
-                            className={cn(
-                              "h-1.5 w-1.5 rounded-full shrink-0",
-                              ev.type === "repayment" && ev.status === "Paid"
-                                ? "bg-emerald-500"
-                                : ev.type === "repayment" && ev.status === "Pending"
-                                ? "bg-amber-400"
-                                : ev.type === "overdue"
-                                ? "bg-rose-500"
-                                : "bg-blue-400"
-                            )}
-                          />
-                        ))}
-                      </div>
-                    )}
-                  </button>
-                )
-              })}
+                  return (
+                    <button
+                      key={dayStr}
+                      onClick={() => setSelectedDate(day)}
+                      className={cn(
+                        "h-16 sm:h-18 md:h-20 w-full flex flex-col items-center justify-between p-2 sm:p-2.5 rounded-xl border border-border/45 relative transition-all duration-200",
+                        isSelected
+                          ? "border-[#f08c2b] bg-[#f08c2b]/15 text-[#f08c2b] font-bold shadow-sm ring-2 ring-[#f08c2b]/40"
+                          : "hover:bg-muted/40 hover:border-border text-foreground",
+                        isToday && !isSelected && "border-[#f08c2b]/50 font-bold bg-[#f08c2b]/5"
+                      )}
+                    >
+                      <span className="text-xs sm:text-sm md:text-base font-bold font-mono leading-none">{day.getDate()}</span>
+                      {dayEvents.length > 0 ? (
+                        <div className="flex gap-1.5 justify-center mt-auto">
+                          {dayEvents.map((ev, eIdx) => (
+                            <span
+                              key={eIdx}
+                              className={cn(
+                                "h-2 w-2 sm:h-2.5 sm:w-2.5 rounded-full shrink-0",
+                                ev.status === "Paid" || ev.status === "Completed"
+                                  ? "bg-emerald-500"
+                                  : ev.status === "Pending"
+                                  ? "bg-amber-400"
+                                  : ev.status === "Overdue"
+                                  ? "bg-rose-500"
+                                  : ev.status === "Applied"
+                                  ? "bg-purple-500"
+                                  : "bg-blue-400"
+                              )}
+                            />
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="h-2" />
+                      )}
+                    </button>
+                  )
+                })}
+              </div>
             </div>
 
-            {/* Day Details View */}
-            <div className="mt-4 border-t border-border/60 pt-4">
-              <div className="flex items-center justify-between mb-3">
-                <span className="text-[10px] uppercase font-bold tracking-widest text-[#f08c2b]">
+            {/* Bottom: Schedule Details for Selected Date */}
+            <div className="border-t border-border/60 pt-3.5 flex-1 flex flex-col min-h-0">
+              <div className="flex items-center justify-between mb-2.5 shrink-0">
+                <span className="text-xs uppercase font-bold tracking-widest text-[#f08c2b]">
                   Schedule Details (
-                  {selectedDate.toLocaleDateString(undefined, {
+                  {selectedDate.toLocaleDateString("en-US", {
                     month: "short",
                     day: "numeric",
                     year: "numeric",
                   })}
                   )
                 </span>
-                <span className="text-[10px] text-muted-foreground">
-                  {activeDayEvents.length} {activeDayEvents.length === 1 ? "event" : "events"}
-                </span>
+                <Badge variant="outline" className="text-[10px] font-bold font-mono px-2 py-0.5">
+                  {activeDayEvents.length} {activeDayEvents.length === 1 ? "Event" : "Events"}
+                </Badge>
               </div>
 
-              <div className="space-y-2">
+              <div className="space-y-2 overflow-y-auto flex-1 min-h-[100px] max-h-[180px] pr-1">
                 {activeDayEvents.map((ev, idx) => (
                   <div
                     key={idx}
                     className={cn(
                       "p-3 rounded-lg border border-border/50 bg-muted/10 flex items-start justify-between gap-3 text-xs leading-relaxed transition-all duration-200",
-                      ev.type === "overdue" && "border-rose-500/20 bg-rose-500/2"
+                      ev.type === "overdue" && "border-rose-500/20 bg-rose-500/5"
                     )}
                   >
-                    <div className="space-y-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-bold text-foreground">{ev.title}</span>
-                        <span className="text-[9px] uppercase text-muted-foreground font-mono font-bold">
+                    <div className="space-y-0.5 min-w-0">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="font-bold text-foreground text-xs sm:text-sm">{ev.title}</span>
+                        <span className="text-[9px] uppercase text-muted-foreground font-mono font-semibold">
                           ID: {ev.appId}
                         </span>
                       </div>
-                      <p className="text-muted-foreground text-[11px]">{ev.description}</p>
-                      <div className="flex items-center gap-1.5 text-[10px] font-semibold text-muted-foreground">
+                      {ev.description && (
+                        <p className="text-muted-foreground text-[11px] line-clamp-2">{ev.description}</p>
+                      )}
+                      <div className="flex items-center gap-1 text-[10px] font-medium text-muted-foreground pt-0.5">
                         <span>Product:</span>
-                        <span className="text-foreground font-bold">{ev.product}</span>
+                        <span className="text-foreground font-semibold">{ev.product}</span>
                       </div>
                     </div>
                     <div className="text-right shrink-0">
-                      <p className="font-bold text-foreground font-mono">{formatMoney(ev.amount)}</p>
+                      <p className="font-bold text-foreground font-mono text-xs sm:text-sm">{formatMoney(ev.amount)}</p>
                       <span
                         className={cn(
-                          "inline-block text-[9px] font-bold px-1.5 py-0.5 rounded border uppercase tracking-wider mt-1",
-                          ev.status === "Paid"
+                          "inline-block text-[8px] sm:text-[9px] font-bold px-2 py-0.5 rounded border uppercase tracking-wider mt-1",
+                          ev.status === "Paid" || ev.status === "Completed"
                             ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/25"
                             : ev.status === "Pending"
                             ? "bg-amber-500/10 text-amber-600 border-amber-500/25"
                             : ev.status === "Overdue"
                             ? "bg-rose-500/10 text-rose-600 border-rose-500/25"
+                            : ev.status === "Applied"
+                            ? "bg-purple-500/10 text-purple-600 border-purple-500/25"
                             : "bg-blue-500/10 text-blue-600 border-blue-500/25"
                         )}
                       >
@@ -833,8 +857,11 @@ export default function ClientLoansPage() {
                 ))}
 
                 {activeDayEvents.length === 0 && (
-                  <div className="text-center py-6 text-muted-foreground text-xs bg-muted/5 border border-dashed border-border/60 rounded-lg">
-                    No repayments, overdue installments, or status change events logged for this date.
+                  <div className="h-full min-h-[90px] flex flex-col items-center justify-center p-3 text-center text-muted-foreground text-xs bg-muted/5 border border-dashed border-border/60 rounded-lg">
+                    <p className="font-medium text-xs">No events on this date</p>
+                    <p className="text-[10px] text-muted-foreground/70 mt-0.5">
+                      No repayments, overdue dues, or status changes logged.
+                    </p>
                   </div>
                 )}
               </div>
@@ -957,6 +984,17 @@ export default function ClientLoansPage() {
           setShowCalculator(false)
           router.push("/client-portal/apply-loan")
         }}
+        currency={institution?.config?.currency || "UGX"}
+        memberLoans={loans
+          .filter((l) => !["Rejected", "Closed", "Paid"].includes(String(l.status || "")))
+          .map((l) => ({
+            id: l.id,
+            application_id: l.applicationId,
+            status: l.status,
+            outstanding_balance: Number(l.outstandingBalance || 0),
+            principal_amount: Number(l.principalAmount || 0),
+          }))}
+        isClientPortal={true}
       />
     </motion.div>
   )

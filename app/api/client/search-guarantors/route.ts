@@ -12,10 +12,6 @@ export async function GET(req: Request) {
     const url = new URL(req.url)
     const searchQuery = (url.searchParams.get("q") || "").trim()
 
-    if (searchQuery.length < 2) {
-      return NextResponse.json({ ok: true, guarantors: [], message: "Please enter at least 2 characters to search" })
-    }
-
     const result = await runWithAuth(session.user.authUserId, async (client) => {
       const clientRes = await client.query(
         `SELECT id, institution_id FROM members WHERE auth_id = $1`,
@@ -24,13 +20,18 @@ export async function GET(req: Request) {
       const row = clientRes.rows[0]
       if (!row) return null
 
-      const searchPattern = `%${searchQuery}%`
-      const membersRes = await client.query(
-        `SELECT id, full_name, phone_number, member_number, kyc_status FROM members WHERE institution_id = $1 AND status = 'Active' AND id != $2 AND (full_name ILIKE $3 OR phone_number ILIKE $3) LIMIT 10`,
-        [row.institution_id, row.id, searchPattern]
-      )
-      const members = membersRes.rows.filter((m: { kyc_status: string }) => m.kyc_status === "Verified")
-      const guarantors = members.map((m: { id: string; full_name: string; phone_number: string; member_number: string }) => ({
+      let query = `SELECT id, full_name, phone_number, member_number, kyc_status FROM members WHERE institution_id = $1 AND status = 'Active' AND kyc_status = 'Verified' AND id != $2`
+      const params: unknown[] = [row.institution_id, row.id]
+
+      if (searchQuery.length > 0) {
+        query += ` AND (full_name ILIKE $3 OR phone_number ILIKE $3 OR member_number ILIKE $3)`
+        params.push(`%${searchQuery}%`)
+      }
+
+      query += ` ORDER BY full_name ASC LIMIT 50`
+
+      const membersRes = await client.query(query, params)
+      const guarantors = membersRes.rows.map((m: { id: string; full_name: string; phone_number: string; member_number: string }) => ({
         id: m.id,
         full_name: m.full_name,
         phone_number: m.phone_number,
