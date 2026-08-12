@@ -337,4 +337,26 @@ describe("renderEmailTemplate", () => {
     expect(out.html).toContain("fully disbursed")
     expect(out.html).toContain("Alex")
   })
+
+  it("renders institution logo image when logo url is provided", () => {
+    const out = renderEmailTemplate("member.welcome", {
+      institutionName: "Kabalagala SACCO",
+      institutionLogo: "https://example.com/logo.png",
+      memberName: "Jane Doe",
+      memberNumber: "M-001",
+    })
+    expect(out.html).toContain('<img src="https://example.com/logo.png"')
+    expect(out.html).toContain('alt="Kabalagala SACCO"')
+  })
+
+  it("renders fallback monogram when institution logo is null or empty", () => {
+    const out = renderEmailTemplate("member.welcome", {
+      institutionName: "Kabalagala SACCO",
+      institutionLogo: null,
+      memberName: "Jane Doe",
+      memberNumber: "M-001",
+    })
+    expect(out.html).not.toContain("<img")
+    expect(out.html).toContain("K")
+  })
 })

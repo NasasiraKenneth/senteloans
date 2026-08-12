@@ -109,10 +109,13 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       if (memberRow.institution_id !== actor.institution_id) return { error: "forbidden" as const }
 
       const res = await client.query(
-        `SELECT ms.id, ms.transaction_id, ms.number_of_shares, ms.share_value, ms.total_value, ms.purchase_date, ms.created_at,
-                t.transaction_number, t.mode, t.reference_number, t.description
+        `SELECT ms.id, ms.transaction_id, ms.acquisition_type, ms.transfer_type, ms.transfer_member_id,
+                ms.number_of_shares, ms.share_value, ms.total_value, ms.remaining_shares, ms.date, ms.status, ms.created_at,
+                t.transaction_number, t.mode, t.reference_number, t.description,
+                tm.full_name AS transfer_member_name, tm.member_number AS transfer_member_number
          FROM member_shares ms
          LEFT JOIN transactions t ON t.id = ms.transaction_id
+         LEFT JOIN members tm ON tm.id = ms.transfer_member_id
          WHERE ms.member_id = $1
          ORDER BY ms.created_at DESC`,
         [memberId]
@@ -371,8 +374,21 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
         // Insert into member_shares with the created transaction_id
         const insRes = await client.query(
-          `INSERT INTO member_shares (transaction_id, member_id, number_of_shares, share_value, purchase_date) VALUES ($1, $2, $3, $4, $5) RETURNING id, transaction_id`,
-          [tx.id, memberId, numberOfShares, valuePerShare, purchaseDate]
+          `INSERT INTO member_shares (
+             transaction_id,
+             member_id,
+             acquisition_type,
+             transfer_type,
+             transfer_member_id,
+             number_of_shares,
+             share_value,
+             total_value,
+             remaining_shares,
+             date,
+             status
+           ) VALUES ($1, $2, 'purchase', NULL, NULL, $3, $4, $5, $6, $7, 'active')
+           RETURNING id, transaction_id`,
+          [tx.id, memberId, numberOfShares, valuePerShare, purchaseValue, lockedProjected, purchaseDate]
         )
         const row = insRes.rows[0]
         if (row?.id) {
@@ -382,9 +398,15 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
             {
               transaction_id: tx.id,
               member_id: memberId,
+              acquisition_type: "purchase",
+              transfer_type: null,
+              transfer_member_id: null,
               number_of_shares: numberOfShares,
               share_value: valuePerShare,
-              purchase_date: purchaseDate,
+              total_value: purchaseValue,
+              remaining_shares: lockedProjected,
+              date: purchaseDate,
+              status: "active",
             },
             actor.institution_id,
             actor.id,

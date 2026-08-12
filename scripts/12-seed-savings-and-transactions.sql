@@ -8,6 +8,15 @@ DECLARE
     kampala_sacco_branch_id UUID;
     opportunity_mfi_branch_id UUID;
     
+    -- Account type IDs for Kampala Central SACCO
+    kcs_voluntary_type_id UUID;
+    kcs_fixed_type_id UUID;
+    kcs_shares_type_id UUID;
+    
+    -- Account type IDs for Opportunity MFI
+    omu_voluntary_type_id UUID;
+    omu_group_type_id UUID;
+
     -- Member IDs for Kampala Central SACCO
     sarah_id UUID;
     david_id UUID;
@@ -25,6 +34,25 @@ BEGIN
     SELECT id INTO kampala_sacco_branch_id FROM branches WHERE institution_id = kampala_sacco_id ORDER BY created_at LIMIT 1;
     SELECT id INTO opportunity_mfi_branch_id FROM branches WHERE institution_id = opportunity_mfi_id ORDER BY created_at LIMIT 1;
 
+    -- Ensure default account types exist for each branch (fallback)
+    INSERT INTO account_type (institution_id, branch_id, account_name, status)
+    SELECT b.institution_id, b.id, t.account_name, 'Active'::status_type
+    FROM branches b
+    CROSS JOIN (VALUES ('Voluntary'), ('Fixed'), ('Shares'), ('Group'), ('Current')) AS t(account_name)
+    WHERE b.id IN (kampala_sacco_branch_id, opportunity_mfi_branch_id)
+      AND NOT EXISTS (
+        SELECT 1 FROM account_type at WHERE at.branch_id = b.id AND at.account_name = t.account_name
+      );
+
+    -- Get account type IDs for Kampala Central SACCO
+    SELECT id INTO kcs_voluntary_type_id FROM account_type WHERE branch_id = kampala_sacco_branch_id AND account_name = 'Voluntary' LIMIT 1;
+    SELECT id INTO kcs_fixed_type_id FROM account_type WHERE branch_id = kampala_sacco_branch_id AND account_name = 'Fixed' LIMIT 1;
+    SELECT id INTO kcs_shares_type_id FROM account_type WHERE branch_id = kampala_sacco_branch_id AND account_name = 'Shares' LIMIT 1;
+
+    -- Get account type IDs for Opportunity MFI
+    SELECT id INTO omu_voluntary_type_id FROM account_type WHERE branch_id = opportunity_mfi_branch_id AND account_name = 'Voluntary' LIMIT 1;
+    SELECT id INTO omu_group_type_id FROM account_type WHERE branch_id = opportunity_mfi_branch_id AND account_name IN ('Group', 'Voluntary') ORDER BY CASE WHEN account_name = 'Group' THEN 1 ELSE 2 END LIMIT 1;
+
     -- Get member IDs for Kampala Central SACCO
     SELECT id INTO sarah_id FROM members WHERE member_number = 'SL001';
     SELECT id INTO david_id FROM members WHERE member_number = 'SL002';
@@ -36,14 +64,14 @@ BEGIN
     SELECT id INTO womens_group_id FROM members WHERE member_number = 'OM002';
     SELECT id INTO patricia_id FROM members WHERE member_number = 'OM003';
 
-    -- Create savings accounts for Kampala Central SACCO members (no interest_rate in schema)
+    -- Create savings accounts for Kampala Central SACCO members
     INSERT INTO savings_accounts (
         id,
         institution_id,
         branch_id,
         member_id,
+        account_type_id,
         account_number,
-        account_type,
         available_balance,
         total_balance,
         status,
@@ -55,8 +83,8 @@ BEGIN
         kampala_sacco_id,
         kampala_sacco_branch_id,
         sarah_id,
+        kcs_voluntary_type_id,
         'SA001',
-        'Voluntary',
         850000,
         850000,
         'Active',
@@ -68,8 +96,8 @@ BEGIN
         kampala_sacco_id,
         kampala_sacco_branch_id,
         david_id,
+        kcs_fixed_type_id,
         'SA002',
-        'Fixed',
         1200000,
         1200000,
         'Active',
@@ -81,8 +109,8 @@ BEGIN
         kampala_sacco_id,
         kampala_sacco_branch_id,
         grace_id,
+        kcs_shares_type_id,
         'SA003',
-        'Shares',
         300000,
         300000,
         'Active',
@@ -94,8 +122,8 @@ BEGIN
         kampala_sacco_id,
         kampala_sacco_branch_id,
         robert_id,
+        kcs_voluntary_type_id,
         'SA004',
-        'Voluntary',
         950000,
         950000,
         'Active',
@@ -109,8 +137,8 @@ BEGIN
         institution_id,
         branch_id,
         member_id,
+        account_type_id,
         account_number,
-        account_type,
         available_balance,
         total_balance,
         status,
@@ -122,8 +150,8 @@ BEGIN
         opportunity_mfi_id,
         opportunity_mfi_branch_id,
         agnes_id,
+        omu_voluntary_type_id,
         'OM-SA001',
-        'Voluntary',
         150000,
         150000,
         'Active',
@@ -135,8 +163,8 @@ BEGIN
         opportunity_mfi_id,
         opportunity_mfi_branch_id,
         womens_group_id,
+        omu_group_type_id,
         'OM-SA002',
-        'Voluntary',
         500000,
         500000,
         'Active',
@@ -148,8 +176,8 @@ BEGIN
         opportunity_mfi_id,
         opportunity_mfi_branch_id,
         patricia_id,
+        omu_voluntary_type_id,
         'OM-SA003',
-        'Voluntary',
         75000,
         75000,
         'Inactive',

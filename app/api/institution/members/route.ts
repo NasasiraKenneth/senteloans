@@ -481,15 +481,33 @@ export async function POST(req: Request) {
         )
 
         if (shouldCreateSavings) {
+          let resolvedAccountTypeId: string | null = null
+          const atRes = await client.query(
+            `SELECT id, account_name FROM account_type WHERE branch_id = $1 AND (account_name ILIKE $2 OR id::text = $2) AND status = 'Active' LIMIT 1`,
+            [branchId, savingsAccountType || "Voluntary"]
+          )
+          if (atRes.rows[0]) {
+            resolvedAccountTypeId = atRes.rows[0].id
+          } else {
+            const insType = await client.query(
+              `INSERT INTO account_type (institution_id, branch_id, account_name, status)
+               VALUES ($1, $2, $3, 'Active')
+               ON CONFLICT (branch_id, account_name) DO UPDATE SET status = 'Active'
+               RETURNING id`,
+              [actor.institution_id, branchId, savingsAccountType || "Voluntary"]
+            )
+            resolvedAccountTypeId = insType.rows[0]?.id
+          }
+
           const savInsert = await insertWithPrefixedNumberRetry<{
             id: string
             account_number: string
           }>(
             (accountNumber) =>
               client.query<{ id: string; account_number: string }>(
-                `INSERT INTO savings_accounts (institution_id, branch_id, member_id, account_number, account_type, monthly_savings, available_balance, total_balance, status, open_date)
+                `INSERT INTO savings_accounts (institution_id, branch_id, member_id, account_number, account_type_id, monthly_savings, available_balance, total_balance, status, open_date)
                  VALUES ($1, $2, $3, $4, $5, $6, 0, 0, 'Active', $7) RETURNING id, account_number`,
-                [actor.institution_id, branchId, data.id, accountNumber, savingsAccountType, monthlySavings, joinDate],
+                [actor.institution_id, branchId, data.id, accountNumber, resolvedAccountTypeId, monthlySavings, joinDate],
               ),
             {
               prefix: "SA",
@@ -514,6 +532,7 @@ export async function POST(req: Request) {
             {
               member_id: data.id,
               account_number: savInsert.row.account_number,
+              account_type_id: resolvedAccountTypeId,
               account_type: savingsAccountType,
               monthly_savings: monthlySavings,
               open_date: joinDate,

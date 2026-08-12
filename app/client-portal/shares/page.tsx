@@ -342,8 +342,8 @@ export default function ClientSharesPage() {
         type: "text",
       },
       {
-        field: "purchase_date",
-        label: "Purchase Date",
+        field: "date",
+        label: "Date",
         type: "date-range",
       },
     ],

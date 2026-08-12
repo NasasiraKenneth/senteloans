@@ -77,11 +77,11 @@ export async function GET(req: Request) {
       const shareParams: unknown[] = []
       let sIdx = 1
       if (purchaseDateStart) {
-        shareWhere += ` AND ms.purchase_date >= (($${sIdx++}::timestamp AT TIME ZONE 'Africa/Nairobi')::date)`
+        shareWhere += ` AND ms.date >= (($${sIdx++}::timestamp AT TIME ZONE 'Africa/Nairobi')::date)`
         shareParams.push(purchaseDateStart)
       }
       if (purchaseDateEnd) {
-        shareWhere += ` AND ms.purchase_date <= (($${sIdx++}::timestamp AT TIME ZONE 'Africa/Nairobi')::date)`
+        shareWhere += ` AND ms.date <= (($${sIdx++}::timestamp AT TIME ZONE 'Africa/Nairobi')::date)`
         shareParams.push(purchaseDateEnd)
       }
 
@@ -114,12 +114,12 @@ export async function GET(req: Request) {
              COALESCE(SUM(ms.number_of_shares), 0)::int AS number_of_shares,
              COALESCE(MAX(ms.share_value), 0)::numeric AS share_value,
              COALESCE(SUM(ms.total_value), 0)::numeric AS total_share_value,
-             MIN(ms.purchase_date) AS first_purchase_date,
-             MAX(ms.purchase_date) AS last_purchase_date
+             MIN(ms.date) AS first_purchase_date,
+             MAX(ms.date) AS last_purchase_date
            FROM member_shares ms
            WHERE ${shareWhere}
            GROUP BY ms.member_id
-         )
+         )`
          SELECT
            m.id,
            m.full_name,

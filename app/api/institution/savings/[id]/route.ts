@@ -109,15 +109,21 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
         `SELECT
            sa.id,
            sa.member_id,
+           sa.branch_id,
            sa.institution_id,
            sa.account_number,
-           sa.account_type,
+           sa.account_type_id,
+           COALESCE(at.account_name, 'Voluntary') AS account_type,
+           sa.monthly_savings,
            sa.available_balance,
            sa.total_balance,
            sa.status,
            sa.open_date,
-           sa.last_transaction_date
+           sa.last_transaction_date,
+           b.name AS branch_name
          FROM savings_accounts sa
+         LEFT JOIN account_type at ON at.id = sa.account_type_id
+         LEFT JOIN branches b ON b.id = sa.branch_id
          WHERE ${scope.clause}`,
         [id, actor.institution_id, ...scope.params]
       )
@@ -161,32 +167,21 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
          WHERE ${txWhereClause}`,
         txParams
       )
-      const txTotal = Number(txCountRes.rows[0]?.total || 0)
+      const txTotal = txCountRes.rows[0]?.total ?? 0
 
       const txRes = await client.query(
-        `SELECT id, type, amount, mode, description, balance_after, transaction_date
+        `SELECT id, type, amount, mode, balance_after, transaction_date, description
          FROM transactions
          WHERE ${txWhereClause}
          ORDER BY transaction_date DESC
-         LIMIT $${txArg++}
-         OFFSET $${txArg++}`,
+         LIMIT $${txArg++} OFFSET $${txArg}`,
         [...txParams, pageSize, offset]
       )
 
       const txFilterRes = await client.query(
         `SELECT
-           ARRAY(
-             SELECT DISTINCT t.type
-             FROM transactions t
-             WHERE t.account_id = $1 AND t.type IS NOT NULL AND btrim(t.type::text) <> ''
-             ORDER BY t.type
-           ) AS types,
-           ARRAY(
-             SELECT DISTINCT t.mode
-             FROM transactions t
-             WHERE t.account_id = $1 AND t.mode IS NOT NULL AND btrim(t.mode::text) <> ''
-             ORDER BY t.mode
-           ) AS modes`,
+           ARRAY(SELECT DISTINCT type::text FROM transactions WHERE account_id = $1 ORDER BY 1) AS types,
+           ARRAY(SELECT DISTINCT mode::text FROM transactions WHERE account_id = $1 ORDER BY 1) AS modes`,
         [acc.id]
       )
 
@@ -194,9 +189,12 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
         account: {
           id: acc.id,
           member_id: acc.member_id,
-          institution_id: acc.institution_id,
+          branch_id: acc.branch_id,
+          branch_name: acc.branch_name || "",
           account_number: acc.account_number,
+          account_type_id: acc.account_type_id,
           account_type: acc.account_type,
+          monthly_savings: acc.monthly_savings,
           available_balance: acc.available_balance,
           total_balance: acc.total_balance,
           status: acc.status,
@@ -264,9 +262,11 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       return NextResponse.json({ error: "no_app_user_profile" }, { status: 403 })
     }
 
-    const body = (await req.json()) as { status?: string; account_type?: string }
+    const body = (await req.json()) as { status?: string; account_type?: string; account_type_id?: string }
     const status = body.status
-    const accountType = body.account_type
+    const accountTypeInput = body.account_type != null ? String(body.account_type).trim() : undefined
+    const accountTypeIdInput = body.account_type_id != null ? String(body.account_type_id).trim() : undefined
+
     const updates: Record<string, unknown> = {}
     if (typeof status !== "undefined") {
       const allowed = ["Active", "Inactive", "Suspended", "Closed"]
@@ -276,13 +276,8 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       }
       updates.status = status
     }
-    if (typeof accountType !== "undefined") {
-      const allowedAccountTypes = ["Voluntary", "Fixed", "Shares", "Current"]
-      if (!allowedAccountTypes.includes(String(accountType))) {
-        apiLog("warn", "savings.update.invalid", { method: "PUT", apiPath, status: 400, error: "invalid_account_type", accountId: id })
-        return NextResponse.json({ error: "invalid_account_type" }, { status: 400 })
-      }
-      updates.account_type = accountType
+    if (typeof accountTypeInput !== "undefined" || typeof accountTypeIdInput !== "undefined") {
+      updates.account_type = accountTypeInput || accountTypeIdInput
     }
     if (Object.keys(updates).length === 0) {
       apiLog("warn", "savings.update.invalid", { method: "PUT", apiPath, status: 400, error: "no_changes", accountId: id })
@@ -302,8 +297,9 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       const scope = whereScope(actor)
 
       const curRes = await client.query(
-        `SELECT sa.id, sa.status, sa.account_type
+        `SELECT sa.id, sa.branch_id, sa.status, sa.account_type_id, at.account_name AS account_type
          FROM savings_accounts sa
+         LEFT JOIN account_type at ON at.id = sa.account_type_id
          WHERE ${scope.clause}`,
         [id, actor.institution_id, ...scope.params]
       )
@@ -312,33 +308,83 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       if (current.status === "Closed" && status === "Active") {
         return { error: "invalid_transition_closed_to_active" as const }
       }
+
+      let newAccountTypeId = current.account_type_id
+      let newAccountTypeName = current.account_type
+
+      if (accountTypeIdInput) {
+        const atRes = await client.query(
+          `SELECT id, account_name FROM account_type WHERE id = $1 AND branch_id = $2 LIMIT 1`,
+          [accountTypeIdInput, current.branch_id]
+        )
+        if (atRes.rows[0]) {
+          newAccountTypeId = atRes.rows[0].id
+          newAccountTypeName = atRes.rows[0].account_name
+        }
+      } else if (accountTypeInput) {
+        const atRes = await client.query(
+          `SELECT id, account_name FROM account_type WHERE branch_id = $1 AND (account_name ILIKE $2 OR id::text = $2) LIMIT 1`,
+          [current.branch_id, accountTypeInput]
+        )
+        if (atRes.rows[0]) {
+          newAccountTypeId = atRes.rows[0].id
+          newAccountTypeName = atRes.rows[0].account_name
+        } else {
+          const insRes = await client.query(
+            `INSERT INTO account_type (institution_id, branch_id, account_name, status)
+             VALUES ($1, $2, $3, 'Active')
+             ON CONFLICT (branch_id, account_name) DO UPDATE SET status = 'Active'
+             RETURNING id, account_name`,
+            [actor.institution_id, current.branch_id, accountTypeInput]
+          )
+          newAccountTypeId = insRes.rows[0]?.id
+          newAccountTypeName = insRes.rows[0]?.account_name || accountTypeInput
+        }
+      }
+
       await client.query(
         `UPDATE savings_accounts
          SET status = COALESCE($1, status),
-             account_type = COALESCE($2, account_type)
+             account_type_id = COALESCE($2, account_type_id),
+             updated_at = NOW()
          WHERE id = $3`,
-        [typeof status === "undefined" ? null : status, typeof accountType === "undefined" ? null : accountType, id]
+        [typeof status === "undefined" ? null : status, newAccountTypeId, id]
       )
       await auditLogger.logUpdate(
         "savings_accounts",
         id,
         {
           status: current.status,
+          account_type_id: current.account_type_id,
           account_type: current.account_type,
         },
         {
           status: status || current.status,
-          account_type: accountType || current.account_type,
+          account_type_id: newAccountTypeId,
+          account_type: newAccountTypeName,
         },
         actor.institution_id,
         actor.id,
-        undefined,
+        { branch_id: current.branch_id },
         client
       )
       const accRes = await client.query(
-        `SELECT id, member_id, institution_id, account_number, account_type, available_balance, total_balance, status, open_date, last_transaction_date
-         FROM savings_accounts
-         WHERE id = $1`,
+        `SELECT
+           sa.id,
+           sa.member_id,
+           sa.institution_id,
+           sa.branch_id,
+           sa.account_number,
+           sa.account_type_id,
+           COALESCE(at.account_name, 'Voluntary') AS account_type,
+           sa.available_balance,
+           sa.total_balance,
+           sa.status,
+           sa.open_date,
+           sa.last_transaction_date
+         FROM savings_accounts sa
+         LEFT JOIN account_type at ON at.id = sa.account_type_id
+         WHERE sa.id = $1`,
         [id]
       )
       return { ok: true, account: accRes.rows[0] }
@@ -349,7 +395,9 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       const statusCode =
         errorCode === "account_not_found" ? 404 :
         errorCode.startsWith("missing_permission:") ? 403 :
-        errorCode === "actor_branch_missing" ? 400 : 400
+        errorCode === "actor_branch_missing" ? 400 :
+        errorCode === "invalid_transition_closed_to_active" ? 400 :
+        errorCode === "no_app_user_profile" ? 403 : 400
       apiLog("warn", "savings.update.denied", { method: "PUT", apiPath, status: statusCode, error: errorCode, accountId: id })
       return NextResponse.json({ error: errorCode }, { status: statusCode })
     }

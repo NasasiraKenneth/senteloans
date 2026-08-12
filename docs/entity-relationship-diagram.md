@@ -82,13 +82,19 @@ erDiagram
         timestamptz updated_at
     }
 
-    CLIENT_SHARES {
+    MEMBER_SHARES {
         uuid id PK
-        uuid client_id FK
+        uuid member_id FK
+        uuid transaction_id FK
+        varchar acquisition_type
+        varchar transfer_type
+        uuid transfer_member_id FK
         integer number_of_shares
         decimal share_value
         decimal total_value
-        date purchase_date
+        integer remaining_shares
+        date date
+        varchar status
         timestamptz created_at
         timestamptz updated_at
     }

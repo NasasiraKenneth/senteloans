@@ -56,13 +56,15 @@ export async function GET(req: Request) {
         SELECT
            sa.id,
            sa.account_number,
-           sa.account_type::text AS account_type,
+           sa.account_type_id,
+           COALESCE(at.account_name, 'Voluntary') AS account_type,
            sa.available_balance,
            sa.total_balance,
            sa.status::text AS status,
            sa.open_date,
            sa.last_transaction_date
          FROM savings_accounts sa
+         LEFT JOIN account_type at ON at.id = sa.account_type_id
          WHERE sa.member_id = $1 AND sa.institution_id = $2
       `
       const params: unknown[] = [member.id, member.institution_id]
@@ -76,15 +78,16 @@ export async function GET(req: Request) {
       if (accountTypeParam && accountTypeParam !== "all") {
         const types = accountTypeParam.split(",").map((t) => t.trim().toLowerCase()).filter(Boolean)
         if (types.length > 0) {
-          query += ` AND LOWER(TRIM(sa.account_type::text)) = ANY($${paramIdx++})`
+          query += ` AND (LOWER(TRIM(at.account_name)) = ANY($${paramIdx}) OR sa.account_type_id::text = ANY($${paramIdx}))`
           params.push(types)
+          paramIdx++
         }
       }
 
       if (search) {
         query += ` AND (
           sa.account_number ILIKE $${paramIdx}
-          OR sa.account_type::text ILIKE $${paramIdx}
+          OR at.account_name ILIKE $${paramIdx}
           OR sa.status::text ILIKE $${paramIdx}
         )`
         params.push(`%${search}%`)

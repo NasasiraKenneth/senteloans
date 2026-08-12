@@ -18,10 +18,9 @@ DECLARE
         {"name": "member_type", "values": ["Individual", "Group", "Corporate"]},
         {"name": "kyc_status_type", "values": ["Pending", "Verified", "Rejected"]},
         {"name": "loan_status_type", "values": ["Applied", "Under Review", "Reviewed", "Approved", "Partially Disbursed", "Fully Disbursed", "Active", "Closed", "Defaulted", "Rejected"]},
-        {"name": "account_type", "values": ["Voluntary", "Fixed", "Shares", "Current"]},
-        {"name": "transaction_type", "values": ["Deposit", "Withdrawal", "Transfer", "Loan Disbursement", "Loan Repayment", "External Loan Payment", "Interest Payment", "Expense Payment", "Fee Payment", "Invoice Payment", "Shares Purchase","Shares Dividend","Investment Deposit","Investment Withdrawal","In Sacco Transfer","Grant"]},
+        {"name": "transaction_type", "values": ["Deposit", "Withdrawal", "Transfer", "Loan Disbursement", "Loan Repayment", "External Loan Payment", "Interest Payment", "Expense Payment", "Fee Payment", "Invoice Payment", "Shares Purchase","Shares Transfer","Shares Redemption","Shares Dividend","Investment Deposit","Investment Withdrawal","In Sacco Transfer","Grant"]},
         {"name": "payment_mode", "values": ["Cash", "Mobile Money", "Bank Transfer", "Cheque", "Card"]},
-        {"name": "transaction_status", "values": ["Pending", "Completed", "Failed", "Reversed"]},
+        {"name": "transaction_status", "values": ["Pending", "Completed", "Failed", "Cancelled", "Reversed"]},
         {"name": "settlement_status", "values": ["Pending", "Completed", "Failed", "Reversed"]},
         {"name": "repayment_status", "values": ["Pending", "Paid", "Completed", "Overdue", "Partial"]},
         {"name": "interest_calculation_method", "values": ["reducing_balance", "flat_rate", "compound"]}
@@ -347,16 +346,57 @@ CREATE INDEX IF NOT EXISTS idx_members_modified_by ON members(modified_by);
 CREATE INDEX IF NOT EXISTS idx_members_kyc_approved_by ON members(kyc_approved_by);
 
 -- 6. MEMBER SHARES TABLE (For SACCO institutions only)
+
 CREATE TABLE IF NOT EXISTS member_shares (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+
+    member_id UUID NOT NULL
+        REFERENCES members(id)
+        ON DELETE CASCADE,
+
     transaction_id UUID,
-    member_id UUID NOT NULL REFERENCES members(id) ON DELETE CASCADE,
-    number_of_shares INTEGER NOT NULL CHECK (number_of_shares > 0),
-    share_value DECIMAL(15,2) NOT NULL CHECK (share_value > 0),
-    total_value DECIMAL(15,2) GENERATED ALWAYS AS (number_of_shares * share_value) STORED,
-    purchase_date DATE NOT NULL,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
+
+    acquisition_type VARCHAR(30) NOT NULL
+        CHECK (
+            acquisition_type IN (
+                'purchase',
+                'transfer_in',
+                'transfer_out',
+                'redemption',
+            )
+        ),
+
+    transfer_type VARCHAR(30)
+        CHECK (
+            transfer_type IN (
+                'from',
+                'to',
+            )
+        ),
+
+    transfer_member_id UUID NULL
+        REFERENCES members(id)
+        ON DELETE CASCADE,
+
+    number_of_shares INTEGER NOT NULL
+        CHECK (number_of_shares > 0),
+
+    share_value DECIMAL(15,2) NOT NULL
+        CHECK (share_value > 0),
+
+    total_value DECIMAL(15,2),
+
+    remaining_shares INTEGER NOT NULL
+        CHECK (
+            remaining_shares >= 0
+        ),
+
+    date DATE NOT NULL,
+
+    status VARCHAR(20) NOT NULL DEFAULT 'active',
+
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- 7. LOAN PRODUCTS TABLE (Institution-specific loan products)
@@ -545,7 +585,20 @@ CREATE TABLE IF NOT EXISTS loan_eligibility_reviews (
 
     CONSTRAINT uk_loan_eligibility_review
     UNIQUE (loan_id, eligibility)
-); 
+);
+
+CREATE TABLE IF NOT EXISTS account_type (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    institution_id UUID NOT NULL REFERENCES institutions(id) ON DELETE RESTRICT,
+    branch_id UUID NOT NULL REFERENCES branches(id) ON DELETE RESTRICT,
+    account_name VARCHAR(50) NOT NULL,
+    status status_type DEFAULT 'Active',
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    
+    CONSTRAINT uk_account_types UNIQUE (branch_id,id),
+    CONSTRAINT uk_account_types_name UNIQUE (branch_id, account_name)
+);
 
 -- 12. SAVINGS ACCOUNTS TABLE (Not applicable for Money Lenders)
 CREATE TABLE IF NOT EXISTS savings_accounts (
@@ -553,8 +606,8 @@ CREATE TABLE IF NOT EXISTS savings_accounts (
     institution_id UUID NOT NULL REFERENCES institutions(id) ON DELETE RESTRICT,
     branch_id UUID NOT NULL REFERENCES branches(id) ON DELETE RESTRICT,
     member_id UUID NOT NULL REFERENCES members(id) ON DELETE RESTRICT,
+    account_type_id UUID NOT NULL REFERENCES account_type(id) ON DELETE RESTRICT,
     account_number VARCHAR(50) NOT NULL,
-    account_type account_type NOT NULL,
     monthly_savings DECIMAL(15,2),
     available_balance DECIMAL(15,2) DEFAULT 0 CHECK (available_balance >= 0),
     total_balance DECIMAL(15,2) DEFAULT 0 CHECK (total_balance >= 0),
@@ -763,6 +816,9 @@ CREATE INDEX IF NOT EXISTS idx_bank_accounts_branch_id ON bank_accounts(branch_i
 CREATE INDEX IF NOT EXISTS idx_members_institution_id ON members(institution_id);
 CREATE INDEX IF NOT EXISTS idx_loans_institution_id ON loans(institution_id);
 CREATE INDEX IF NOT EXISTS idx_savings_accounts_institution_id ON savings_accounts(institution_id);
+CREATE INDEX IF NOT EXISTS idx_savings_accounts_account_type_id ON savings_accounts(account_type_id);
+CREATE INDEX IF NOT EXISTS idx_account_type_institution_id ON account_type(institution_id);
+CREATE INDEX IF NOT EXISTS idx_account_type_branch_id ON account_type(branch_id);
 CREATE INDEX IF NOT EXISTS idx_transactions_institution_id ON transactions(institution_id);
 CREATE INDEX IF NOT EXISTS idx_loan_products_institution_id ON loan_products(institution_id);
 -- Added index for loan guarantors

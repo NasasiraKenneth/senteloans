@@ -462,16 +462,28 @@ BEGIN
                 id,
                 transaction_id,
                 member_id,
+                acquisition_type,
+                transfer_type,
+                transfer_member_id,
                 number_of_shares,
                 share_value,
-                purchase_date
+                total_value,
+                remaining_shares,
+                date,
+                status
             ) VALUES (
                 uuid_generate_v4(),
                 tx_id,
                 member_rec.member_id,
+                'purchase',
+                NULL,
+                NULL,
                 shares_count,
                 50000, -- Share value from institution settings
-                purchase_dt
+                shares_count * 50000,
+                shares_count, -- current total shares
+                purchase_dt,
+                'active'
             );
         END IF;
     END LOOP;

@@ -78,14 +78,14 @@ type SavingsRow = {
   [key: string]: any;
 };
 
-function getInitials(name: string): string {
+function getInitials(name?: string): string {
   if (!name) return "?";
   const parts = name.trim().split(/\s+/);
   if (parts.length === 1) return parts[0][0].toUpperCase();
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
-function formatDate(dateStr: string): string {
+function formatDate(dateStr?: string): string {
   if (!dateStr) return "—";
   return new Date(dateStr).toLocaleDateString("en-UG", {
     year: "numeric",
@@ -252,12 +252,47 @@ export default function SavingsPage() {
         })),
       });
     } catch {
+      // ignore
+    }
+  }
+  const [accountTypeFilterOptions, setAccountTypeFilterOptions] = useState<
+    Array<{ value: string; label: string }>
+  >([
+    { value: "Voluntary", label: "Voluntary" },
+    { value: "Fixed", label: "Fixed" },
+    { value: "Shares", label: "Shares" },
+    { value: "Group", label: "Group" },
+    { value: "Current", label: "Current" },
+  ]);
+
+  async function loadAccountTypes() {
+    try {
+      const res = await fetch("/api/institution/account-types?status=Active", {
+        cache: "no-store",
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (Array.isArray(data?.accountTypes) && data.accountTypes.length > 0) {
+        const map = new Map<string, string>();
+        data.accountTypes.forEach((t: { id: string; account_name: string }) => {
+          if (t.account_name) map.set(t.account_name, t.account_name);
+        });
+        const defaults = ["Voluntary", "Fixed", "Shares", "Group", "Current"];
+        defaults.forEach((d) => {
+          if (!map.has(d)) map.set(d, d);
+        });
+        setAccountTypeFilterOptions(
+          Array.from(map.entries()).map(([value, label]) => ({ value, label })),
+        );
+      }
+    } catch {
       // keep defaults
     }
   }
 
   useEffect(() => {
     void loadSavingsPermissions();
+    void loadAccountTypes();
     void loadAccounts();
   }, []);
 
@@ -370,16 +405,23 @@ export default function SavingsPage() {
   };
 
   const getAccountTypeColor = (type: string) => {
-    switch (type) {
-      case "Voluntary":
-        return "bg-blue-50 text-blue-700 border border-blue-200";
-      case "Fixed":
-        return "bg-purple-50 text-purple-700 border border-purple-200 font-semibold";
-      case "Shares":
-        return "bg-orange-50 text-orange-700 border border-orange-200";
-      default:
-        return "bg-slate-50 text-slate-700 border border-slate-200";
+    const t = String(type || "").toLowerCase();
+    if (t.includes("volunt")) {
+      return "bg-blue-50 text-blue-700 border border-blue-200";
     }
+    if (t.includes("fix") || t.includes("deposit")) {
+      return "bg-purple-50 text-purple-700 border border-purple-200 font-semibold";
+    }
+    if (t.includes("share")) {
+      return "bg-orange-50 text-orange-700 border border-orange-200";
+    }
+    if (t.includes("group")) {
+      return "bg-emerald-50 text-emerald-700 border border-emerald-200";
+    }
+    if (t.includes("current")) {
+      return "bg-cyan-50 text-cyan-700 border border-cyan-200";
+    }
+    return "bg-slate-50 text-slate-700 border border-slate-200";
   };
 
   // Calculate statistics
@@ -504,18 +546,22 @@ export default function SavingsPage() {
   const PROPORTION_COLORS = ["#f08c2b", "#1f1f24", "#d97706", "#78350f"];
 
   const savingsDistributionPieData = useMemo(() => {
-    const voluntaryCount = accounts.filter(
-      (a) => a.account_type === "Voluntary" || !a.account_type?.toLowerCase().includes("fixed")
-    ).length || 18;
-
-    const fixedCount = accounts.filter(
-      (a) => a.account_type === "Fixed" || a.account_type?.toLowerCase().includes("fixed")
-    ).length || 6;
-
-    return [
-      { name: "Voluntary Accounts", value: voluntaryCount },
-      { name: "Fixed Accounts", value: fixedCount },
-    ];
+    const counts: Record<string, number> = {};
+    accounts.forEach((a) => {
+      const type = a.account_type || "Voluntary";
+      counts[type] = (counts[type] || 0) + 1;
+    });
+    const entries = Object.entries(counts);
+    if (entries.length === 0) {
+      return [
+        { name: "Voluntary Accounts", value: 18 },
+        { name: "Fixed Accounts", value: 6 },
+      ];
+    }
+    return entries.map(([name, value]) => ({
+      name: `${name} Accounts`,
+      value,
+    }));
   }, [accounts]);
 
   // DataTable columns
@@ -655,11 +701,7 @@ export default function SavingsPage() {
       {
         field: "account_type",
         label: "Account Type",
-        options: [
-          { value: "Voluntary", label: "Voluntary" },
-          { value: "Fixed", label: "Fixed" },
-          { value: "Shares", label: "Shares" },
-        ],
+        options: accountTypeFilterOptions,
         multiple: true,
         type: "select",
       },
@@ -674,7 +716,7 @@ export default function SavingsPage() {
       isSuperAdmin: savingsPermissions.isSuperAdmin,
       branchOptions: savingsPermissions.branches,
     });
-  }, [savingsPermissions.isSuperAdmin, savingsPermissions.branches]);
+  }, [savingsPermissions.isSuperAdmin, savingsPermissions.branches, accountTypeFilterOptions]);
 
   return (
     <>

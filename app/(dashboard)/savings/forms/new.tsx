@@ -42,7 +42,35 @@ export default function NewSavingsAccountForm({
   const [memberId, setMemberId] = useState("")
   const [accountType, setAccountType] = useState("")
   const [monthlySavings, setMonthlySavings] = useState("")
+  const [accountTypeOptions, setAccountTypeOptions] = useState(ACCOUNT_TYPE_OPTIONS)
   const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    async function loadAccountTypes() {
+      try {
+        const res = await fetch("/api/institution/account-types?status=Active", { cache: "no-store" })
+        if (!res.ok) return
+        const data = await res.json()
+        if (!cancelled && Array.isArray(data?.accountTypes) && data.accountTypes.length > 0) {
+          const map = new Map<string, string>()
+          data.accountTypes.forEach((t: { id: string; account_name: string }) => {
+            if (t.account_name) map.set(t.account_name, t.account_name)
+          })
+          ACCOUNT_TYPE_OPTIONS.forEach((opt) => {
+            if (!map.has(opt.value)) map.set(opt.value, opt.label)
+          })
+          setAccountTypeOptions(Array.from(map.entries()).map(([value, label]) => ({ value, label })))
+        }
+      } catch {
+        // keep defaults
+      }
+    }
+    void loadAccountTypes()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -172,7 +200,7 @@ export default function NewSavingsAccountForm({
           value={accountType}
           onChange={handleAccountTypeChange}
           placeholder="Select account type"
-          options={ACCOUNT_TYPE_OPTIONS}
+          options={accountTypeOptions}
         />
       </div>
 

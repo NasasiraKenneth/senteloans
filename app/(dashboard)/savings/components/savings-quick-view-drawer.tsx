@@ -68,11 +68,14 @@ export function SavingsQuickViewDrawer({
 
   const isFixed = account.account_type === "Fixed"
   const isShares = account.account_type === "Shares"
-
-  const typePills: Record<string, string> = {
-    Voluntary: "border-blue-200 text-blue-700 bg-blue-50/50",
-    Fixed: "border-purple-200 text-purple-700 bg-purple-50/50",
-    Shares: "border-orange-200 text-orange-700 bg-orange-50/50",
+  const getTypePill = (type: string) => {
+    const t = String(type || "").toLowerCase()
+    if (t.includes("volunt")) return "border-blue-200 text-blue-700 bg-blue-50/50"
+    if (t.includes("fix") || t.includes("deposit")) return "border-purple-200 text-purple-700 bg-purple-50/50"
+    if (t.includes("share")) return "border-orange-200 text-orange-700 bg-orange-50/50"
+    if (t.includes("group")) return "border-emerald-200 text-emerald-700 bg-emerald-50/50"
+    if (t.includes("current")) return "border-cyan-200 text-cyan-700 bg-cyan-50/50"
+    return "border-slate-200 text-slate-700 bg-slate-50"
   }
 
   const statusStyles: Record<string, { border: string; text: string; dot: string }> = {
@@ -103,40 +106,27 @@ export function SavingsQuickViewDrawer({
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={onClose}
-            className="fixed inset-0 z-50 bg-slate-900/30 backdrop-blur-xs transition-opacity"
+            className="fixed inset-0 z-40 bg-slate-900/30 backdrop-blur-[2px]"
           />
 
-          {/* Sleek Drawer Panel */}
+          {/* Slide-over Drawer Panel */}
           <motion.div
             initial={{ x: "100%" }}
             animate={{ x: 0 }}
             exit={{ x: "100%" }}
-            transition={{ type: "spring", damping: 30, stiffness: 340 }}
-            className="fixed inset-y-0 right-0 z-50 flex w-full max-w-md flex-col bg-white text-slate-900 shadow-2xl border-l border-slate-200"
+            transition={{ type: "spring", damping: 25, stiffness: 220 }}
+            className="fixed inset-y-0 right-0 z-50 w-full max-w-md bg-white shadow-2xl flex flex-col border-l border-slate-200"
           >
-            {/* Top Navigation Bar */}
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-slate-50/50">
-              <div className="flex items-center gap-2">
-                <FileText className="h-4 w-4 text-[#F08C2B]" />
-                <h3 className="text-sm font-bold text-slate-900 tracking-tight">Savings Summary</h3>
-              </div>
-              <button
-                onClick={onClose}
-                className="rounded-full p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 transition-colors cursor-pointer"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-
-            {/* Account Overview Banner */}
-            <div className="px-6 py-5 border-b border-slate-100 bg-white">
-              <div className="flex items-start gap-4">
-                <div className="w-12 h-12 rounded-2xl bg-white border-2 border-[#F08C2B] text-[#F08C2B] font-extrabold flex items-center justify-center text-base shadow-2xs flex-shrink-0">
-                  <PiggyBank className="h-6 w-6 stroke-[2]" />
+            {/* Drawer Header */}
+            <div className="p-6 border-b border-slate-100 flex items-start justify-between bg-gradient-to-r from-slate-50 via-white to-slate-50">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-2xl bg-white border-2 border-[#F08C2B] text-[#F08C2B] font-black flex items-center justify-center text-sm shadow-2xs">
+                  {getInitials(account.client_name)}
                 </div>
-
-                <div className="min-w-0 flex-1">
-                  <h2 className="text-lg font-bold text-slate-900 truncate">{account.client_name}</h2>
+                <div>
+                  <h3 className="font-bold text-slate-900 text-lg leading-tight">
+                    {account.client_name}
+                  </h3>
                   <div className="text-xs font-mono font-medium text-slate-500 mt-0.5">
                     Acc No: {account.account_number}
                   </div>
@@ -149,9 +139,9 @@ export function SavingsQuickViewDrawer({
                       {statusObj.text}
                     </span>
                     <span
-                      className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold border ${
-                        typePills[account.account_type] || "border-slate-200 text-slate-700 bg-slate-50"
-                      }`}
+                      className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold border ${getTypePill(
+                        account.account_type,
+                      )}`}
                     >
                       {account.account_type} Account
                     </span>

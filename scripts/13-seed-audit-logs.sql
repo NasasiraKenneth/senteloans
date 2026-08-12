@@ -16,7 +16,7 @@ DECLARE
     sarah_id UUID;
     david_id UUID;
     grace_id UUID;
-    patricia_id UUID;
+    robert_id UUID;
     moses_id UUID;
     betty_id UUID;
     james_id UUID;
@@ -52,7 +52,7 @@ BEGIN
     SELECT id INTO sarah_id FROM members WHERE member_number = 'SL001';
     SELECT id INTO david_id FROM members WHERE member_number = 'SL002';
     SELECT id INTO grace_id FROM members WHERE member_number = 'SL003';
-    SELECT id INTO patricia_id FROM members WHERE member_number = 'SL004';
+    SELECT id INTO robert_id FROM members WHERE member_number = 'SL004';
     SELECT id INTO moses_id FROM members WHERE member_number = 'QC001';
     SELECT id INTO betty_id FROM members WHERE member_number = 'QC002';
     SELECT id INTO james_id FROM members WHERE member_number = 'QC003';
@@ -75,7 +75,7 @@ BEGIN
     (uuid_generate_v4(), kampala_sacco_id, kampala_sacco_branch_id, kampala_staff_id, 'INSERT', 'members', 'members', sarah_id, '{}'::jsonb, '{"member_number": "SL001", "full_name": "Sarah Nakamya", "status": "Active"}'::jsonb),
     (uuid_generate_v4(), kampala_sacco_id, kampala_sacco_branch_id, kampala_staff_id, 'INSERT', 'members', 'members', david_id, '{}'::jsonb, '{"member_number": "SL002", "full_name": "David Ssemakula", "status": "Active"}'::jsonb),
     (uuid_generate_v4(), kampala_sacco_id, kampala_sacco_branch_id, kampala_staff_id, 'INSERT', 'members', 'members', grace_id, '{}'::jsonb, '{"member_number": "SL003", "full_name": "Grace Namugga", "status": "Active"}'::jsonb),
-    (uuid_generate_v4(), kampala_sacco_id, kampala_sacco_branch_id, kampala_staff_id, 'INSERT', 'members', 'members', patricia_id, '{}'::jsonb, '{"member_number": "SL004", "full_name": "Patricia Nabirye", "status": "Active"}'::jsonb),
+    (uuid_generate_v4(), kampala_sacco_id, kampala_sacco_branch_id, kampala_staff_id, 'INSERT', 'members', 'members', robert_id, '{}'::jsonb, '{"member_number": "SL004", "full_name": "Robert Kiwanuka", "status": "Active"}'::jsonb),
     
     -- Money lender member registrations
     (uuid_generate_v4(), quick_cash_id, quick_cash_branch_id, quick_cash_staff_id, 'INSERT', 'members', 'members', moses_id, '{}'::jsonb, '{"member_number": "QC001", "full_name": "Moses Kiprotich", "status": "Active"}'::jsonb),

@@ -1,6 +1,7 @@
 import { GET as GET_SHARES } from "@/app/api/client/shares/route"
 import { GET as GET_LOAN_PRODUCTS } from "@/app/api/client/loan-products/route"
 import { GET as GET_LOANS, POST as POST_LOAN } from "@/app/api/client/loans/route"
+import { GET as GET_LOAN_CALENDAR } from "@/app/api/client/loans/calendar/route"
 
 jest.mock("next-auth", () => ({
   getServerSession: jest.fn(),
@@ -88,14 +89,14 @@ describe("GET /api/client/shares", () => {
                   number_of_shares: 10,
                   share_value: 10000,
                   total_value: 100000,
-                  purchase_date: "2024-01-01",
+                  date: "2024-01-01",
                 },
                 {
                   id: "share-2",
                   number_of_shares: 5,
                   share_value: 10000,
                   total_value: 50000,
-                  purchase_date: "2024-02-01",
+                  date: "2024-02-01",
                 },
               ],
             }
@@ -198,7 +199,7 @@ describe("GET /api/client/loans", () => {
       createPgMock({
         onQuery: (sql) => {
           const s = normalizeSql(sql)
-          if (s.includes("from loans where member_id")) {
+          if (s.includes("from loans")) {
             return {
               rows: [
                 {
@@ -382,5 +383,88 @@ describe("POST /api/client/loans", () => {
     expect(body.ok).toBe(true)
     expect(body.loanId).toBe("loan-123")
     expect(body.applicationId).toBe("LA-20240101-000001")
+  })
+})
+
+describe("GET /api/client/loans/calendar", () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    getServerSessionMock.mockResolvedValue(clientSession)
+  })
+
+  it("returns 401 if user is not authenticated", async () => {
+    getServerSessionMock.mockResolvedValue(null)
+
+    const response = await GET_LOAN_CALENDAR(new Request("http://localhost:3000/api/client/loans/calendar?month=2026-08"))
+    const body = await response.json()
+
+    expect(response.status).toBe(401)
+    expect(body.error).toBe("unauthorized")
+  })
+
+  it("fetches calendar events for requested month filter", async () => {
+    setupPg(
+      createPgMock({
+        onQuery: (sql) => {
+          const s = normalizeSql(sql)
+          if (s.includes("from loan_repayments")) {
+            return {
+              rows: [
+                {
+                  id: "rep-1",
+                  loan_id: "loan-1",
+                  installment_number: 1,
+                  due_date: "2026-08-15",
+                  payment_date: null,
+                  amount_due: 150000,
+                  principal_amount: 120000,
+                  interest_amount: 30000,
+                  total_amount: 150000,
+                  amount_paid: 0,
+                  status: "Pending",
+                  days_overdue: 0,
+                  application_id: "LA-20260801-0001",
+                  product_name: "Emergency Loan",
+                },
+              ],
+            }
+          }
+          if (s.includes("from loans")) {
+            return {
+              rows: [
+                {
+                  id: "loan-1",
+                  application_id: "LA-20260801-0001",
+                  principal_amount: 1000000,
+                  monthly_payment: 150000,
+                  outstanding_balance: 1000000,
+                  tenure_months: 6,
+                  status: "Disbursed",
+                  application_date: "2026-08-01",
+                  approval_date: "2026-08-02",
+                  disbursement_date: "2026-08-03",
+                  maturity_date: "2027-02-03",
+                  next_payment_date: "2026-08-15",
+                  product_name: "Emergency Loan",
+                },
+              ],
+            }
+          }
+          return undefined
+        },
+      }),
+    )
+
+    const response = await GET_LOAN_CALENDAR(
+      new Request("http://localhost:3000/api/client/loans/calendar?month=2026-08")
+    )
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(body.ok).toBe(true)
+    expect(body.month).toBe("2026-08")
+    expect(body.events.length).toBeGreaterThan(0)
+    expect(body.events.some((e: any) => e.dateStr === "2026-08-15" && e.type === "repayment")).toBe(true)
+    expect(body.events.some((e: any) => e.dateStr === "2026-08-01" && e.type === "status_change")).toBe(true)
   })
 })

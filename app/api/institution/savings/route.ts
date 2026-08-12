@@ -21,8 +21,6 @@ type ActorContext = {
   role: string | null
 }
 
-const VALID_ACCOUNT_TYPES = ["Voluntary", "Fixed", "Shares", "Current"] as const
-
 const mapSavingsDuplicateError = (err: unknown): "duplicate_savings_account_number" | null => {
   const e = err as { code?: string; constraint?: string; detail?: string; message?: string }
   if (String(e?.code || "") !== "23505") return null
@@ -93,6 +91,7 @@ export async function GET(req: Request) {
     let pageSize = Math.min(Math.max(parseInt(url.searchParams.get("pageSize") || "10", 10), 1), 100)
     const status = (url.searchParams.get("status") || "").trim()
     const accountType = (url.searchParams.get("account_type") || "").trim()
+    const accountTypeId = (url.searchParams.get("account_type_id") || "").trim()
     const accountTypes = accountType ? accountType.split(",").map((v) => v.trim()).filter(Boolean) : []
     const search = (url.searchParams.get("search") || "").trim()
     const memberId = (url.searchParams.get("member_id") || url.searchParams.get("client_id") || "").trim()
@@ -133,12 +132,17 @@ export async function GET(req: Request) {
         where += ` AND sa.status = $${idx++}`
         params.push(status)
       }
-      if (accountTypes.length === 1) {
-        where += ` AND sa.account_type = $${idx++}`
+      if (accountTypeId) {
+        where += ` AND sa.account_type_id = $${idx++}`
+        params.push(accountTypeId)
+      } else if (accountTypes.length === 1) {
+        where += ` AND (at.account_name ILIKE $${idx} OR sa.account_type_id::text = $${idx})`
         params.push(accountTypes[0])
+        idx++
       } else if (accountTypes.length > 1) {
-        where += ` AND sa.account_type = ANY($${idx++}::text[])`
+        where += ` AND (at.account_name = ANY($${idx}::text[]) OR sa.account_type_id::text = ANY($${idx}::text[]))`
         params.push(accountTypes)
+        idx++
       }
       if (memberId) {
         where += ` AND sa.member_id = $${idx++}`
@@ -163,6 +167,7 @@ export async function GET(req: Request) {
       const countRes = await client.query(
         `SELECT COUNT(*)::int AS c
          FROM savings_accounts sa
+         LEFT JOIN account_type at ON at.id = sa.account_type_id
          LEFT JOIN members m ON m.id = sa.member_id
          WHERE ${where}`,
         params
@@ -175,6 +180,7 @@ export async function GET(req: Request) {
            COALESCE(AVG(sa.total_balance), 0)::numeric AS average_balance,
            COUNT(*) FILTER (WHERE sa.status = 'Active')::int AS active_accounts
          FROM savings_accounts sa
+         LEFT JOIN account_type at ON at.id = sa.account_type_id
          LEFT JOIN members m ON m.id = sa.member_id
          WHERE ${where}`,
         params
@@ -187,16 +193,23 @@ export async function GET(req: Request) {
         `SELECT
            sa.id,
            sa.member_id,
+           sa.branch_id,
            sa.account_number,
-           sa.account_type,
+           sa.account_type_id,
+           COALESCE(at.account_name, 'Voluntary') AS account_type,
+           sa.monthly_savings,
            sa.available_balance,
            sa.total_balance,
            sa.status,
            sa.open_date,
            sa.last_transaction_date,
-           m.full_name AS member_name
+           m.full_name AS member_name,
+           m.member_number AS member_number,
+           b.name AS branch_name
          FROM savings_accounts sa
+         LEFT JOIN account_type at ON at.id = sa.account_type_id
          LEFT JOIN members m ON m.id = sa.member_id
+         LEFT JOIN branches b ON b.id = sa.branch_id
          WHERE ${where}
          ORDER BY sa.open_date DESC
          LIMIT $${idx} OFFSET $${idx + 1}`,
@@ -235,13 +248,18 @@ export async function GET(req: Request) {
       const items = data.map((row: Record<string, unknown>) => ({
         id: row.id,
         member_id: row.member_id,
+        branch_id: row.branch_id,
+        branch_name: row.branch_name || "",
         account_number: row.account_number,
-        account_type: row.account_type,
+        account_type_id: row.account_type_id,
+        account_type: row.account_type || "Voluntary",
+        monthly_savings: row.monthly_savings,
         available_balance: row.available_balance,
         total_balance: row.total_balance,
         status: row.status,
         open_date: row.open_date,
         client_name: row.member_name || "",
+        client_number: row.member_number || "",
       }))
 
       const recent = recentTx.map((t: Record<string, unknown>) => ({
@@ -309,29 +327,37 @@ export async function POST(req: Request) {
     const body = (await req.json()) as {
       member_id?: string
       account_type?: string
+      account_type_id?: string
       monthly_savings?: unknown
       monthlySavings?: unknown
     }
     const memberId = String(body.member_id || "").trim()
-    const accountType = String(body.account_type || "").trim()
+    const accountTypeInput = String(body.account_type || body.account_type_id || "").trim()
+    const accountTypeIdInput = String(body.account_type_id || "").trim()
 
     if (!memberId) {
       apiLog("warn", "savings.create.invalid", { method: "POST", apiPath, status: 400, error: "member_id_required" })
       return NextResponse.json({ error: "member_id_required" }, { status: 400 })
     }
-    if (!accountType || !VALID_ACCOUNT_TYPES.includes(accountType as (typeof VALID_ACCOUNT_TYPES)[number])) {
+    if (!accountTypeInput) {
       apiLog("warn", "savings.create.invalid", { method: "POST", apiPath, status: 400, error: "invalid_account_type" })
       return NextResponse.json({ error: "invalid_account_type" }, { status: 400 })
     }
 
     let monthlySavings: number | null = null
-    if (accountType === "Fixed") {
+    const isFixed = accountTypeInput.toLowerCase().includes("fixed")
+    if (isFixed) {
       const parsed = parseMonthlySavingsInput(body.monthly_savings ?? body.monthlySavings, "Fixed")
       if (parsed.error) {
         apiLog("warn", "savings.create.invalid", { method: "POST", apiPath, status: 400, error: parsed.error })
         return NextResponse.json({ error: parsed.error }, { status: 400 })
       }
       monthlySavings = parsed.value
+    } else if (body.monthly_savings || body.monthlySavings) {
+      const parsed = parseMonthlySavingsInput(body.monthly_savings ?? body.monthlySavings, "Voluntary")
+      if (!parsed.error) {
+        monthlySavings = parsed.value
+      }
     }
 
     const result = await runWithAuth(session.user.authUserId, async (client) => {
@@ -373,6 +399,47 @@ export async function POST(req: Request) {
       const member = memberCheck.member
       if (member.branch_id !== actor.branch_id) return { error: "cross_branch_operation_forbidden" as const }
 
+      // Resolve account_type_id
+      let resolvedAccountTypeId: string | null = null
+      let resolvedAccountTypeName = "Voluntary"
+
+      if (accountTypeIdInput) {
+        const atRes = await client.query(
+          `SELECT id, account_name FROM account_type WHERE id = $1 AND branch_id = $2 LIMIT 1`,
+          [accountTypeIdInput, member.branch_id]
+        )
+        if (atRes.rows[0]) {
+          resolvedAccountTypeId = atRes.rows[0].id
+          resolvedAccountTypeName = atRes.rows[0].account_name
+        }
+      }
+
+      if (!resolvedAccountTypeId && accountTypeInput) {
+        const atRes = await client.query(
+          `SELECT id, account_name FROM account_type WHERE branch_id = $1 AND (account_name ILIKE $2 OR id::text = $2) LIMIT 1`,
+          [member.branch_id, accountTypeInput]
+        )
+        if (atRes.rows[0]) {
+          resolvedAccountTypeId = atRes.rows[0].id
+          resolvedAccountTypeName = atRes.rows[0].account_name
+        } else {
+          // Auto-seed this default account type for the branch if not exists
+          const insRes = await client.query(
+            `INSERT INTO account_type (institution_id, branch_id, account_name, status)
+             VALUES ($1, $2, $3, 'Active')
+             ON CONFLICT (branch_id, account_name) DO UPDATE SET status = 'Active'
+             RETURNING id, account_name`,
+            [actor.institution_id, member.branch_id, accountTypeInput]
+          )
+          resolvedAccountTypeId = insRes.rows[0]?.id
+          resolvedAccountTypeName = insRes.rows[0]?.account_name || accountTypeInput
+        }
+      }
+
+      if (!resolvedAccountTypeId) {
+        return { error: "invalid_account_type" as const }
+      }
+
       const inst = String(actor.institution_id).slice(0, 6).replace(/-/g, "").toUpperCase()
       const now = new Date()
       const yymm = `${String(now.getFullYear()).slice(2)}${String(now.getMonth() + 1).padStart(2, "0")}`
@@ -385,7 +452,7 @@ export async function POST(req: Request) {
         const savInsert = await insertWithPrefixedNumberRetry<{
           id: string
           account_number: string
-          account_type: string
+          account_type_id: string
           member_id: string
           status: string
           open_date: string
@@ -399,7 +466,7 @@ export async function POST(req: Request) {
                 branch_id,
                 member_id,
                 account_number,
-                account_type,
+                account_type_id,
                 monthly_savings,
                 available_balance,
                 total_balance,
@@ -407,13 +474,13 @@ export async function POST(req: Request) {
                 open_date
               )
               VALUES ($1, $2, $3, $4, $5, $6, 0, 0, 'Active', $7)
-              RETURNING id, account_number, account_type, member_id, status, open_date, available_balance, total_balance`,
+              RETURNING id, account_number, account_type_id, member_id, status, open_date, available_balance, total_balance`,
               [
                 actor.institution_id,
                 member.branch_id,
                 memberId,
                 accountNumber,
-                accountType,
+                resolvedAccountTypeId,
                 monthlySavings,
                 openDate,
               ],
@@ -439,7 +506,8 @@ export async function POST(req: Request) {
           {
             member_id: memberId,
             account_number: savInsert.row.account_number,
-            account_type: accountType,
+            account_type_id: resolvedAccountTypeId,
+            account_type: resolvedAccountTypeName,
             monthly_savings: monthlySavings,
             open_date: openDate,
           },
@@ -453,7 +521,10 @@ export async function POST(req: Request) {
 
         return {
           ok: true as const,
-          account: savInsert.row,
+          account: {
+            ...savInsert.row,
+            account_type: resolvedAccountTypeName,
+          },
         }
       } catch (err) {
         await client.query("ROLLBACK").catch(() => {})

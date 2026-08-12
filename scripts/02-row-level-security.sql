@@ -8,6 +8,7 @@ ALTER TABLE members ENABLE ROW LEVEL SECURITY;
 ALTER TABLE member_shares ENABLE ROW LEVEL SECURITY;
 ALTER TABLE loan_products ENABLE ROW LEVEL SECURITY;
 ALTER TABLE loans ENABLE ROW LEVEL SECURITY;
+ALTER TABLE account_type ENABLE ROW LEVEL SECURITY;
 ALTER TABLE savings_accounts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE transactions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE loan_repayments ENABLE ROW LEVEL SECURITY;
@@ -392,6 +393,18 @@ CREATE POLICY member_loan_products_self_access_policy ON loan_products
 -- Users can only access loans from their own institution
 DROP POLICY IF EXISTS loans_access_policy ON loans;
 CREATE POLICY loans_access_policy ON loans
+    FOR ALL
+    USING (
+        can_access_row(institution_id, branch_id)
+    )
+    WITH CHECK (
+        can_access_row(institution_id, branch_id)
+    );
+
+-- ACCOUNT TYPES TABLE POLICIES
+-- Users can only access account types from their own institution
+DROP POLICY IF EXISTS account_type_access_policy ON account_type;
+CREATE POLICY account_type_access_policy ON account_type
     FOR ALL
     USING (
         can_access_row(institution_id, branch_id)

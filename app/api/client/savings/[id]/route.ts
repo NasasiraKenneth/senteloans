@@ -50,18 +50,20 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 
       const accRes = await client.query(
         `SELECT 
-           id, 
-           account_number, 
-           account_type, 
-           available_balance, 
-           total_balance, 
-           status, 
-           open_date, 
-           last_transaction_date,
-           member_id,
-           institution_id
-         FROM savings_accounts 
-         WHERE id = $1 AND member_id = $2 AND institution_id = $3`,
+           sa.id, 
+           sa.account_number, 
+           sa.account_type_id,
+           COALESCE(at.account_name, 'Voluntary') AS account_type, 
+           sa.available_balance, 
+           sa.total_balance, 
+           sa.status, 
+           sa.open_date, 
+           sa.last_transaction_date,
+           sa.member_id,
+           sa.institution_id
+         FROM savings_accounts sa
+         LEFT JOIN account_type at ON at.id = sa.account_type_id
+         WHERE sa.id = $1 AND sa.member_id = $2 AND sa.institution_id = $3`,
         [id, member.id, member.institution_id]
       )
       const account = accRes.rows[0]

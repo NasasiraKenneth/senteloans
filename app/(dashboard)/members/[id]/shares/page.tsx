@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import DataTable, { DataTableColumn } from "@/components/datatables/DataTable"
+import { ActionButtons } from "@/components/datatables/ActionButtons"
 import type { FilterField } from "@/components/datatables/TableFilter"
 import { useStaffSession } from "@/components/staff-session-provider"
 import { cn } from "@/lib/utils"
@@ -18,6 +19,7 @@ import {
   readInstitutionCurrency,
 } from "@/lib/institution-branch-config"
 import AddSharesModal from "../../components/shares/add"
+import EditSharesModal from "../../components/shares/edit"
 import SharesCalculatorModal from "../../components/shares/calculator"
 import {
   ArrowLeft,
@@ -27,6 +29,7 @@ import {
   ExternalLink,
   Info,
   Layers,
+  Pencil,
   Plus,
   ShieldAlert,
   TrendingUp,
@@ -45,18 +48,25 @@ type MemberSummary = {
   joinDate: string | null
 }
 
-type ShareTransaction = {
+export type ShareTransaction = {
   id: string
   transaction_id: string | null
+  acquisition_type?: "purchase" | "transfer_in" | "transfer_out" | "redemption" | string | null
+  transfer_type?: "from" | "to" | string | null
+  transfer_member_id?: string | null
+  transfer_member_name?: string | null
+  transfer_member_number?: string | null
   number_of_shares: number
   share_value: number
   total_value: number
-  purchase_date: string | null
+  remaining_shares: number
+  date: string | null
   created_at: string
   transaction_number?: string | null
   mode?: string | null
   reference_number?: string | null
   description?: string | null
+  status?: string | null
 }
 
 function formatDate(value: string | null | undefined) {
@@ -118,6 +128,8 @@ export default function MemberSharesPage() {
 
   const [showBuyModal, setShowBuyModal] = useState(false)
   const [showCalculatorModal, setShowCalculatorModal] = useState(false)
+  const [showEditModal, setShowEditModal] = useState(false)
+  const [selectedShareForEdit, setSelectedShareForEdit] = useState<ShareTransaction | null>(null)
 
   // DataTable pagination & filters
   const [page, setPage] = useState(0)
@@ -217,15 +229,22 @@ export default function MemberSharesPage() {
         rawShares.map((s) => ({
           id: String(s.id),
           transaction_id: s.transaction_id ? String(s.transaction_id) : null,
+          acquisition_type: s.acquisition_type ? String(s.acquisition_type) : "purchase",
+          transfer_type: s.transfer_type ? String(s.transfer_type) : null,
+          transfer_member_id: s.transfer_member_id ? String(s.transfer_member_id) : null,
+          transfer_member_name: s.transfer_member_name ? String(s.transfer_member_name) : null,
+          transfer_member_number: s.transfer_member_number ? String(s.transfer_member_number) : null,
           number_of_shares: Number(s.number_of_shares || 0),
           share_value: Number(s.share_value || 0),
-          total_value: Number(s.total_value || 0),
-          purchase_date: s.purchase_date ? String(s.purchase_date) : null,
+          total_value: Number(s.total_value || (Number(s.number_of_shares || 0) * Number(s.share_value || 0))),
+          remaining_shares: Number(s.remaining_shares || 0),
+          date: s.date ? String(s.date) : null,
           created_at: String(s.created_at || ""),
           transaction_number: s.transaction_number ? String(s.transaction_number) : null,
           mode: s.mode ? String(s.mode) : null,
           reference_number: s.reference_number ? String(s.reference_number) : null,
           description: s.description ? String(s.description) : null,
+          status: s.status ? String(s.status) : "active",
         }))
       )
     } catch (e: unknown) {
@@ -246,7 +265,7 @@ export default function MemberSharesPage() {
     if (!dateFilter?.start && !dateFilter?.end) return shares
 
     return shares.filter((s) => {
-      const targetDate = s.purchase_date || s.created_at
+      const targetDate = s.date || s.created_at
       if (!targetDate) return true
       const d = new Date(targetDate).getTime()
       if (dateFilter.start && d < new Date(dateFilter.start).getTime()) return false
@@ -266,9 +285,11 @@ export default function MemberSharesPage() {
 
   // Calculate cumulative stats
   const summary = useMemo(() => {
-    const totalShares = shares.reduce((acc, s) => acc + s.number_of_shares, 0)
+    const totalShares = shares.length > 0 && shares[0].remaining_shares > 0
+      ? shares[0].remaining_shares
+      : shares.reduce((acc, s) => acc + s.number_of_shares, 0)
     const totalValue = shares.reduce((acc, s) => acc + s.total_value, 0)
-    const latestPurchase = shares.length > 0 ? (shares[0].purchase_date || shares[0].created_at) : null
+    const latestPurchase = shares.length > 0 ? (shares[0].date || shares[0].created_at) : null
     const effectiveShareValue = cfgShareValue ?? (member?.shareValue || (shares.length > 0 ? shares[0].share_value : 0))
 
     return {
@@ -287,12 +308,50 @@ export default function MemberSharesPage() {
     return [
       {
         key: "date",
-        header: "Purchase Date",
+        header: "Date",
         render: (row) => (
           <span className="whitespace-nowrap font-medium text-foreground">
-            {formatDate(row.purchase_date || row.created_at)}
+            {formatDate(row.date || row.created_at)}
           </span>
         ),
+      },
+      {
+        key: "type",
+        header: "Type",
+        render: (row) => {
+          const acq = String(row.acquisition_type || "purchase").toLowerCase()
+          const label =
+            acq === "purchase"
+              ? "Purchase"
+              : acq === "transfer_in"
+                ? "Transfer In"
+                : acq === "transfer_out"
+                  ? "Transfer Out"
+                  : acq === "redemption"
+                    ? "Redemption"
+                    : acq
+          const badgeClass =
+            acq === "purchase"
+              ? "bg-orange-50 text-orange-700 border-orange-200 dark:bg-orange-950/40 dark:text-orange-300"
+              : acq === "transfer_in"
+                ? "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300"
+                : acq === "transfer_out"
+                  ? "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300"
+                  : "bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/40 dark:text-rose-300"
+          return (
+            <div className="space-y-0.5">
+              <Badge variant="outline" className={cn("text-xs font-semibold", badgeClass)}>
+                {label}
+              </Badge>
+              {row.transfer_member_name ? (
+                <p className="text-[10px] text-muted-foreground">
+                  {row.transfer_type === "from" ? "From: " : "To: "}
+                  {row.transfer_member_name} ({row.transfer_member_number || "—"})
+                </p>
+              ) : null}
+            </div>
+          )
+        },
       },
       {
         key: "reference",
@@ -310,13 +369,23 @@ export default function MemberSharesPage() {
       },
       {
         key: "shares",
-        header: "Shares Bought",
-        render: (row) => (
-          <div className="inline-flex items-center gap-1.5 rounded-full bg-orange-50 px-2.5 py-1 text-xs font-bold text-orange-700 dark:bg-orange-950/40 dark:text-orange-300">
-            <TrendingUp className="h-3.5 w-3.5" />
-            +{row.number_of_shares} {row.number_of_shares === 1 ? "share" : "shares"}
-          </div>
-        ),
+        header: "Shares",
+        render: (row) => {
+          const isDebit = row.acquisition_type === "transfer_out" || row.acquisition_type === "redemption"
+          return (
+            <div
+              className={cn(
+                "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-bold",
+                isDebit
+                  ? "bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300"
+                  : "bg-orange-50 text-orange-700 dark:bg-orange-950/40 dark:text-orange-300"
+              )}
+            >
+              <TrendingUp className={cn("h-3.5 w-3.5", isDebit && "rotate-180")} />
+              {isDebit ? "-" : "+"}{row.number_of_shares} {row.number_of_shares === 1 ? "share" : "shares"}
+            </div>
+          )
+        },
       },
       {
         key: "unitPrice",
@@ -330,17 +399,8 @@ export default function MemberSharesPage() {
         ),
       },
       {
-        key: "mode",
-        header: "Payment Mode",
-        render: (row) => (
-          <Badge variant="outline" className="text-xs font-normal">
-            {row.mode || "Cash"}
-          </Badge>
-        ),
-      },
-      {
         key: "total",
-        header: "Total Paid",
+        header: "Total Value",
         headerClassName: "text-right",
         cellClassName: "text-right",
         render: (row) => (
@@ -349,8 +409,59 @@ export default function MemberSharesPage() {
           </span>
         ),
       },
+      {
+        key: "remaining_shares",
+        header: "Cumulative Holding",
+        headerClassName: "text-right",
+        cellClassName: "text-right",
+        render: (row) => (
+          <span className="font-mono text-xs font-semibold text-foreground">
+            {row.remaining_shares.toLocaleString()} shares
+          </span>
+        ),
+      },
+      {
+        key: "mode",
+        header: "Mode",
+        render: (row) => (
+          <Badge variant="outline" className="text-xs font-normal">
+            {row.mode || "Cash"}
+          </Badge>
+        ),
+      },
+      {
+        key: "actions",
+        header: "Actions",
+        headerClassName: "text-center",
+        cellClassName: "text-center",
+        render: (row) => (
+          <div className="flex justify-center">
+            <ActionButtons
+              actions={[
+                {
+                  icon: <Pencil className="h-4 w-4" />,
+                  label: "Edit share record",
+                  variant: "primary",
+                  disabled: !canEditShares || member?.status !== "Active",
+                  disabledTooltip:
+                    member?.status !== "Active"
+                      ? `${clientTerm} must be Active to edit shares`
+                      : !canEditShares
+                        ? "You do not have permission to edit shares"
+                        : undefined,
+                  onClick: (r) => {
+                    setSelectedShareForEdit(r)
+                    setShowEditModal(true)
+                  },
+                },
+              ]}
+              row={row}
+            />
+          </div>
+        ),
+      },
     ]
-  }, [formatMoney])
+  }, [formatMoney, canEditShares, member?.status, clientTerm])
 
   const filterFields = useMemo((): FilterField[] => {
     return [
@@ -627,6 +738,29 @@ export default function MemberSharesPage() {
                 }
               : undefined
           }
+        />
+      )}
+
+      {showEditModal && selectedShareForEdit && (
+        <EditSharesModal
+          isOpen={showEditModal}
+          onClose={() => {
+            setShowEditModal(false)
+            setSelectedShareForEdit(null)
+          }}
+          share={selectedShareForEdit}
+          memberId={member.id}
+          currency={currency}
+          shareValue={summary.shareValue}
+          currentShares={member.numberOfShares}
+          currentTotalValue={member.totalShareValue}
+          minShares={summary.minShares}
+          maxShares={summary.maxShares}
+          onSuccess={() => {
+            setShowEditModal(false)
+            setSelectedShareForEdit(null)
+            void loadData()
+          }}
         />
       )}
     </div>

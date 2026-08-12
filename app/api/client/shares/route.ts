@@ -67,25 +67,25 @@ export async function GET(req?: Request) {
 
       // 4. Query all historical purchases for timeline charting (sorted ascending)
       const allHistoryRes = await client.query(
-        `SELECT number_of_shares, share_value, total_value, purchase_date
+        `SELECT number_of_shares, share_value, total_value, date
          FROM member_shares
          WHERE member_id = $1
-         ORDER BY purchase_date ASC, created_at ASC`,
+         ORDER BY date ASC, created_at ASC`,
         [member.id]
       )
       const allPurchases = allHistoryRes.rows.map((r: any) => ({
         units: Number(r.number_of_shares || 0),
         shareValue: Number(r.share_value || 0),
         totalValue: Number(r.total_value || 0),
-        date: r.purchase_date,
+        date: r.date,
       }))
 
       // Last share purchase price and date
       const lastPurchaseRes = await client.query(
-        `SELECT share_value, purchase_date
+        `SELECT share_value, date
          FROM member_shares
          WHERE member_id = $1
-         ORDER BY purchase_date DESC, created_at DESC
+         ORDER BY date DESC, created_at DESC
          LIMIT 1`,
         [member.id]
       )
@@ -119,12 +119,12 @@ export async function GET(req?: Request) {
       }
 
       if (dateFrom) {
-        whereClause += ` AND ms.purchase_date >= $${paramIdx++}::date`
+        whereClause += ` AND ms.date >= $${paramIdx++}::date`
         params.push(dateFrom)
       }
 
       if (dateTo) {
-        whereClause += ` AND ms.purchase_date <= $${paramIdx++}::date`
+        whereClause += ` AND ms.date <= $${paramIdx++}::date`
         params.push(dateTo)
       }
 
@@ -151,12 +151,12 @@ export async function GET(req?: Request) {
            ms.number_of_shares AS units,
            ms.share_value AS unit_price,
            ms.total_value AS total_value,
-           ms.purchase_date AS date,
+           ms.date AS date,
            ms.created_at
          FROM member_shares ms
          LEFT JOIN transactions t ON ms.transaction_id = t.id
          ${whereClause}
-         ORDER BY ms.purchase_date DESC, ms.created_at DESC
+         ORDER BY ms.date DESC, ms.created_at DESC
          LIMIT $${paramIdx++} OFFSET $${paramIdx++}`,
         queryParams
       )

@@ -42,7 +42,7 @@ export async function proxy(req: NextRequest) {
   if (!hasSession) {
     if (isClientLogin) return NextResponse.next()
     const url = req.nextUrl.clone()
-    url.pathname = isAdmin ? ADMIN_LOGIN : INSTITUTION_LOGIN
+    url.pathname = isAdmin ? ADMIN_LOGIN : isClientProtected ? CLIENT_LOGIN : INSTITUTION_LOGIN
     url.search = `?redirect=${encodeURIComponent(`${pathname}${search || ""}`)}`
     return NextResponse.redirect(url)
   }

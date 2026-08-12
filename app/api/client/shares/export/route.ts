@@ -61,12 +61,12 @@ export async function GET(req: Request) {
       }
 
       if (dateFrom) {
-        whereClause += ` AND ms.purchase_date >= $${paramIdx++}::date`
+        whereClause += ` AND ms.date >= $${paramIdx++}::date`
         params.push(dateFrom)
       }
 
       if (dateTo) {
-        whereClause += ` AND ms.purchase_date <= $${paramIdx++}::date`
+        whereClause += ` AND ms.date <= $${paramIdx++}::date`
         params.push(dateTo)
       }
 
@@ -80,12 +80,12 @@ export async function GET(req: Request) {
           ms.number_of_shares AS units,
           ms.share_value AS unit_price,
           ms.total_value AS total_value,
-          ms.purchase_date AS date,
+          ms.date AS date,
           ms.created_at
         FROM member_shares ms
         LEFT JOIN transactions t ON ms.transaction_id = t.id
         ${whereClause}
-        ORDER BY ms.purchase_date DESC, ms.created_at DESC
+        ORDER BY ms.date DESC, ms.created_at DESC
       `
 
       const rowsRes = await client.query(query, params)

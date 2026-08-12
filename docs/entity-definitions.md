@@ -83,11 +83,17 @@ All tables use the prefix `senteloans_` followed by the entity name in snake_cas
 | Field | Type | Constraints | Description |
 |-------|------|-------------|-------------|
 | id | UUID | PRIMARY KEY | Unique share record identifier |
-| client_id | UUID | FOREIGN KEY | Reference to client |
-| number_of_shares | INTEGER | NOT NULL | Number of shares owned |
+| member_id | UUID | FOREIGN KEY | Reference to member |
+| transaction_id | UUID | FOREIGN KEY | Reference to transaction |
+| acquisition_type | VARCHAR(30) | NOT NULL | Acquisition type ('purchase', 'transfer_in', 'transfer_out', 'redemption') |
+| transfer_type | VARCHAR(30) | NULL | Transfer direction ('from', 'to') |
+| transfer_member_id | UUID | NULL | Counterparty member for transfers |
+| number_of_shares | INTEGER | NOT NULL | Number of shares transacted |
 | share_value | DECIMAL(15,2) | NOT NULL | Value per share |
-| total_value | DECIMAL(15,2) | GENERATED | Calculated total value |
-| purchase_date | DATE | NOT NULL | Date shares were purchased |
+| total_value | DECIMAL(15,2) | | Total transaction value |
+| remaining_shares | INTEGER | NOT NULL | Cumulative total shares owned |
+| date | DATE | NOT NULL | Date of share transaction |
+| status | VARCHAR(20) | NOT NULL | Status ('active', etc.) |
 | created_at | TIMESTAMPTZ | DEFAULT NOW() | Creation timestamp |
 | updated_at | TIMESTAMPTZ | DEFAULT NOW() | Last update timestamp |
 

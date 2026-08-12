@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import StyledSelect from "@/components/newUI/styled_select"
@@ -41,6 +41,35 @@ export default function AccountForm({
 }: SavingsAccountFormProps) {
   const [status, setStatus] = useState(String(initialValues?.status || ""))
   const [accountType, setAccountType] = useState(String(initialValues?.account_type || ""))
+  const [accountTypeOptions, setAccountTypeOptions] = useState(ACCOUNT_TYPE_OPTIONS)
+
+  useEffect(() => {
+    let cancelled = false
+    async function loadAccountTypes() {
+      try {
+        const res = await fetch("/api/institution/account-types?status=Active", { cache: "no-store" })
+        if (!res.ok) return
+        const data = await res.json()
+        if (!cancelled && Array.isArray(data?.accountTypes) && data.accountTypes.length > 0) {
+          const map = new Map<string, string>()
+          data.accountTypes.forEach((t: { id: string; account_name: string }) => {
+            if (t.account_name) map.set(t.account_name, t.account_name)
+          })
+          ACCOUNT_TYPE_OPTIONS.forEach((opt) => {
+            if (!map.has(opt.value)) map.set(opt.value, opt.label)
+          })
+          setAccountTypeOptions(Array.from(map.entries()).map(([value, label]) => ({ value, label })))
+        }
+      } catch {
+        // keep defaults
+      }
+    }
+    void loadAccountTypes()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
   const isValid = useMemo(() => Boolean(status && accountType), [status, accountType])
 
   const handleSubmit = async () => {
@@ -68,7 +97,7 @@ export default function AccountForm({
         <StyledSelect
           value={accountType}
           onChange={setAccountType}
-          options={ACCOUNT_TYPE_OPTIONS}
+          options={accountTypeOptions}
           placeholder="Select account type"
         />
       </div>

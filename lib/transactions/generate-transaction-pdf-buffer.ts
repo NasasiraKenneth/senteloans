@@ -91,7 +91,10 @@ export async function generateTransactionPdfBuffer(
   let accountType = ""
   if (tx.account_id) {
     const aRes = await client.query(
-      `SELECT account_number, account_type FROM savings_accounts WHERE id = $1`,
+      `SELECT sa.account_number, COALESCE(at.account_name, 'Voluntary') AS account_type
+       FROM savings_accounts sa
+       LEFT JOIN account_type at ON at.id = sa.account_type_id
+       WHERE sa.id = $1`,
       [tx.account_id],
     )
     accountNumber = pdfText(aRes.rows[0]?.account_number)

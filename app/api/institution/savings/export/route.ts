@@ -125,11 +125,13 @@ export async function GET(req: Request) {
           params.push(status)
         }
         if (accountTypes.length === 1) {
-          where += ` AND sa.account_type = $${idx++}`
+          where += ` AND (at.account_name ILIKE $${idx} OR sa.account_type_id::text = $${idx})`
           params.push(accountTypes[0])
+          idx++
         } else if (accountTypes.length > 1) {
-          where += ` AND sa.account_type = ANY($${idx++}::text[])`
+          where += ` AND (at.account_name = ANY($${idx}::text[]) OR sa.account_type_id::text = ANY($${idx}::text[]))`
           params.push(accountTypes)
+          idx++
         }
         if (search) {
           where += ` AND (sa.account_number ILIKE $${idx} OR m.full_name ILIKE $${idx} OR m.member_number ILIKE $${idx})`
@@ -147,9 +149,15 @@ export async function GET(req: Request) {
 
         const res = await client.query(
           `SELECT
-             sa.account_number, sa.account_type, sa.available_balance, sa.total_balance, sa.status, sa.open_date,
+             sa.account_number,
+             COALESCE(at.account_name, 'Voluntary') AS account_type,
+             sa.available_balance,
+             sa.total_balance,
+             sa.status,
+             sa.open_date,
              COALESCE(m.full_name, '') AS member_name
            FROM savings_accounts sa
+           LEFT JOIN account_type at ON at.id = sa.account_type_id
            LEFT JOIN members m ON m.id = sa.member_id
            WHERE ${where}
            ORDER BY sa.open_date DESC`,

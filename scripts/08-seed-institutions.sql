@@ -212,6 +212,36 @@ JOIN institutions i ON i.id = b.institution_id
 WHERE b.branch_code IN ('PLAT-001', 'KCS-001', 'QCU-001', 'OMU-001')
 ON CONFLICT (branch_id) DO NOTHING;
 
+-- Seed default account types per branch
+INSERT INTO account_type (
+    id,
+    institution_id,
+    branch_id,
+    account_name,
+    status
+)
+SELECT 
+    uuid_generate_v4(),
+    b.institution_id,
+    b.id,
+    t.account_name,
+    'Active'::status_type
+FROM branches b
+JOIN institutions i ON i.id = b.institution_id
+CROSS JOIN (
+    VALUES 
+        ('Voluntary'),
+        ('Fixed'),
+        ('Shares'),
+        ('Group'),
+        ('Current')
+) AS t(account_name)
+WHERE b.branch_code IN ('PLAT-001', 'KCS-001', 'QCU-001', 'OMU-001')
+  AND NOT EXISTS (
+    SELECT 1 FROM account_type at
+    WHERE at.branch_id = b.id AND at.account_name = t.account_name
+  );
+
 -- Display results for verification
 SELECT 
     'Institution Seed Data Created' as status,

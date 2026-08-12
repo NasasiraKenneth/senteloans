@@ -91,8 +91,9 @@ export async function GET(req: Request) {
         params.push(status)
       }
       if (accountType && accountType !== "all") {
-        where += ` AND sa.account_type = $${idx++}`
+        where += ` AND (at.account_name ILIKE $${idx} OR sa.account_type_id::text = $${idx})`
         params.push(accountType)
+        idx++
       }
       if (search) {
         where += ` AND (sa.account_number ILIKE $${idx} OR m.full_name ILIKE $${idx} OR m.member_number ILIKE $${idx})`
@@ -118,6 +119,7 @@ export async function GET(req: Request) {
            COALESCE(SUM(sa.total_balance), 0)::numeric AS total_balance,
            COALESCE(SUM(sa.available_balance), 0)::numeric AS total_available_balance
          FROM savings_accounts sa
+         LEFT JOIN account_type at ON at.id = sa.account_type_id
          LEFT JOIN members m ON m.id = sa.member_id
          WHERE ${where}`,
         params
@@ -128,7 +130,8 @@ export async function GET(req: Request) {
         `SELECT
            sa.id,
            sa.account_number,
-           sa.account_type,
+           sa.account_type_id,
+           COALESCE(at.account_name, 'Voluntary') AS account_type,
            sa.available_balance,
            sa.total_balance,
            sa.status,
@@ -138,6 +141,7 @@ export async function GET(req: Request) {
            m.member_number AS member_number,
            b.name AS branch_name
          FROM savings_accounts sa
+         LEFT JOIN account_type at ON at.id = sa.account_type_id
          LEFT JOIN members m ON m.id = sa.member_id
          LEFT JOIN branches b ON b.id = sa.branch_id
          WHERE ${where}

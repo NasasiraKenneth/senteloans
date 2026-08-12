@@ -172,8 +172,8 @@ describe('GET /api/institution/clients/[id]/shares', () => {
       })
 
       const mockShares = [
-        { id: 'share-1', number_of_shares: 10, share_value: 10000, total_value: 100000, purchase_date: '2024-01-01', created_at: '2024-01-01' },
-        { id: 'share-2', number_of_shares: 5, share_value: 10000, total_value: 50000, purchase_date: '2024-02-01', created_at: '2024-02-01' },
+        { id: 'share-1', number_of_shares: 10, share_value: 10000, total_value: 100000, date: '2024-01-01', created_at: '2024-01-01' },
+        { id: 'share-2', number_of_shares: 5, share_value: 10000, total_value: 50000, date: '2024-02-01', created_at: '2024-02-01' },
       ]
 
       let callCount = 0
