@@ -18,7 +18,7 @@ DECLARE
         {"name": "member_type", "values": ["Individual", "Group", "Corporate"]},
         {"name": "kyc_status_type", "values": ["Pending", "Verified", "Rejected"]},
         {"name": "loan_status_type", "values": ["Applied", "Under Review", "Reviewed", "Approved", "Partially Disbursed", "Fully Disbursed", "Active", "Closed", "Defaulted", "Rejected"]},
-        {"name": "transaction_type", "values": ["Deposit", "Withdrawal", "Transfer", "Loan Disbursement", "Loan Repayment", "External Loan Payment", "Interest Payment", "Expense Payment", "Fee Payment", "Invoice Payment", "Shares Purchase","Shares Transfer","Shares Redemption","Shares Dividend","Investment Deposit","Investment Withdrawal","In Sacco Transfer","Grant"]},
+        {"name": "transaction_type", "values": ["Deposit", "Withdrawal", "Transfer", "Loan Disbursement", "Loan Repayment", "External Loan Payment", "Interest Payment", "Expense Payment", "Fee Payment", "Invoice Payment", "Shares Purchase","Shares Transfer","Shares Redemption","Shares Buy off","Shares Dividend","Investment Deposit","Investment Withdrawal","In Sacco Transfer","Grant"]},
         {"name": "payment_mode", "values": ["Cash", "Mobile Money", "Bank Transfer", "Cheque", "Card"]},
         {"name": "transaction_status", "values": ["Pending", "Completed", "Failed", "Cancelled", "Reversed"]},
         {"name": "settlement_status", "values": ["Pending", "Completed", "Failed", "Reversed"]},
@@ -363,6 +363,8 @@ CREATE TABLE IF NOT EXISTS member_shares (
                 'transfer_in',
                 'transfer_out',
                 'redemption',
+                'buy',
+                'sell'
             )
         ),
 
@@ -370,7 +372,7 @@ CREATE TABLE IF NOT EXISTS member_shares (
         CHECK (
             transfer_type IN (
                 'from',
-                'to',
+                'to'
             )
         ),
 
@@ -395,8 +397,24 @@ CREATE TABLE IF NOT EXISTS member_shares (
 
     status VARCHAR(20) NOT NULL DEFAULT 'active',
 
+    created_by UUID REFERENCES users(id) ON DELETE CASCADE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    modified_by UUID REFERENCES users(id) ON DELETE CASCADE,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS share_movements (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    from_member_shares_id UUID NOT NULL REFERENCES member_shares(id) ON DELETE CASCADE,
+    to_member_shares_id UUID NOT NULL REFERENCES member_shares(id) ON DELETE CASCADE,
+    move_type VARCHAR(30)
+        CHECK (
+            move_type IN (
+                'transfer',
+                'buy_out'
+            )
+        ),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- 7. LOAN PRODUCTS TABLE (Institution-specific loan products)

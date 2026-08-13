@@ -1,7 +1,7 @@
 "use client"
 
-import { useState } from "react"
-import DatePicker from "react-multi-date-picker"
+import { useMemo, useState } from "react"
+import DatePicker, { type DateObject } from "react-multi-date-picker"
 import { FiCalendar, FiX } from "react-icons/fi"
 
 export const parseDateOnly = (value?: string | null): Date | null => {
@@ -19,11 +19,14 @@ export const toDateOnlyString = (date: Date): string => {
   return `${y}-${m}-${d}`
 }
 
-interface ReeveDatePickerProps {
+export interface ReeveDatePickerProps {
   value?: string | null
   onChange: (value: string) => void
   placeholder?: string
   disabled?: boolean
+  maxDate?: Date | string | number | DateObject | null
+  minDate?: Date | string | number | DateObject | null
+  className?: string
 }
 
 export default function ReeveDatePicker({
@@ -31,6 +34,9 @@ export default function ReeveDatePicker({
   onChange,
   placeholder = "Select date",
   disabled = false,
+  maxDate,
+  minDate,
+  className,
 }: ReeveDatePickerProps) {
   const [open, setOpen] = useState(false)
   const parsed = parseDateOnly(value)
@@ -38,12 +44,34 @@ export default function ReeveDatePicker({
     ? parsed.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })
     : ""
 
+  const normalizedMaxDate = useMemo(() => {
+    if (!maxDate) return undefined
+    if (maxDate instanceof Date) {
+      const d = new Date(maxDate)
+      d.setHours(23, 59, 59, 999)
+      return d
+    }
+    return maxDate
+  }, [maxDate])
+
+  const normalizedMinDate = useMemo(() => {
+    if (!minDate) return undefined
+    if (minDate instanceof Date) {
+      const d = new Date(minDate)
+      d.setHours(0, 0, 0, 0)
+      return d
+    }
+    return minDate
+  }, [minDate])
+
   return (
     <DatePicker
       key={value || "empty"}
       className="orange"
       value={parsed}
       disabled={disabled}
+      maxDate={normalizedMaxDate}
+      minDate={normalizedMinDate}
       onOpenPickNewDate={false}
       onOpen={() => setOpen(true)}
       onClose={() => setOpen(false)}
@@ -66,7 +94,7 @@ export default function ReeveDatePicker({
               : open
                 ? "ring-[1.5px] ring-[#f08c2b] border-transparent cursor-pointer"
                 : "border-gray-300 hover:border-gray-400 cursor-pointer"
-          }`}
+          } ${className || ""}`.trim()}
         >
           <div className="flex items-center gap-2 min-w-0 flex-1">
             <FiCalendar className="text-gray-400 flex-shrink-0" />

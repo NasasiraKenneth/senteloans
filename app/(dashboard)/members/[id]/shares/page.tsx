@@ -20,9 +20,11 @@ import {
 } from "@/lib/institution-branch-config"
 import AddSharesModal from "../../components/shares/add"
 import EditSharesModal from "../../components/shares/edit"
+import MoveSharesModal from "../../components/shares/moveShare"
 import SharesCalculatorModal from "../../components/shares/calculator"
 import {
   ArrowLeft,
+  ArrowRightLeft,
   Calendar,
   Calculator,
   Coins,
@@ -127,6 +129,7 @@ export default function MemberSharesPage() {
   const [cfgShareValue, setCfgShareValue] = useState<number | undefined>(undefined)
 
   const [showBuyModal, setShowBuyModal] = useState(false)
+  const [showMoveModal, setShowMoveModal] = useState(false)
   const [showCalculatorModal, setShowCalculatorModal] = useState(false)
   const [showEditModal, setShowEditModal] = useState(false)
   const [selectedShareForEdit, setSelectedShareForEdit] = useState<ShareTransaction | null>(null)
@@ -361,9 +364,6 @@ export default function MemberSharesPage() {
             <span className="font-mono text-xs font-semibold text-foreground">
               {row.transaction_number || (row.transaction_id ? row.transaction_id.slice(0, 8).toUpperCase() : "—")}
             </span>
-            {row.reference_number ? (
-              <p className="text-[11px] text-muted-foreground">Ext: {row.reference_number}</p>
-            ) : null}
           </div>
         ),
       },
@@ -587,12 +587,25 @@ export default function MemberSharesPage() {
                 </Button>
               )}
 
-              <Link href={`/members/${userId}`}>
-                <Button variant="outline" size="sm">
-                  <ExternalLink className="mr-2 h-4 w-4" />
-                  View profile
+              {canBuyShares && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowMoveModal(true)}
+                  disabled={!isMemberActive || summary.totalShares <= 0}
+                  title={
+                    !isMemberActive
+                      ? "Member must be Active to transfer or buy out shares"
+                      : summary.totalShares <= 0
+                        ? "Member has no shares to transfer or buy out"
+                        : undefined
+                  }
+                  className="border-orange-200 text-orange-700 hover:bg-orange-50 hover:text-orange-800 dark:border-orange-900/50 dark:text-orange-400 dark:hover:bg-orange-950/30"
+                >
+                  <ArrowRightLeft className="mr-2 h-4 w-4" />
+                  Transfer / Buy Out
                 </Button>
-              </Link>
+              )}
             </div>
           </div>
         </div>
@@ -706,7 +719,7 @@ export default function MemberSharesPage() {
       />
 
       {/* Modals */}
-      {showBuyModal && (
+      {showBuyModal && member && (
         <AddSharesModal
           isOpen={showBuyModal}
           onClose={() => setShowBuyModal(false)}
@@ -719,6 +732,25 @@ export default function MemberSharesPage() {
           maxShares={summary.maxShares}
           onSuccess={() => {
             setShowBuyModal(false)
+            void loadData()
+          }}
+        />
+      )}
+
+      {showMoveModal && member && (
+        <MoveSharesModal
+          isOpen={showMoveModal}
+          onClose={() => setShowMoveModal(false)}
+          memberId={member.id}
+          memberFullName={member.fullName}
+          currency={currency}
+          shareValue={summary.shareValue}
+          currentShares={summary.totalShares}
+          currentTotalValue={summary.totalValue}
+          minShares={summary.minShares}
+          maxShares={summary.maxShares}
+          onSuccess={() => {
+            setShowMoveModal(false)
             void loadData()
           }}
         />

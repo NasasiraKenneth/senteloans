@@ -107,7 +107,7 @@ export async function GET(req: Request) {
       }
 
       params.push(pageSize)
-      const rowsRes = await client.query(
+       const rowsRes = await client.query(
         `WITH shares_agg AS (
            SELECT
              ms.member_id,
@@ -119,7 +119,7 @@ export async function GET(req: Request) {
            FROM member_shares ms
            WHERE ${shareWhere}
            GROUP BY ms.member_id
-         )`
+         )
          SELECT
            m.id,
            m.full_name,

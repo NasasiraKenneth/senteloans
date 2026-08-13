@@ -110,14 +110,15 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 
       const res = await client.query(
         `SELECT ms.id, ms.transaction_id, ms.acquisition_type, ms.transfer_type, ms.transfer_member_id,
-                ms.number_of_shares, ms.share_value, ms.total_value, ms.remaining_shares, ms.date, ms.status, ms.created_at,
+                ms.number_of_shares, ms.share_value, ms.total_value, ms.remaining_shares, ms.date, ms.status,
+                ms.created_by, ms.created_at, ms.modified_by, ms.updated_at,
                 t.transaction_number, t.mode, t.reference_number, t.description,
                 tm.full_name AS transfer_member_name, tm.member_number AS transfer_member_number
          FROM member_shares ms
          LEFT JOIN transactions t ON t.id = ms.transaction_id
          LEFT JOIN members tm ON tm.id = ms.transfer_member_id
          WHERE ms.member_id = $1
-         ORDER BY ms.created_at DESC`,
+         ORDER BY ms.updated_at DESC`,
         [memberId]
       )
       return { shares: res.rows }
@@ -247,11 +248,18 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       }
 
       // Limits apply to the resulting holding, not just this single purchase.
-      const currentSharesRes = await client.query(
-        `SELECT COALESCE(SUM(number_of_shares), 0)::int AS total_shares FROM member_shares WHERE member_id = $1`,
+      // Retrieve member's latest remaining_shares from their latest updated_at record.
+      const latestShareRes = await client.query(
+        `SELECT remaining_shares
+         FROM member_shares
+         WHERE member_id = $1
+         ORDER BY updated_at DESC
+         LIMIT 1`,
         [memberId]
       )
-      const currentShares = Number(currentSharesRes.rows[0]?.total_shares || 0)
+      const currentShares = latestShareRes.rows.length > 0 && latestShareRes.rows[0]?.remaining_shares != null
+        ? Number(latestShareRes.rows[0].remaining_shares)
+        : 0
       const projectedShares = currentShares + numberOfShares
       if (typeof minShares === "number" && minShares > 0 && projectedShares < minShares) {
         return { error: `minimum_shares_${minShares}` as const }
@@ -298,13 +306,19 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         // holding-limit check and push the total past maximum_shares.
         await client.query("SELECT id FROM members WHERE id = $1 FOR UPDATE", [memberId])
 
-        // Authoritative holding recompute under the lock (the pre-check above is
-        // only for fast failure before we start writing).
-        const lockedSharesRes = await client.query(
-          `SELECT COALESCE(SUM(number_of_shares), 0)::int AS total_shares FROM member_shares WHERE member_id = $1`,
+        // Authoritative holding recompute under the lock from the latest updated_at record.
+        const lockedLatestShareRes = await client.query(
+          `SELECT remaining_shares
+           FROM member_shares
+           WHERE member_id = $1
+           ORDER BY updated_at DESC
+           LIMIT 1`,
           [memberId]
         )
-        const lockedProjected = Number(lockedSharesRes.rows[0]?.total_shares || 0) + numberOfShares
+        const lockedCurrentShares = lockedLatestShareRes.rows.length > 0 && lockedLatestShareRes.rows[0]?.remaining_shares != null
+          ? Number(lockedLatestShareRes.rows[0].remaining_shares)
+          : 0
+        const lockedProjected = lockedCurrentShares + numberOfShares
         if (typeof minShares === "number" && minShares > 0 && lockedProjected < minShares) {
           throw new Error(`minimum_shares_${minShares}`)
         }
@@ -312,12 +326,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
           throw new Error(`maximum_shares_${maxShares}`)
         }
 
-        // Track running share value balance for this member
-        const shareBalRes = await client.query(
-          `SELECT COALESCE(SUM(total_value), 0)::numeric AS total_share_value FROM member_shares WHERE member_id = $1`,
-          [memberId]
-        )
-        const balanceBefore = Number(shareBalRes.rows[0]?.total_share_value || 0)
+        // Track running share value balance for this member based on latest holdings
+        const balanceBefore = lockedCurrentShares * valuePerShare
         const balanceAfter = balanceBefore + purchaseValue
 
         // Use Shares Purchase when enum exists, fallback to Deposit to avoid runtime enum errors.
@@ -372,7 +382,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         })
         const txNumber = tx.transactionNumber
 
-        // Insert into member_shares with the created transaction_id
+        // Insert into member_shares with the created transaction_id.
+        // remaining_shares equals the member's latest updated_at record remaining_shares + new inserted/purchased shares.
         const insRes = await client.query(
           `INSERT INTO member_shares (
              transaction_id,
@@ -385,10 +396,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
              total_value,
              remaining_shares,
              date,
-             status
-           ) VALUES ($1, $2, 'purchase', NULL, NULL, $3, $4, $5, $6, $7, 'active')
+             status,
+             created_by
+           ) VALUES ($1, $2, 'purchase', NULL, NULL, $3, $4, $5, $6, $7, 'active', $8)
            RETURNING id, transaction_id`,
-          [tx.id, memberId, numberOfShares, valuePerShare, purchaseValue, lockedProjected, purchaseDate]
+          [tx.id, memberId, numberOfShares, valuePerShare, purchaseValue, lockedProjected, purchaseDate, actor.id]
         )
         const row = insRes.rows[0]
         if (row?.id) {
@@ -407,6 +419,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
               remaining_shares: lockedProjected,
               date: purchaseDate,
               status: "active",
+              created_by: actor.id,
             },
             actor.institution_id,
             actor.id,
