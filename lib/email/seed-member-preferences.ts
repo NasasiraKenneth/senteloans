@@ -15,6 +15,8 @@ export const MEMBER_TRANSACTIONAL_EMAIL_TYPES: NotificationType[] = [
   "invoice_overdue",
   "membership_fee_paid",
   "shares_purchased",
+  "shares_transferred",
+  "shares_sold",
   "payment_received",
   "deposit_received",
   "withdrawal_processed",

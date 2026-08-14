@@ -38,6 +38,8 @@ export type NotificationType =
   | 'kyc_verification_required'
   // Shares events
   | 'shares_purchased'
+  | 'shares_transferred'
+  | 'shares_sold'
   // Membership fee events
   | 'membership_fee_paid'
   // Opening balance (migration) events
@@ -355,22 +357,22 @@ export const NotificationTemplates = {
   }),
 
   // Account templates
-  depositReceived: (amount: number, accountId: string, currency?: string) => ({
+  depositReceived: (amount: number, accountId?: string, currency?: string) => ({
     title: 'Deposit Received',
     message: `Your deposit of ${formatCurrency(amount, currency)} has been processed successfully.`,
-    actionUrl: `/client-portal/savings/${accountId}`,
+    actionUrl: accountId ? `/client-portal/savings/${accountId}` : '/client-portal/savings',
   }),
 
-  withdrawalProcessed: (amount: number, accountId: string, currency?: string) => ({
+  withdrawalProcessed: (amount: number, accountId?: string, currency?: string) => ({
     title: 'Withdrawal Processed',
     message: `Your withdrawal of ${formatCurrency(amount, currency)} has been processed.`,
-    actionUrl: `/client-portal/savings/${accountId}`,
+    actionUrl: accountId ? `/client-portal/savings/${accountId}` : '/client-portal/savings',
   }),
 
-  transferProcessed: (amount: number, accountId: string, currency?: string) => ({
+  transferProcessed: (amount: number, accountId?: string, currency?: string) => ({
     title: 'Transfer Processed',
     message: `Your transfer of ${formatCurrency(amount, currency)} has been processed.`,
-    actionUrl: `/client-portal/savings/${accountId}`,
+    actionUrl: accountId ? `/client-portal/savings/${accountId}` : '/client-portal/savings',
   }),
 
   profileUpdated: (institutionName?: string) => ({
@@ -693,6 +695,76 @@ export const NotificationTemplates = {
   ) => ({
     title: 'Shares Purchased',
     message: `${memberName} purchased ${numberOfShares} share(s) worth ${formatCurrency(totalValue, currency)}.`,
+    actionUrl: `/members/${memberId}`,
+  }),
+
+  sharesTransferred: (
+    numberOfShares: number,
+    totalValue: number,
+    recipientName: string,
+    currency?: string,
+  ) => ({
+    title: 'Shares Transferred',
+    message: `You transferred ${numberOfShares} share(s) worth ${formatCurrency(totalValue, currency)} to ${recipientName}.`,
+    actionUrl: '/client-portal/shares',
+  }),
+
+  sharesTransferReceived: (
+    numberOfShares: number,
+    totalValue: number,
+    senderName: string,
+    currency?: string,
+  ) => ({
+    title: 'Shares Received',
+    message: `You received ${numberOfShares} share(s) worth ${formatCurrency(totalValue, currency)} from ${senderName}.`,
+    actionUrl: '/client-portal/shares',
+  }),
+
+  sharesTransferredForStaff: (
+    senderName: string,
+    recipientName: string,
+    numberOfShares: number,
+    totalValue: number,
+    memberId: string,
+    currency?: string,
+  ) => ({
+    title: 'Shares Transfer Recorded',
+    message: `${senderName} transferred ${numberOfShares} share(s) worth ${formatCurrency(totalValue, currency)} to ${recipientName}.`,
+    actionUrl: `/members/${memberId}`,
+  }),
+
+  sharesSold: (
+    numberOfShares: number,
+    totalValue: number,
+    buyerName: string,
+    currency?: string,
+  ) => ({
+    title: 'Shares Sold',
+    message: `You sold ${numberOfShares} share(s) worth ${formatCurrency(totalValue, currency)} to ${buyerName}. Proceeds have been credited to your savings account.`,
+    actionUrl: '/client-portal/shares',
+  }),
+
+  sharesBuyOff: (
+    numberOfShares: number,
+    totalValue: number,
+    sellerName: string,
+    currency?: string,
+  ) => ({
+    title: 'Shares Purchased',
+    message: `You purchased ${numberOfShares} share(s) worth ${formatCurrency(totalValue, currency)} from ${sellerName}.`,
+    actionUrl: '/client-portal/shares',
+  }),
+
+  sharesBuyOffForStaff: (
+    buyerName: string,
+    sellerName: string,
+    numberOfShares: number,
+    totalValue: number,
+    memberId: string,
+    currency?: string,
+  ) => ({
+    title: 'Shares Buy off Recorded',
+    message: `${buyerName} purchased ${numberOfShares} share(s) worth ${formatCurrency(totalValue, currency)} from ${sellerName}.`,
     actionUrl: `/members/${memberId}`,
   }),
 

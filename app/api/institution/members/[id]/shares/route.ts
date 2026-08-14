@@ -78,11 +78,15 @@ function sharesRouteDenialResponse(
   )
 }
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const apiPath = getApiPath(_req)
   try {
     const { id: memberId } = await params
-    if (!memberId) return NextResponse.json({ error: "missing_member_id" }, { status: 400 })
+    if (!memberId || !UUID_REGEX.test(memberId)) {
+      return NextResponse.json({ error: "Member not found" }, { status: 404 })
+    }
 
     const session = await getServerSession(authOptions)
     if (!session?.user?.authUserId) {
@@ -101,24 +105,23 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       if (!allowed) return { error: "missing_permission:view_members" as const }
 
       const memberRes = await client.query(
-        `SELECT id, institution_id, branch_id FROM members WHERE id = $1`,
-        [memberId]
+        `SELECT id, institution_id, branch_id FROM members WHERE institution_id = $1 AND id = $2`,
+        [actor.institution_id, memberId]
       )
       const memberRow = memberRes.rows[0]
       if (!memberRow) return { error: "member_not_found" as const }
-      if (memberRow.institution_id !== actor.institution_id) return { error: "forbidden" as const }
 
       const res = await client.query(
         `SELECT ms.id, ms.transaction_id, ms.acquisition_type, ms.transfer_type, ms.transfer_member_id,
                 ms.number_of_shares, ms.share_value, ms.total_value, ms.remaining_shares, ms.date, ms.status,
-                ms.created_by, ms.created_at, ms.modified_by, ms.updated_at,
+                ms.created_at, ms.updated_at,
                 t.transaction_number, t.mode, t.reference_number, t.description,
                 tm.full_name AS transfer_member_name, tm.member_number AS transfer_member_number
          FROM member_shares ms
          LEFT JOIN transactions t ON t.id = ms.transaction_id
          LEFT JOIN members tm ON tm.id = ms.transfer_member_id
          WHERE ms.member_id = $1
-         ORDER BY ms.updated_at DESC`,
+         ORDER BY ms.updated_at DESC, ms.created_at DESC`,
         [memberId]
       )
       return { shares: res.rows }

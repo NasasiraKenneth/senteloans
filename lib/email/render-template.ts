@@ -517,6 +517,111 @@ export function renderEmailTemplate(template: string, data: TemplateData = {}): 
       )
     }
 
+    case "shares.transferred": {
+      const shares = Number(data.numberOfShares || 0)
+      const amount = Number(data.amount || 0)
+      const targetMemberName = String(data.targetMemberName || "another member")
+      const transactionNumber = data.transactionNumber ? String(data.transactionNumber) : null
+      return layout(
+        "Shares transfer confirmation",
+        `<p style="margin:0 0 12px;">Hello ${esc(memberName)},</p>
+         <p style="margin:0 0 14px;">Your transfer of <strong>${esc(shares)}</strong> share(s) worth <strong>${esc(formatCurrency(amount, currency))}</strong> to <strong>${esc(targetMemberName)}</strong> has been processed.</p>
+         ${renderAmountCard("Shares Transferred", formatCurrency(amount, currency), `${shares} Share(s) to ${targetMemberName}`, "success")}
+         ${renderDetailTable([
+           { label: "Number of Shares", value: shares },
+           { label: "Transferred To", value: targetMemberName },
+           ...(transactionNumber ? [{ label: "Receipt No.", value: transactionNumber }] : []),
+         ])}
+         <div style="display:none">
+           <p>Transferred to: <strong>${esc(targetMemberName)}</strong></p>
+           ${transactionNumber ? `<p>Receipt no.: <strong>${esc(transactionNumber)}</strong></p>` : ""}
+         </div>
+         ${renderAttachmentNotice("Your transaction receipt is attached to this email as a PDF.")}`,
+        institutionName,
+        { badge: "Shares Transferred", badgeVariant: "info" }
+      )
+    }
+
+    case "shares.received": {
+      const shares = Number(data.numberOfShares || 0)
+      const amount = Number(data.amount || 0)
+      const sourceMemberName = String(data.sourceMemberName || "a member")
+      const transactionNumber = data.transactionNumber ? String(data.transactionNumber) : null
+      return layout(
+        "Shares transfer received",
+        `<p style="margin:0 0 12px;">Hello ${esc(memberName)},</p>
+         <p style="margin:0 0 14px;">You have received <strong>${esc(shares)}</strong> share(s) worth <strong>${esc(formatCurrency(amount, currency))}</strong> from <strong>${esc(sourceMemberName)}</strong>.</p>
+         ${renderAmountCard("Shares Received", formatCurrency(amount, currency), `${shares} Share(s) from ${sourceMemberName}`, "success")}
+         ${renderDetailTable([
+           { label: "Number of Shares", value: shares },
+           { label: "Received From", value: sourceMemberName },
+           ...(transactionNumber ? [{ label: "Receipt No.", value: transactionNumber }] : []),
+         ])}
+         <div style="display:none">
+           <p>Received from: <strong>${esc(sourceMemberName)}</strong></p>
+           ${transactionNumber ? `<p>Receipt no.: <strong>${esc(transactionNumber)}</strong></p>` : ""}
+         </div>
+         ${renderAttachmentNotice("Your transaction receipt is attached to this email as a PDF.")}`,
+        institutionName,
+        { badge: "Shares Received", badgeVariant: "success" }
+      )
+    }
+
+    case "shares.sold": {
+      const shares = Number(data.numberOfShares || 0)
+      const amount = Number(data.amount || 0)
+      const buyerMemberName = String(data.buyerMemberName || "a member")
+      const transactionNumber = data.transactionNumber ? String(data.transactionNumber) : null
+      const savingsTransactionNumber = data.savingsTransactionNumber ? String(data.savingsTransactionNumber) : null
+      return layout(
+        "Shares sale confirmation",
+        `<p style="margin:0 0 12px;">Hello ${esc(memberName)},</p>
+         <p style="margin:0 0 14px;">Your sale of <strong>${esc(shares)}</strong> share(s) worth <strong>${esc(formatCurrency(amount, currency))}</strong> to <strong>${esc(buyerMemberName)}</strong> has been processed. The proceeds have been credited to your savings account.</p>
+         ${renderAmountCard("Shares Sold", formatCurrency(amount, currency), `${shares} Share(s) Sold to ${buyerMemberName}`, "success")}
+         ${renderDetailTable([
+           { label: "Number of Shares", value: shares },
+           { label: "Buyer", value: buyerMemberName },
+           { label: "Proceeds Settlement", value: "Credited to Savings Account", isHighlight: true },
+           ...(transactionNumber ? [{ label: "Shares Receipt No.", value: transactionNumber }] : []),
+           ...(savingsTransactionNumber ? [{ label: "Savings Deposit Receipt No.", value: savingsTransactionNumber }] : []),
+         ])}
+         <div style="display:none">
+           <p>Sold to: <strong>${esc(buyerMemberName)}</strong></p>
+           ${transactionNumber ? `<p>Receipt no.: <strong>${esc(transactionNumber)}</strong></p>` : ""}
+         </div>
+         ${renderAttachmentNotice("Your transaction receipt(s) are attached to this email as PDFs.")}`,
+        institutionName,
+        { badge: "Shares Sold", badgeVariant: "success" }
+      )
+    }
+
+    case "shares.buy_out": {
+      const shares = Number(data.numberOfShares || 0)
+      const amount = Number(data.amount || 0)
+      const sellerMemberName = String(data.sellerMemberName || "a member")
+      const transactionNumber = data.transactionNumber ? String(data.transactionNumber) : null
+      const savingsTransactionNumber = data.savingsTransactionNumber ? String(data.savingsTransactionNumber) : null
+      return layout(
+        "Shares purchase confirmation",
+        `<p style="margin:0 0 12px;">Hello ${esc(memberName)},</p>
+         <p style="margin:0 0 14px;">Your purchase of <strong>${esc(shares)}</strong> share(s) totalling <strong>${esc(formatCurrency(amount, currency))}</strong> from <strong>${esc(sellerMemberName)}</strong> has been recorded.</p>
+         ${renderAmountCard("Shares Acquired", formatCurrency(amount, currency), `${shares} Share(s) Acquired`, "success")}
+         ${renderDetailTable([
+           { label: "Number of Shares", value: shares },
+           { label: "Purchased From", value: sellerMemberName },
+           ...(transactionNumber ? [{ label: "Shares Receipt No.", value: transactionNumber }] : []),
+           ...(savingsTransactionNumber ? [{ label: "Savings Debit Receipt No.", value: savingsTransactionNumber }] : []),
+         ])}
+         <div style="display:none">
+           <p>Purchased from: <strong>${esc(sellerMemberName)}</strong></p>
+           ${transactionNumber ? `<p>Receipt no.: <strong>${esc(transactionNumber)}</strong></p>` : ""}
+         </div>
+         ${renderAttachmentNotice("Your transaction receipt(s) are attached to this email as PDFs.")}`,
+        institutionName,
+        { badge: "Shares Acquired", badgeVariant: "success" }
+      )
+    }
+
     case "savings.deposit":
     case "savings.withdrawal":
     case "savings.transfer":

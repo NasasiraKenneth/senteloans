@@ -227,7 +227,8 @@ export default function MemberSharesPage() {
         joinDate: row.join_date ? String(row.join_date) : null,
       })
 
-      const rawShares: any[] = Array.isArray(sharesData.shares) ? sharesData.shares : []
+      const rawShares: any[] =
+        sharesRes.ok && Array.isArray(sharesData?.shares) ? sharesData.shares : []
       setShares(
         rawShares.map((s) => ({
           id: String(s.id),
@@ -371,7 +372,7 @@ export default function MemberSharesPage() {
         key: "shares",
         header: "Shares",
         render: (row) => {
-          const isDebit = row.acquisition_type === "transfer_out" || row.acquisition_type === "redemption"
+          const isDebit = row.acquisition_type === "transfer_out" || row.acquisition_type === "sell"
           return (
             <div
               className={cn(
@@ -700,7 +701,7 @@ export default function MemberSharesPage() {
         columns={columns}
         rows={paginatedShares}
         loading={sharesLoading}
-        title={`Share Purchase History (${filteredShares.length})`}
+        title={`Share History (${filteredShares.length})`}
         filterFields={filterFields}
         onQueryParamsChange={handleQueryParamsChange}
         emptyMessage={`No share purchases recorded for this ${clientTerm.toLowerCase()}.`}

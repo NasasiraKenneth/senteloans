@@ -11,6 +11,12 @@ import EditSharesForm, {
   EditSharesPayload,
   ShareTransactionItem,
 } from "../forms/editSharesForm"
+import EditBuyOffSharesForm, {
+  EditBuyOffSharesPayload,
+} from "../forms/editBuyOffSharesForm"
+import EditTransferSharesForm, {
+  EditTransferSharesPayload,
+} from "../forms/editTransferSharesForm"
 
 export interface EditSharesModalProps {
   isOpen: boolean
@@ -82,20 +88,49 @@ export default function EditSharesModal({
   minShares,
   maxShares,
   onSuccess,
-  title = "Edit Share Purchase",
+  title,
 }: EditSharesModalProps) {
   const [loading, setLoading] = useState(false)
   const { toast } = useToast()
 
   if (!share) return null
 
-  const handleSubmit = async (data: EditSharesPayload) => {
+  const acqType = String(share.acquisition_type || "purchase").toLowerCase().trim()
+
+  const isTransfer =
+    acqType === "transfer" ||
+    acqType === "transfer_in" ||
+    acqType === "transfer_out"
+
+  const isBuyOff =
+    acqType === "sell" ||
+    acqType === "buy" ||
+    acqType === "buy_out" ||
+    acqType === "buy_off" ||
+    acqType === "redemption"
+
+  // Derive dynamic modal title if not explicitly provided
+  const computedTitle =
+    title ||
+    (isTransfer
+      ? acqType === "transfer_in" || share.transfer_type === "from"
+        ? "Edit Share Transfer In"
+        : "Edit Share Transfer Out"
+      : isBuyOff
+        ? acqType === "sell" || share.transfer_type === "to"
+          ? "Edit Shares Sold (Buy-Out)"
+          : "Edit Shares Purchased (Buy-Off)"
+        : "Edit Share Purchase")
+
+  // 1. Regular share purchase edit handler
+  const handlePurchaseSubmit = async (data: EditSharesPayload) => {
     setLoading(true)
     try {
       const res = await fetch(`/api/institution/members/${memberId}/shares/${data.shareId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          actionType: "purchase",
           numberOfShares: data.numberOfShares,
           shareValue: data.shareValue,
           totalValue: data.totalValue,
@@ -118,8 +153,8 @@ export default function EditSharesModal({
 
       toast({
         variant: "success",
-        title: "Share record updated",
-        description: `Successfully updated ${data.numberOfShares} share${data.numberOfShares === 1 ? "" : "s"} record.`,
+        title: "Share purchase updated",
+        description: `Successfully updated ${data.numberOfShares} share${data.numberOfShares === 1 ? "" : "s"} purchase record.`,
       })
       onSuccess?.()
       onClose()
@@ -134,21 +169,147 @@ export default function EditSharesModal({
     }
   }
 
+  // 2. Share transfer edit handler
+  const handleTransferSubmit = async (data: EditTransferSharesPayload) => {
+    setLoading(true)
+    try {
+      const res = await fetch(`/api/institution/members/${memberId}/shares/${data.shareId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          actionType: "transfer",
+          numberOfShares: data.numberOfShares,
+          shareValue: data.shareValue,
+          totalValue: data.totalValue,
+          previousTotalValue: data.previousTotalValue,
+          valueDifference: data.valueDifference,
+          sharesDifference: data.sharesDifference,
+          transferType: data.transferType,
+          transferMemberId: data.transferMemberId,
+          date: data.date,
+          referenceNumber: data.referenceNumber,
+          description: data.description,
+        }),
+      })
+
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        throw new Error(mapError(body?.code || body?.error))
+      }
+
+      toast({
+        variant: "success",
+        title: "Share transfer updated",
+        description: `Successfully updated transfer of ${data.numberOfShares} share${data.numberOfShares === 1 ? "" : "s"}.`,
+      })
+      onSuccess?.()
+      onClose()
+    } catch (e: unknown) {
+      toast({
+        variant: "destructive",
+        title: "Failed to update transfer record",
+        description: String((e as Error)?.message || "Unexpected error"),
+      })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // 3. Share buy-off / sell-out edit handler
+  const handleBuyOffSubmit = async (data: EditBuyOffSharesPayload) => {
+    setLoading(true)
+    try {
+      const res = await fetch(`/api/institution/members/${memberId}/shares/${data.shareId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          actionType: "buy_off",
+          actionRole: data.actionRole,
+          numberOfShares: data.numberOfShares,
+          shareValue: data.shareValue,
+          totalValue: data.totalValue,
+          previousTotalValue: data.previousTotalValue,
+          valueDifference: data.valueDifference,
+          sharesDifference: data.sharesDifference,
+          counterpartyMemberId: data.counterpartyMemberId,
+          mode: data.mode,
+          paymentDate: data.paymentDate,
+          referenceNumber: data.referenceNumber,
+          description: data.description,
+          transaction_charges: data.transaction_charges,
+          bank_account_id: data.bank_account_id,
+          savings_account_id: data.savings_account_id,
+        }),
+      })
+
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        throw new Error(mapError(body?.code || body?.error))
+      }
+
+      toast({
+        variant: "success",
+        title: "Share buy-off updated",
+        description: `Successfully updated buy-off of ${data.numberOfShares} share${data.numberOfShares === 1 ? "" : "s"}.`,
+      })
+      onSuccess?.()
+      onClose()
+    } catch (e: unknown) {
+      toast({
+        variant: "destructive",
+        title: "Failed to update buy-off record",
+        description: String((e as Error)?.message || "Unexpected error"),
+      })
+    } finally {
+      setLoading(false)
+    }
+  }
+
   return (
-    <ReeveModal isOpen={isOpen} onClose={onClose} title={title} className="z-50">
-      <EditSharesForm
-        share={share}
-        memberId={memberId}
-        currency={currency}
-        shareValue={shareValue}
-        currentShares={currentShares}
-        currentTotalValue={currentTotalValue}
-        minShares={minShares}
-        maxShares={maxShares}
-        onSubmit={handleSubmit}
-        loading={loading}
-        onCancel={onClose}
-      />
+    <ReeveModal isOpen={isOpen} onClose={onClose} title={computedTitle} className="z-50">
+      {isTransfer ? (
+        <EditTransferSharesForm
+          share={share}
+          memberId={memberId}
+          currency={currency}
+          shareValue={shareValue}
+          currentShares={currentShares}
+          currentTotalValue={currentTotalValue}
+          minShares={minShares}
+          maxShares={maxShares}
+          onSubmit={handleTransferSubmit}
+          loading={loading}
+          onCancel={onClose}
+        />
+      ) : isBuyOff ? (
+        <EditBuyOffSharesForm
+          share={share}
+          memberId={memberId}
+          currency={currency}
+          shareValue={shareValue}
+          currentShares={currentShares}
+          currentTotalValue={currentTotalValue}
+          minShares={minShares}
+          maxShares={maxShares}
+          onSubmit={handleBuyOffSubmit}
+          loading={loading}
+          onCancel={onClose}
+        />
+      ) : (
+        <EditSharesForm
+          share={share}
+          memberId={memberId}
+          currency={currency}
+          shareValue={shareValue}
+          currentShares={currentShares}
+          currentTotalValue={currentTotalValue}
+          minShares={minShares}
+          maxShares={maxShares}
+          onSubmit={handlePurchaseSubmit}
+          loading={loading}
+          onCancel={onClose}
+        />
+      )}
     </ReeveModal>
   )
 }

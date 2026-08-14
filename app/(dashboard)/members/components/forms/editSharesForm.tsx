@@ -25,6 +25,9 @@ export interface ShareTransactionItem {
   reference_number?: string | null
   description?: string | null
   status?: string | null
+  savings_account_id?: string | null
+  seller_account_id?: string | null
+  bank_account_id?: string | null
 }
 
 export interface EditSharesPayload {

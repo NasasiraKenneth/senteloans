@@ -48,6 +48,12 @@ function mapError(code: unknown): string {
       return "Destination member could not be found."
     case "target_member_inactive":
       return "Destination member must be active to receive shares."
+    case "buyer_savings_account_not_found":
+      return "Buying member's savings account could not be found or is inactive."
+    case "seller_savings_account_not_found":
+      return "Selling member's savings account could not be found or is inactive."
+    case "insufficient_account_balance":
+      return "Buying member's savings account has insufficient available funds."
     case "invalid_mode":
       return "The selected payment mode is not supported."
     case "invalid_transaction_charges":

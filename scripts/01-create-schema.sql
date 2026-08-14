@@ -414,6 +414,8 @@ CREATE TABLE IF NOT EXISTS share_movements (
                 'buy_out'
             )
         ),
+    seller_account_transaction_id UUID,
+    buyer_account_transaction_id UUID,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 

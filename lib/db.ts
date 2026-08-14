@@ -24,9 +24,9 @@ const SEARCH_PATH = "SET LOCAL search_path = public, auth, app"
 
 // PostgreSQL SET LOCAL does not accept bound parameters ($1); use literal value. Validate UUID to avoid injection.
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-function setCurrentUserId(client: PoolClient, authUserId: string): Promise<void> {
-  if (!UUID_REGEX.test(authUserId)) return Promise.resolve()
-  return client.query(`SET LOCAL app.current_user_id = '${authUserId}'`)
+async function setCurrentUserId(client: PoolClient, authUserId: string): Promise<void> {
+  if (!UUID_REGEX.test(authUserId)) return
+  await client.query(`SET LOCAL app.current_user_id = '${authUserId}'`)
 }
 
 /**
