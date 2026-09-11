@@ -2,14 +2,14 @@
 
 import type React from "react"
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, useMemo } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { User, Phone, MapPin, Briefcase, Users, AlertCircle, Check, UserPlus, PiggyBank } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { useStaffSession } from "@/components/staff-session-provider"
-import Popover from "@mui/material/Popover"
+import StyledSelect from "@/components/newUI/styled_select"
 import ReeveDatePicker, { parseDateOnly } from "@/components/newUI/date_picker"
 import TooltipButton from "@/components/newUI/tooltip_button"
 import { useToast } from "@/components/ui/toast"
@@ -22,91 +22,7 @@ interface MemberRegistrationFormProps {
 const inputClass =
   "w-full px-3 py-2.5 text-sm rounded-md border transition-all duration-200 focus:ring-[1.5px] focus:ring-[#f08c2b] focus:border-transparent focus:outline-none border-gray-300 hover:border-gray-400"
 
-type SelectOption = { value: string; label: string }
-
-function StyledSelect({
-  value,
-  onChange,
-  placeholder,
-  options,
-  disabled = false,
-}: {
-  value: string
-  onChange: (value: string) => void
-  placeholder: string
-  options: SelectOption[]
-  disabled?: boolean
-}) {
-  const [anchor, setAnchor] = useState<HTMLElement | null>(null)
-  const open = Boolean(anchor)
-  const selectedLabel = options.find((o) => o.value === value)?.label
-
-  return (
-    <>
-      <div
-        onClick={(e) => {
-          if (disabled) return
-          setAnchor(e.currentTarget)
-        }}
-        className={`flex items-center justify-between w-full px-3 py-2.5 text-sm border rounded-md transition-all duration-200 ${
-          disabled
-            ? "bg-muted/50 text-gray-500 cursor-not-allowed border-gray-200"
-            :
-          open ? "ring-[1.5px] ring-[#f08c2b] border-transparent" : "border-gray-300 hover:border-gray-400"
-        }`}
-      >
-        <span className={value ? "text-gray-900" : "text-gray-400"}>{selectedLabel || placeholder}</span>
-        <svg className={`h-4 w-4 text-gray-400 transition-transform ${open ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-        </svg>
-      </div>
-      <Popover
-        open={open}
-        anchorEl={anchor}
-        onClose={() => setAnchor(null)}
-        anchorOrigin={{ vertical: "bottom", horizontal: "left" }}
-        transformOrigin={{ vertical: "top", horizontal: "left" }}
-        PaperProps={{
-          sx: {
-            width: anchor?.offsetWidth || 200,
-            borderRadius: "10px",
-            boxShadow: "0 10px 40px rgba(0,0,0,0.15)",
-            mt: 0.5,
-          },
-        }}
-      >
-        <div className="p-2">
-          {options.map((opt) => {
-            const isSelected = value === opt.value
-            return (
-              <div
-                key={opt.value}
-                onClick={() => {
-                  onChange(opt.value)
-                  setAnchor(null)
-                }}
-                className="flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-gray-50 rounded-lg transition-colors"
-              >
-                <div
-                  className={`relative w-4.5 h-4.5 border-2 flex items-center justify-center rounded-md transition-all ${
-                    isSelected ? "bg-[#f08c2b] border-[#f08c2b]" : "bg-white border-gray-400 hover:border-gray-600"
-                  }`}
-                >
-                  {isSelected && (
-                    <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                    </svg>
-                  )}
-                </div>
-                <span className="text-sm text-gray-800">{opt.label}</span>
-              </div>
-            )
-          })}
-        </div>
-      </Popover>
-    </>
-  )
-}
+type SelectOption = { value: string; label: string; description?: string }
 
 export function MemberRegistrationForm({ onClose }: MemberRegistrationFormProps) {
   const router = useRouter()
@@ -129,6 +45,7 @@ export function MemberRegistrationForm({ onClose }: MemberRegistrationFormProps)
     monthlyIncome: "",
     monthlySavings: "",
     savingsAccountType: "Voluntary",
+    beginSavingFrom: "",
     nextOfKinName: "",
     nextOfKinRelationship: "",
     nextOfKinPhone: "",
@@ -138,6 +55,49 @@ export function MemberRegistrationForm({ onClose }: MemberRegistrationFormProps)
   const [error, setError] = useState<string | null>(null)
   const [currency, setCurrency] = useState("UGX")
   const [canCreateMember, setCanCreateMember] = useState(false)
+  const [newMemberBillPrevMonths, setNewMemberBillPrevMonths] = useState(false)
+  const [financialYearStart, setFinancialYearStart] = useState<string>("")
+  const [accountTypes, setAccountTypes] = useState<
+    { id: string; account_name: string; auto_bill_savings?: boolean }[]
+  >([])
+  const [loadingAccountTypes, setLoadingAccountTypes] = useState(false)
+
+  useEffect(() => {
+    async function loadAccountTypes() {
+      setLoadingAccountTypes(true)
+      try {
+        const res = await fetch("/api/institution/account-types?status=Active", { cache: "no-store" })
+        if (res.ok) {
+          const data = await res.json()
+          if (Array.isArray(data?.accountTypes) && data.accountTypes.length > 0) {
+            const list: { id: string; account_name: string; auto_bill_savings?: boolean }[] =
+              data.accountTypes.map((at: any) => ({
+                id: String(at.id),
+                account_name: String(at.account_name || ""),
+                auto_bill_savings: Boolean(at.auto_bill_savings),
+              }))
+            setAccountTypes(list)
+            setFormData((prev) => {
+              const match = list.find(
+                (item: { id: string; account_name: string; auto_bill_savings?: boolean }) =>
+                  item.id === prev.savingsAccountType ||
+                  item.account_name.toLowerCase() === prev.savingsAccountType.toLowerCase()
+              )
+              return {
+                ...prev,
+                savingsAccountType: match ? match.id : list[0].id,
+              }
+            })
+          }
+        }
+      } catch {
+        // ignore
+      } finally {
+        setLoadingAccountTypes(false)
+      }
+    }
+    loadAccountTypes()
+  }, [])
 
   useEffect(() => {
     async function loadSettings() {
@@ -145,8 +105,16 @@ export function MemberRegistrationForm({ onClose }: MemberRegistrationFormProps)
         const res = await fetch("/api/institution/settings", { cache: "no-store" })
         if (res.ok) {
           const data = await res.json()
-          if (data?.config?.currency) {
-            setCurrency(data.config.currency)
+          if (data?.config) {
+            if (data.config.currency) {
+              setCurrency(data.config.currency)
+            }
+            if (typeof data.config.newMemberBillPrevMonths === "boolean") {
+              setNewMemberBillPrevMonths(data.config.newMemberBillPrevMonths)
+            }
+            if (data.config.financialYearStart) {
+              setFinancialYearStart(data.config.financialYearStart)
+            }
           }
         }
       } catch {
@@ -177,6 +145,75 @@ export function MemberRegistrationForm({ onClose }: MemberRegistrationFormProps)
     }
     loadPermissions()
   }, [toast])
+
+  const selectedAccountTypeObj = accountTypes.find((at) => at.id === formData.savingsAccountType)
+  const isAutoBillSavings = Boolean(selectedAccountTypeObj?.auto_bill_savings)
+
+  const beginSavingFromOptions: SelectOption[] = useMemo(() => {
+    const now = new Date()
+    let startDate: Date
+
+    if (financialYearStart) {
+      const parsed = new Date(financialYearStart)
+      if (!isNaN(parsed.getTime())) {
+        startDate = new Date(parsed.getFullYear(), parsed.getMonth(), 1)
+      } else {
+        startDate = new Date(now.getFullYear(), 0, 1)
+      }
+    } else {
+      startDate = new Date(now.getFullYear(), 0, 1)
+    }
+
+    if (startDate > now) {
+      startDate = new Date(now.getFullYear(), 0, 1)
+    }
+
+    const options: SelectOption[] = []
+    const curr = new Date(startDate.getFullYear(), startDate.getMonth(), 1)
+    const currentMonthEnd = new Date(now.getFullYear(), now.getMonth(), 1)
+
+    while (curr <= currentMonthEnd) {
+      const monthLabel = curr.toLocaleString("en-US", { month: "long", year: "numeric" })
+      const yyyy = curr.getFullYear()
+      const mm = String(curr.getMonth() + 1).padStart(2, "0")
+      options.push({ value: `${yyyy}-${mm}`, label: monthLabel })
+      curr.setMonth(curr.getMonth() + 1)
+    }
+
+    const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1)
+    const nextMonthName = nextMonth.toLocaleString("en-US", { month: "long", year: "numeric" })
+    const nextYyyy = nextMonth.getFullYear()
+    const nextMm = String(nextMonth.getMonth() + 1).padStart(2, "0")
+    options.push({
+      value: `${nextYyyy}-${nextMm}`,
+      label: `Next month (${nextMonthName})`,
+    })
+
+    return options
+  }, [financialYearStart])
+
+  useEffect(() => {
+    if (!newMemberBillPrevMonths && beginSavingFromOptions.length > 0 && !formData.beginSavingFrom) {
+      const now = new Date()
+      const currentMonthVal = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`
+      const match = beginSavingFromOptions.find((o) => o.value === currentMonthVal)
+      setFormData((prev) => ({
+        ...prev,
+        beginSavingFrom: match ? match.value : beginSavingFromOptions[0].value,
+      }))
+    }
+  }, [newMemberBillPrevMonths, beginSavingFromOptions, formData.beginSavingFrom])
+
+  const accountTypeOptions: SelectOption[] =
+    accountTypes.length > 0
+      ? accountTypes.map((at) => ({
+          value: at.id,
+          label: at.account_name,
+        }))
+      : [
+          { value: "Voluntary", label: "Voluntary" },
+          { value: "Fixed", label: "Fixed" },
+        ]
 
   const validateForm = (): boolean => {
     const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -213,10 +250,10 @@ export function MemberRegistrationForm({ onClose }: MemberRegistrationFormProps)
     if (formData.email && !emailRe.test(formData.email)) {
       setError("Enter a valid email address"); scrollToError(); return false
     }
-    if (formData.savingsAccountType === "Fixed") {
+    if (isAutoBillSavings) {
       const amount = Number(formData.monthlySavings)
       if (!formData.monthlySavings.trim() || !Number.isFinite(amount) || amount <= 0) {
-        setError("Monthly savings amount is required for Fixed accounts")
+        setError("Monthly savings amount is required for accounts with Auto Bill Savings enabled")
         scrollToError()
         return false
       }
@@ -227,6 +264,11 @@ export function MemberRegistrationForm({ onClose }: MemberRegistrationFormProps)
         scrollToError()
         return false
       }
+    }
+    if (!newMemberBillPrevMonths && !formData.beginSavingFrom) {
+      setError("Please select when to begin saving from")
+      scrollToError()
+      return false
     }
     return true
   }
@@ -250,6 +292,10 @@ export function MemberRegistrationForm({ onClose }: MemberRegistrationFormProps)
     if (formData.monthlyIncome) payload.monthlyIncome = Number(formData.monthlyIncome)
     if (formData.monthlySavings) payload.monthlySavings = Number(formData.monthlySavings)
     if (formData.savingsAccountType) payload.savingsAccountType = formData.savingsAccountType
+    if (!newMemberBillPrevMonths && formData.beginSavingFrom) {
+      payload.beginSavingFrom = formData.beginSavingFrom
+      payload.startMonth = formData.beginSavingFrom
+    }
     if (formData.nextOfKinName) payload.nextOfKinName = formData.nextOfKinName.trim()
     if (formData.nextOfKinRelationship) payload.nextOfKinRelationship = formData.nextOfKinRelationship
     if (formData.nextOfKinPhone) payload.nextOfKinPhone = formData.nextOfKinPhone.trim()
@@ -324,8 +370,8 @@ export function MemberRegistrationForm({ onClose }: MemberRegistrationFormProps)
     if (!res.ok) {
       const apiError = typeof data?.error === "string" ? data.error : ""
       const msg =
-        apiError === "monthly_savings_required_for_fixed_account"
-          ? "Monthly savings amount is required for Fixed accounts"
+        apiError === "monthly_savings_required_for_fixed_account" || apiError === "monthly_savings_required"
+          ? "Monthly savings amount is required for accounts with Auto Bill Savings enabled"
           : apiError === "invalid_monthly_savings"
             ? "Enter a valid monthly savings amount"
             : apiError || "Failed to create member"
@@ -569,7 +615,7 @@ export function MemberRegistrationForm({ onClose }: MemberRegistrationFormProps)
               </div>
               <div className="space-y-2">
                 <Label htmlFor="email">
-                  Email Address <span className="text-xs font-normal text-muted-foreground">(optional)</span>
+                  Email Address
                 </Label>
                 <input
                   id="email"
@@ -579,9 +625,6 @@ export function MemberRegistrationForm({ onClose }: MemberRegistrationFormProps)
                   placeholder="e.g., member@email.com"
                   className={inputClass}
                 />
-                <p className="text-xs text-muted-foreground">
-                  Used for the welcome message, KYC reminder, and invoice email. Leave blank if the {clientTerminology.toLowerCase()} has no email.
-                </p>
               </div>
             </div>
           </CardContent>
@@ -600,18 +643,12 @@ export function MemberRegistrationForm({ onClose }: MemberRegistrationFormProps)
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
                 <Label htmlFor="district">District</Label>
-                <StyledSelect
+                <input
+                  id="district"
                   value={formData.district}
-                  onChange={(value) => handleInputChange("district", value)}
-                  placeholder="Select district"
-                  options={[
-                    { value: "Kampala", label: "Kampala" },
-                    { value: "Wakiso", label: "Wakiso" },
-                    { value: "Mukono", label: "Mukono" },
-                    { value: "Entebbe", label: "Entebbe" },
-                    { value: "Jinja", label: "Jinja" },
-                    { value: "Mbarara", label: "Mbarara" },
-                  ]}
+                  onChange={(e) => handleInputChange("district", e.target.value)}
+                  placeholder="e.g., Kampala"
+                  className={inputClass}
                 />
               </div>
               <div className="space-y-2">
@@ -641,19 +678,12 @@ export function MemberRegistrationForm({ onClose }: MemberRegistrationFormProps)
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
                 <Label htmlFor="occupation">Occupation</Label>
-                <StyledSelect
+                <input
+                  id="occupation"
                   value={formData.occupation}
-                  onChange={(value) => handleInputChange("occupation", value)}
-                  placeholder="Select occupation"
-                  options={[
-                    { value: "Teacher", label: "Teacher" },
-                    { value: "Farmer", label: "Farmer" },
-                    { value: "Small Business Owner", label: "Small Business Owner" },
-                    { value: "Civil Servant", label: "Civil Servant" },
-                    { value: "Healthcare Worker", label: "Healthcare Worker" },
-                    { value: "Student", label: "Student" },
-                    { value: "Other", label: "Other" },
-                  ]}
+                  onChange={(e) => handleInputChange("occupation", e.target.value)}
+                  placeholder="e.g., Civil Servant"
+                  className={inputClass}
                 />
               </div>
               <div className="space-y-2">
@@ -681,17 +711,17 @@ export function MemberRegistrationForm({ onClose }: MemberRegistrationFormProps)
             <CardDescription>The agreed monthly savings contribution for this {clientTerminology.toLowerCase()}.</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="grid gap-4 md:grid-cols-2">
+            <div className={`grid gap-4 ${!newMemberBillPrevMonths ? "md:grid-cols-3" : "md:grid-cols-2"}`}>
               <div className="space-y-2">
                 <Label htmlFor="monthlySavings">
                   Monthly Savings Amount ({currency})
-                  {formData.savingsAccountType === "Fixed" ? " *" : ""}
+                  {isAutoBillSavings ? " *" : ""}
                 </Label>
                 <input
                   id="monthlySavings"
                   type="number"
                   min={0}
-                  required={formData.savingsAccountType === "Fixed"}
+                  required={isAutoBillSavings}
                   value={formData.monthlySavings}
                   onChange={(e) => handleInputChange("monthlySavings", e.target.value)}
                   placeholder="e.g., 50,000"
@@ -706,16 +736,25 @@ export function MemberRegistrationForm({ onClose }: MemberRegistrationFormProps)
                 <StyledSelect
                   value={formData.savingsAccountType}
                   onChange={(value) => handleInputChange("savingsAccountType", value)}
-                  placeholder="Select account type"
-                  options={[
-                    { value: "Voluntary", label: "Voluntary" },
-                    { value: "Fixed", label: "Fixed" },
-                  ]}
+                  placeholder={loadingAccountTypes ? "Loading account types..." : "Select account type"}
+                  options={accountTypeOptions}
+                  disabled={loadingAccountTypes}
                 />
-                <p className="text-xs text-muted-foreground">
-                  Voluntary lets the {clientTerminology.toLowerCase()} deposit/withdraw freely. Fixed locks contributions to the agreed monthly amount.
-                </p>
               </div>
+              {!newMemberBillPrevMonths && (
+                <div className="space-y-2">
+                  <Label htmlFor="beginSavingFrom">Begin Saving From</Label>
+                  <StyledSelect
+                    value={formData.beginSavingFrom}
+                    onChange={(value) => handleInputChange("beginSavingFrom", value)}
+                    placeholder="Select start month"
+                    options={beginSavingFromOptions}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Month from which savings billing will commence.
+                  </p>
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>

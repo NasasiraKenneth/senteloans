@@ -114,6 +114,9 @@ CREATE TABLE IF NOT EXISTS config (
     membership_overdue_period INT,
     membership_overdue_interest NUMERIC(18,2) NOT NULL CHECK (membership_overdue_interest >= 0),
     membership_overdue_interest_per VARCHAR(20) NOT NULL DEFAULT 'day',
+    new_member_bill_prev_months VARCHAR(10) NOT NULL DEFAULT 'false',
+    financial_year VARCHAR(10), -- year always
+    financial_year_start DATE, -- ignore year always
     financial_year_end DATE, -- ignore year always
     created_at TIMESTAMPTZ DEFAULT NOW(),
     -- Added as plain UUID first to avoid forward-reference before users exists.
@@ -128,6 +131,23 @@ CREATE TABLE IF NOT EXISTS config (
 --         'sendgrid',
 --         'smtp'
 --     )
+
+CREATE TABLE IF NOT EXISTS savings_plan (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    branch_id UUID NOT NULL
+        REFERENCES branches(id) ON DELETE CASCADE,
+    auto_savings_day VARCHAR(30), --monday to sunday for weekly and eg 2 or 2nd for monthly or qua(NEXT IS 2ND FOR NEXT MONTH ESAY) FIXED DAY THAT IS SUNDAY OR 2ND
+    frequency_unit VARCHAR(15), --MONTH
+    frequency_value VARCHAR(15), --4
+    use_account_saving_day VARCHAR(10) DEFAULT "false",
+    start_date DATE,
+    next_billing_date DATE,
+    last_billing_date DATE,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+
+    CONSTRAINT uk_savings_plan_branch UNIQUE (branch_id)
+);
 
 CREATE TABLE IF NOT EXISTS email_settings (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -613,6 +633,7 @@ CREATE TABLE IF NOT EXISTS account_type (
     branch_id UUID NOT NULL REFERENCES branches(id) ON DELETE RESTRICT,
     account_name VARCHAR(50) NOT NULL,
     status status_type DEFAULT 'Active',
+    auto_bill_savings VARCHAR(10) DEFAULT 'false',
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW(),
     
@@ -633,6 +654,11 @@ CREATE TABLE IF NOT EXISTS savings_accounts (
     total_balance DECIMAL(15,2) DEFAULT 0 CHECK (total_balance >= 0),
     status status_type DEFAULT 'Active',
     open_date DATE NOT NULL,
+    is_configured VARCHAR(10) DEFAULT 'yes',
+    auto_savings_day VARCHAR(30),
+    start_billing_date DATE,
+    next_billing_date DATE,
+    last_billing_date DATE,
     last_transaction_date DATE,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW(),
@@ -914,19 +940,18 @@ CREATE TABLE IF NOT EXISTS membership_fees (
     member_id     UUID NOT NULL REFERENCES members(id)       ON DELETE CASCADE,
 
     -- Money
-    amount_paid          DECIMAL(15,2) NOT NULL CHECK (amount_paid > 0),
+    amount_paid          DECIMAL(15,2),
     total_membership_fee DECIMAL(15,2) NOT NULL,                -- snapshot of config.membership_fee at payment time
-    balance_before       DECIMAL(15,2) NOT NULL,                -- remaining BEFORE this payment
-    balance_after        DECIMAL(15,2) NOT NULL,                -- remaining AFTER this payment
+    balance_before       DECIMAL(15,2),                -- remaining BEFORE this payment
+    balance_after        DECIMAL(15,2),                -- remaining AFTER this payment
 
-    -- Payment metadata
-    mode              payment_mode NOT NULL,
-    reference_number  VARCHAR(100),
-    description       TEXT,
+
+    period  VARCHAR(10),
 
     -- Linkage / audit
-    transaction_id    UUID UNIQUE REFERENCES transactions(id) ON DELETE SET NULL,
+    invoice_id UUID,
     processed_by      UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+    modified_by UUID REFERENCES users(id),
     payment_date      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
     created_at TIMESTAMPTZ DEFAULT NOW(),
@@ -942,8 +967,40 @@ CREATE INDEX IF NOT EXISTS idx_membership_fees_institution
   ON membership_fees(institution_id, payment_date DESC);
 CREATE INDEX IF NOT EXISTS idx_membership_fees_branch
   ON membership_fees(branch_id, payment_date DESC);
-CREATE INDEX IF NOT EXISTS idx_membership_fees_transaction
-  ON membership_fees(transaction_id);
+CREATE INDEX IF NOT EXISTS idx_membership_fees_invoice
+  ON membership_fees(invoice_id);
+
+CREATE TABLE IF NOT EXISTS monthly_savings (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    institution_id UUID NOT NULL REFERENCES institutions(id) ON DELETE RESTRICT,
+    branch_id     UUID NOT NULL REFERENCES branches(id)      ON DELETE RESTRICT,
+    account_id     UUID NOT NULL REFERENCES savings_accounts(id)      ON DELETE RESTRICT,
+    invoice_id UUID,
+    installment_number INTEGER NOT NULL,
+    due_date DATE NOT NULL,
+    monthly_savings DECIMAL(15,2) NOT NULL CHECK (monthly_savings >= 0), -- snapshot of account monthly savings at payment time
+    amount_paid DECIMAL(15,2) DEFAULT 0 CHECK (amount_paid >= 0),
+    balance_before       DECIMAL(15,2),                -- remaining BEFORE this payment
+    balance_after        DECIMAL(15,2),                -- remaining AFTER this payment
+    payment_date DATE,
+    penalty_amount DECIMAL(15,2) DEFAULT 0,
+    amount_due DECIMAL(15,2) NOT NULL,
+    days_overdue INTEGER DEFAULT 0,
+    status repayment_status DEFAULT 'Pending',
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    
+    CONSTRAINT uk_monthly_savings UNIQUE (account_id, installment_number)
+);
+
+CREATE INDEX IF NOT EXISTS idx_monthly_savings_account
+  ON monthly_savings(account_id, payment_date DESC);
+CREATE INDEX IF NOT EXISTS idx_monthly_savings_institution
+  ON monthly_savings(institution_id, payment_date DESC);
+CREATE INDEX IF NOT EXISTS idx_monthly_savings_branch
+  ON monthly_savings(branch_id, payment_date DESC);
+CREATE INDEX IF NOT EXISTS idx_monthly_savings_invoice
+  ON monthly_savings(invoice_id);
 
 CREATE TABLE IF NOT EXISTS investments (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),

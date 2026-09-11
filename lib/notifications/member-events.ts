@@ -24,14 +24,24 @@ export interface InvoiceSummary {
   invoice_due?: string | null
 }
 
+export interface SavingsAccountSummary {
+  account_number: string
+  account_type: string
+}
+
 export interface NotifyMemberRegistrationInput {
   client?: PoolClient
   actor: MemberRegistrationActor
   member: RegisteredMemberSummary
   institutionName?: string
+  /** When present, a savings account configure notification is emitted to staff with edit_account permission. */
+  savingsAccount?: SavingsAccountSummary | null
   /** When present, an additional invoice-created notification is emitted to
    *  both the member and admin staff. */
   invoice?: InvoiceSummary | null
+  /** When present, a shares invoice notification is emitted to
+   *  both the member and admin staff. */
+  sharesInvoice?: InvoiceSummary | null
 }
 
 export interface NotifyMemberRegistrationResult {
@@ -125,6 +135,32 @@ export async function notifyMemberRegistration(
     })
   }
 
+  if (input.sharesInvoice) {
+    const tpl = NotificationTemplates.membershipInvoiceCreated(
+      input.sharesInvoice.invoice_number,
+      input.sharesInvoice.total_amount,
+      input.sharesInvoice.id,
+      input.sharesInvoice.invoice_due ?? null,
+    )
+    memberMessages.push({
+      institutionId: input.actor.institution_id,
+      branchId: input.actor.branch_id,
+      recipientType: "member",
+      recipientId: input.member.id,
+      type: "membership_invoice_created",
+      title: tpl.title,
+      message: tpl.message,
+      actionUrl: tpl.actionUrl,
+      metadata: {
+        member_id: input.member.id,
+        invoice_id: input.sharesInvoice.id,
+        invoice_number: input.sharesInvoice.invoice_number,
+        amount: input.sharesInvoice.total_amount,
+        due_date: input.sharesInvoice.invoice_due ?? undefined,
+      },
+    })
+  }
+
   const memberRes = await notificationService.createBulk(memberMessages, input.client)
   if (memberRes.ok) {
     memberNotifications = memberRes.count ?? memberMessages.length
@@ -203,11 +239,92 @@ export async function notifyMemberRegistration(
       }
     }
 
+    if (input.sharesInvoice) {
+      const sharesInvTpl = NotificationTemplates.newInvoiceCreatedForStaff(
+        input.sharesInvoice.invoice_number,
+        input.member.full_name,
+        input.sharesInvoice.total_amount,
+        input.sharesInvoice.id,
+      )
+      for (const r of recipients) {
+        staffMessages.push({
+          institutionId: input.actor.institution_id,
+          branchId: r.branch_id ?? input.actor.branch_id,
+          recipientType: "institution_user",
+          recipientId: r.id,
+          type: "membership_invoice_created",
+          title: sharesInvTpl.title,
+          message: sharesInvTpl.message,
+          actionUrl: sharesInvTpl.actionUrl,
+          metadata: {
+            member_id: input.member.id,
+            invoice_id: input.sharesInvoice.id,
+            invoice_number: input.sharesInvoice.invoice_number,
+            amount: input.sharesInvoice.total_amount,
+          },
+        })
+      }
+    }
+
     const staffRes = await notificationService.createBulk(staffMessages, input.client)
     if (staffRes.ok) {
-      staffNotifications = staffRes.count ?? staffMessages.length
+      staffNotifications += staffRes.count ?? staffMessages.length
     } else if (staffRes.error) {
       errors.push(`staff_notifications:${staffRes.error}`)
+    }
+  }
+
+  // Staff side — notification to staff with `edit_account` permission to configure savings account
+  // ONLY sent if use_account_saving_day is 'true' in savings_plan for the branch
+  if (input.client && input.savingsAccount) {
+    try {
+      const spRes = await input.client.query(
+        `SELECT use_account_saving_day FROM savings_plan WHERE branch_id = $1 LIMIT 1`,
+        [input.actor.branch_id]
+      )
+      const useAccountDay = spRes.rows[0]
+        ? String(spRes.rows[0].use_account_saving_day).trim().toLowerCase() === "true" || spRes.rows[0].use_account_saving_day === true
+        : false
+
+      if (useAccountDay) {
+        const editAccountStaff = await getInstitutionRecipientsWithPermission(
+          input.client,
+          input.actor.institution_id,
+          "edit_account",
+          { excludeUserId: input.actor.id },
+        )
+        if (editAccountStaff.length > 0) {
+          const configMsg = NotificationTemplates.configureSavingsAccountForStaff(
+            input.member.full_name,
+            input.savingsAccount.account_number,
+            input.member.id,
+          )
+          const staffAccountMessages: CreateNotificationInput[] = editAccountStaff.map((r) => ({
+            institutionId: input.actor.institution_id,
+            branchId: r.branch_id ?? input.actor.branch_id,
+            recipientType: "institution_user",
+            recipientId: r.id,
+            type: "configure_savings_account",
+            title: configMsg.title,
+            message: configMsg.message,
+            actionUrl: configMsg.actionUrl,
+            metadata: {
+              member_id: input.member.id,
+              member_number: input.member.member_number,
+              account_number: input.savingsAccount!.account_number,
+              account_type: input.savingsAccount!.account_type,
+            },
+          }))
+          const staffAccountRes = await notificationService.createBulk(staffAccountMessages, input.client)
+          if (staffAccountRes.ok) {
+            staffNotifications += staffAccountRes.count ?? staffAccountMessages.length
+          } else if (staffAccountRes.error) {
+            errors.push(`staff_edit_account_notifications:${staffAccountRes.error}`)
+          }
+        }
+      }
+    } catch (e) {
+      errors.push(`edit_account_recipients:${(e as Error)?.message || "lookup_failed"}`)
     }
   }
 

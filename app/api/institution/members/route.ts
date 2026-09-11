@@ -17,6 +17,7 @@ import {
   SUPER_ADMIN_WRITE_BLOCKED,
 } from "@/lib/api/rbac"
 import { parseMonthlySavingsInput } from "@/lib/members/monthly-savings"
+import { calculatePreviousBillingDates } from "@/lib/members/savings-calculation"
 
 type MemberCreatePostCommit = {
   institutionName: string
@@ -357,14 +358,17 @@ export async function POST(req: Request) {
 
       // Branch-scoped config used for invoice + currency context.
       const cfgRes = await client.query(
-        `SELECT currency, membership_fee, invoice_overdue_period
+        `SELECT currency, membership_fee, share_value, minimum_shares, invoice_overdue_period, financial_year, new_member_bill_prev_months, financial_year_start
            FROM config WHERE branch_id = $1 LIMIT 1`,
         [branchId],
       )
       const cfg = cfgRes.rows[0] || {}
       const currency = (cfg.currency as string) || "UGX"
       const membershipFee = Number(cfg.membership_fee || 0)
+      const shareValue = Number(cfg.share_value || 0)
+      const minimumShares = Number(cfg.minimum_shares || 0)
       const invoiceDueDays = Number(cfg.invoice_overdue_period || 30)
+      const financialYear = (cfg.financial_year as string) || String(new Date().getFullYear())
 
       const inst = String(actor.institution_id).slice(0, 6).replace(/-/g, "").toUpperCase()
       const now = new Date()
@@ -400,6 +404,8 @@ export async function POST(req: Request) {
 
       let savingsAccountData: { account_number: string; account_type: string } | null = null
       let createdInvoice: CreatedInvoice | null = null
+      let createdSharesInvoice: CreatedInvoice | null = null
+      let createdSavingsInvoice: CreatedInvoice | null = null
       let data: { id: string; member_number: string }
 
       try {
@@ -482,22 +488,39 @@ export async function POST(req: Request) {
 
         if (shouldCreateSavings) {
           let resolvedAccountTypeId: string | null = null
+          let resolvedAccountTypeName: string = savingsAccountType || "Voluntary"
           const atRes = await client.query(
             `SELECT id, account_name FROM account_type WHERE branch_id = $1 AND (account_name ILIKE $2 OR id::text = $2) AND status = 'Active' LIMIT 1`,
             [branchId, savingsAccountType || "Voluntary"]
           )
           if (atRes.rows[0]) {
             resolvedAccountTypeId = atRes.rows[0].id
+            resolvedAccountTypeName = atRes.rows[0].account_name
           } else {
             const insType = await client.query(
               `INSERT INTO account_type (institution_id, branch_id, account_name, status)
                VALUES ($1, $2, $3, 'Active')
                ON CONFLICT (branch_id, account_name) DO UPDATE SET status = 'Active'
-               RETURNING id`,
+               RETURNING id, account_name`,
               [actor.institution_id, branchId, savingsAccountType || "Voluntary"]
             )
             resolvedAccountTypeId = insType.rows[0]?.id
+            if (insType.rows[0]?.account_name) {
+              resolvedAccountTypeName = insType.rows[0].account_name
+            }
           }
+
+          const spRes = await client.query(
+            `SELECT auto_savings_day, frequency_unit, frequency_value, use_account_saving_day, start_date, next_billing_date
+             FROM savings_plan WHERE branch_id = $1 LIMIT 1`,
+            [branchId]
+          )
+          const sp = spRes.rows[0] || null
+          const useAccountSavingDay = sp?.use_account_saving_day === "true" || sp?.use_account_saving_day === true
+          const isConfigured = useAccountSavingDay ? "no" : "yes"
+          const autoSavingsDayVal = useAccountSavingDay ? null : (sp?.auto_savings_day || null)
+          const startDateVal = useAccountSavingDay ? null : (sp?.start_date || null)
+          const nextBillingDateVal = useAccountSavingDay ? null : (sp?.next_billing_date || null)
 
           const savInsert = await insertWithPrefixedNumberRetry<{
             id: string
@@ -505,9 +528,21 @@ export async function POST(req: Request) {
           }>(
             (accountNumber) =>
               client.query<{ id: string; account_number: string }>(
-                `INSERT INTO savings_accounts (institution_id, branch_id, member_id, account_number, account_type_id, monthly_savings, available_balance, total_balance, status, open_date)
-                 VALUES ($1, $2, $3, $4, $5, $6, 0, 0, 'Active', $7) RETURNING id, account_number`,
-                [actor.institution_id, branchId, data.id, accountNumber, resolvedAccountTypeId, monthlySavings, joinDate],
+                `INSERT INTO savings_accounts (institution_id, branch_id, member_id, account_number, account_type_id, monthly_savings, available_balance, total_balance, status, open_date, is_configured, auto_savings_day, start_billing_date, next_billing_date)
+                 VALUES ($1, $2, $3, $4, $5, $6, 0, 0, 'Active', $7, $8, $9, $10, $11) RETURNING id, account_number`,
+                [
+                  actor.institution_id,
+                  branchId,
+                  data.id,
+                  accountNumber,
+                  resolvedAccountTypeId,
+                  monthlySavings,
+                  joinDate,
+                  isConfigured,
+                  autoSavingsDayVal,
+                  startDateVal,
+                  nextBillingDateVal,
+                ],
               ),
             {
               prefix: "SA",
@@ -524,7 +559,7 @@ export async function POST(req: Request) {
           }
           savingsAccountData = {
             account_number: savInsert.row.account_number,
-            account_type: savingsAccountType,
+            account_type: resolvedAccountTypeName,
           }
           await auditLogger.logInsert(
             "savings_accounts",
@@ -533,9 +568,13 @@ export async function POST(req: Request) {
               member_id: data.id,
               account_number: savInsert.row.account_number,
               account_type_id: resolvedAccountTypeId,
-              account_type: savingsAccountType,
+              account_type: resolvedAccountTypeName,
               monthly_savings: monthlySavings,
               open_date: joinDate,
+              is_configured: isConfigured,
+              auto_savings_day: autoSavingsDayVal,
+              start_billing_date: startDateVal,
+              next_billing_date: nextBillingDateVal,
               auto_created: true,
             },
             actor.institution_id,
@@ -543,6 +582,47 @@ export async function POST(req: Request) {
             { branch_id: branchId },
             client,
           )
+
+          // If branch savings plan is used (not account saving day) and new_member_bill_prev_months is true,
+          // calculate previous billing dates and create savings invoice.
+          const isBillPrev = cfg.new_member_bill_prev_months === "true" || cfg.new_member_bill_prev_months === true
+          if (!useAccountSavingDay && isBillPrev && monthlySavings && monthlySavings > 0) {
+            const prevDates = calculatePreviousBillingDates({
+              financialYearStart: cfg.financial_year_start,
+              startDate: sp?.start_date,
+              nextBillingDate: sp?.next_billing_date,
+              frequencyUnit: sp?.frequency_unit,
+              frequencyValue: sp?.frequency_value,
+              autoSavingsDay: sp?.auto_savings_day,
+              currentDate: joinDate,
+            })
+
+            if (prevDates.length > 0) {
+              const due = new Date(`${joinDate}T00:00:00Z`)
+              due.setUTCDate(due.getUTCDate() + Math.max(1, invoiceDueDays))
+              const invoiceDue = due.toISOString().slice(0, 10)
+
+              const savingsItems = prevDates.map((dStr) => ({
+                unit: "Savings",
+                description: `${dStr} ${savInsert.row.account_number} Savings`,
+                quantity: 1,
+                unit_price: monthlySavings!,
+                total_price: monthlySavings!,
+              }))
+
+              createdSavingsInvoice = await createInvoiceWithItems(client, {
+                institutionId: actor.institution_id,
+                branchId,
+                createdBy: actor.id,
+                invoiceDate: joinDate,
+                invoiceDue,
+                invoiceType: "Auto",
+                status: "sent",
+                items: savingsItems,
+                target: { member_id: data.id },
+              })
+            }
+          }
         }
 
         // Auto-create a membership-fee invoice when the branch has a fee
@@ -572,6 +652,91 @@ export async function POST(req: Request) {
             ],
             target: { member_id: data.id },
           })
+
+          if (createdInvoice?.id) {
+            const memFeeRes = await client.query(
+              `INSERT INTO membership_fees (
+                 institution_id,
+                 branch_id,
+                 member_id,
+                 amount_paid,
+                 total_membership_fee,
+                 balance_before,
+                 balance_after,
+                 period,
+                 invoice_id,
+                 processed_by,
+                 payment_date
+               ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+               RETURNING id`,
+              [
+                actor.institution_id,
+                branchId,
+                data.id,
+                0,
+                membershipFee,
+                membershipFee,
+                membershipFee,
+                financialYear,
+                createdInvoice.id,
+                actor.id,
+                joinDate,
+              ],
+            )
+
+            const createdMemFeeId = memFeeRes.rows[0]?.id
+            if (createdMemFeeId) {
+              await auditLogger.logInsert(
+                "membership_fees",
+                createdMemFeeId,
+                {
+                  member_id: data.id,
+                  branch_id: branchId,
+                  amount_paid: 0,
+                  total_membership_fee: membershipFee,
+                  balance_before: membershipFee,
+                  balance_after: membershipFee,
+                  period: financialYear,
+                  invoice_id: createdInvoice.id,
+                  processed_by: actor.id,
+                  payment_date: joinDate,
+                  auto_created: true,
+                },
+                actor.institution_id,
+                actor.id,
+                { branch_id: branchId },
+                client,
+              )
+            }
+          }
+        }
+
+        // Auto-create a shares invoice when the branch has minimum_shares configured.
+        const minimumSharesTotal = minimumShares * shareValue
+        if (minimumShares > 0 && shareValue > 0 && minimumSharesTotal > 0) {
+          const due = new Date(`${joinDate}T00:00:00Z`)
+          due.setUTCDate(due.getUTCDate() + Math.max(1, invoiceDueDays))
+          const invoiceDue = due.toISOString().slice(0, 10)
+
+          createdSharesInvoice = await createInvoiceWithItems(client, {
+            institutionId: actor.institution_id,
+            branchId,
+            createdBy: actor.id,
+            invoiceDate: joinDate,
+            invoiceDue,
+            invoiceType: "Auto",
+            status: "sent",
+            items: [
+              {
+                unit: "Shares",
+                description: `Share Purchase`,
+                quantity: minimumShares,
+                unit_price: shareValue,
+                total_price: minimumSharesTotal,
+              },
+            ],
+            target: { member_id: data.id },
+          })
         }
 
         // Email notification prefs: enabled when member has an email, disabled otherwise.
@@ -597,6 +762,7 @@ export async function POST(req: Request) {
         member_number: data.member_number,
         savings_account: savingsAccountData,
         invoice: createdInvoice,
+        shares_invoice: createdSharesInvoice,
         postCommit: {
           institutionName: institution.name as string,
           currency,
@@ -672,12 +838,26 @@ export async function POST(req: Request) {
             member_number: result.member_number,
           },
           institutionName: ctx.institutionName,
+          savingsAccount: result.savings_account
+            ? {
+                account_number: result.savings_account.account_number,
+                account_type: result.savings_account.account_type,
+              }
+            : null,
           invoice: result.invoice
             ? {
                 id: result.invoice.id,
                 invoice_number: result.invoice.invoice_number,
                 total_amount: result.invoice.total_amount,
                 invoice_due: result.invoice.invoice_due,
+              }
+            : null,
+          sharesInvoice: result.shares_invoice
+            ? {
+                id: result.shares_invoice.id,
+                invoice_number: result.shares_invoice.invoice_number,
+                total_amount: result.shares_invoice.total_amount,
+                invoice_due: result.shares_invoice.invoice_due,
               }
             : null,
         }),
@@ -728,6 +908,14 @@ export async function POST(req: Request) {
               invoice_due: result.invoice.invoice_due,
             }
           : null,
+        sharesInvoice: result.shares_invoice
+          ? {
+              id: result.shares_invoice.id,
+              invoice_number: result.shares_invoice.invoice_number,
+              total_amount: result.shares_invoice.total_amount,
+              invoice_due: result.shares_invoice.invoice_due,
+            }
+          : null,
         context: { institutionId: ctx.institutionId, branchId: ctx.branchId, actorId: ctx.actorId },
       })
       if (emailRes.errors.length > 0) {
@@ -769,6 +957,14 @@ export async function POST(req: Request) {
               invoice_number: result.invoice.invoice_number,
               total_amount: result.invoice.total_amount,
               invoice_due: result.invoice.invoice_due,
+            }
+          : null,
+        shares_invoice: result.shares_invoice
+          ? {
+              id: result.shares_invoice.id,
+              invoice_number: result.shares_invoice.invoice_number,
+              total_amount: result.shares_invoice.total_amount,
+              invoice_due: result.shares_invoice.invoice_due,
             }
           : null,
       },

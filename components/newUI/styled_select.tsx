@@ -11,6 +11,7 @@ interface StyledSelectProps {
   placeholder: string;
   options: SelectOption[];
   searchable?: boolean; // optional prop
+  disabled?: boolean;
 }
 
 export default function StyledSelect({
@@ -19,6 +20,7 @@ export default function StyledSelect({
   placeholder,
   options,
   searchable = false,
+  disabled = false,
 }: StyledSelectProps) {
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   const [search, setSearch] = useState(""); // search term
@@ -37,11 +39,16 @@ export default function StyledSelect({
   return (
     <>
       <div
-        onClick={(e) => setAnchor(e.currentTarget)}
-        className={`flex items-center justify-between w-full px-3 py-2 text-sm border rounded-md cursor-pointer transition-all duration-200 ${
-          open
-            ? "ring-[1.5px] ring-[#f08c2b] border-transparent"
-            : "border-gray-300 hover:border-gray-400"
+        onClick={(e) => {
+          if (disabled) return;
+          setAnchor(e.currentTarget);
+        }}
+        className={`flex items-center justify-between w-full px-3 py-2 text-sm border rounded-md transition-all duration-200 ${
+          disabled
+            ? "bg-gray-100 text-gray-400 cursor-not-allowed border-gray-200"
+            : open
+            ? "ring-[1.5px] ring-[#f08c2b] border-transparent cursor-pointer"
+            : "border-gray-300 hover:border-gray-400 cursor-pointer"
         }`}
       >
         <div className="flex flex-col text-left overflow-hidden">

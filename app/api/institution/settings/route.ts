@@ -33,6 +33,24 @@ const readString = (obj: Record<string, unknown>, ...keys: string[]): string | u
   return undefined
 }
 
+const readDateString = (obj: Record<string, unknown>, ...keys: string[]): string | undefined => {
+  for (const key of keys) {
+    const value = obj[key]
+    if (value instanceof Date) {
+      if (!isNaN(value.getTime())) {
+        const y = value.getFullYear()
+        const m = String(value.getMonth() + 1).padStart(2, "0")
+        const d = String(value.getDate()).padStart(2, "0")
+        return `${y}-${m}-${d}`
+      }
+    }
+    if (typeof value === "string" && value.trim().length > 0) {
+      return value.split("T")[0].trim()
+    }
+  }
+  return undefined
+}
+
 const toFlag = (v: unknown, fallback = false): boolean => {
   if (typeof v === "boolean") return v
   const s = String(v ?? "").trim().toLowerCase()
@@ -166,6 +184,10 @@ export async function GET(req: Request) {
         invoicePeriodDays: readNumber(cfg, "invoice_overdue_period") ?? 30,
         defaultedAfterDays: readNumber(cfg, "loan_default_period") ?? 90,
         savingsOverduePeriod: readNumber(cfg, "savings_overdue_period") ?? 30,
+        newMemberBillPrevMonths: toFlag(cfg.new_member_bill_prev_months, false),
+        financialYear: readString(cfg, "financial_year") || "",
+        financialYearStart: readDateString(cfg, "financial_year_start") || "",
+        financialYearEnd: readDateString(cfg, "financial_year_end") || "",
       },
     }
     apiLog("info", "institution.settings.success", { method: "GET", apiPath, status: 200, authUserId: session.user.authUserId })
@@ -210,6 +232,10 @@ export async function PUT(req: Request) {
         invoicePeriodDays?: number
         defaultedAfterDays?: number
         savingsOverduePeriod?: number
+        newMemberBillPrevMonths?: boolean
+        financialYear?: string
+        financialYearStart?: string
+        financialYearEnd?: string
       }
     }
     const payload = body?.config || {}
@@ -273,6 +299,22 @@ export async function PUT(req: Request) {
       const membershipOverdueInterest = Number(payload.membershipLatePenalty ?? current.membership_overdue_interest ?? 0)
       const membershipOverdueInterestPer = String(payload.membershipLatePenaltyPeriodUnit ?? current.membership_overdue_interest_per ?? "day")
 
+      const newMemberBillPrevMonths = String(
+        payload.newMemberBillPrevMonths ?? toFlag(current.new_member_bill_prev_months, false)
+      )
+      const financialYear =
+        payload.financialYear !== undefined
+          ? String(payload.financialYear).trim().slice(0, 10)
+          : readString(current, "financial_year") || null
+      const financialYearStart =
+        payload.financialYearStart !== undefined
+          ? (String(payload.financialYearStart).trim() || null)
+          : readDateString(current, "financial_year_start") || null
+      const financialYearEnd =
+        payload.financialYearEnd !== undefined
+          ? (String(payload.financialYearEnd).trim() || null)
+          : readDateString(current, "financial_year_end") || null
+
       if (enforcedShares === "true") {
         if (!shareValue || Number.isNaN(shareValue) || shareValue <= 0) throw new Error("share_value_required")
         if (minimumShares < 0) throw new Error("minimum_shares_invalid")
@@ -321,6 +363,10 @@ export async function PUT(req: Request) {
         membershipOverduePeriod,
         membershipOverdueInterest,
         membershipOverdueInterestPer,
+        newMemberBillPrevMonths,
+        financialYear,
+        financialYearStart,
+        financialYearEnd,
         profile.user_id,
       ]
 
@@ -331,6 +377,7 @@ export async function PUT(req: Request) {
            loan_overdue_period, loan_overdue_interest, loan_overdue_interest_per,
            loan_default_period, invoice_overdue_period, savings_overdue_period,
            membership_overdue_period, membership_overdue_interest, membership_overdue_interest_per,
+           new_member_bill_prev_months, financial_year, financial_year_start, financial_year_end,
            modified_by, updated_at
          ) VALUES (
            $1,$2,$3,$4,$5,$6,$7,$8,
@@ -338,7 +385,8 @@ export async function PUT(req: Request) {
            $14,$15,$16,
            $17,$18,$19,
            $20,$21,$22,
-           $23,NOW()
+           $23,$24,$25,$26,
+           $27,NOW()
          )
          ON CONFLICT (branch_id) DO UPDATE SET
            loans = EXCLUDED.loans,
@@ -362,6 +410,10 @@ export async function PUT(req: Request) {
            membership_overdue_period = EXCLUDED.membership_overdue_period,
            membership_overdue_interest = EXCLUDED.membership_overdue_interest,
            membership_overdue_interest_per = EXCLUDED.membership_overdue_interest_per,
+           new_member_bill_prev_months = EXCLUDED.new_member_bill_prev_months,
+           financial_year = EXCLUDED.financial_year,
+           financial_year_start = EXCLUDED.financial_year_start,
+           financial_year_end = EXCLUDED.financial_year_end,
            modified_by = EXCLUDED.modified_by,
            updated_at = NOW()`,
         params,
@@ -424,6 +476,10 @@ export async function PUT(req: Request) {
         invoicePeriodDays: readNumber(s2, "invoice_overdue_period") ?? 30,
         defaultedAfterDays: readNumber(s2, "loan_default_period") ?? 90,
         savingsOverduePeriod: readNumber(s2, "savings_overdue_period") ?? 30,
+        newMemberBillPrevMonths: toFlag(s2.new_member_bill_prev_months, false),
+        financialYear: readString(s2, "financial_year") || "",
+        financialYearStart: readDateString(s2, "financial_year_start") || "",
+        financialYearEnd: readDateString(s2, "financial_year_end") || "",
       },
     }
     apiLog("info", "institution.settings.success", { method: "PUT", apiPath, status: 200, authUserId: session.user.authUserId })

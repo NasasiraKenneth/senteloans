@@ -33,6 +33,12 @@ export async function GET(req: Request) {
     const branchIdParam = (url.searchParams.get("branch_id") || "").trim()
     const searchParam = (url.searchParams.get("search") || "").trim()
 
+    const autoBillParam = (
+      url.searchParams.get("auto_bill_savings") ||
+      url.searchParams.get("autoBillSavings") ||
+      ""
+    ).trim()
+
     const result = await runWithAuth(session.user.authUserId, async (client) => {
       const actor = await resolveActorContext(client, session.user.authUserId as string)
       if (!actor?.institution_id) return { error: "no_app_user_profile" as const }
@@ -41,6 +47,7 @@ export async function GET(req: Request) {
         (await hasPermission(client, actor, "view_savings")) ||
         (await hasPermission(client, actor, "add_account")) ||
         (await hasPermission(client, actor, "view_account")) ||
+        (await hasPermission(client, actor, "register_member")) ||
         isSuperAdmin(actor)
 
       if (!allowed) return { error: "missing_permission:view_savings" as const }
@@ -65,6 +72,11 @@ export async function GET(req: Request) {
         params.push(statusParam)
       }
 
+      if (autoBillParam && autoBillParam !== "all") {
+        where += ` AND at.auto_bill_savings = $${idx++}`
+        params.push(autoBillParam)
+      }
+
       if (searchParam) {
         where += ` AND at.account_name ILIKE $${idx++}`
         params.push(`%${searchParam}%`)
@@ -77,6 +89,7 @@ export async function GET(req: Request) {
            at.branch_id,
            at.account_name,
            at.status,
+           at.auto_bill_savings,
            at.created_at,
            at.updated_at,
            b.name AS branch_name,
@@ -85,7 +98,7 @@ export async function GET(req: Request) {
          LEFT JOIN branches b ON b.id = at.branch_id
          LEFT JOIN savings_accounts sa ON sa.account_type_id = at.id
          WHERE ${where}
-         GROUP BY at.id, at.institution_id, at.branch_id, at.account_name, at.status, at.created_at, at.updated_at, b.name
+         GROUP BY at.id, at.institution_id, at.branch_id, at.account_name, at.status, at.auto_bill_savings, at.created_at, at.updated_at, b.name
          ORDER BY at.account_name ASC`,
         params
       )
@@ -123,6 +136,7 @@ export async function POST(req: Request) {
     const body = await req.json().catch(() => ({}))
     const accountName = String(body.account_name || body.name || "").trim()
     const status = String(body.status || "Active").trim()
+    const autoBillSavings = String(body.auto_bill_savings || "false").trim() === "true" ? "true" : "false"
     const requestedBranchId = String(body.branch_id || "").trim()
 
     if (!accountName) {
@@ -181,10 +195,10 @@ export async function POST(req: Request) {
       }
 
       const insRes = await client.query(
-        `INSERT INTO account_type (institution_id, branch_id, account_name, status)
-         VALUES ($1, $2, $3, $4)
-         RETURNING id, institution_id, branch_id, account_name, status, created_at, updated_at`,
-        [actor.institution_id, targetBranchId, accountName, status]
+        `INSERT INTO account_type (institution_id, branch_id, account_name, status, auto_bill_savings)
+         VALUES ($1, $2, $3, $4, $5)
+         RETURNING id, institution_id, branch_id, account_name, status, auto_bill_savings, created_at, updated_at`,
+        [actor.institution_id, targetBranchId, accountName, status, autoBillSavings]
       )
       const created = insRes.rows[0]
 
@@ -194,6 +208,7 @@ export async function POST(req: Request) {
         {
           account_name: accountName,
           status,
+          auto_bill_savings: autoBillSavings,
           branch_id: targetBranchId,
         },
         actor.institution_id,

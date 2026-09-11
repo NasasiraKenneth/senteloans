@@ -2,8 +2,15 @@ import { NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { runWithAuth } from "@/lib/db"
-import { auditLogger } from "@/lib/audit/audit-logger"
+import { createInvoiceWithItems } from "@/lib/invoices/create-invoice"
+import { calculatePreviousBillingDates } from "@/lib/members/savings-calculation"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
+import { auditLogger } from "@/lib/audit/audit-logger"
+import {
+  dispatchInvoiceStatusSideEffects,
+  loadInvoiceStatusSideEffectsContext,
+  type InvoiceStatusSideEffectsPostCommit,
+} from "@/lib/invoices/invoice-status-side-effects"
 
 type ActorContext = {
   id: string
@@ -119,6 +126,9 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
            sa.total_balance,
            sa.status,
            sa.open_date,
+           sa.auto_savings_day,
+           sa.start_billing_date,
+           sa.next_billing_date,
            sa.last_transaction_date,
            b.name AS branch_name
          FROM savings_accounts sa
@@ -199,6 +209,9 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
           total_balance: acc.total_balance,
           status: acc.status,
           open_date: acc.open_date,
+          auto_savings_day: acc.auto_savings_day || null,
+          start_date: acc.start_billing_date || null,
+          next_billing_date: acc.next_billing_date || null,
           last_transaction_date: acc.last_transaction_date,
           client_name: clientName,
           client_number: clientNumber,
@@ -262,10 +275,20 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       return NextResponse.json({ error: "no_app_user_profile" }, { status: 403 })
     }
 
-    const body = (await req.json()) as { status?: string; account_type?: string; account_type_id?: string }
+    const body = (await req.json()) as {
+      status?: string
+      account_type?: string
+      account_type_id?: string
+      auto_savings_day?: string | null
+      start_date?: string | null
+      next_billing_date?: string | null
+    }
     const status = body.status
     const accountTypeInput = body.account_type != null ? String(body.account_type).trim() : undefined
     const accountTypeIdInput = body.account_type_id != null ? String(body.account_type_id).trim() : undefined
+    const autoSavingsDay = typeof body.auto_savings_day === "string" ? body.auto_savings_day.trim() || null : body.auto_savings_day === null ? null : undefined
+    const startDate = typeof body.start_date === "string" && body.start_date.trim() ? body.start_date.trim().slice(0, 10) : body.start_date === null ? null : undefined
+    const nextBillingDate = typeof body.next_billing_date === "string" && body.next_billing_date.trim() ? body.next_billing_date.trim().slice(0, 10) : body.next_billing_date === null ? null : undefined
 
     const updates: Record<string, unknown> = {}
     if (typeof status !== "undefined") {
@@ -279,6 +302,10 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     if (typeof accountTypeInput !== "undefined" || typeof accountTypeIdInput !== "undefined") {
       updates.account_type = accountTypeInput || accountTypeIdInput
     }
+    if (typeof autoSavingsDay !== "undefined") updates.auto_savings_day = autoSavingsDay
+    if (typeof startDate !== "undefined") updates.start_billing_date = startDate
+    if (typeof nextBillingDate !== "undefined") updates.next_billing_date = nextBillingDate
+
     if (Object.keys(updates).length === 0) {
       apiLog("warn", "savings.update.invalid", { method: "PUT", apiPath, status: 400, error: "no_changes", accountId: id })
       return NextResponse.json({ error: "no_changes" }, { status: 400 })
@@ -297,7 +324,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       const scope = whereScope(actor)
 
       const curRes = await client.query(
-        `SELECT sa.id, sa.branch_id, sa.status, sa.account_type_id, at.account_name AS account_type
+        `SELECT sa.id, sa.branch_id, sa.member_id, sa.account_number, sa.monthly_savings, sa.status, sa.account_type_id, at.account_name AS account_type, sa.auto_savings_day, sa.start_billing_date, sa.next_billing_date, sa.is_configured
          FROM savings_accounts sa
          LEFT JOIN account_type at ON at.id = sa.account_type_id
          WHERE ${scope.clause}`,
@@ -308,6 +335,8 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       if (current.status === "Closed" && status === "Active") {
         return { error: "invalid_transition_closed_to_active" as const }
       }
+
+      const wasUnconfigured = String(current.is_configured || "").toLowerCase() === "no"
 
       let newAccountTypeId = current.account_type_id
       let newAccountTypeName = current.account_type
@@ -346,10 +375,103 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
         `UPDATE savings_accounts
          SET status = COALESCE($1, status),
              account_type_id = COALESCE($2, account_type_id),
+             auto_savings_day = CASE WHEN $4::boolean THEN $5 ELSE auto_savings_day END,
+             start_billing_date = CASE WHEN $6::boolean THEN $7 ELSE start_billing_date END,
+             next_billing_date = CASE WHEN $8::boolean THEN $9 ELSE next_billing_date END,
+             is_configured = 'yes',
              updated_at = NOW()
          WHERE id = $3`,
-        [typeof status === "undefined" ? null : status, newAccountTypeId, id]
+        [
+          typeof status === "undefined" ? null : status,
+          newAccountTypeId,
+          id,
+          typeof autoSavingsDay !== "undefined",
+          autoSavingsDay ?? null,
+          typeof startDate !== "undefined",
+          startDate ?? null,
+          typeof nextBillingDate !== "undefined",
+          nextBillingDate ?? null,
+        ]
       )
+
+      let statusSideEffectsPostCommit: InvoiceStatusSideEffectsPostCommit | null = null
+
+      if (wasUnconfigured) {
+        const cfgRes = await client.query(
+          `SELECT new_member_bill_prev_months, financial_year_start, invoice_overdue_period
+           FROM config WHERE branch_id = $1 LIMIT 1`,
+          [current.branch_id]
+        )
+        const cfg = cfgRes.rows[0] || {}
+        const isBillPrev = cfg.new_member_bill_prev_months === "true" || cfg.new_member_bill_prev_months === true
+        const monthlySav = Number(current.monthly_savings || 0)
+
+        if (isBillPrev && monthlySav > 0) {
+          const spRes = await client.query(
+            `SELECT frequency_unit, frequency_value FROM savings_plan WHERE branch_id = $1 LIMIT 1`,
+            [current.branch_id]
+          )
+          const sp = spRes.rows[0] || {}
+
+          const effectiveAutoSavingsDay = typeof autoSavingsDay !== "undefined" ? autoSavingsDay : current.auto_savings_day
+          const effectiveStartDate = typeof startDate !== "undefined" ? startDate : current.start_billing_date
+          const effectiveNextBillingDate = typeof nextBillingDate !== "undefined" ? nextBillingDate : current.next_billing_date
+
+          const prevDates = calculatePreviousBillingDates({
+            financialYearStart: cfg.financial_year_start,
+            startDate: effectiveStartDate,
+            nextBillingDate: effectiveNextBillingDate,
+            frequencyUnit: sp.frequency_unit,
+            frequencyValue: sp.frequency_value,
+            autoSavingsDay: effectiveAutoSavingsDay,
+            currentDate: new Date().toISOString().slice(0, 10),
+          })
+
+          if (prevDates.length > 0) {
+            const invoiceDueDays = Number(cfg.invoice_overdue_period || 30)
+            const nowStr = new Date().toISOString().slice(0, 10)
+            const due = new Date(`${nowStr}T00:00:00Z`)
+            due.setUTCDate(due.getUTCDate() + Math.max(1, invoiceDueDays))
+            const invoiceDue = due.toISOString().slice(0, 10)
+
+            const savingsItems = prevDates.map((dStr) => ({
+              unit: "Savings",
+              description: `${dStr} ${current.account_number} Savings`,
+              quantity: 1,
+              unit_price: monthlySav,
+              total_price: monthlySav,
+            }))
+
+            const createdInvoice = await createInvoiceWithItems(client, {
+              institutionId: actor.institution_id,
+              branchId: current.branch_id,
+              createdBy: actor.id,
+              invoiceDate: nowStr,
+              invoiceDue,
+              invoiceType: "Auto",
+              status: "sent",
+              items: savingsItems,
+              target: { member_id: current.member_id },
+            })
+
+            const ctx = await loadInvoiceStatusSideEffectsContext(client, {
+              actorId: actor.id,
+              institutionId: actor.institution_id,
+              branchId: current.branch_id,
+              invoiceId: createdInvoice.id,
+              invoiceNumber: createdInvoice.invoice_number,
+              totalAmount: createdInvoice.total_amount,
+              invoiceDue: createdInvoice.invoice_due,
+              memberId: current.member_id,
+              thirdPartyAgentId: null,
+            })
+            if (ctx) {
+              statusSideEffectsPostCommit = { kind: "sent", ctx }
+            }
+          }
+        }
+      }
+
       await auditLogger.logUpdate(
         "savings_accounts",
         id,
@@ -357,11 +479,19 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
           status: current.status,
           account_type_id: current.account_type_id,
           account_type: current.account_type,
+          auto_savings_day: current.auto_savings_day,
+          start_billing_date: current.start_billing_date,
+          next_billing_date: current.next_billing_date,
+          is_configured: current.is_configured,
         },
         {
           status: status || current.status,
           account_type_id: newAccountTypeId,
           account_type: newAccountTypeName,
+          auto_savings_day: autoSavingsDay ?? current.auto_savings_day,
+          start_billing_date: startDate ?? current.start_billing_date,
+          next_billing_date: nextBillingDate ?? current.next_billing_date,
+          is_configured: "yes",
         },
         actor.institution_id,
         actor.id,
@@ -381,13 +511,17 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
            sa.total_balance,
            sa.status,
            sa.open_date,
+           sa.is_configured,
+           sa.auto_savings_day,
+           sa.start_billing_date,
+           sa.next_billing_date,
            sa.last_transaction_date
          FROM savings_accounts sa
          LEFT JOIN account_type at ON at.id = sa.account_type_id
          WHERE sa.id = $1`,
         [id]
       )
-      return { ok: true, account: accRes.rows[0] }
+      return { ok: true, account: accRes.rows[0], statusSideEffectsPostCommit }
     })
 
     if (result && "error" in result) {
@@ -401,8 +535,43 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       apiLog("warn", "savings.update.denied", { method: "PUT", apiPath, status: statusCode, error: errorCode, accountId: id })
       return NextResponse.json({ error: errorCode }, { status: statusCode })
     }
+
+    if (result?.statusSideEffectsPostCommit) {
+      try {
+        const sideEffects = await dispatchInvoiceStatusSideEffects(
+          result.statusSideEffectsPostCommit.kind,
+          result.statusSideEffectsPostCommit.ctx
+        )
+        apiLog(
+          sideEffects.email?.errors?.length ? "warn" : "info",
+          sideEffects.email?.errors?.length
+            ? "savings.update.invoice_email_enqueue_partial"
+            : "savings.update.invoice_email_enqueued",
+          {
+            method: "PUT",
+            apiPath,
+            status: 200,
+            accountId: id,
+            invoiceId: result.statusSideEffectsPostCommit.ctx.invoice.id,
+            enqueued: sideEffects.email?.enqueued || [],
+            skipped: sideEffects.email?.skipped || [],
+            errors: sideEffects.email?.errors || [],
+          }
+        )
+      } catch (sideEffectErr) {
+        apiLog("error", "savings.update.invoice_side_effects_failed", {
+          method: "PUT",
+          apiPath,
+          status: 200,
+          accountId: id,
+          error: (sideEffectErr as Error)?.message || "side_effects_failed",
+        })
+      }
+    }
+
     apiLog("info", "savings.update.success", { method: "PUT", apiPath, status: 200, accountId: id })
-    return NextResponse.json(result)
+    const { statusSideEffectsPostCommit: _, ...responsePayload } = result
+    return NextResponse.json(responsePayload)
   } catch (e: unknown) {
     const err = e as Error
     apiLog("error", "savings.update.error", { method: "PUT", apiPath, status: 500, error: err?.message || "Unexpected error" })

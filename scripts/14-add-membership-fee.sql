@@ -36,8 +36,6 @@ INSERT INTO membership_fees (
   total_membership_fee,
   balance_before,
   balance_after,
-  mode,
-  description,
   processed_by,
   payment_date
 )
@@ -49,8 +47,6 @@ SELECT
   COALESCE(c.membership_fee, 0)                                AS total_membership_fee,
   COALESCE(c.membership_fee, 0)                                AS balance_before,
   GREATEST(COALESCE(c.membership_fee, 0) - v.paid, 0)          AS balance_after,
-  'Cash'::payment_mode                                          AS mode,
-  'Initial membership fee payment (seed)'                       AS description,
   (
     SELECT u.id
     FROM users u

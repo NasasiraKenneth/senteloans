@@ -54,11 +54,25 @@ async function hasPermission(client: any, actor: ActorContext, permission: strin
 
 function formatDateOnly(value: unknown): string | null {
   if (value == null) return null
+  if (typeof value === "string") {
+    const trimmed = value.trim()
+    if (!trimmed) return null
+    if (/^\d{4}-\d{2}-\d{2}/.test(trimmed)) return trimmed.slice(0, 10)
+  }
   if (value instanceof Date) {
     if (Number.isNaN(value.getTime())) return null
-    return value.toISOString().split("T")[0]
+    if (value.getUTCHours() === 0 && value.getUTCMinutes() === 0 && value.getUTCSeconds() === 0) {
+      const y = value.getUTCFullYear()
+      const m = String(value.getUTCMonth() + 1).padStart(2, "0")
+      const d = String(value.getUTCDate()).padStart(2, "0")
+      return `${y}-${m}-${d}`
+    }
+    const y = value.getFullYear()
+    const m = String(value.getMonth() + 1).padStart(2, "0")
+    const d = String(value.getDate()).padStart(2, "0")
+    return `${y}-${m}-${d}`
   }
-  const s = String(value)
+  const s = String(value).trim()
   if (!s) return null
   return s.includes("T") ? s.split("T")[0] : s.slice(0, 10)
 }

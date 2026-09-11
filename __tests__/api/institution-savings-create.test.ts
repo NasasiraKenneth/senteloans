@@ -125,7 +125,7 @@ function createMockClient(options?: { hasAddAccountPermission?: boolean; actorMi
   const actorMissingInstitution = options?.actorMissingInstitution === true
 
   return {
-    query: jest.fn().mockImplementation(async (sql: string) => {
+    query: jest.fn().mockImplementation(async (sql: string, params?: unknown[]) => {
       const s = normalizeSql(sql)
 
       if (s.includes("from users u") && s.includes("auth_id")) {
@@ -136,6 +136,14 @@ function createMockClient(options?: { hasAddAccountPermission?: boolean; actorMi
 
       if (s.includes("from role_permissions")) {
         return { rows: hasAddAccountPermission ? [{}] : [], rowCount: hasAddAccountPermission ? 1 : 0 }
+      }
+
+      if (s.includes("from account_type") || s.includes("insert into account_type")) {
+        const typeName = params?.find((p) => typeof p === "string" && (p === "InvalidType" || ["Voluntary", "Shares", "Current", "Fixed"].includes(p))) || params?.[1] || "Voluntary"
+        if (String(typeName) === "InvalidType") {
+          return { rows: [], rowCount: 0 }
+        }
+        return { rows: [{ id: String(typeName), account_name: String(typeName) }], rowCount: 1 }
       }
 
       if (s.includes("insert into savings_accounts")) {
@@ -199,12 +207,12 @@ describe("POST /api/institution/savings", () => {
     })
 
     it("returns 400 for an unsupported account_type", async () => {
-      const res = await POST(postRequest({ member_id: MEMBER_ID, account_type: "Premium" }))
+      setupHappyPath()
+      const res = await POST(postRequest({ member_id: MEMBER_ID, account_type: "InvalidType" }))
       const body = await res.json()
 
       expect(res.status).toBe(400)
       expect(body.error).toBe("invalid_account_type")
-      expect(runWithAuthMock).not.toHaveBeenCalled()
     })
 
     it("returns 400 when Fixed account has no monthly savings", async () => {
@@ -480,6 +488,60 @@ describe("POST /api/institution/savings", () => {
         expect.objectContaining({
           account_type: "Fixed",
           monthly_savings: 75_000,
+        }),
+        INSTITUTION_ID,
+        STAFF_ID,
+        { branch_id: BRANCH_ID },
+        client,
+      )
+    })
+
+    it("stores auto_savings_day, start_date, and next_billing_date when provided", async () => {
+      const client = setupHappyPath()
+      const capturedParams: unknown[][] = []
+
+      insertWithPrefixedNumberRetryMock.mockImplementation(async (queryFn: (n: string) => Promise<unknown>) => {
+        const originalQuery = client.query
+        client.query = jest.fn().mockImplementation(async (sql: string, params?: unknown[]) => {
+          if (normalizeSql(sql).includes("insert into savings_accounts") && params) {
+            capturedParams.push(params)
+          }
+          return originalQuery(sql, params)
+        }) as typeof client.query
+        await queryFn("SA-TEST-0002")
+        return {
+          row: {
+            ...createdAccount,
+            auto_savings_day: "includes 4",
+            start_billing_date: "2026-09-01",
+            next_billing_date: "2026-09-04",
+          },
+          number: "SA-TEST-0002",
+        }
+      })
+
+      const res = await POST(
+        postRequest({
+          member_id: MEMBER_ID,
+          account_type: "Voluntary",
+          auto_savings_day: "includes 4",
+          start_date: "2026-09-01",
+          next_billing_date: "2026-09-04",
+        }),
+      )
+
+      expect(res.status).toBe(201)
+      expect(capturedParams[0]?.[7]).toBe("includes 4")
+      expect(capturedParams[0]?.[8]).toBe("2026-09-01")
+      expect(capturedParams[0]?.[9]).toBe("2026-09-04")
+
+      expect(auditLoggerMock.logInsert).toHaveBeenCalledWith(
+        "savings_accounts",
+        ACCOUNT_ID,
+        expect.objectContaining({
+          auto_savings_day: "includes 4",
+          start_billing_date: "2026-09-01",
+          next_billing_date: "2026-09-04",
         }),
         INSTITUTION_ID,
         STAFF_ID,

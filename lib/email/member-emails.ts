@@ -6,6 +6,7 @@ export const EMAIL_TEMPLATES = {
   memberWelcome: "member.welcome",
   memberKycRequired: "member.kyc_required",
   memberInvoice: "member.invoice",
+  memberSharesInvoice: "member.shares_invoice",
   memberPortalCredentials: "member.portal_credentials",
 } as const
 
@@ -34,6 +35,7 @@ export interface MemberRegistrationEmailInput {
   currency?: string
   savingsAccount?: SavingsAccountEmailSummary | null
   invoice?: InvoiceEmailSummary | null
+  sharesInvoice?: InvoiceEmailSummary | null
   context?: EmailContext
 }
 
@@ -44,10 +46,11 @@ export interface EnqueuedEmailsResult {
 }
 
 /**
- * Workflow: schedule the three emails sent during member onboarding:
+ * Workflow: schedule the emails sent during member onboarding:
  *   1. Welcome
  *   2. KYC verification request
  *   3. Membership-fee invoice (only when an invoice exists)
+ *   4. Shares invoice (only when a shares invoice exists)
  *
  * All sends are skipped (without raising) when the member has no email on
  * record. The function is intentionally fire-and-forget for the caller: it
@@ -64,6 +67,7 @@ export async function enqueueMemberRegistrationEmails(
     result.skipped.push("welcome:no_email")
     result.skipped.push("kyc:no_email")
     if (input.invoice) result.skipped.push("invoice:no_email")
+    if (input.sharesInvoice) result.skipped.push("shares_invoice:no_email")
     return result
   }
 
@@ -117,6 +121,27 @@ export async function enqueueMemberRegistrationEmails(
       context: input.context,
     }
     await enqueueMemberEmail(memberId, invoiceJob, "invoice", result)
+  }
+
+  if (input.sharesInvoice) {
+    const sharesInvoiceJob: EmailJobData = {
+      to: email,
+      subject: `Initial Shares Purchase Invoice ${input.sharesInvoice.invoice_number}`,
+      template: EMAIL_TEMPLATES.memberSharesInvoice,
+      kind: "template",
+      data: {
+        memberName: input.member.full_name,
+        memberNumber: input.member.member_number,
+        institutionName: input.institutionName,
+        invoiceNumber: input.sharesInvoice.invoice_number,
+        amount: input.sharesInvoice.total_amount,
+        currency: input.currency || "UGX",
+        dueDate: input.sharesInvoice.invoice_due || null,
+      },
+      attachmentSpecs: [{ kind: "invoice", invoiceId: input.sharesInvoice.id }],
+      context: input.context,
+    }
+    await enqueueMemberEmail(memberId, sharesInvoiceJob, "shares_invoice", result)
   }
 
   return result

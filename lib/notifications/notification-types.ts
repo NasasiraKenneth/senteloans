@@ -25,6 +25,7 @@ export type NotificationType =
   | 'transfer_processed'
   | 'profile_updated'
   | 'member_profile_updated'
+  | 'configure_savings_account'
   // Admin events
   | 'pending_loan_approval'
   | 'pending_kyc_review'
@@ -493,6 +494,12 @@ export const NotificationTemplates = {
     title: 'New Member Registered',
     message: `${memberName} (${memberNumber}) has been added to the institution.`,
     actionUrl: `/users/${memberId}`,
+  }),
+
+  configureSavingsAccountForStaff: (memberName: string, accountNumber: string, memberId: string) => ({
+    title: 'Configure Savings Account',
+    message: `Please configure the savings account (${accountNumber}) for new member ${memberName}.`,
+    actionUrl: `/members/${memberId}/savings`,
   }),
 
   thirdPartyAgentCreatedForStaff: (agentName: string) => ({

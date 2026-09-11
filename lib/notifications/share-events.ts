@@ -55,6 +55,7 @@ export interface NotifySharePurchaseInput {
   shares: SharePurchaseSummary
   transaction: SharePurchaseTransaction
   invoice?: SharePurchaseInvoice | null
+  invoices?: SharePurchaseInvoice[] | null
   /** Branch currency code used to format amounts in notifications. */
   currency?: string
 }
@@ -92,13 +93,27 @@ export async function notifySharePurchase(
   const { actor, member } = input
   const currency = input.currency
 
+  const allInvoices: SharePurchaseInvoice[] = []
+  if (Array.isArray(input.invoices)) {
+    for (const inv of input.invoices) {
+      if (inv?.id && !allInvoices.some((x) => x.id === inv.id)) {
+        allInvoices.push(inv)
+      }
+    }
+  }
+  if (input.invoice?.id && !allInvoices.some((x) => x.id === input.invoice!.id)) {
+    allInvoices.push(input.invoice)
+  }
+
+  const primaryInvoice = allInvoices[0] || null
+
   // ----- Member side: all three notifications -----
   const memberMessages: CreateNotificationInput[] = []
 
   const sharesTpl = NotificationTemplates.sharesPurchased(
     input.shares.numberOfShares,
     input.shares.totalValue,
-    input.invoice?.invoice_number ?? null,
+    primaryInvoice?.invoice_number ?? null,
     currency,
   )
   memberMessages.push({
@@ -114,8 +129,8 @@ export async function notifySharePurchase(
       member_id: member.id,
       number_of_shares: input.shares.numberOfShares,
       amount: input.shares.totalValue,
-      invoice_id: input.invoice?.id,
-      invoice_number: input.invoice?.invoice_number,
+      invoice_id: primaryInvoice?.id,
+      invoice_number: primaryInvoice?.invoice_number,
     },
   })
 
@@ -141,11 +156,11 @@ export async function notifySharePurchase(
     },
   })
 
-  if (input.invoice) {
+  for (const inv of allInvoices) {
     const invTpl = NotificationTemplates.invoiceCreated(
-      input.invoice.invoice_number,
-      input.invoice.total_amount,
-      input.invoice.id,
+      inv.invoice_number,
+      inv.total_amount,
+      inv.id,
       currency,
     )
     memberMessages.push({
@@ -159,9 +174,9 @@ export async function notifySharePurchase(
       actionUrl: invTpl.actionUrl,
       metadata: {
         member_id: member.id,
-        invoice_id: input.invoice.id,
-        invoice_number: input.invoice.invoice_number,
-        amount: input.invoice.total_amount,
+        invoice_id: inv.id,
+        invoice_number: inv.invoice_number,
+        amount: inv.total_amount,
       },
     })
   }
@@ -253,22 +268,22 @@ export async function notifySharePurchase(
   )
 
   // invoice_created -> view_invoices
-  if (input.invoice) {
+  for (const inv of allInvoices) {
     await fanOutToStaff(
       PERMISSIONS.invoices,
       "invoice_created",
       NotificationTemplates.invoiceCreatedForStaff(
-        input.invoice.invoice_number,
+        inv.invoice_number,
         member.full_name,
-        input.invoice.total_amount,
-        input.invoice.id,
+        inv.total_amount,
+        inv.id,
         currency,
       ),
       {
         member_id: member.id,
-        invoice_id: input.invoice.id,
-        invoice_number: input.invoice.invoice_number,
-        amount: input.invoice.total_amount,
+        invoice_id: inv.id,
+        invoice_number: inv.invoice_number,
+        amount: inv.total_amount,
       },
     )
   }

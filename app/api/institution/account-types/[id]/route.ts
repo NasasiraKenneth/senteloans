@@ -38,6 +38,7 @@ export async function GET(
            at.branch_id,
            at.account_name,
            at.status,
+           at.auto_bill_savings,
            at.created_at,
            at.updated_at,
            b.name AS branch_name
@@ -82,6 +83,7 @@ export async function PUT(
     const body = await req.json().catch(() => ({}))
     const accountName = body.account_name != null ? String(body.account_name).trim() : undefined
     const status = body.status != null ? String(body.status).trim() : undefined
+    const autoBillSavings = body.auto_bill_savings != null ? (String(body.auto_bill_savings).trim() === "true" ? "true" : "false") : undefined
 
     if (accountName !== undefined && !accountName) {
       return NextResponse.json({ error: "account_name_cannot_be_empty" }, { status: 400 })
@@ -107,7 +109,7 @@ export async function PUT(
       if (!allowed) return { error: "missing_permission:edit_account" as const }
 
       const curRes = await client.query(
-        `SELECT id, institution_id, branch_id, account_name, status FROM account_type WHERE id = $1 AND institution_id = $2`,
+        `SELECT id, institution_id, branch_id, account_name, status, auto_bill_savings FROM account_type WHERE id = $1 AND institution_id = $2`,
         [id, actor.institution_id]
       )
       const current = curRes.rows[0]
@@ -131,18 +133,19 @@ export async function PUT(
         `UPDATE account_type
          SET account_name = COALESCE($1, account_name),
              status = COALESCE($2, status),
+             auto_bill_savings = COALESCE($3, auto_bill_savings),
              updated_at = NOW()
-         WHERE id = $3
-         RETURNING id, institution_id, branch_id, account_name, status, created_at, updated_at`,
-        [accountName || null, status || null, id]
+         WHERE id = $4
+         RETURNING id, institution_id, branch_id, account_name, status, auto_bill_savings, created_at, updated_at`,
+        [accountName || null, status || null, autoBillSavings || null, id]
       )
       const updated = updRes.rows[0]
 
       await auditLogger.logUpdate(
         "account_type",
         id,
-        { account_name: current.account_name, status: current.status },
-        { account_name: updated.account_name, status: updated.status },
+        { account_name: current.account_name, status: current.status, auto_bill_savings: current.auto_bill_savings },
+        { account_name: updated.account_name, status: updated.status, auto_bill_savings: updated.auto_bill_savings },
         actor.institution_id,
         actor.id,
         { branch_id: current.branch_id },

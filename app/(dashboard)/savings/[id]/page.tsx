@@ -611,6 +611,9 @@ export default function AccountDetailsPage() {
         initialValues={{
           status: String(account?.status || ""),
           account_type: String(account?.account_type || ""),
+          auto_savings_day: account?.auto_savings_day || null,
+          start_date: account?.start_date || account?.start_billing_date || null,
+          next_billing_date: account?.next_billing_date || null,
         }}
         onClose={() => setEditOpen(false)}
         onSubmit={handleEditSubmit}

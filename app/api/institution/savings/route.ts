@@ -330,10 +330,16 @@ export async function POST(req: Request) {
       account_type_id?: string
       monthly_savings?: unknown
       monthlySavings?: unknown
+      auto_savings_day?: string | null
+      start_date?: string | null
+      next_billing_date?: string | null
     }
     const memberId = String(body.member_id || "").trim()
     const accountTypeInput = String(body.account_type || body.account_type_id || "").trim()
     const accountTypeIdInput = String(body.account_type_id || "").trim()
+    const autoSavingsDay = typeof body.auto_savings_day === "string" ? body.auto_savings_day.trim() || null : null
+    const startDate = typeof body.start_date === "string" && body.start_date.trim() ? body.start_date.trim().slice(0, 10) : null
+    const nextBillingDate = typeof body.next_billing_date === "string" && body.next_billing_date.trim() ? body.next_billing_date.trim().slice(0, 10) : null
 
     if (!memberId) {
       apiLog("warn", "savings.create.invalid", { method: "POST", apiPath, status: 400, error: "member_id_required" })
@@ -456,6 +462,9 @@ export async function POST(req: Request) {
           member_id: string
           status: string
           open_date: string
+          auto_savings_day: string | null
+          start_billing_date: string | null
+          next_billing_date: string | null
           available_balance: number
           total_balance: number
         }>(
@@ -471,10 +480,13 @@ export async function POST(req: Request) {
                 available_balance,
                 total_balance,
                 status,
-                open_date
+                open_date,
+                auto_savings_day,
+                start_billing_date,
+                next_billing_date
               )
-              VALUES ($1, $2, $3, $4, $5, $6, 0, 0, 'Active', $7)
-              RETURNING id, account_number, account_type_id, member_id, status, open_date, available_balance, total_balance`,
+              VALUES ($1, $2, $3, $4, $5, $6, 0, 0, 'Active', $7, $8, $9, $10)
+              RETURNING id, account_number, account_type_id, member_id, status, open_date, auto_savings_day, start_billing_date, next_billing_date, available_balance, total_balance`,
               [
                 actor.institution_id,
                 member.branch_id,
@@ -483,6 +495,9 @@ export async function POST(req: Request) {
                 resolvedAccountTypeId,
                 monthlySavings,
                 openDate,
+                autoSavingsDay,
+                startDate,
+                nextBillingDate,
               ],
             ),
           {
@@ -510,6 +525,9 @@ export async function POST(req: Request) {
             account_type: resolvedAccountTypeName,
             monthly_savings: monthlySavings,
             open_date: openDate,
+            auto_savings_day: autoSavingsDay,
+            start_billing_date: startDate,
+            next_billing_date: nextBillingDate,
           },
           actor.institution_id,
           actor.id,

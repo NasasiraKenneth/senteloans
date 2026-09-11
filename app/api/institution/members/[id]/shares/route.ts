@@ -21,7 +21,11 @@ import {
 import { applyDailyFinanceEntry } from "@/lib/finances/daily-finance"
 import { getBranchBankAccount, adjustBankAccountBalance, type BankAccountRow } from "@/lib/finances/bank-account"
 import { createInvoiceWithItems } from "@/lib/invoices/create-invoice"
-import { recordInvoicePayment } from "@/lib/invoices/invoice-payments"
+import {
+  recordInvoicePayment,
+  getInvoicePaymentSummary,
+  syncInvoiceStatusFromPayments,
+} from "@/lib/invoices/invoice-payments"
 import { notifySharePurchase } from "@/lib/notifications/share-events"
 import { enqueueSharePurchaseEmails } from "@/lib/email/share-emails"
 
@@ -34,7 +38,8 @@ type SharePurchasePostCommit = {
   member: { id: string; full_name: string; member_number: string; email: string }
   shares: { numberOfShares: number; totalValue: number }
   transaction: { id: string; transaction_number: string; amount: number }
-  invoice: { id: string; invoice_number: string; total_amount: number }
+  invoice?: { id: string; invoice_number: string; total_amount: number } | null
+  invoices?: { id: string; invoice_number: string; total_amount: number }[] | null
 }
 
 const SHARES_GET_STATUS_GROUPS: MemberRouteHttpStatusGroups = {
@@ -451,45 +456,179 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
           actor,
         })
 
-        // Auto-generate a paid invoice for the share purchase.
+        // ---------------------------------------------------------------------
+        // Check if member has an open invoice with item description 'Share Purchase'
+        // and status IN ('sent', 'partially paid', 'overdue', 'partially_paid')
+        // ---------------------------------------------------------------------
         const due = new Date(`${purchaseDate}T00:00:00Z`)
         due.setUTCDate(due.getUTCDate() + Math.max(1, invoiceDueDays))
         const invoiceDue = due.toISOString().slice(0, 10)
 
-        const invoice = await createInvoiceWithItems(client, {
-          institutionId: actor.institution_id,
-          branchId: memberRow.branch_id,
-          createdBy: actor.id,
-          // Invoice date follows the payment date so backdated purchases land
-          // on the right accounting period (matches the transaction date).
-          invoiceDate: purchaseDate,
-          invoiceDue,
-          invoiceType: "Auto",
-          status: "fully paid",
-          vat: 0,
-          target: { member_id: memberId },
-          items: [
-            {
-              unit: "Shares",
-              description: "Share Purchase",
-              quantity: numberOfShares,
-              unit_price: valuePerShare,
-              total_price: purchaseValue,
-              vatinclusive: false,
-            },
-          ],
-        })
+        const openInvoiceRes = await client.query<{
+          id: string
+          invoice_number: string
+          total_amount: string | number
+          status: string
+        }>(
+          `SELECT i.id, i.invoice_number, i.total_amount, i.status
+             FROM invoices i
+            WHERE i.institution_id = $1
+              AND i.member_id = $2
+              AND LOWER(i.status) IN ('sent', 'partially paid', 'overdue', 'partially_paid')
+              AND EXISTS (
+                SELECT 1 FROM invoice_items it
+                 WHERE it.invoice_id = i.id
+                   AND (
+                     LOWER(it.description) LIKE '%share purchase%'
+                     OR LOWER(it.unit) = 'shares'
+                   )
+              )
+            ORDER BY i.created_at ASC
+            LIMIT 1`,
+          [actor.institution_id, memberId]
+        )
+        const existingInvoice = openInvoiceRes.rows[0]
 
-        // Link the share transaction to the invoice via invoice_payments.
-        await recordInvoicePayment(client, {
-          institutionId: actor.institution_id,
-          branchId: memberRow.branch_id,
-          invoiceId: invoice.id,
-          amount: purchaseValue,
-          paymentDate: resolvedPaymentDate,
-          processedBy: actor.id,
-          transactionId: tx.id,
-        })
+        const actedOnInvoices: { id: string; invoice_number: string; total_amount: number }[] = []
+
+        if (existingInvoice) {
+          const invTotal = Number(existingInvoice.total_amount || 0)
+          const invSummary = await getInvoicePaymentSummary(client, existingInvoice.id, invTotal)
+          const outstanding = invSummary.outstanding
+
+          if (purchaseValue <= outstanding + 0.0001) {
+            // Case 1 & 2: Shares purchased are <= remaining invoiced balance
+            // Record payment for the full purchaseValue on the existing invoice
+            await recordInvoicePayment(client, {
+              institutionId: actor.institution_id,
+              branchId: memberRow.branch_id,
+              invoiceId: existingInvoice.id,
+              amount: purchaseValue,
+              paymentDate: resolvedPaymentDate,
+              processedBy: actor.id,
+              transactionId: tx.id,
+            })
+
+            const synced = await syncInvoiceStatusFromPayments(client, existingInvoice.id, {
+              institutionId: actor.institution_id,
+              branchId: memberRow.branch_id,
+              userId: actor.id,
+            })
+
+            actedOnInvoices.push({
+              id: existingInvoice.id,
+              invoice_number: existingInvoice.invoice_number,
+              total_amount: invTotal,
+            })
+          } else {
+            // Case 3: Shares purchased are MORE than the outstanding invoice balance
+            // Step 1: Pay off the existing invoice completely (status -> fully paid)
+            if (outstanding > 0) {
+              await recordInvoicePayment(client, {
+                institutionId: actor.institution_id,
+                branchId: memberRow.branch_id,
+                invoiceId: existingInvoice.id,
+                amount: outstanding,
+                paymentDate: resolvedPaymentDate,
+                processedBy: actor.id,
+                transactionId: tx.id,
+              })
+
+              await syncInvoiceStatusFromPayments(client, existingInvoice.id, {
+                institutionId: actor.institution_id,
+                branchId: memberRow.branch_id,
+                userId: actor.id,
+              })
+            }
+
+            actedOnInvoices.push({
+              id: existingInvoice.id,
+              invoice_number: existingInvoice.invoice_number,
+              total_amount: invTotal,
+            })
+
+            // Step 2: Create a new invoice for the remained purchased balance
+            const remainingAmount = purchaseValue - outstanding
+            const remainingShares = Math.max(1, Math.round(remainingAmount / valuePerShare))
+
+            const newInvoice = await createInvoiceWithItems(client, {
+              institutionId: actor.institution_id,
+              branchId: memberRow.branch_id,
+              createdBy: actor.id,
+              invoiceDate: purchaseDate,
+              invoiceDue,
+              invoiceType: "Auto",
+              status: "fully paid",
+              vat: 0,
+              target: { member_id: memberId },
+              items: [
+                {
+                  unit: "Shares",
+                  description: "Share Purchase",
+                  quantity: remainingShares,
+                  unit_price: valuePerShare,
+                  total_price: remainingAmount,
+                  vatinclusive: false,
+                },
+              ],
+            })
+
+            await recordInvoicePayment(client, {
+              institutionId: actor.institution_id,
+              branchId: memberRow.branch_id,
+              invoiceId: newInvoice.id,
+              amount: remainingAmount,
+              paymentDate: resolvedPaymentDate,
+              processedBy: actor.id,
+              transactionId: tx.id,
+            })
+
+            actedOnInvoices.push({
+              id: newInvoice.id,
+              invoice_number: newInvoice.invoice_number,
+              total_amount: newInvoice.total_amount,
+            })
+          }
+        } else {
+          // Case 4: No open share purchase invoice exists -> Create a new auto-invoice for the full purchase
+          const newInvoice = await createInvoiceWithItems(client, {
+            institutionId: actor.institution_id,
+            branchId: memberRow.branch_id,
+            createdBy: actor.id,
+            invoiceDate: purchaseDate,
+            invoiceDue,
+            invoiceType: "Auto",
+            status: "fully paid",
+            vat: 0,
+            target: { member_id: memberId },
+            items: [
+              {
+                unit: "Shares",
+                description: "Share Purchase",
+                quantity: numberOfShares,
+                unit_price: valuePerShare,
+                total_price: purchaseValue,
+                vatinclusive: false,
+              },
+            ],
+          })
+
+          await recordInvoicePayment(client, {
+            institutionId: actor.institution_id,
+            branchId: memberRow.branch_id,
+            invoiceId: newInvoice.id,
+            amount: purchaseValue,
+            paymentDate: resolvedPaymentDate,
+            processedBy: actor.id,
+            transactionId: tx.id,
+          })
+
+          actedOnInvoices.push({
+            id: newInvoice.id,
+            invoice_number: newInvoice.invoice_number,
+            total_amount: newInvoice.total_amount,
+          })
+        }
 
         // Resolve institution name for post-commit notifications/emails.
         const instRes = await client.query<{ name: string }>(
@@ -517,15 +656,20 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
             transaction_number: tx.transactionNumber,
             amount: purchaseValue,
           },
-          invoice: {
-            id: invoice.id,
-            invoice_number: invoice.invoice_number,
-            total_amount: invoice.total_amount,
-          },
+          invoice: actedOnInvoices[0] || null,
+          invoices: actedOnInvoices,
         }
 
         await client.query("COMMIT")
-        return { ok: true, id: row?.id, transaction_id: tx.id, transaction_number: txNumber, invoice_number: invoice.invoice_number }
+        const invoiceNumbers = actedOnInvoices.map((inv) => inv.invoice_number).join(", ")
+        return {
+          ok: true,
+          id: row?.id,
+          transaction_id: tx.id,
+          transaction_number: txNumber,
+          invoice_number: invoiceNumbers,
+          invoices: actedOnInvoices,
+        }
       } catch (e: unknown) {
         await client.query("ROLLBACK")
         const err = e as Error & { code?: string }
@@ -574,6 +718,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
             shares: ctx.shares,
             transaction: ctx.transaction,
             invoice: ctx.invoice,
+            invoices: ctx.invoices,
             currency: ctx.currency,
           }),
         )
@@ -604,6 +749,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
           shares: ctx.shares,
           transaction: ctx.transaction,
           invoice: ctx.invoice,
+          invoices: ctx.invoices,
           context: { institutionId: ctx.institutionId, branchId: ctx.branchId, actorId: ctx.actorId },
         })
         if (emailRes.errors.length > 0) {

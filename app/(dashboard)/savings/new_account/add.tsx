@@ -51,6 +51,9 @@ export default function NewSavingsAccountModal({
           member_id: data.member_id,
           account_type: data.account_type,
           ...(typeof data.monthly_savings === "number" ? { monthly_savings: data.monthly_savings } : {}),
+          ...(typeof data.auto_savings_day !== "undefined" ? { auto_savings_day: data.auto_savings_day } : {}),
+          ...(typeof data.start_date !== "undefined" ? { start_date: data.start_date } : {}),
+          ...(typeof data.next_billing_date !== "undefined" ? { next_billing_date: data.next_billing_date } : {}),
         }),
       })
       const body = await res.json().catch(() => ({}))

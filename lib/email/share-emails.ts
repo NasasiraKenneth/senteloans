@@ -34,6 +34,7 @@ export interface SharePurchaseEmailInput {
   shares: { numberOfShares: number; totalValue: number }
   transaction: ShareEmailTransaction
   invoice?: ShareEmailInvoice | null
+  invoices?: ShareEmailInvoice[] | null
   context?: { institutionId?: string; branchId?: string; actorId?: string }
 }
 
@@ -82,18 +83,33 @@ export async function enqueueSharePurchaseEmails(
     return result
   }
 
+  const allInvoices: ShareEmailInvoice[] = []
+  if (Array.isArray(input.invoices)) {
+    for (const inv of input.invoices) {
+      if (inv?.id && !allInvoices.some((x) => x.id === inv.id)) {
+        allInvoices.push(inv)
+      }
+    }
+  }
+  if (input.invoice?.id && !allInvoices.some((x) => x.id === input.invoice!.id)) {
+    allInvoices.push(input.invoice)
+  }
+
   const attachmentSpecs: EmailAttachmentSpec[] = []
-  if (input.invoice?.id) {
-    attachmentSpecs.push({ kind: "invoice", invoiceId: input.invoice.id })
+  for (const inv of allInvoices) {
+    attachmentSpecs.push({ kind: "invoice", invoiceId: inv.id })
   }
   attachmentSpecs.push({ kind: "receipt", transactionId: input.transaction.id })
+
+  const invoiceNumbers = allInvoices.map((i) => i.invoice_number).filter(Boolean)
+  const invoiceNumberText = invoiceNumbers.join(", ")
 
   await enqueueMemberEmail(
     input.member.id,
     {
       to: email,
-      subject: input.invoice
-        ? `Shares Purchase Confirmation — Invoice ${input.invoice.invoice_number}`
+      subject: invoiceNumberText
+        ? `Shares Purchase Confirmation — Invoice ${invoiceNumberText}`
         : "Shares Purchase Confirmation",
       template: SHARE_EMAIL_TEMPLATES.sharesPurchased,
       kind: "template",
@@ -104,7 +120,7 @@ export async function enqueueSharePurchaseEmails(
         numberOfShares: input.shares.numberOfShares,
         amount: input.shares.totalValue,
         currency: input.currency || "UGX",
-        invoiceNumber: input.invoice?.invoice_number || null,
+        invoiceNumber: invoiceNumberText || null,
         transactionNumber: input.transaction.transaction_number,
       },
       attachmentSpecs,

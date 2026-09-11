@@ -1,6 +1,7 @@
 "use client"
 
-import { useMemo, useRef, useState, useEffect, type ChangeEvent } from "react"
+import { motion, AnimatePresence } from "framer-motion"
+import { useCallback, useMemo, useRef, useState, useEffect, type ChangeEvent } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -8,6 +9,9 @@ import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import StyledSelect from "@/components/newUI/styled_select"
+import DataTable, { type DataTableColumn } from "@/components/datatables/DataTable"
+import { FilterField } from "@/components/datatables/TableFilter"
+import { Filter } from "@/types"
 import { Separator } from "@/components/ui/separator"
 import { Badge } from "@/components/ui/badge"
 import {
@@ -35,6 +39,8 @@ import {
   ChevronRight,
   X,
   Shield,
+  Plus,
+  Calendar,
 } from "lucide-react"
 
 import { getSession, updateInstitutionConfig } from "@/lib/session"
@@ -42,7 +48,16 @@ import { DEFAULT_CURRENCY_IN_WORDS } from "@/lib/invoices/utils"
 import { useToast } from "@/components/ui/toast"
 import { useStaffSession } from "@/components/staff-session-provider"
 import { upload } from "@vercel/blob/client"
+import { calculateNextBillingDate } from "@/lib/members/savings-calculation"
 import ReeveDatePicker from "@/components/newUI/date_picker"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 
 interface InstitutionConfig {
   modules: { loans: boolean; shares: boolean; savings: boolean; mobile_money: boolean; chats: boolean }
@@ -63,6 +78,23 @@ interface InstitutionConfig {
   invoicePeriodDays?: number
   defaultedAfterDays?: number
   savingsOverduePeriod?: number
+  newMemberBillPrevMonths?: boolean
+  financialYear?: string
+  financialYearStart?: string
+  financialYearEnd?: string
+}
+
+interface AccountTypeRow {
+  id: string
+  institution_id: string
+  branch_id: string
+  account_name: string
+  status: string
+  auto_bill_savings: string
+  created_at: string
+  updated_at: string
+  branch_name?: string
+  accounts_count?: number
 }
 
 interface InstitutionOrg {
@@ -123,6 +155,13 @@ const CURRENCY_IN_WORDS_PRESETS: Record<string, string> = {
   TZS: "Tanzanian shillings only",
 }
 
+const ACCOUNT_TYPE_STATUS_OPTIONS = [
+  { value: "Active", label: "Active" },
+  { value: "Inactive", label: "Inactive" },
+  { value: "Suspended", label: "Suspended" },
+  { value: "Closed", label: "Closed" },
+]
+
 export default function SettingsPage() {
   const { toast } = useToast()
   const { refresh: refreshStaffSession } = useStaffSession()
@@ -140,8 +179,72 @@ export default function SettingsPage() {
   const [branchProfileOrgTabBackup, setBranchProfileOrgTabBackup] = useState<BranchProfile | null>(null)
   const [isOrgEditMode, setIsOrgEditMode] = useState(false)
   const [orgDraftBackup, setOrgDraftBackup] = useState<InstitutionOrg | null>(null)
+  interface SavingsPlanRow {
+    id?: string
+    branch_id?: string
+    auto_savings_day: string | null
+    frequency_unit: string
+    frequency_value: string
+    use_account_saving_day?: string
+    start_date: string | null
+    next_billing_date: string | null
+    last_billing_date: string | null
+  }
+
+  const FIXED_WEEK_DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+  const ORDINAL_WEEKDAY_OPTIONS = [
+    { value: "1st Sunday", label: "1st Sunday" },
+    { value: "2nd Sunday", label: "2nd Sunday" },
+    { value: "3rd Sunday", label: "3rd Sunday" },
+    { value: "4th Sunday", label: "4th Sunday" },
+    { value: "1st Monday", label: "1st Monday" },
+    { value: "2nd Monday", label: "2nd Monday" },
+    { value: "3rd Monday", label: "3rd Monday" },
+    { value: "4th Monday", label: "4th Monday" },
+    { value: "1st Tuesday", label: "1st Tuesday" },
+    { value: "2nd Tuesday", label: "2nd Tuesday" },
+    { value: "3rd Tuesday", label: "3rd Tuesday" },
+    { value: "4th Tuesday", label: "4th Tuesday" },
+    { value: "1st Wednesday", label: "1st Wednesday" },
+    { value: "2nd Wednesday", label: "2nd Wednesday" },
+    { value: "3rd Wednesday", label: "3rd Wednesday" },
+    { value: "4th Wednesday", label: "4th Wednesday" },
+    { value: "1st Thursday", label: "1st Thursday" },
+    { value: "2nd Thursday", label: "2nd Thursday" },
+    { value: "3rd Thursday", label: "3rd Thursday" },
+    { value: "4th Thursday", label: "4th Thursday" },
+    { value: "1st Friday", label: "1st Friday" },
+    { value: "2nd Friday", label: "2nd Friday" },
+    { value: "3rd Friday", label: "3rd Friday" },
+    { value: "4th Friday", label: "4th Friday" },
+    { value: "1st Saturday", label: "1st Saturday" },
+    { value: "2nd Saturday", label: "2nd Saturday" },
+    { value: "3rd Saturday", label: "3rd Saturday" },
+    { value: "4th Saturday", label: "4th Saturday" },
+  ]
+  const INCLUDES_DAY_OPTIONS = [
+    { value: "includes 1", label: "Includes 1 (Days 1, 11, 21, 31)" },
+    { value: "includes 2", label: "Includes 2 (Days 2, 12, 22)" },
+    { value: "includes 3", label: "Includes 3 (Days 3, 13, 23)" },
+    { value: "includes 4", label: "Includes 4 (Days 4, 14, 24)" },
+    { value: "includes 5", label: "Includes 5 (Days 5, 15, 25)" },
+    { value: "includes 6", label: "Includes 6 (Days 6, 16, 26)" },
+    { value: "includes 7", label: "Includes 7 (Days 7, 17, 27)" },
+    { value: "includes 8", label: "Includes 8 (Days 8, 18, 28)" },
+    { value: "includes 9", label: "Includes 9 (Days 9, 19, 29)" },
+    { value: "includes 0", label: "Includes 0 (Days 10, 20, 30)" },
+  ]
+  function detectAutoSavingsDayMode(day: string | null): "fixed" | "custom" | "includes" | "ordinal" {
+    if (!day) return "custom"
+    const trimmed = day.trim()
+    if (/^includes\s+\d+$/i.test(trimmed)) return "includes"
+    if (/^(1st|2nd|3rd|4th|first|second|third|fourth)\s+(sunday|monday|tuesday|wednesday|thursday|friday|saturday)$/i.test(trimmed)) return "ordinal"
+    if (FIXED_WEEK_DAYS.includes(trimmed)) return "fixed"
+    return "custom"
+  }
+
   const [activeTab, setActiveTab] = useState<
-    "general" | "loan" | "penalties" | "shares" | "organization" | "admin" | "permissions"
+    "general" | "loan" | "penalties" | "shares" | "savings_plan" | "account_types" | "organization" | "admin" | "permissions"
   >("general")
   const [rolePermPayload, setRolePermPayload] = useState<RolePermissionsPayload | null>(null)
   const [rolePermLoading, setRolePermLoading] = useState(false)
@@ -154,6 +257,8 @@ export default function SettingsPage() {
     editBranchInfo: false,
     editRolePermissions: false,
   })
+  const canEditInstitutionConfig = settingsPermissions.editInstitutionSettings
+  const canEditOrganizationProfile = settingsPermissions.editInstitutionInfo && settingsPermissions.editBranchInfo
   const selectedRoleIdRef = useRef("")
   const [workspaceSearch, setWorkspaceSearch] = useState("")
   const [workspaceCategory, setWorkspaceCategory] = useState<"All" | "Core" | "Profile">("All")
@@ -161,6 +266,34 @@ export default function SettingsPage() {
   const [institutionConfigDraftBackup, setInstitutionConfigDraftBackup] = useState<InstitutionConfig | null>(null)
   const generalLogoInputRef = useRef<HTMLInputElement | null>(null)
   const [isLogoUploading, setIsLogoUploading] = useState(false)
+
+  // Account Types State
+  const [accountTypes, setAccountTypes] = useState<AccountTypeRow[]>([])
+  const [loadingAccountTypes, setLoadingAccountTypes] = useState(false)
+  const [accountTypeActiveFilters, setAccountTypeActiveFilters] = useState<Record<string, string>>({})
+  const [accountTypesPage, setAccountTypesPage] = useState(0)
+  const [accountTypesRowsPerPage, setAccountTypesRowsPerPage] = useState(10)
+  const [isAddAccountTypeOpen, setIsAddAccountTypeOpen] = useState(false)
+  const [editingAccountType, setEditingAccountType] = useState<AccountTypeRow | null>(null)
+  const [accountTypeFormName, setAccountTypeFormName] = useState("")
+  const [accountTypeFormStatus, setAccountTypeFormStatus] = useState("Active")
+  const [accountTypeFormAutoBill, setAccountTypeFormAutoBill] = useState("false")
+  const [isSavingAccountType, setIsSavingAccountType] = useState(false)
+
+  // Savings Plan State
+  const [savingsPlan, setSavingsPlan] = useState<SavingsPlanRow | null>(null)
+  const [loadingSavingsPlan, setLoadingSavingsPlan] = useState(false)
+  const [isSavingSavingsPlan, setIsSavingSavingsPlan] = useState(false)
+  const [autoSavingsDayMode, setAutoSavingsDayMode] = useState<"fixed" | "custom" | "includes" | "ordinal">("custom")
+  const [savingsPlanForm, setSavingsPlanForm] = useState<SavingsPlanRow>({
+    auto_savings_day: "1",
+    frequency_unit: "MONTH",
+    frequency_value: "1",
+    use_account_saving_day: "false",
+    start_date: "",
+    next_billing_date: "",
+    last_billing_date: "",
+  })
   type EmailSettingsForm = {
     provider: string
     fromEmail: string
@@ -328,6 +461,330 @@ export default function SettingsPage() {
       cancelled = true
     }
   }, [activeTab, toast])
+
+  const accountTypeTabFilters: Filter[] = useMemo(
+    () => [
+      { label: "All Account Types", value: "" },
+      { value: "Active", label: "Active" },
+      { value: "Inactive", label: "Inactive" },
+      { value: "Suspended", label: "Suspended" },
+    ],
+    [],
+  )
+
+  const accountTypesFilterFields: FilterField[] = useMemo(
+    () => [
+      {
+        field: "search",
+        label: "Search by account type name",
+        type: "text",
+      },
+      {
+        field: "status",
+        label: "Status",
+        options: [
+          { value: "Active", label: "Active" },
+          { value: "Inactive", label: "Inactive" },
+          { value: "Suspended", label: "Suspended" },
+        ],
+        multiple: false,
+        type: "select",
+      },
+      {
+        field: "auto_bill_savings",
+        label: "Auto-Bill Savings",
+        options: [
+          { value: "true", label: "Enabled" },
+          { value: "false", label: "Disabled" },
+        ],
+        multiple: false,
+        type: "select",
+      },
+    ],
+    [],
+  )
+
+  const loadAccountTypes = useCallback(async (queryParams?: Record<string, any>) => {
+    setLoadingAccountTypes(true)
+    try {
+      const params = new URLSearchParams()
+      params.set("status", "all")
+      if (queryParams) {
+        Object.entries(queryParams).forEach(([key, value]) => {
+          if (value !== undefined && value !== null && String(value).trim() !== "") {
+            params.set(key, String(value))
+          }
+        })
+      }
+      const res = await fetch(`/api/institution/account-types?${params.toString()}`, { cache: "no-store" })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        toast({
+          title: "Unable to load account types",
+          description: typeof body?.error === "string" ? body.error : "Request failed",
+          variant: "destructive",
+        })
+        return
+      }
+      const data = await res.json()
+      setAccountTypes(data.accountTypes || [])
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : "Request failed"
+      toast({ title: "Unable to load account types", description: message, variant: "destructive" })
+    } finally {
+      setLoadingAccountTypes(false)
+    }
+  }, [toast])
+
+  const handleAccountTypesQueryParamsChange = useCallback(
+    (params: object) => {
+      const normalized: Record<string, string> = {}
+      Object.entries(params || {}).forEach(([k, v]) => {
+        if (v !== undefined && v !== null && String(v).trim() !== "") {
+          normalized[k] = String(v)
+        }
+      })
+      setAccountTypeActiveFilters(normalized)
+      setAccountTypesPage(0)
+      loadAccountTypes(params)
+    },
+    [loadAccountTypes],
+  )
+
+  const handleAccountTypesPageChange = (_: unknown, newPage: number) => {
+    setAccountTypesPage(newPage)
+  }
+
+  const handleAccountTypesRowsPerPageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const nextRows = parseInt(e.target.value, 10)
+    setAccountTypesPage(0)
+    setAccountTypesRowsPerPage(nextRows)
+  }
+
+  useEffect(() => {
+    if (activeTab !== "account_types") return
+    loadAccountTypes()
+  }, [activeTab, loadAccountTypes])
+
+  const loadSavingsPlan = useCallback(async () => {
+    setLoadingSavingsPlan(true)
+    try {
+      const res = await fetch("/api/institution/savings-plan", { cache: "no-store" })
+      if (res.ok) {
+        const data = await res.json()
+        if (data?.savingsPlan) {
+          setSavingsPlan(data.savingsPlan)
+          const loadedDay = data.savingsPlan.auto_savings_day || "1"
+          setAutoSavingsDayMode(detectAutoSavingsDayMode(loadedDay))
+          setSavingsPlanForm({
+            id: data.savingsPlan.id,
+            branch_id: data.savingsPlan.branch_id,
+            auto_savings_day: loadedDay,
+            frequency_unit: data.savingsPlan.frequency_unit || "MONTH",
+            frequency_value: data.savingsPlan.frequency_value || "1",
+            use_account_saving_day: data.savingsPlan.use_account_saving_day || "false",
+            start_date: data.savingsPlan.start_date || "",
+            next_billing_date: data.savingsPlan.next_billing_date || "",
+            last_billing_date: data.savingsPlan.last_billing_date || "",
+          })
+        } else {
+          setSavingsPlan(null)
+        }
+      }
+    } catch {
+      // ignore
+    } finally {
+      setLoadingSavingsPlan(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    loadSavingsPlan()
+  }, [loadSavingsPlan])
+
+  useEffect(() => {
+    if (!savingsPlanForm.start_date) return
+    const computed = calculateNextBillingDate({
+      startDate: savingsPlanForm.start_date,
+      frequencyUnit: savingsPlanForm.frequency_unit,
+      frequencyValue: savingsPlanForm.frequency_value,
+      autoSavingsDay: savingsPlanForm.auto_savings_day,
+    })
+    if (computed && computed !== savingsPlanForm.next_billing_date) {
+      setSavingsPlanForm((prev) => ({ ...prev, next_billing_date: computed }))
+    }
+  }, [
+    savingsPlanForm.start_date,
+    savingsPlanForm.frequency_unit,
+    savingsPlanForm.frequency_value,
+    savingsPlanForm.auto_savings_day,
+  ])
+
+  const handleSaveSavingsPlan = async () => {
+    setIsSavingSavingsPlan(true)
+    try {
+      const res = await fetch("/api/institution/savings-plan", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(savingsPlanForm),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        throw new Error(String(data?.error || "Failed to save savings plan"))
+      }
+      toast({
+        title: "Savings Plan updated",
+        description: "Branch savings plan schedule updated successfully.",
+        variant: "success",
+      })
+      if (data?.savingsPlan) {
+        setSavingsPlan(data.savingsPlan)
+      }
+    } catch (e: unknown) {
+      toast({
+        title: "Error",
+        description: e instanceof Error ? e.message : "Failed to save savings plan",
+        variant: "destructive",
+      })
+    } finally {
+      setIsSavingSavingsPlan(false)
+    }
+  }
+
+  const filteredAccountTypes = useMemo(() => {
+    return accountTypes.filter((at) => {
+      const search = (accountTypeActiveFilters.search || "").toLowerCase().trim()
+      if (search && !at.account_name.toLowerCase().includes(search)) {
+        return false
+      }
+      const status = accountTypeActiveFilters.status || ""
+      if (status && status !== "all" && at.status !== status) {
+        return false
+      }
+      const autoBill = accountTypeActiveFilters.auto_bill_savings || ""
+      if (autoBill && autoBill !== "all" && String(at.auto_bill_savings) !== autoBill) {
+        return false
+      }
+      return true
+    })
+  }, [accountTypes, accountTypeActiveFilters])
+
+  const paginatedAccountTypes = useMemo(() => {
+    const start = accountTypesPage * accountTypesRowsPerPage
+    return filteredAccountTypes.slice(start, start + accountTypesRowsPerPage)
+  }, [filteredAccountTypes, accountTypesPage, accountTypesRowsPerPage])
+
+  const accountTypesColumns = useMemo<DataTableColumn<AccountTypeRow>[]>(
+    () => [
+      {
+        key: "account_name",
+        header: "Account Name",
+        render: (row) => <span className="font-semibold text-[#111111]">{row.account_name}</span>,
+      },
+      {
+        key: "auto_bill_savings",
+        header: "Auto-Bill Savings",
+        render: (row) => (
+          <Badge variant={row.auto_bill_savings === "true" ? "default" : "outline"}>
+            {row.auto_bill_savings === "true" ? "Enabled" : "Disabled"}
+          </Badge>
+        ),
+      },
+      {
+        key: "status",
+        header: "Status",
+        render: (row) => (
+          <span
+            className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
+              row.status === "Active"
+                ? "bg-emerald-100 text-emerald-800"
+                : "bg-gray-100 text-gray-800"
+            }`}
+          >
+            {row.status}
+          </span>
+        ),
+      },
+      {
+        key: "accounts_count",
+        header: "Accounts Linked",
+        render: (row) => <span className="text-muted-foreground">{row.accounts_count ?? 0}</span>,
+      },
+      {
+        key: "actions",
+        header: "Actions",
+        headerClassName: "text-right",
+        cellClassName: "text-right",
+        render: (row) => (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={(e) => {
+              e.stopPropagation()
+              setEditingAccountType(row)
+              setAccountTypeFormName(row.account_name)
+              setAccountTypeFormStatus(row.status || "Active")
+              setAccountTypeFormAutoBill(row.auto_bill_savings || "false")
+              setIsAddAccountTypeOpen(true)
+            }}
+            disabled={!canEditInstitutionConfig}
+            className="h-8 px-2 text-[#111111] hover:bg-[#111111]/10"
+          >
+            <Pencil className="h-4 w-4 mr-1" />
+            Edit
+          </Button>
+        ),
+      },
+    ],
+    [canEditInstitutionConfig],
+  )
+
+  const handleSaveAccountType = async (isEdit: boolean) => {
+    if (!accountTypeFormName.trim()) {
+      toast({ title: "Validation Error", description: "Account type name is required.", variant: "warning" })
+      return
+    }
+    setIsSavingAccountType(true)
+    try {
+      const url = isEdit && editingAccountType ? `/api/institution/account-types/${editingAccountType.id}` : "/api/institution/account-types"
+      const method = isEdit ? "PUT" : "POST"
+      const res = await fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          account_name: accountTypeFormName.trim(),
+          status: accountTypeFormStatus,
+          auto_bill_savings: accountTypeFormAutoBill,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to save account type")
+      }
+      toast({
+        title: "Success",
+        description: isEdit ? "Account type updated successfully." : "Account type created successfully.",
+        variant: "success",
+      })
+      setIsAddAccountTypeOpen(false)
+      setEditingAccountType(null)
+      setAccountTypeFormName("")
+      setAccountTypeFormStatus("Active")
+      setAccountTypeFormAutoBill("false")
+
+      // Refresh list
+      const listRes = await fetch("/api/institution/account-types?status=all", { cache: "no-store" })
+      if (listRes.ok) {
+        const listData = await listRes.json()
+        setAccountTypes(listData.accountTypes || [])
+      }
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : "An error occurred"
+      toast({ title: "Error", description: message, variant: "destructive" })
+    } finally {
+      setIsSavingAccountType(false)
+    }
+  }
 
   const setConfigField = (field: keyof InstitutionConfig, value: any) => {
     setConfig((prev) => (prev ? { ...prev, [field]: value } : prev))
@@ -551,7 +1008,7 @@ export default function SettingsPage() {
 
   const terminology = getInstitutionTerminology()
   const tabMeta: Record<
-    "general" | "loan" | "penalties" | "shares" | "organization" | "admin" | "permissions",
+    "general" | "loan" | "penalties" | "shares" | "savings_plan" | "account_types" | "organization" | "admin" | "permissions",
     { title: string; subtitle: string }
   > = {
     general: {
@@ -570,6 +1027,14 @@ export default function SettingsPage() {
       title: "Shares Workspace",
       subtitle: "Enable shares and set share pricing requirements.",
     },
+    savings_plan: {
+      title: "Savings Plan Schedule",
+      subtitle: "Configure automated savings billing frequency, days, and start dates.",
+    },
+    account_types: {
+      title: "Savings Account Types",
+      subtitle: "Manage branch account types and savings auto-billing configuration.",
+    },
     organization: {
       title: "Organization Profile",
       subtitle: "Maintain official institutional records and contacts.",
@@ -584,15 +1049,13 @@ export default function SettingsPage() {
     },
   }
   const isSaccoOrMfi = institution?.type === "SACCO" || institution?.type === "MFI"
-  const canEditInstitutionConfig = settingsPermissions.editInstitutionSettings
-  const canEditOrganizationProfile = settingsPermissions.editInstitutionInfo && settingsPermissions.editBranchInfo
-  const canEditTab = (tab: "general" | "loan" | "penalties" | "shares" | "organization" | "permissions"): boolean => {
+  const canEditTab = (tab: "general" | "loan" | "penalties" | "shares" | "savings_plan" | "account_types" | "organization" | "permissions"): boolean => {
     if (tab === "organization") return canEditOrganizationProfile
     if (tab === "permissions") return settingsPermissions.editRolePermissions
     return canEditInstitutionConfig
   }
   const workspaceItems: Array<{
-    key: "general" | "loan" | "penalties" | "shares" | "organization" | "admin" | "permissions"
+    key: "general" | "loan" | "penalties" | "shares" | "savings_plan" | "account_types" | "organization" | "admin" | "permissions"
     title: string
     subtitle: string
     category: "Core" | "Profile"
@@ -603,6 +1066,8 @@ export default function SettingsPage() {
     { key: "loan", title: "Loan Policies", subtitle: "Loan and invoice behavior", category: "Core", icon: SlidersHorizontal },
     { key: "penalties", title: "Penalty Rules", subtitle: "Late penalties and periods", category: "Core", icon: ShieldAlert },
     { key: "shares", title: "Shares Workspace", subtitle: "Share limits and value setup", category: "Core", icon: DollarSign, visible: isSaccoOrMfi },
+    { key: "savings_plan", title: "Savings Plan", subtitle: "Billing day, frequency and schedule", category: "Core", icon: Calendar, visible: isSaccoOrMfi },
+    { key: "account_types", title: "Account Types", subtitle: "Savings account types & auto-billing", category: "Core", icon: Tags, visible: isSaccoOrMfi },
     { key: "organization", title: "Organization Profile", subtitle: "Legal and contact details", category: "Profile", icon: Building2, visible: false },
     { key: "admin", title: "Institution Admins", subtitle: "Admins and staff directory", category: "Profile", icon: User },
     {
@@ -1969,6 +2434,7 @@ export default function SettingsPage() {
                     )}
 
                     {activeTab === "general" && (
+                    <>
                     <div className="grid grid-cols-2 gap-4">
                       <div className="space-y-2">
                         <Label htmlFor="membershipFee">Membership Fee ({config.currency})</Label>
@@ -1991,6 +2457,66 @@ export default function SettingsPage() {
                         </div>
                       </div>
                     </div>
+
+                    <Separator />
+
+                    <div className="rounded-xl border border-[#111111]/10 bg-white p-4 space-y-4">
+                      <div className="flex items-center gap-2 text-sm font-semibold text-[#1f1f1f]">
+                        <Clock3 className="h-4 w-4 text-[#f08c2b]" />
+                        Financial Year & Member Invoicing Setup
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="financialYear">Financial Year</Label>
+                          <Input
+                            id="financialYear"
+                            type="text"
+                            value={config.financialYear || ""}
+                            onChange={(e) => setConfigField("financialYear", e.target.value)}
+                            disabled={!canEditInstitutionWorkspace("general")}
+                            placeholder="e.g. 2026"
+                            className={memberInputClass}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="financialYearStart">Financial Year Start</Label>
+                          <ReeveDatePicker
+                            value={config.financialYearStart || ""}
+                            onChange={(val) => setConfigField("financialYearStart", val)}
+                            disabled={!canEditInstitutionWorkspace("general")}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="financialYearEnd">Financial Year End</Label>
+                          <ReeveDatePicker
+                            value={config.financialYearEnd || ""}
+                            onChange={(val) => setConfigField("financialYearEnd", val)}
+                            disabled={!canEditInstitutionWorkspace("general")}
+                          />
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-between gap-4 rounded-xl border border-[#111111]/10 bg-[#111111]/5 p-3.5">
+                        <div>
+                          <p className="text-sm font-semibold text-[#111111]">Bill New Members For Previous Months</p>
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            Automatically bill newly registered members for unbilled prior months in the active financial year.
+                          </p>
+                        </div>
+                        <label htmlFor="newMemberBillPrevMonths" className="relative inline-flex cursor-pointer">
+                          <input
+                            id="newMemberBillPrevMonths"
+                            type="checkbox"
+                            className="peer sr-only"
+                            checked={!!config.newMemberBillPrevMonths}
+                            disabled={!canEditInstitutionWorkspace("general")}
+                            onChange={(e) => setConfigField("newMemberBillPrevMonths", e.target.checked)}
+                          />
+                          <span className="h-5 w-9 rounded-full bg-gray-300 transition-colors peer-checked:bg-[#f08c2b]" />
+                          <span className="pointer-events-none absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform peer-checked:translate-x-4" />
+                        </label>
+                      </div>
+                    </div>
+                    </>
                     )}
 
                   </CardContent>
@@ -2333,8 +2859,427 @@ export default function SettingsPage() {
                   </CardContent>
                 </Card>
                 )}
+                {activeTab === "savings_plan" && (
+                <Card className="border-[#1f1f1f]/10 shadow-md rounded-2xl">
+                  <CardHeader>
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <CardTitle className="flex items-center gap-2">
+                          <Calendar className="h-5 w-5 text-[#f08c2b]" />
+                          Savings Plan Schedule
+                        </CardTitle>
+                        <CardDescription>
+                          Configure automated savings billing frequency, days, and billing start dates for your branch.
+                        </CardDescription>
+                      </div>
+                      <Badge variant={savingsPlan ? "outline" : "secondary"}>
+                        {savingsPlan ? "Configured" : "Not Configured"}
+                      </Badge>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="space-y-6">
+                    <div className="flex items-center justify-between gap-4 rounded-xl border border-[#111111]/10 bg-[#111111]/5 p-4">
+                      <div>
+                        <p className="text-sm font-semibold text-[#111111]">Use Account Saving Day</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          When enabled, automated savings billing will use each account&apos;s configured saving day instead of the branch plan auto savings day.
+                        </p>
+                      </div>
+                      <label htmlFor="sp_use_account_saving_day" className="relative inline-flex cursor-pointer shrink-0">
+                        <input
+                          id="sp_use_account_saving_day"
+                          type="checkbox"
+                          className="peer sr-only"
+                          checked={savingsPlanForm.use_account_saving_day === "true"}
+                          onChange={(e) => setSavingsPlanForm((prev) => ({ ...prev, use_account_saving_day: e.target.checked ? "true" : "false" }))}
+                          disabled={!canEditInstitutionConfig}
+                        />
+                        <span className="h-5 w-9 rounded-full bg-gray-300 transition-colors peer-checked:bg-[#f08c2b]" />
+                        <span className="pointer-events-none absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform peer-checked:translate-x-4" />
+                      </label>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                      <div className="space-y-2">
+                        <Label htmlFor="sp_frequency_unit">Frequency Unit</Label>
+                        <StyledSelect
+                          value={savingsPlanForm.frequency_unit}
+                          onChange={(val) => setSavingsPlanForm((prev) => ({ ...prev, frequency_unit: val }))}
+                          placeholder="Select unit"
+                          disabled={!canEditInstitutionConfig}
+                          options={[
+                            { value: "MONTH", label: "Month" },
+                            { value: "WEEK", label: "Week" },
+                            { value: "DAY", label: "Day" },
+                            { value: "YEAR", label: "Year" },
+                          ]}
+                        />
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor="sp_frequency_value">Frequency Value (Interval)</Label>
+                        <Input
+                          id="sp_frequency_value"
+                          type="text"
+                          placeholder="e.g. 1 (Every 1 month/week)"
+                          value={savingsPlanForm.frequency_value}
+                          onChange={(e) => setSavingsPlanForm((prev) => ({ ...prev, frequency_value: e.target.value }))}
+                          disabled={!canEditInstitutionConfig}
+                          className={memberInputClass}
+                        />
+                      </div>
+
+                      {savingsPlanForm.use_account_saving_day !== "true" && (
+                        <>
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between gap-2 flex-wrap">
+                              <Label htmlFor="sp_auto_savings_day">Auto Savings Day</Label>
+                              {savingsPlanForm.frequency_unit === "MONTH" && (
+                                <div className="inline-flex items-center rounded-lg border border-[#111111]/10 bg-gray-100 p-0.5 text-xs font-medium flex-wrap">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setAutoSavingsDayMode("fixed")
+                                      setSavingsPlanForm((prev) => ({ ...prev, auto_savings_day: "Monday" }))
+                                    }}
+                                    className={`px-2 py-0.5 rounded-md transition-all ${
+                                      autoSavingsDayMode === "fixed"
+                                        ? "bg-white text-[#111111] shadow-sm font-semibold"
+                                        : "text-gray-500 hover:text-gray-900"
+                                    }`}
+                                    disabled={!canEditInstitutionConfig}
+                                  >
+                                    Fixed Day
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setAutoSavingsDayMode("ordinal")
+                                      setSavingsPlanForm((prev) => ({ ...prev, auto_savings_day: "1st Monday" }))
+                                    }}
+                                    className={`px-2 py-0.5 rounded-md transition-all ${
+                                      autoSavingsDayMode === "ordinal"
+                                        ? "bg-white text-[#111111] shadow-sm font-semibold"
+                                        : "text-gray-500 hover:text-gray-900"
+                                    }`}
+                                    disabled={!canEditInstitutionConfig}
+                                  >
+                                    Ordinal Day
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setAutoSavingsDayMode("includes")
+                                      setSavingsPlanForm((prev) => ({ ...prev, auto_savings_day: "includes 4" }))
+                                    }}
+                                    className={`px-2 py-0.5 rounded-md transition-all ${
+                                      autoSavingsDayMode === "includes"
+                                        ? "bg-white text-[#111111] shadow-sm font-semibold"
+                                        : "text-gray-500 hover:text-gray-900"
+                                    }`}
+                                    disabled={!canEditInstitutionConfig}
+                                  >
+                                    Includes
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setAutoSavingsDayMode("custom")
+                                      setSavingsPlanForm((prev) => ({ ...prev, auto_savings_day: "1" }))
+                                    }}
+                                    className={`px-2 py-0.5 rounded-md transition-all ${
+                                      autoSavingsDayMode === "custom"
+                                        ? "bg-white text-[#111111] shadow-sm font-semibold"
+                                        : "text-gray-500 hover:text-gray-900"
+                                    }`}
+                                    disabled={!canEditInstitutionConfig}
+                                  >
+                                    Day of Month
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+
+                            {savingsPlanForm.frequency_unit === "DAY" ? (
+                              <p className="text-xs text-muted-foreground italic pt-2">
+                                Auto savings day is not required for daily billing frequency.
+                              </p>
+                            ) : savingsPlanForm.frequency_unit === "WEEK" ? (
+                              <StyledSelect
+                                value={savingsPlanForm.auto_savings_day || ""}
+                                onChange={(val) => setSavingsPlanForm((prev) => ({ ...prev, auto_savings_day: val || null }))}
+                                placeholder="Select day of week (Optional)"
+                                disabled={!canEditInstitutionConfig}
+                                options={[
+                                  { value: "", label: "None (Based on Start Date)" },
+                                  { value: "Sunday", label: "Sunday" },
+                                  { value: "Monday", label: "Monday" },
+                                  { value: "Tuesday", label: "Tuesday" },
+                                  { value: "Wednesday", label: "Wednesday" },
+                                  { value: "Thursday", label: "Thursday" },
+                                  { value: "Friday", label: "Friday" },
+                                  { value: "Saturday", label: "Saturday" },
+                                ]}
+                              />
+                            ) : autoSavingsDayMode === "fixed" ? (
+                              <StyledSelect
+                                value={savingsPlanForm.auto_savings_day && FIXED_WEEK_DAYS.includes(savingsPlanForm.auto_savings_day) ? savingsPlanForm.auto_savings_day : "Monday"}
+                                onChange={(val) => setSavingsPlanForm((prev) => ({ ...prev, auto_savings_day: val }))}
+                                placeholder="Select day of week"
+                                disabled={!canEditInstitutionConfig}
+                                options={[
+                                  { value: "Sunday", label: "Sunday" },
+                                  { value: "Monday", label: "Monday" },
+                                  { value: "Tuesday", label: "Tuesday" },
+                                  { value: "Wednesday", label: "Wednesday" },
+                                  { value: "Thursday", label: "Thursday" },
+                                  { value: "Friday", label: "Friday" },
+                                  { value: "Saturday", label: "Saturday" },
+                                ]}
+                              />
+                            ) : autoSavingsDayMode === "ordinal" ? (
+                              <StyledSelect
+                                value={savingsPlanForm.auto_savings_day || "1st Monday"}
+                                onChange={(val) => setSavingsPlanForm((prev) => ({ ...prev, auto_savings_day: val }))}
+                                placeholder="Select ordinal weekday"
+                                disabled={!canEditInstitutionConfig}
+                                options={ORDINAL_WEEKDAY_OPTIONS}
+                              />
+                            ) : autoSavingsDayMode === "includes" ? (
+                              <StyledSelect
+                                value={savingsPlanForm.auto_savings_day || "includes 4"}
+                                onChange={(val) => setSavingsPlanForm((prev) => ({ ...prev, auto_savings_day: val }))}
+                                placeholder="Select includes day rule"
+                                disabled={!canEditInstitutionConfig}
+                                options={INCLUDES_DAY_OPTIONS}
+                              />
+                            ) : (
+                              <Input
+                                id="sp_auto_savings_day"
+                                type="text"
+                                placeholder="e.g. 1, 15, last_day"
+                                value={savingsPlanForm.auto_savings_day || ""}
+                                onChange={(e) => setSavingsPlanForm((prev) => ({ ...prev, auto_savings_day: e.target.value }))}
+                                disabled={!canEditInstitutionConfig}
+                                className={memberInputClass}
+                              />
+                            )}
+                          </div>
+
+                          <div className="space-y-2">
+                            <Label htmlFor="sp_start_date">Start Date</Label>
+                            <ReeveDatePicker
+                              value={savingsPlanForm.start_date || ""}
+                              onChange={(val) => setSavingsPlanForm((prev) => ({ ...prev, start_date: val }))}
+                              placeholder="Select start date"
+                              disabled={!canEditInstitutionConfig}
+                            />
+                          </div>
+
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between">
+                              <Label htmlFor="sp_next_billing_date">Next Billing Date</Label>
+                              <Badge variant="outline" className="text-[10px] border-[#f08c2b] text-[#f08c2b]">
+                                Auto-calculated
+                              </Badge>
+                            </div>
+                            <ReeveDatePicker
+                              value={savingsPlanForm.next_billing_date || ""}
+                              onChange={(val) => setSavingsPlanForm((prev) => ({ ...prev, next_billing_date: val }))}
+                              placeholder="Auto-calculated from start date"
+                              disabled={!canEditInstitutionConfig}
+                            />
+                          </div>
+                        </>
+                      )}
+                    </div>
+
+                    {canEditInstitutionConfig && (
+                      <div className="flex justify-end gap-3 pt-4 border-t border-[#111111]/10">
+                        <Button
+                          type="button"
+                          onClick={handleSaveSavingsPlan}
+                          disabled={isSavingSavingsPlan}
+                          className="bg-[#111111] hover:bg-[#111111]/90 text-white"
+                        >
+                          {isSavingSavingsPlan ? "Saving Plan..." : "Save Savings Plan"}
+                        </Button>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+                )}
+                {activeTab === "account_types" && (
+                <Card className="border-[#1f1f1f]/10 shadow-md rounded-2xl">
+                  <CardHeader>
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <CardTitle className="flex items-center gap-2">
+                          <Tags className="h-5 w-5 text-[#f08c2b]" />
+                          Savings Account Types
+                        </CardTitle>
+                        <CardDescription>
+                          Manage branch account types and configure auto-billing preferences for savings accounts.
+                        </CardDescription>
+                      </div>
+                      <Button
+                        onClick={() => {
+                          setEditingAccountType(null)
+                          setAccountTypeFormName("")
+                          setAccountTypeFormStatus("Active")
+                          setAccountTypeFormAutoBill("false")
+                          setIsAddAccountTypeOpen(true)
+                        }}
+                        disabled={!canEditInstitutionConfig}
+                        className="bg-[#f08c2b] text-white hover:bg-[#d9781e] gap-2 rounded-xl"
+                      >
+                        <Plus className="h-4 w-4" />
+                        Add Account Type
+                      </Button>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="p-0">
+                    <DataTable
+                      title="Savings Account Types"
+                      columns={accountTypesColumns}
+                      rows={paginatedAccountTypes}
+                      loading={loadingAccountTypes}
+                      tabularFilters={accountTypeTabFilters}
+                      tabularFilterField="status"
+                      filterFields={accountTypesFilterFields}
+                      onQueryParamsChange={handleAccountTypesQueryParamsChange}
+                      emptyMessage="No savings account types found matching your criteria. Click 'Add Account Type' to create one."
+                      getRowId={(row) => row.id}
+                      pagination={{
+                        page: accountTypesPage,
+                        rowsPerPage: accountTypesRowsPerPage,
+                        total: filteredAccountTypes.length,
+                        onPageChange: handleAccountTypesPageChange,
+                        onRowsPerPageChange: handleAccountTypesRowsPerPageChange,
+                        rowsPerPageOptions: [5, 10, 25, 50],
+                      }}
+                    />
+                  </CardContent>
+                </Card>
+                )}
                 </div>
               </div>
+
+              <AnimatePresence>
+                {isAddAccountTypeOpen && (
+                  <motion.div
+                    className="fixed inset-0 z-50 flex items-center justify-center p-4"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                  >
+                    <div
+                      className="absolute inset-0 bg-black/50"
+                      onClick={() => {
+                        if (!isSavingAccountType) {
+                          setIsAddAccountTypeOpen(false)
+                          setEditingAccountType(null)
+                        }
+                      }}
+                    />
+                    <motion.div
+                      className="relative z-10 w-full max-w-md max-h-[90vh] overflow-y-auto space-y-4 rounded-2xl border border-[#111111]/10 bg-white p-6 shadow-xl"
+                      initial={{ opacity: 0, scale: 0.96, y: 10 }}
+                      animate={{ opacity: 1, scale: 1, y: 0 }}
+                      exit={{ opacity: 0, scale: 0.96, y: 10 }}
+                      transition={{ duration: 0.2, ease: [0.4, 0, 0.2, 1] }}
+                    >
+                      <div className="flex items-center justify-between pb-2 border-b border-[#111111]/10">
+                        <div>
+                          <h3 className="text-lg font-semibold text-[#111111]">
+                            {editingAccountType ? "Edit Account Type" : "Add Account Type"}
+                          </h3>
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            {editingAccountType
+                              ? "Update details and auto-billing preference for this savings account type."
+                              : "Create a new savings account type for your branch."}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!isSavingAccountType) {
+                              setIsAddAccountTypeOpen(false)
+                              setEditingAccountType(null)
+                            }
+                          }}
+                          className="rounded-lg p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"
+                        >
+                          <X className="h-5 w-5" />
+                        </button>
+                      </div>
+
+                      <div className="space-y-4 py-2">
+                        <div className="space-y-2">
+                          <Label htmlFor="atName">Account Type Name</Label>
+                          <Input
+                            id="atName"
+                            placeholder="e.g. Voluntary Savings, Fixed Deposit"
+                            value={accountTypeFormName}
+                            onChange={(e) => setAccountTypeFormName(e.target.value)}
+                            className={memberInputClass}
+                          />
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label htmlFor="atStatus">Status</Label>
+                          <div>
+                            <StyledSelect
+                              value={accountTypeFormStatus}
+                              onChange={(val) => setAccountTypeFormStatus(val)}
+                              options={ACCOUNT_TYPE_STATUS_OPTIONS}
+                              placeholder="Select status"
+                            />
+                          </div>
+                        </div>
+                        <div className="flex items-center justify-between gap-4 rounded-xl border border-[#111111]/10 bg-[#111111]/5 p-3.5">
+                          <div>
+                            <p className="text-sm font-semibold text-[#111111]">Auto-Bill Savings</p>
+                            <p className="text-xs text-muted-foreground mt-0.5">
+                              Automatically generate recurring billing invoices for accounts of this type.
+                            </p>
+                          </div>
+                          <label htmlFor="atAutoBill" className="relative inline-flex cursor-pointer">
+                            <input
+                              id="atAutoBill"
+                              type="checkbox"
+                              className="peer sr-only"
+                              checked={accountTypeFormAutoBill === "true"}
+                              onChange={(e) => setAccountTypeFormAutoBill(e.target.checked ? "true" : "false")}
+                            />
+                            <span className="h-5 w-9 rounded-full bg-gray-300 transition-colors peer-checked:bg-[#f08c2b]" />
+                            <span className="pointer-events-none absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform peer-checked:translate-x-4" />
+                          </label>
+                        </div>
+                      </div>
+
+                      <div className="flex gap-2 justify-end pt-3 border-t border-[#111111]/10">
+                        <Button
+                          variant="outline"
+                          onClick={() => {
+                            setIsAddAccountTypeOpen(false)
+                            setEditingAccountType(null)
+                          }}
+                          disabled={isSavingAccountType}
+                        >
+                          Cancel
+                        </Button>
+                        <Button
+                          onClick={() => handleSaveAccountType(!!editingAccountType)}
+                          disabled={isSavingAccountType}
+                          className="bg-[#f08c2b] text-white hover:bg-[#d9781e]"
+                        >
+                          {isSavingAccountType ? "Saving..." : editingAccountType ? "Update Account Type" : "Create Account Type"}
+                        </Button>
+                      </div>
+                    </motion.div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
 
               
             </div>

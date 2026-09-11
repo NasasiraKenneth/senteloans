@@ -124,12 +124,19 @@ function normalizeSql(sql: string) {
   return sql.replace(/\s+/g, " ").trim().toLowerCase()
 }
 
-function createMockClient(options?: { hasCreatePermission?: boolean; membershipFee?: number }) {
+function createMockClient(options?: {
+  hasCreatePermission?: boolean
+  membershipFee?: number
+  minimumShares?: number
+  shareValue?: number
+}) {
   const hasCreatePermission = options?.hasCreatePermission !== false
   const membershipFee = options?.membershipFee ?? 50_000
+  const minimumShares = options?.minimumShares ?? 0
+  const shareValue = options?.shareValue ?? 0
 
   return {
-    query: jest.fn().mockImplementation(async (sql: string) => {
+    query: jest.fn().mockImplementation(async (sql: string, params?: any[]) => {
       const s = normalizeSql(sql)
 
       if (sql === "BEGIN" || sql === "COMMIT" || sql === "ROLLBACK") {
@@ -154,10 +161,18 @@ function createMockClient(options?: { hasCreatePermission?: boolean; membershipF
             {
               currency: "UGX",
               membership_fee: membershipFee,
+              share_value: shareValue,
+              minimum_shares: minimumShares,
               invoice_overdue_period: 30,
             },
           ],
         }
+      }
+
+      if (s.includes("from account_type") || s.includes("insert into account_type")) {
+        const typeArg = String(params?.[1] || params?.[2] || "")
+        const matchName = /fixed/i.test(typeArg) ? "Fixed" : "Voluntary"
+        return { rows: [{ id: `at-${matchName.toLowerCase()}-id`, account_name: matchName }] }
       }
 
       if (s.includes("insert into members")) {
@@ -179,8 +194,16 @@ function setupRunWithAuth(client: ReturnType<typeof createMockClient>) {
   )
 }
 
-function setupHappyPath(options?: { membershipFee?: number }) {
-  const client = createMockClient({ membershipFee: options?.membershipFee })
+function setupHappyPath(options?: {
+  membershipFee?: number
+  minimumShares?: number
+  shareValue?: number
+}) {
+  const client = createMockClient({
+    membershipFee: options?.membershipFee,
+    minimumShares: options?.minimumShares,
+    shareValue: options?.shareValue,
+  })
   setupRunWithAuth(client)
 
   assertNotSuperAdminMock.mockReturnValue({ ok: true })
@@ -193,11 +216,14 @@ function setupHappyPath(options?: { membershipFee?: number }) {
     .mockResolvedValueOnce({ row: { id: MEMBER_ID, member_number: "M-TEST-0001" } })
     .mockResolvedValueOnce({ row: { id: "sav-1", account_number: "SA-TEST-0001" } })
 
-  createInvoiceWithItemsMock.mockResolvedValue({
-    id: INVOICE_ID,
-    invoice_number: "INV-001",
-    total_amount: options?.membershipFee ?? 50_000,
-    invoice_due: "2026-07-17",
+  createInvoiceWithItemsMock.mockImplementation(async (_client: unknown, input: { items: { unit: string; total_price: number }[] }) => {
+    const isShares = input.items[0]?.unit === "Shares"
+    return {
+      id: isShares ? "invoice-shares-1" : INVOICE_ID,
+      invoice_number: isShares ? "INV-SHARES-001" : "INV-001",
+      total_amount: input.items[0]?.total_price ?? 50_000,
+      invoice_due: "2026-07-17",
+    }
   })
 
   runWithoutAuthMock.mockImplementation(async (fn: (c: { query: jest.Mock }) => unknown) =>
@@ -291,7 +317,7 @@ describe("POST /api/institution/members", () => {
         account_type: "Fixed",
       })
       expect(capturedSavingsParams[0]?.[5]).toBe(75_000)
-      expect(capturedSavingsParams[0]?.[4]).toBe("Fixed")
+      expect(capturedSavingsParams[0]?.[4]).toBe("at-fixed-id")
     })
   })
 
@@ -395,17 +421,47 @@ describe("POST /api/institution/members", () => {
       )
     })
 
-    it("skips invoice when branch membership fee is zero", async () => {
-      setupHappyPath({ membershipFee: 0 })
+    it("creates and emails both membership fee and shares invoice when minimum shares configured", async () => {
+      setupHappyPath({ membershipFee: 50_000, minimumShares: 5, shareValue: 10_000 })
+
+      const res = await POST(postRequest())
+      const body = await res.json()
+
+      expect(res.status).toBe(201)
+      expect(body.invoice).toEqual({
+        id: INVOICE_ID,
+        invoice_number: "INV-001",
+        total_amount: 50_000,
+        invoice_due: "2026-07-17",
+      })
+      expect(body.shares_invoice).toEqual({
+        id: "invoice-shares-1",
+        invoice_number: "INV-SHARES-001",
+        total_amount: 50_000,
+        invoice_due: "2026-07-17",
+      })
+
+      expect(createInvoiceWithItemsMock).toHaveBeenCalledTimes(2)
+      expect(enqueueMemberRegistrationEmailsMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          invoice: expect.objectContaining({ id: INVOICE_ID }),
+          sharesInvoice: expect.objectContaining({ id: "invoice-shares-1" }),
+        }),
+      )
+    })
+
+    it("skips invoice when branch membership fee is zero and minimum shares is zero", async () => {
+      setupHappyPath({ membershipFee: 0, minimumShares: 0 })
 
       const res = await POST(postRequest())
       const body = await res.json()
 
       expect(res.status).toBe(201)
       expect(body.invoice).toBeNull()
+      expect(body.shares_invoice).toBeNull()
       expect(createInvoiceWithItemsMock).not.toHaveBeenCalled()
       expect(enqueueMemberRegistrationEmailsMock).toHaveBeenCalledWith(
-        expect.objectContaining({ invoice: null }),
+        expect.objectContaining({ invoice: null, sharesInvoice: null }),
       )
     })
 

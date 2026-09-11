@@ -26,6 +26,22 @@ describe("renderEmailTemplate", () => {
     expect(out.html).toContain("SA-TEST-0001")
   })
 
+  it("renders member shares invoice template", () => {
+    const out = renderEmailTemplate("member.shares_invoice", {
+      institutionName: "Test SACCO",
+      memberName: "Jane Doe",
+      memberNumber: "M-001",
+      invoiceNumber: "INV-SHARES-001",
+      amount: 100000,
+      currency: "UGX",
+      dueDate: "2026-10-01",
+    })
+    expect(out.html).toContain("Initial shares purchase invoice")
+    expect(out.html).toContain("INV-SHARES-001")
+    expect(out.html).toContain("minimum shares purchase holding")
+    expect(out.html).toContain("100,000")
+  })
+
   it("renders membership fee paid with remaining balance and receipt note", () => {
     const out = renderEmailTemplate("membership_fee.paid", {
       institutionName: "Test SACCO",

@@ -407,6 +407,30 @@ export function renderEmailTemplate(template: string, data: TemplateData = {}): 
       )
     }
 
+    case "member.shares_invoice": {
+      const amount = Number(data.amount || 0)
+      const invoiceNumber = String(data.invoiceNumber || "")
+      const dueDate = data.dueDate ? String(data.dueDate) : null
+      return layout(
+        "Initial shares purchase invoice",
+        `<p style="margin:0 0 12px;">Hello ${esc(memberName)},</p>
+         <p style="margin:0 0 14px;">Invoice <strong>${esc(invoiceNumber)}</strong> has been issued for your minimum shares purchase holding.</p>
+         ${renderAmountCard("Amount Due", formatCurrency(amount, currency))}
+         ${renderDetailTable([
+           { label: "Invoice Number", value: invoiceNumber },
+           ...(dueDate ? [{ label: "Due Date", value: dueDate }] : []),
+           { label: "Member Number", value: memberNumber },
+         ])}
+         <div style="display:none">
+           <p>Amount due: <strong>${esc(formatCurrency(amount, currency))}</strong></p>
+           ${dueDate ? `<p>Due date: <strong>${esc(dueDate)}</strong></p>` : ""}
+         </div>
+         ${renderAttachmentNotice("Your initial shares purchase invoice is attached to this email as a PDF.")}`,
+        institutionName,
+        { badge: "Shares Invoice", badgeVariant: "primary" }
+      )
+    }
+
     case "invoice.sent": {
       const amount = Number(data.amount || 0)
       const invoiceNumber = String(data.invoiceNumber || "")
