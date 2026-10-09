@@ -352,9 +352,9 @@ export async function GET(req: Request) {
                ip.invoice_id,
                ip.amount,
                ip.payment_date,
-               COALESCE(t.transaction_number, mt.transaction_number) AS transaction_number,
-               COALESCE(t.mode, mt.mode) AS mode,
-               COALESCE(t.reference_number, mt.reference_number) AS reference_number,
+               COALESCE(t.transaction_number, 'MF-' || substr(ip.membership_fee_id::text, 1, 8)) AS transaction_number,
+               COALESCE(t.mode, 'Cash') AS mode,
+               t.reference_number AS reference_number,
                u.full_name AS processed_by_name,
                CASE
                  WHEN ip.membership_fee_id IS NOT NULL THEN 'membership_fee'
@@ -363,7 +363,6 @@ export async function GET(req: Request) {
              FROM invoice_payments ip
              LEFT JOIN transactions t ON t.id = ip.transaction_id
              LEFT JOIN membership_fees mf ON mf.id = ip.membership_fee_id
-             LEFT JOIN transactions mt ON mt.id = mf.transaction_id AND ip.transaction_id IS NULL
              LEFT JOIN users u ON u.id = ip.processed_by
              WHERE ip.invoice_id = ANY($1::uuid[])
              ORDER BY ip.payment_date ASC, ip.created_at ASC`,

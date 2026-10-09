@@ -11,6 +11,7 @@ export const EMAIL_TEMPLATE_NOTIFICATION_TYPE: Record<string, NotificationType> 
   "kyc.rejected": "kyc_rejected",
   "member.invoice": "membership_invoice_created",
   "member.shares_invoice": "membership_invoice_created",
+  "member.savings_invoice": "invoice_created",
   "invoice.sent": "invoice_created",
   "invoice.payment_recorded": "invoice_payment_recorded",
   "membership_fee.paid": "membership_fee_paid",

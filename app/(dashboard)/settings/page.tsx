@@ -67,6 +67,7 @@ interface InstitutionConfig {
   minimumShares?: number
   maximumShares?: number
   membershipFee?: number
+  membershipFeePayment?: string
   maximumParallelLoans?: number
   loanLatePenalty?: number
   loanLatePenaltyPeriodDays?: number
@@ -2435,7 +2436,7 @@ export default function SettingsPage() {
 
                     {activeTab === "general" && (
                     <>
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div className="space-y-2">
                         <Label htmlFor="membershipFee">Membership Fee ({config.currency})</Label>
                         <Input
@@ -2450,11 +2451,17 @@ export default function SettingsPage() {
                         />
                       </div>
                       <div className="space-y-2">
-                        <Label htmlFor="clockHint">Policy Cycle Hint</Label>
-                        <div id="clockHint" className="h-10 px-3 rounded-md border border-[#111111]/10 bg-[#111111]/5 text-sm flex items-center text-muted-foreground">
-                          <Clock3 className="h-4 w-4 mr-2 text-[#f08c2b]" />
-                          Billing and penalty policies are day-based for clarity.
-                        </div>
+                        <Label htmlFor="membershipFeePayment">Membership Fee Payment</Label>
+                        <StyledSelect
+                          value={config.membershipFeePayment === "one time" ? "one_time" : (config.membershipFeePayment || "annual")}
+                          onChange={(val) => setConfigField("membershipFeePayment", val)}
+                          placeholder="Select payment frequency"
+                          disabled={!canEditInstitutionWorkspace("general")}
+                          options={[
+                            { value: "one_time", label: "one time", description: "Membership fee is charged once when joining" },
+                            { value: "annual", label: "annual", description: "Membership fee is charged every financial year" },
+                          ]}
+                        />
                       </div>
                     </div>
 

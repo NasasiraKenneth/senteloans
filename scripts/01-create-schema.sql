@@ -101,6 +101,7 @@ CREATE TABLE IF NOT EXISTS config (
     currency VARCHAR(20) NOT NULL,
     currency_inwords VARCHAR(250) NOT NULL,
     membership_fee NUMERIC(18,2) NOT NULL CHECK (membership_fee >= 0),
+    membership_fee_payment VARCHAR(20) NOT NULL DEFAULT 'annual',
     share_value NUMERIC(18,2) NOT NULL CHECK (share_value >= 0),
     minimum_shares INT NOT NULL CHECK (minimum_shares >= 0),
     maximum_shares INT,

@@ -63,40 +63,100 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       if (!memberRow) return { error: "member_not_found" as const }
 
       const cfgRes = await client.query(
-        `SELECT membership_fee FROM config WHERE branch_id = $1 LIMIT 1`,
+        `SELECT membership_fee, membership_fee_payment, financial_year FROM config WHERE branch_id = $1 LIMIT 1`,
         [memberRow.branch_id]
       )
-      const membershipFee = Number(cfgRes.rows[0]?.membership_fee ?? 0)
+      const cfgRow = cfgRes.rows[0]
+      const cfgMembershipFee = Number(cfgRow?.membership_fee ?? 0)
+      const membershipFeePayment = String(cfgRow?.membership_fee_payment || "annual").trim()
+      const isOneTime = membershipFeePayment === "one_time" || membershipFeePayment === "one time"
+      const financialYear = String(cfgRow?.financial_year || new Date().getFullYear()).trim()
 
-      const paidRes = await client.query(
-        `SELECT COALESCE(SUM(amount_paid), 0)::numeric AS total_paid
-         FROM membership_fees
-         WHERE institution_id = $1 AND member_id = $2`,
+      const openInvoice = await findOpenMemberMembershipInvoice(
+        client,
+        actor.institution_id,
+        memberId,
+      )
+
+      const existingFeeRes = await client.query<{ total_membership_fee: number }>(
+        `SELECT total_membership_fee FROM membership_fees
+         WHERE institution_id = $1 AND member_id = $2
+         ORDER BY created_at DESC LIMIT 1`,
         [actor.institution_id, memberId]
       )
+      const existingTotal = Number(existingFeeRes.rows[0]?.total_membership_fee ?? 0)
+
+      const membershipFee = openInvoice?.total_amount || existingTotal || cfgMembershipFee
+
+      const paidQuery = isOneTime
+        ? `SELECT COALESCE(SUM(amount_paid), 0)::numeric AS total_paid
+           FROM membership_fees
+           WHERE institution_id = $1 AND member_id = $2`
+        : `SELECT COALESCE(SUM(amount_paid), 0)::numeric AS total_paid
+           FROM membership_fees
+           WHERE institution_id = $1 AND member_id = $2
+             AND (period = $3 OR EXTRACT(YEAR FROM payment_date)::text = $3)`
+
+      const paidParams = isOneTime
+        ? [actor.institution_id, memberId]
+        : [actor.institution_id, memberId, financialYear]
+
+      const paidRes = await client.query(paidQuery, paidParams)
       const membershipFeePaid = Number(paidRes.rows[0]?.total_paid ?? 0)
 
-      // Payment history from the domain table (seed rows have no transaction_number).
+      // Payment history from invoice_payments (linking transactions and invoices for partial payments)
+      // with fallback to membership_fees for seed/legacy records.
       const paymentsRes = await client.query(
         `SELECT
-            mf.id,
-            COALESCE(t.transaction_number, 'SEED-' || substr(mf.id::text, 1, 8)) AS transaction_number,
-            mf.amount_paid AS amount,
-            mf.mode,
-            mf.description,
-            mf.reference_number,
+            ip.id::text AS id,
+            t.transaction_number,
+            ip.amount::numeric AS amount,
+            COALESCE(t.mode, 'Cash') AS mode,
+            COALESCE(t.description, 'Membership fee payment') AS description,
+            COALESCE(t.reference_number, '') AS reference_number,
+            ip.payment_date AS transaction_date,
+            'Completed'::transaction_status AS status
+         FROM invoice_payments ip
+         JOIN transactions t ON t.id = ip.transaction_id
+         JOIN invoices inv ON inv.id = ip.invoice_id
+         WHERE inv.institution_id = $1 AND inv.member_id = $2
+           AND EXISTS (
+             SELECT 1 FROM invoice_items it
+              WHERE it.invoice_id = inv.id
+                AND LOWER(it.description) LIKE '%membership fee%'
+           )
+         UNION ALL
+         SELECT
+            mf.id::text AS id,
+            'SEED-' || upper(substr(mf.id::text, 1, 8)) AS transaction_number,
+            mf.amount_paid::numeric AS amount,
+            'Cash' AS mode,
+            'Membership fee payment' AS description,
+            '' AS reference_number,
             mf.payment_date AS transaction_date,
             'Completed'::transaction_status AS status
          FROM membership_fees mf
-         LEFT JOIN transactions t ON t.id = mf.transaction_id
          WHERE mf.institution_id = $1 AND mf.member_id = $2
-         ORDER BY mf.payment_date DESC`,
+           AND mf.amount_paid > 0
+           AND NOT EXISTS (
+             SELECT 1 FROM invoice_payments ip2
+             JOIN invoices inv2 ON inv2.id = ip2.invoice_id
+             WHERE inv2.member_id = mf.member_id
+               AND EXISTS (
+                 SELECT 1 FROM invoice_items it2
+                  WHERE it2.invoice_id = inv2.id
+                    AND LOWER(it2.description) LIKE '%membership fee%'
+               )
+           )
+         ORDER BY transaction_date DESC`,
         [actor.institution_id, memberId]
       )
 
       return {
         membershipFee,
         membershipFeePaid,
+        membershipFeePayment,
+        financialYear,
         payments: paymentsRes.rows,
       }
     })
@@ -214,11 +274,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         }
       }
 
-      // Non-cash payments require a reference number.
-      if (mode !== "Cash" && !referenceNumber) {
-        return { error: "reference_number_required" as const }
-      }
-
       // Bank-routed payments settle into a branch bank account, which we credit
       // with the fee amount. Validate the selected account up-front.
       let bankAccount: BankAccountRow | null = null
@@ -233,20 +288,50 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       }
 
       const cfgRes = await client.query(
-        `SELECT membership_fee, currency FROM config WHERE branch_id = $1 LIMIT 1`,
+        `SELECT membership_fee, membership_fee_payment, financial_year, currency FROM config WHERE branch_id = $1 LIMIT 1`,
         [memberRow.branch_id]
       )
-      const membershipFee = Number(cfgRes.rows[0]?.membership_fee ?? 0)
-      const currency = (cfgRes.rows[0]?.currency as string) || "UGX"
+      const cfgRow = cfgRes.rows[0]
+      const cfgMembershipFee = Number(cfgRow?.membership_fee ?? 0)
+      const currency = (cfgRow?.currency as string) || "UGX"
+      const membershipFeePayment = String(cfgRow?.membership_fee_payment || "annual").trim()
+      const isOneTime = membershipFeePayment === "one_time" || membershipFeePayment === "one time"
+      const financialYear = String(cfgRow?.financial_year || resolvedPaymentDate.getFullYear().toString()).trim()
+      const periodYear = resolvedPaymentDate.getFullYear().toString()
 
-      const paidRes = await client.query(
-        `SELECT COALESCE(SUM(amount_paid), 0)::numeric AS total_paid
-         FROM membership_fees
-         WHERE institution_id = $1 AND member_id = $2`,
-        [actor.institution_id, memberId]
+      const openInvoiceForIns = await findOpenMemberMembershipInvoice(
+        client,
+        actor.institution_id,
+        memberId,
       )
+
+      const existingFeeRes = await client.query<{ id: string; amount_paid: number; invoice_id: string | null; total_membership_fee: number }>(
+        `SELECT id, amount_paid, invoice_id, total_membership_fee FROM membership_fees
+         WHERE institution_id = $1 AND member_id = $2 AND period = $3
+         ORDER BY created_at DESC LIMIT 1`,
+        [actor.institution_id, memberId, periodYear]
+      )
+      const existingFee = existingFeeRes.rows[0]
+      const existingTotal = Number(existingFee?.total_membership_fee ?? 0)
+
+      const membershipFee = openInvoiceForIns?.total_amount || existingTotal || cfgMembershipFee
+
+      const paidQuery = isOneTime
+        ? `SELECT COALESCE(SUM(amount_paid), 0)::numeric AS total_paid
+           FROM membership_fees
+           WHERE institution_id = $1 AND member_id = $2`
+        : `SELECT COALESCE(SUM(amount_paid), 0)::numeric AS total_paid
+           FROM membership_fees
+           WHERE institution_id = $1 AND member_id = $2
+             AND (period = $3 OR EXTRACT(YEAR FROM payment_date)::text = $3)`
+
+      const paidParams = isOneTime
+        ? [actor.institution_id, memberId]
+        : [actor.institution_id, memberId, financialYear]
+
+      const paidRes = await client.query(paidQuery, paidParams)
       const currentPaid = Number(paidRes.rows[0]?.total_paid ?? 0)
-      const remaining = membershipFee - currentPaid
+      const remaining = Math.max(0, membershipFee - currentPaid)
 
       if (membershipFee > 0 && amount > remaining + 0.01) {
         return { error: "amount_exceeds_remaining" as const, remaining }
@@ -300,28 +385,56 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
           actor,
         })
 
-        const feeRes = await client.query(
-          `INSERT INTO membership_fees
-            (institution_id, branch_id, member_id, amount_paid, total_membership_fee, balance_before, balance_after, mode, reference_number, description, transaction_id, processed_by, payment_date)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-           RETURNING id`,
-          [
-            actor.institution_id,
-            memberRow.branch_id,
-            memberId,
-            amount,
-            membershipFee,
-            balanceBefore,
-            balanceAfter,
-            mode,
-            referenceNumber || null,
-            description,
-            txRow.id,
-            actor.id,
-            txDate,
-          ]
-        )
-        const feeRow = feeRes.rows[0]
+        let feeRowId: string
+        const effectiveInvoiceId = openInvoiceForIns?.id || existingFee?.invoice_id || null
+
+        if (existingFee) {
+          const updatedAmountPaid = Number(existingFee.amount_paid || 0) + amount
+          const feeRes = await client.query(
+            `UPDATE membership_fees
+             SET amount_paid = $1,
+                 balance_before = $2,
+                 balance_after = $3,
+                 payment_date = $4,
+                 modified_by = $5,
+                 invoice_id = COALESCE(invoice_id, $6),
+                 updated_at = NOW()
+             WHERE id = $7
+             RETURNING id`,
+            [
+              updatedAmountPaid,
+              balanceBefore,
+              balanceAfter,
+              txDate,
+              actor.id,
+              effectiveInvoiceId,
+              existingFee.id,
+            ]
+          )
+          feeRowId = feeRes.rows[0].id
+        } else {
+          const feeRes = await client.query(
+            `INSERT INTO membership_fees
+              (institution_id, branch_id, member_id, amount_paid, total_membership_fee, balance_before, balance_after, period, invoice_id, processed_by, payment_date)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+             RETURNING id`,
+            [
+              actor.institution_id,
+              memberRow.branch_id,
+              memberId,
+              amount,
+              membershipFee,
+              balanceBefore,
+              balanceAfter,
+              periodYear,
+              effectiveInvoiceId,
+              actor.id,
+              txDate,
+            ]
+          )
+          feeRowId = feeRes.rows[0].id
+        }
+        const feeRow = { id: feeRowId }
 
         await auditLogger.logInsert(
           "membership_fees",
@@ -333,10 +446,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
             total_membership_fee: membershipFee,
             balance_before: balanceBefore,
             balance_after: balanceAfter,
-            mode,
-            reference_number: referenceNumber || null,
-            description,
-            transaction_id: txRow.id,
+            period: periodYear,
+            invoice_id: effectiveInvoiceId,
             processed_by: actor.id,
             payment_date: txDate,
           },
@@ -346,11 +457,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
           client
         )
 
-        const openInvoice = await findOpenMemberMembershipInvoice(
-          client,
-          actor.institution_id,
-          memberId,
-        )
         let invoicePayment: {
           invoice_id: string
           status: string
@@ -358,63 +464,63 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
           outstanding: number
         } | null = null
         let postCommitInvoice: MembershipFeePostCommit["invoice"] = null
-        if (openInvoice) {
+        if (effectiveInvoiceId) {
           await recordInvoicePayment(client, {
             institutionId: actor.institution_id,
             branchId: memberRow.branch_id,
-            invoiceId: openInvoice.id,
+            invoiceId: effectiveInvoiceId,
             amount,
             paymentDate: txDate,
             processedBy: actor.id,
-            membershipFeeId: feeRow.id,
+            transactionId: txRow.id,
           })
-          const synced = await syncInvoiceStatusFromPayments(client, openInvoice.id, {
+          const synced = await syncInvoiceStatusFromPayments(client, effectiveInvoiceId, {
             institutionId: actor.institution_id,
             branchId: memberRow.branch_id,
             userId: actor.id,
           })
           invoicePayment = {
-            invoice_id: openInvoice.id,
+            invoice_id: effectiveInvoiceId,
             status: synced.status,
             paid_amount: synced.paid_amount,
             outstanding: synced.outstanding,
           }
           postCommitInvoice = {
-            id: openInvoice.id,
-            invoice_number: openInvoice.invoice_number,
+            id: effectiveInvoiceId,
+            invoice_number: openInvoiceForIns?.invoice_number || "",
             amount,
             fullySettled: synced.status === "fully paid",
           }
         }
 
-        // Resolve institution name for post-commit notifications/emails.
-        const instRes = await client.query<{ name: string }>(
-          `SELECT name FROM institutions WHERE id = $1`,
-          [actor.institution_id],
-        )
-        const institutionName = instRes.rows[0]?.name || ""
+      // Resolve institution name for post-commit notifications/emails.
+      const instRes = await client.query<{ name: string }>(
+        `SELECT name FROM institutions WHERE id = $1`,
+        [actor.institution_id],
+      )
+      const institutionName = instRes.rows[0]?.name || ""
 
-        // Stash context for best-effort notifications + emails after COMMIT.
-        postCommit = {
-          actorId: actor.id,
-          institutionId: actor.institution_id,
-          branchId: memberRow.branch_id,
-          institutionName,
-          currency,
-          member: {
-            id: String(memberRow.id),
-            full_name: String(memberRow.full_name || ""),
-            member_number: String(memberRow.member_number || ""),
-            email: memberRow.email ? String(memberRow.email) : "",
-          },
-          fee: { amount, remaining: balanceAfter },
-          transaction: {
-            id: txRow.id,
-            transaction_number: transactionNumber,
-            amount,
-          },
-          invoice: postCommitInvoice,
-        }
+      // Stash context for best-effort notifications + emails after COMMIT.
+      postCommit = {
+        actorId: actor.id,
+        institutionId: actor.institution_id,
+        branchId: memberRow.branch_id,
+        institutionName,
+        currency,
+        member: {
+          id: String(memberRow.id),
+          full_name: String(memberRow.full_name || ""),
+          member_number: String(memberRow.member_number || ""),
+          email: memberRow.email ? String(memberRow.email) : "",
+        },
+        fee: { amount, remaining: balanceAfter },
+        transaction: {
+          id: txRow.id,
+          transaction_number: transactionNumber,
+          amount,
+        },
+        invoice: postCommitInvoice,
+      }
 
         await client.query("COMMIT")
 

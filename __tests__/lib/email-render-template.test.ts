@@ -42,6 +42,22 @@ describe("renderEmailTemplate", () => {
     expect(out.html).toContain("100,000")
   })
 
+  it("renders member savings invoice template", () => {
+    const out = renderEmailTemplate("member.savings_invoice", {
+      institutionName: "Test SACCO",
+      memberName: "Jane Doe",
+      memberNumber: "M-001",
+      invoiceNumber: "INV-SAVINGS-001",
+      amount: 50000,
+      currency: "UGX",
+      dueDate: "2026-10-01",
+    })
+    expect(out.html).toContain("Savings billing invoice")
+    expect(out.html).toContain("INV-SAVINGS-001")
+    expect(out.html).toContain("previous savings billing schedule")
+    expect(out.html).toContain("50,000")
+  })
+
   it("renders membership fee paid with remaining balance and receipt note", () => {
     const out = renderEmailTemplate("membership_fee.paid", {
       institutionName: "Test SACCO",

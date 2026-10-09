@@ -173,6 +173,7 @@ export async function GET(req: Request) {
         minimumShares: readNumber(cfg, "minimum_shares") ?? 0,
         maximumShares: readNumber(cfg, "maximum_shares"),
         membershipFee: readNumber(cfg, "membership_fee") ?? 0,
+        membershipFeePayment: readString(cfg, "membership_fee_payment") || "annual",
         maximumParallelLoans: readNumber(cfg, "maximum_parallel_loans") ?? 1,
         loanLatePenalty: readNumber(cfg, "loan_overdue_interest") ?? 0,
         loanLatePenaltyPeriodDays: readNumber(cfg, "loan_overdue_period") ?? 30,
@@ -221,6 +222,7 @@ export async function PUT(req: Request) {
         minimumShares?: number
         maximumShares?: number
         membershipFee?: number
+        membershipFeePayment?: string
         maximumParallelLoans?: number
         loanLatePenalty?: number
         loanLatePenaltyPeriodDays?: number
@@ -288,6 +290,10 @@ export async function PUT(req: Request) {
           ? null
           : Number(payload.maximumShares ?? current.maximum_shares)
       const membershipFee = Number(payload.membershipFee ?? current.membership_fee ?? 0)
+      const membershipFeePayment =
+        payload.membershipFeePayment !== undefined
+          ? String(payload.membershipFeePayment).trim()
+          : readString(current, "membership_fee_payment") || "annual"
       const maximumParallelLoans = Number(payload.maximumParallelLoans ?? current.maximum_parallel_loans ?? 1)
       const loanOverduePeriod = Number(payload.loanLatePenaltyPeriodDays ?? current.loan_overdue_period ?? 30)
       const loanOverdueInterest = Number(payload.loanLatePenalty ?? current.loan_overdue_interest ?? 0)
@@ -350,6 +356,7 @@ export async function PUT(req: Request) {
         String(payload.currency || current.currency || "UGX"),
         currencyInWords.slice(0, 250),
         membershipFee,
+        membershipFeePayment,
         shareValue,
         minimumShares,
         maximumShares,
@@ -373,7 +380,7 @@ export async function PUT(req: Request) {
       await client.query(
         `INSERT INTO config (
            branch_id, loans, shares, savings, mobile_money, auto_invoices, currency, currency_inwords,
-           membership_fee, share_value, minimum_shares, maximum_shares, maximum_parallel_loans,
+           membership_fee, membership_fee_payment, share_value, minimum_shares, maximum_shares, maximum_parallel_loans,
            loan_overdue_period, loan_overdue_interest, loan_overdue_interest_per,
            loan_default_period, invoice_overdue_period, savings_overdue_period,
            membership_overdue_period, membership_overdue_interest, membership_overdue_interest_per,
@@ -381,12 +388,12 @@ export async function PUT(req: Request) {
            modified_by, updated_at
          ) VALUES (
            $1,$2,$3,$4,$5,$6,$7,$8,
-           $9,$10,$11,$12,$13,
-           $14,$15,$16,
-           $17,$18,$19,
-           $20,$21,$22,
-           $23,$24,$25,$26,
-           $27,NOW()
+           $9,$10,$11,$12,$13,$14,
+           $15,$16,$17,
+           $18,$19,$20,
+           $21,$22,$23,
+           $24,$25,$26,$27,
+           $28,NOW()
          )
          ON CONFLICT (branch_id) DO UPDATE SET
            loans = EXCLUDED.loans,
@@ -397,6 +404,7 @@ export async function PUT(req: Request) {
            currency = EXCLUDED.currency,
            currency_inwords = EXCLUDED.currency_inwords,
            membership_fee = EXCLUDED.membership_fee,
+           membership_fee_payment = EXCLUDED.membership_fee_payment,
            share_value = EXCLUDED.share_value,
            minimum_shares = EXCLUDED.minimum_shares,
            maximum_shares = EXCLUDED.maximum_shares,
@@ -465,6 +473,7 @@ export async function PUT(req: Request) {
         minimumShares: readNumber(s2, "minimum_shares") ?? 0,
         maximumShares: readNumber(s2, "maximum_shares"),
         membershipFee: readNumber(s2, "membership_fee") ?? 0,
+        membershipFeePayment: readString(s2, "membership_fee_payment") || "annual",
         maximumParallelLoans: readNumber(s2, "maximum_parallel_loans") ?? 1,
         loanLatePenalty: readNumber(s2, "loan_overdue_interest") ?? 0,
         loanLatePenaltyPeriodDays: readNumber(s2, "loan_overdue_period") ?? 30,

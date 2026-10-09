@@ -117,6 +117,30 @@ export async function GET(req: Request) {
           params.push(kyc)
           idx++
         }
+        const memPaidSubquery = `
+          COALESCE((
+            SELECT SUM(mf.amount_paid)
+            FROM membership_fees mf
+            WHERE mf.member_id = c.id
+              AND (
+                EXISTS (
+                  SELECT 1 FROM config cfg_sub
+                  WHERE cfg_sub.branch_id = c.branch_id
+                    AND LOWER(COALESCE(cfg_sub.membership_fee_payment, 'annual')) IN ('one_time', 'one time')
+                )
+                OR (
+                  mf.period = COALESCE(
+                    (SELECT NULLIF(cfg_sub.financial_year, '') FROM config cfg_sub WHERE cfg_sub.branch_id = c.branch_id LIMIT 1),
+                    EXTRACT(YEAR FROM CURRENT_DATE)::text
+                  )
+                  OR EXTRACT(YEAR FROM mf.payment_date)::text = COALESCE(
+                    (SELECT NULLIF(cfg_sub.financial_year, '') FROM config cfg_sub WHERE cfg_sub.branch_id = c.branch_id LIMIT 1),
+                    EXTRACT(YEAR FROM CURRENT_DATE)::text
+                  )
+                )
+              )
+          ), 0)::numeric`
+
         if (openingBalanceRecorded === "true" || openingBalanceRecorded === "false") {
           where += ` AND c.opening_balance_recorded = $${idx}`
           params.push(openingBalanceRecorded === "true")
@@ -128,7 +152,7 @@ export async function GET(req: Request) {
               SELECT 1 FROM config cfg
               WHERE cfg.branch_id = c.branch_id
                 AND COALESCE(cfg.membership_fee, 0) > 0
-                AND COALESCE((SELECT SUM(mf.amount_paid) FROM membership_fees mf WHERE mf.member_id = c.id), 0) >= cfg.membership_fee
+                AND ${memPaidSubquery} >= cfg.membership_fee
             )
             OR (
               NOT EXISTS (
@@ -136,7 +160,7 @@ export async function GET(req: Request) {
                 WHERE cfg2.branch_id = c.branch_id
                   AND COALESCE(cfg2.membership_fee, 0) > 0
               )
-              AND COALESCE((SELECT SUM(mf.amount_paid) FROM membership_fees mf WHERE mf.member_id = c.id), 0) > 0
+              AND ${memPaidSubquery} > 0
             )
           )`
         } else if (membershipPaymentStatus === "partial") {
@@ -144,8 +168,8 @@ export async function GET(req: Request) {
             SELECT 1 FROM config cfg
             WHERE cfg.branch_id = c.branch_id
               AND COALESCE(cfg.membership_fee, 0) > 0
-              AND COALESCE((SELECT SUM(mf.amount_paid) FROM membership_fees mf WHERE mf.member_id = c.id), 0) > 0
-              AND COALESCE((SELECT SUM(mf.amount_paid) FROM membership_fees mf WHERE mf.member_id = c.id), 0) < cfg.membership_fee
+              AND ${memPaidSubquery} > 0
+              AND ${memPaidSubquery} < cfg.membership_fee
           )`
         }
         if (kycApprovedAtStart) {
@@ -168,7 +192,7 @@ export async function GET(req: Request) {
               c.district,
               c.status,
               c.kyc_status,
-              COALESCE((SELECT SUM(mf.amount_paid) FROM membership_fees mf WHERE mf.member_id = c.id), 0)::numeric AS membership_fee_paid,
+              ${memPaidSubquery} AS membership_fee_paid,
               c.kyc_approved_at,
               c.join_date
            FROM members c

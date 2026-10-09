@@ -12,6 +12,7 @@ interface StyledSelectProps {
   options: SelectOption[];
   searchable?: boolean; // optional prop
   disabled?: boolean;
+  showSelectedDescription?: boolean;
 }
 
 export default function StyledSelect({
@@ -21,6 +22,7 @@ export default function StyledSelect({
   options,
   searchable = false,
   disabled = false,
+  showSelectedDescription = false,
 }: StyledSelectProps) {
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   const [search, setSearch] = useState(""); // search term
@@ -55,7 +57,7 @@ export default function StyledSelect({
           <span className={value ? "text-gray-900 font-medium truncate" : "text-gray-400 truncate"}>
             {selectedOpt ? safeText(selectedOpt.label) : placeholder}
           </span>
-          {selectedOpt?.description && (
+          {showSelectedDescription && selectedOpt?.description && (
             <span className="text-xs text-gray-500 font-normal truncate">
               {safeText(selectedOpt.description)}
             </span>

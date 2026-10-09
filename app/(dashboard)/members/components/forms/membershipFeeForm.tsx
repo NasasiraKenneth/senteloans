@@ -71,8 +71,14 @@ export default function MembershipFeeForm({
         const data = await res.json().catch(() => ({}))
         if (!res.ok) throw new Error(data?.error || "Failed to load membership fee")
         if (!cancelled) {
-          setMembershipFee(Number(data.membershipFee || 0))
-          setMembershipFeePaid(Number(data.membershipFeePaid || 0))
+          const fee = Number(data.membershipFee || 0)
+          const paid = Number(data.membershipFeePaid || 0)
+          const rem = Math.max(fee - paid, 0)
+          setMembershipFee(fee)
+          setMembershipFeePaid(paid)
+          if (rem <= 0 && fee === 0) {
+            setPaymentType("custom")
+          }
         }
       } catch {
         // Non-fatal: the form still works, the user just sees zeroed totals.
@@ -223,15 +229,15 @@ export default function MembershipFeeForm({
       <div>
         <label className="mb-1 block text-sm font-medium text-gray-700">Amount ({currency})</label>
         {paymentType === "remaining" ? (
-          <input value={remaining.toLocaleString()} readOnly className={`${inputClass} bg-gray-50 text-gray-600`} />
+          <input value={fmt(remaining)} readOnly className={`${inputClass} bg-gray-50 font-semibold text-gray-700`} />
         ) : (
           <input
             type="number"
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
-            placeholder={`Max: ${remaining.toLocaleString()}`}
+            placeholder={remaining > 0 ? `Max: ${remaining.toLocaleString()}` : "Enter payment amount"}
             min={1}
-            max={remaining}
+            max={remaining > 0 ? remaining : undefined}
             className={inputClass}
           />
         )}

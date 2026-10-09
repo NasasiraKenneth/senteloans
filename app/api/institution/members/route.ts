@@ -119,12 +119,39 @@ export async function GET(req: Request) {
       if (!allowed) return { error: "missing_permission:view_members" as const }
       const actorRole = String(actor.role || "").trim().toLowerCase()
 
-      // Keep a branch-local membership fee for UI compatibility.
+      // Keep a branch-local membership fee and payment settings for UI compatibility.
       const cfgRes = await client.query(
-        `SELECT membership_fee FROM config WHERE branch_id = $1 LIMIT 1`,
+        `SELECT membership_fee, membership_fee_payment, financial_year FROM config WHERE branch_id = $1 LIMIT 1`,
         [actor.branch_id]
       )
-      const membershipFee = Number(cfgRes.rows[0]?.membership_fee ?? 0)
+      const cfgRow = cfgRes.rows[0]
+      const membershipFee = Number(cfgRow?.membership_fee ?? 0)
+      const membershipFeePayment = String(cfgRow?.membership_fee_payment || "annual").trim()
+      const financialYear = String(cfgRow?.financial_year || new Date().getFullYear()).trim()
+
+      const memPaidSubquery = `
+        COALESCE((
+          SELECT SUM(mf.amount_paid)
+          FROM membership_fees mf
+          WHERE mf.member_id = c.id
+            AND (
+              EXISTS (
+                SELECT 1 FROM config cfg_sub
+                WHERE cfg_sub.branch_id = c.branch_id
+                  AND LOWER(COALESCE(cfg_sub.membership_fee_payment, 'annual')) IN ('one_time', 'one time')
+              )
+              OR (
+                mf.period = COALESCE(
+                  (SELECT NULLIF(cfg_sub.financial_year, '') FROM config cfg_sub WHERE cfg_sub.branch_id = c.branch_id LIMIT 1),
+                  EXTRACT(YEAR FROM CURRENT_DATE)::text
+                )
+                OR EXTRACT(YEAR FROM mf.payment_date)::text = COALESCE(
+                  (SELECT NULLIF(cfg_sub.financial_year, '') FROM config cfg_sub WHERE cfg_sub.branch_id = c.branch_id LIMIT 1),
+                  EXTRACT(YEAR FROM CURRENT_DATE)::text
+                )
+              )
+            )
+        ), 0)::numeric`
 
       let where = "c.institution_id = $1"
       const params: unknown[] = [actor.institution_id]
@@ -161,7 +188,7 @@ export async function GET(req: Request) {
             FROM config cfg
             WHERE cfg.branch_id = c.branch_id
               AND COALESCE(cfg.membership_fee, 0) > 0
-              AND COALESCE((SELECT SUM(mf.amount_paid) FROM membership_fees mf WHERE mf.member_id = c.id), 0) >= cfg.membership_fee
+              AND ${memPaidSubquery} >= cfg.membership_fee
           )
           OR (
             NOT EXISTS (
@@ -170,7 +197,7 @@ export async function GET(req: Request) {
               WHERE cfg2.branch_id = c.branch_id
                 AND COALESCE(cfg2.membership_fee, 0) > 0
             )
-            AND COALESCE((SELECT SUM(mf.amount_paid) FROM membership_fees mf WHERE mf.member_id = c.id), 0) > 0
+            AND ${memPaidSubquery} > 0
           )
         )`
       } else if (membershipPaymentStatus === "partial") {
@@ -179,8 +206,8 @@ export async function GET(req: Request) {
           FROM config cfg
           WHERE cfg.branch_id = c.branch_id
             AND COALESCE(cfg.membership_fee, 0) > 0
-            AND COALESCE((SELECT SUM(mf.amount_paid) FROM membership_fees mf WHERE mf.member_id = c.id), 0) > 0
-            AND COALESCE((SELECT SUM(mf.amount_paid) FROM membership_fees mf WHERE mf.member_id = c.id), 0) < cfg.membership_fee
+            AND ${memPaidSubquery} > 0
+            AND ${memPaidSubquery} < cfg.membership_fee
         )`
       }
       if (kycApprovedAtStart) {
@@ -209,7 +236,7 @@ export async function GET(req: Request) {
             c.district,
             c.status,
             c.kyc_status,
-            COALESCE((SELECT SUM(mf.amount_paid) FROM membership_fees mf WHERE mf.member_id = c.id), 0)::numeric AS membership_fee_paid,
+            ${memPaidSubquery} AS membership_fee_paid,
             c.join_date,
             c.created_by,
             c.kyc_approved_by,
@@ -224,7 +251,7 @@ export async function GET(req: Request) {
          LIMIT $${idx}`,
         params
       )
-      return { members: res.rows, membershipFee }
+      return { members: res.rows, membershipFee, membershipFeePayment, financialYear }
     })
 
     if (result && "error" in result) {
@@ -246,7 +273,12 @@ export async function GET(req: Request) {
       count: members.length,
       authUserId: session.user.authUserId,
     })
-    return NextResponse.json({ members, membershipFee: result?.membershipFee ?? 0 })
+    return NextResponse.json({
+      members,
+      membershipFee: result?.membershipFee ?? 0,
+      membershipFeePayment: result?.membershipFeePayment ?? "annual",
+      financialYear: result?.financialYear ?? String(new Date().getFullYear()),
+    })
   } catch (e: unknown) {
     const err = e as Error
     apiLog("error", "members.list.error", {
@@ -368,7 +400,8 @@ export async function POST(req: Request) {
       const shareValue = Number(cfg.share_value || 0)
       const minimumShares = Number(cfg.minimum_shares || 0)
       const invoiceDueDays = Number(cfg.invoice_overdue_period || 30)
-      const financialYear = (cfg.financial_year as string) || String(new Date().getFullYear())
+      const joinDate = body.joinDate || new Date().toISOString().slice(0, 10)
+      const financialYear = (cfg.financial_year as string) || (joinDate ? String(new Date(joinDate).getFullYear()) : String(new Date().getFullYear()))
 
       const inst = String(actor.institution_id).slice(0, 6).replace(/-/g, "").toUpperCase()
       const now = new Date()
@@ -381,7 +414,6 @@ export async function POST(req: Request) {
         `M${inst}-${yymm}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`
       const savingsNumberGen = () =>
         `SA${inst}-${yymm}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`
-      const joinDate = body.joinDate || new Date().toISOString().slice(0, 10)
       const monthlyIncome = typeof body.monthlyIncome !== "undefined" && body.monthlyIncome !== null && !Number.isNaN(Number(body.monthlyIncome)) ? Number(body.monthlyIncome) : null
       const memberEmail = typeof body.email === "string" ? body.email.trim() || null : null
       const savingsAccountType = resolveSavingsAccountType(body.savingsAccountType)
@@ -763,6 +795,7 @@ export async function POST(req: Request) {
         savings_account: savingsAccountData,
         invoice: createdInvoice,
         shares_invoice: createdSharesInvoice,
+        savings_invoice: createdSavingsInvoice,
         postCommit: {
           institutionName: institution.name as string,
           currency,
@@ -914,6 +947,14 @@ export async function POST(req: Request) {
               invoice_number: result.shares_invoice.invoice_number,
               total_amount: result.shares_invoice.total_amount,
               invoice_due: result.shares_invoice.invoice_due,
+            }
+          : null,
+        savingsInvoice: result.savings_invoice
+          ? {
+              id: result.savings_invoice.id,
+              invoice_number: result.savings_invoice.invoice_number,
+              total_amount: result.savings_invoice.total_amount,
+              invoice_due: result.savings_invoice.invoice_due,
             }
           : null,
         context: { institutionId: ctx.institutionId, branchId: ctx.branchId, actorId: ctx.actorId },

@@ -92,7 +92,7 @@ export async function findOpenMemberMembershipInvoice(
         AND EXISTS (
           SELECT 1 FROM invoice_items it
            WHERE it.invoice_id = i.id
-             AND LOWER(it.description) = 'annual membership fee'
+             AND LOWER(it.description) LIKE '%membership fee%'
         )
       ORDER BY i.created_at ASC
       LIMIT 1`,
