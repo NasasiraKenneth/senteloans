@@ -140,7 +140,7 @@ CREATE TABLE IF NOT EXISTS savings_plan (
     auto_savings_day VARCHAR(30), --monday to sunday for weekly and eg 2 or 2nd for monthly or qua(NEXT IS 2ND FOR NEXT MONTH ESAY) FIXED DAY THAT IS SUNDAY OR 2ND
     frequency_unit VARCHAR(15), --MONTH
     frequency_value VARCHAR(15), --4
-    use_account_saving_day VARCHAR(10) DEFAULT "false",
+    use_account_saving_day VARCHAR(10) DEFAULT 'false',
     start_date DATE,
     next_billing_date DATE,
     last_billing_date DATE,

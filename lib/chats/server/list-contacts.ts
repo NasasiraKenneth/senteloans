@@ -142,10 +142,8 @@ export async function listInstitutionContacts(
     return listMemberContacts(client, institutionId, excludeChatIdentityId, query)
   }
 
-  const [staff, members] = await Promise.all([
-    listStaffContacts(client, institutionId, excludeChatIdentityId, query),
-    listMemberContacts(client, institutionId, excludeChatIdentityId, query),
-  ])
+  const staff = await listStaffContacts(client, institutionId, excludeChatIdentityId, query)
+  const members = await listMemberContacts(client, institutionId, excludeChatIdentityId, query)
 
   return [...staff, ...members]
 }

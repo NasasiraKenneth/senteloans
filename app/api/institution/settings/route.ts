@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth"
 import { runWithAuth } from "@/lib/db"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
 import { DEFAULT_CURRENCY_IN_WORDS } from "@/lib/invoices/utils"
+import { hasPermissions } from "@/lib/api/rbac"
 
 const readNumber = (obj: Record<string, unknown>, ...keys: string[]): number | undefined => {
   for (const key of keys) {
@@ -245,14 +246,14 @@ export async function PUT(req: Request) {
     const result = await runWithAuth(session.user.authUserId, async (client) => {
       const actor = await resolveActorContext(client, session.user.authUserId as string)
       if (!actor?.institution_id) return null
-      const canEdit = await Promise.all([
-        hasPermission(client, actor, "edit_loan_policies"),
-        hasPermission(client, actor, "edit_membership_policies"),
-        hasPermission(client, actor, "edit_invoice_policies"),
-        hasPermission(client, actor, "edit_share_policies"),
-        hasPermission(client, actor, "edit_branch_financial_info"),
-      ])
-      if (!canEdit.some(Boolean)) return { error: "missing_permission:edit_institution_settings" as const }
+      const perms = await hasPermissions(client, actor, [
+        "edit_loan_policies",
+        "edit_membership_policies",
+        "edit_invoice_policies",
+        "edit_share_policies",
+        "edit_branch_financial_info",
+      ] as const)
+      if (!Object.values(perms).some(Boolean)) return { error: "missing_permission:edit_institution_settings" as const }
 
       const profileRes = await client.query(
         `SELECT u.id AS user_id, u.branch_id, i.id AS institution_id, i.type

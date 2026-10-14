@@ -25,12 +25,16 @@ export function NotificationPanel({ apiEndpoint, onCountChange }: NotificationPa
     try {
       setLoading(true)
       const res = await fetch(`${apiEndpoint}?limit=50`, { cache: "no-store" })
+      if (res.status === 401) {
+        if (onCountChange) onCountChange(0)
+        return
+      }
       if (!res.ok) return
       const data = await res.json()
       setNotifications(data.notifications || [])
       if (onCountChange) onCountChange(data.unreadCount || 0)
-    } catch (e) {
-      console.error("Error fetching notifications:", e)
+    } catch {
+      // best-effort
     } finally {
       setLoading(false)
     }

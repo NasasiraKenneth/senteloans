@@ -18,6 +18,7 @@ export interface RecordInvoicePaymentInput {
   processedBy: string
   transactionId?: string | null
   membershipFeeId?: string | null
+  status?: string
 }
 
 export interface SyncInvoiceStatusAudit {
@@ -31,6 +32,7 @@ const round2 = (n: number): number =>
 
 /**
  * Sum of amounts applied to an invoice via invoice_payments.
+ * Excludes cancelled or reversed payments.
  */
 export async function getInvoicePaidAmount(
   client: PoolClient,
@@ -39,7 +41,8 @@ export async function getInvoicePaidAmount(
   const res = await client.query<{ total: string }>(
     `SELECT COALESCE(SUM(amount), 0)::numeric AS total
        FROM invoice_payments
-      WHERE invoice_id = $1`,
+      WHERE invoice_id = $1
+        AND LOWER(COALESCE(status, 'completed')) NOT IN ('cancelled', 'reversed')`,
     [invoiceId],
   )
   return round2(Number(res.rows[0]?.total ?? 0))
@@ -128,12 +131,13 @@ export async function recordInvoicePayment(
     input.paymentDate instanceof Date
       ? input.paymentDate.toISOString()
       : String(input.paymentDate)
+  const status = input.status || "Completed"
 
   const res = await client.query<{ id: string }>(
     `INSERT INTO invoice_payments (
        institution_id, branch_id, invoice_id, amount, payment_date,
-       transaction_id, membership_fee_id, processed_by
-     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       transaction_id, membership_fee_id, status, processed_by
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
      RETURNING id`,
     [
       input.institutionId,
@@ -143,6 +147,7 @@ export async function recordInvoicePayment(
       paymentDate,
       input.transactionId ?? null,
       input.membershipFeeId ?? null,
+      status,
       input.processedBy,
     ],
   )
@@ -163,12 +168,48 @@ export async function recordInvoicePayment(
       payment_date: paymentDate,
       transaction_id: input.transactionId ?? null,
       membership_fee_id: input.membershipFeeId ?? null,
+      status,
       processed_by: input.processedBy,
     },
     input.branchId,
   )
 
   return { id: row.id }
+}
+
+/**
+ * Cancel an invoice payment linked to a specific transaction and re-sync
+ * the invoice's status and remaining balance.
+ */
+export async function cancelInvoicePaymentByTransactionId(
+  client: PoolClient,
+  transactionId: string,
+  audit?: SyncInvoiceStatusAudit,
+): Promise<{ invoiceId: string | null; cancelledCount: number }> {
+  const findRes = await client.query<{ id: string; invoice_id: string }>(
+    `SELECT id, invoice_id FROM invoice_payments
+      WHERE transaction_id = $1
+        AND LOWER(COALESCE(status, 'completed')) NOT IN ('cancelled', 'reversed')`,
+    [transactionId],
+  )
+  if (findRes.rows.length === 0) {
+    return { invoiceId: null, cancelledCount: 0 }
+  }
+
+  const invoiceId = findRes.rows[0].invoice_id
+
+  await client.query(
+    `UPDATE invoice_payments
+        SET status = 'Cancelled'
+      WHERE transaction_id = $1`,
+    [transactionId],
+  )
+
+  if (invoiceId) {
+    await syncInvoiceStatusFromPayments(client, invoiceId, audit)
+  }
+
+  return { invoiceId, cancelledCount: findRes.rows.length }
 }
 
 /**

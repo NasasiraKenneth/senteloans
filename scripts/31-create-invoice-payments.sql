@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS invoice_payments (
     payment_date TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     transaction_id UUID REFERENCES transactions(id) ON DELETE SET NULL,
     membership_fee_id UUID REFERENCES membership_fees(id) ON DELETE SET NULL,
+    status VARCHAR(15) DEFAULT 'Completed',
     processed_by UUID REFERENCES users(id) ON DELETE SET NULL,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     CONSTRAINT chk_invoice_payment_source

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
-import { hasPermission, isSuperAdmin, requireStaffSession } from "@/lib/api/rbac"
+import { hasPermission, hasPermissions, isSuperAdmin, requireStaffSession } from "@/lib/api/rbac"
 import {
   assertFinancePermissionsReadAccess,
   financeAccessErrorResponseOrNull,
@@ -27,31 +27,31 @@ export async function GET(req: Request) {
       }
       const { actor } = access
 
-      const [
-        viewBankAccounts,
-        addBankAccount,
-        editBankAccount,
-        editBankAmount,
-        viewGrants,
-        addGrant,
-        editGrant,
-        editGrantAmount,
-        viewUnclaimedDeposits,
-        addUnclaimedDeposit,
-        editUnclaimedDeposit,
-      ] = await Promise.all([
-        hasPermission(client, actor, FINANCE_PERMISSIONS.viewBankAccounts),
-        hasPermission(client, actor, FINANCE_PERMISSIONS.addBankAccount),
-        hasPermission(client, actor, FINANCE_PERMISSIONS.editBankAccount),
-        hasPermission(client, actor, FINANCE_PERMISSIONS.editBankAmount),
-        hasPermission(client, actor, FINANCE_PERMISSIONS.viewGrants),
-        hasPermission(client, actor, FINANCE_PERMISSIONS.addGrant),
-        hasPermission(client, actor, FINANCE_PERMISSIONS.editGrant),
-        hasPermission(client, actor, FINANCE_PERMISSIONS.editGrantAmount),
-        hasPermission(client, actor, FINANCE_PERMISSIONS.viewUnclaimedDeposits),
-        hasPermission(client, actor, FINANCE_PERMISSIONS.addUnclaimedDeposit),
-        hasPermission(client, actor, FINANCE_PERMISSIONS.editUnclaimedDeposit),
-      ])
+      const finPermKeys = [
+        FINANCE_PERMISSIONS.viewBankAccounts,
+        FINANCE_PERMISSIONS.addBankAccount,
+        FINANCE_PERMISSIONS.editBankAccount,
+        FINANCE_PERMISSIONS.editBankAmount,
+        FINANCE_PERMISSIONS.viewGrants,
+        FINANCE_PERMISSIONS.addGrant,
+        FINANCE_PERMISSIONS.editGrant,
+        FINANCE_PERMISSIONS.editGrantAmount,
+        FINANCE_PERMISSIONS.viewUnclaimedDeposits,
+        FINANCE_PERMISSIONS.addUnclaimedDeposit,
+        FINANCE_PERMISSIONS.editUnclaimedDeposit,
+      ]
+      const perms = await hasPermissions(client, actor, finPermKeys)
+      const viewBankAccounts = perms[FINANCE_PERMISSIONS.viewBankAccounts]
+      const addBankAccount = perms[FINANCE_PERMISSIONS.addBankAccount]
+      const editBankAccount = perms[FINANCE_PERMISSIONS.editBankAccount]
+      const editBankAmount = perms[FINANCE_PERMISSIONS.editBankAmount]
+      const viewGrants = perms[FINANCE_PERMISSIONS.viewGrants]
+      const addGrant = perms[FINANCE_PERMISSIONS.addGrant]
+      const editGrant = perms[FINANCE_PERMISSIONS.editGrant]
+      const editGrantAmount = perms[FINANCE_PERMISSIONS.editGrantAmount]
+      const viewUnclaimedDeposits = perms[FINANCE_PERMISSIONS.viewUnclaimedDeposits]
+      const addUnclaimedDeposit = perms[FINANCE_PERMISSIONS.addUnclaimedDeposit]
+      const editUnclaimedDeposit = perms[FINANCE_PERMISSIONS.editUnclaimedDeposit]
 
       const branches = isSuperAdmin(actor)
         ? (

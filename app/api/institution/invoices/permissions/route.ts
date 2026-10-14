@@ -3,7 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { runWithAuth } from "@/lib/db"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
-import { hasPermission, isSuperAdmin, resolveActorContext } from "@/lib/api/rbac"
+import { hasPermission, hasPermissions, isSuperAdmin, resolveActorContext } from "@/lib/api/rbac"
 
 export async function GET(req: Request) {
   const apiPath = getApiPath(req)
@@ -22,14 +22,18 @@ export async function GET(req: Request) {
       const actor = await resolveActorContext(client, session.user.authUserId as string)
       if (!actor) return null
 
-      const [viewInvoices, addInvoice, editInvoice, editInvoiceStatus, downloadInvoice] =
-        await Promise.all([
-          hasPermission(client, actor, "view_invoices"),
-          hasPermission(client, actor, "add_invoice"),
-          hasPermission(client, actor, "edit_invoice"),
-          hasPermission(client, actor, "edit_invoice_status"),
-          hasPermission(client, actor, "download_invoice"),
-        ])
+      const perms = await hasPermissions(client, actor, [
+        "view_invoices",
+        "add_invoice",
+        "edit_invoice",
+        "edit_invoice_status",
+        "download_invoice",
+      ] as const)
+      const viewInvoices = perms.view_invoices
+      const addInvoice = perms.add_invoice
+      const editInvoice = perms.edit_invoice
+      const editInvoiceStatus = perms.edit_invoice_status
+      const downloadInvoice = perms.download_invoice
 
       const branches = isSuperAdmin(actor)
         ? (

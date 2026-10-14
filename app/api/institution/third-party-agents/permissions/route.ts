@@ -3,7 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { runWithAuth } from "@/lib/db"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
-import { hasPermission, isSuperAdmin, resolveActorContext } from "@/lib/api/rbac"
+import { hasPermission, hasPermissions, isSuperAdmin, resolveActorContext } from "@/lib/api/rbac"
 
 export async function GET(req: Request) {
   const apiPath = getApiPath(req)
@@ -22,11 +22,14 @@ export async function GET(req: Request) {
       const actor = await resolveActorContext(client, session.user.authUserId as string)
       if (!actor) return null
 
-      const [viewThirdPartyAgents, createThirdPartyAgent, editThirdPartyAgent] = await Promise.all([
-        hasPermission(client, actor, "view_third_party_agents"),
-        hasPermission(client, actor, "create_third_party_agent"),
-        hasPermission(client, actor, "edit_third_party_agent"),
-      ])
+      const perms = await hasPermissions(client, actor, [
+        "view_third_party_agents",
+        "create_third_party_agent",
+        "edit_third_party_agent",
+      ] as const)
+      const viewThirdPartyAgents = perms.view_third_party_agents
+      const createThirdPartyAgent = perms.create_third_party_agent
+      const editThirdPartyAgent = perms.edit_third_party_agent
 
       const branches = isSuperAdmin(actor)
         ? (

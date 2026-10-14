@@ -63,10 +63,8 @@ export async function GET(req: Request) {
       const { where, params, nextIndex } = buildLoanReportWhere(actor, filters)
       const currency = await fetchLoanReportCurrency(client, actor)
 
-      const [countRes, aggregates] = await Promise.all([
-        client.query(`SELECT COUNT(*)::int AS total FROM loans l WHERE ${where}`, params),
-        fetchLoanReportAggregates(client, where, params),
-      ])
+      const countRes = await client.query(`SELECT COUNT(*)::int AS total FROM loans l WHERE ${where}`, params)
+      const aggregates = await fetchLoanReportAggregates(client, where, params)
 
       const total = Number(countRes.rows[0]?.total ?? 0)
 

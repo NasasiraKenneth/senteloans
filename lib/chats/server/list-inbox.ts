@@ -165,14 +165,12 @@ export async function listInboxConversations(
   }
 
   const conversationIds = [...idSet]
-  const [conversations, totalUnread] = await Promise.all([
-    loadConversationRows(client, conversationIds, chatIdentityId, {
-      publicMessagesOnly,
-      allowMissingParticipant: includeSupportQueue,
-      viewerRole: query.viewerRole,
-    }),
-    getTotalUnread(client, chatIdentityId, publicMessagesOnly),
-  ])
+  const conversations = await loadConversationRows(client, conversationIds, chatIdentityId, {
+    publicMessagesOnly,
+    allowMissingParticipant: includeSupportQueue,
+    viewerRole: query.viewerRole,
+  })
+  const totalUnread = await getTotalUnread(client, chatIdentityId, publicMessagesOnly)
 
   conversations.sort((a, b) => {
     const aPin = a.latestPinnedAt ? new Date(a.latestPinnedAt).getTime() : 0

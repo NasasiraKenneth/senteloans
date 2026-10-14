@@ -744,19 +744,18 @@ export async function POST(req: Request) {
 
         await client.query("COMMIT")
 
-        const [instRes, cfgRes, destMemberRes] = await Promise.all([
-          client.query<{ name: string }>(`SELECT name FROM institutions WHERE id = $1`, [actor.institution_id]),
-          client.query<{ currency: string }>(
-            `SELECT currency FROM config WHERE branch_id = $1 LIMIT 1`,
-            [branchId],
-          ),
+        const instRes = await client.query<{ name: string }>(`SELECT name FROM institutions WHERE id = $1`, [actor.institution_id])
+        const cfgRes = await client.query<{ currency: string }>(
+          `SELECT currency FROM config WHERE branch_id = $1 LIMIT 1`,
+          [branchId],
+        )
+        const destMemberRes =
           isTransfer && transferDestAccount
-            ? client.query<{ id: string; full_name: string; member_number: string; email: string | null }>(
+            ? await client.query<{ id: string; full_name: string; member_number: string; email: string | null }>(
                 `SELECT id, full_name, member_number, email FROM members WHERE id = $1`,
                 [transferDestAccount.member_id],
               )
-            : Promise.resolve({ rows: [] as Array<{ id: string; full_name: string; member_number: string; email: string | null }> }),
-        ])
+            : { rows: [] as Array<{ id: string; full_name: string; member_number: string; email: string | null }> }
         const institutionName = instRes.rows[0]?.name || ""
         const currency = cfgRes.rows[0]?.currency || "UGX"
         const destMemberRow = destMemberRes.rows[0]

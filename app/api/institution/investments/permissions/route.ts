@@ -3,7 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { runWithAuth } from "@/lib/db"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
-import { hasPermission, isSuperAdmin, resolveActorContext } from "@/lib/api/rbac"
+import { hasPermission, hasPermissions, isSuperAdmin, resolveActorContext } from "@/lib/api/rbac"
 
 export async function GET(req: Request) {
   const apiPath = getApiPath(req)
@@ -23,10 +23,12 @@ export async function GET(req: Request) {
       if (!actor?.institution_id) return null
       const role = String(actor.role || "").trim().toLowerCase()
 
-      const [viewInvestments, viewInvestmentReports] = await Promise.all([
-        hasPermission(client, actor, "view_investments"),
-        hasPermission(client, actor, "view_investment_reports"),
-      ])
+      const perms = await hasPermissions(client, actor, [
+        "view_investments",
+        "view_investment_reports",
+      ] as const)
+      const viewInvestments = perms.view_investments
+      const viewInvestmentReports = perms.view_investment_reports
 
       const branches =
         role === "super_admin"

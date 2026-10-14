@@ -3,7 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { runWithAuth } from "@/lib/db"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
-import { hasPermission, isSuperAdmin, resolveActorContext } from "@/lib/api/rbac"
+import { hasPermissions, isSuperAdmin, resolveActorContext } from "@/lib/api/rbac"
 
 export async function GET(req: Request) {
   const apiPath = getApiPath(req)
@@ -22,57 +22,57 @@ export async function GET(req: Request) {
       const actor = await resolveActorContext(client, session.user.authUserId as string)
       if (!actor?.institution_id) return null
 
-      const [
-        viewStaff,
-        viewMembers,
-        viewThirdPartyAgents,
-        viewLoans,
-        viewSaccoLoans,
-        viewLoanProducts,
-        viewSavings,
-        viewInvestments,
-        viewInvestmentReports,
-        viewTransactions,
-        viewInvoices,
-        viewBankAccounts,
-        viewGrants,
-        viewUnclaimedDeposits,
-        viewExpenses,
-        editLoanPolicies,
-        editMembershipPolicies,
-        editInvoicePolicies,
-        editSharePolicies,
-        editBranchFinancialInfo,
-        editInstitutionInfo,
-        editBranchInfo,
-        editRolePermissions,
-        viewChats,
-      ] = await Promise.all([
-        hasPermission(client, actor, "view_users"),
-        hasPermission(client, actor, "view_members"),
-        hasPermission(client, actor, "view_third_party_agents"),
-        hasPermission(client, actor, "view_loans"),
-        hasPermission(client, actor, "view_sacco_loans"),
-        hasPermission(client, actor, "view_loan_products"),
-        hasPermission(client, actor, "view_savings"),
-        hasPermission(client, actor, "view_investments"),
-        hasPermission(client, actor, "view_investment_reports"),
-        hasPermission(client, actor, "view_transactions"),
-        hasPermission(client, actor, "view_invoices"),
-        hasPermission(client, actor, "view_bank_accouts"),
-        hasPermission(client, actor, "view_grants"),
-        hasPermission(client, actor, "view_unclaimed_deposits"),
-        hasPermission(client, actor, "view_expenses"),
-        hasPermission(client, actor, "edit_loan_policies"),
-        hasPermission(client, actor, "edit_membership_policies"),
-        hasPermission(client, actor, "edit_invoice_policies"),
-        hasPermission(client, actor, "edit_share_policies"),
-        hasPermission(client, actor, "edit_branch_financial_info"),
-        hasPermission(client, actor, "edit_institution_info"),
-        hasPermission(client, actor, "edit_branch_info"),
-        hasPermission(client, actor, "edit_role_permissions"),
-        hasPermission(client, actor, "view_chats"),
-      ])
+      const perms = await hasPermissions(client, actor, [
+        "view_users",
+        "view_members",
+        "view_third_party_agents",
+        "view_loans",
+        "view_sacco_loans",
+        "view_loan_products",
+        "view_savings",
+        "view_investments",
+        "view_investment_reports",
+        "view_transactions",
+        "view_invoices",
+        "view_bank_accouts",
+        "view_grants",
+        "view_unclaimed_deposits",
+        "view_expenses",
+        "edit_loan_policies",
+        "edit_membership_policies",
+        "edit_invoice_policies",
+        "edit_share_policies",
+        "edit_branch_financial_info",
+        "edit_institution_info",
+        "edit_branch_info",
+        "edit_role_permissions",
+        "view_chats",
+      ] as const)
+
+      const viewStaff = perms.view_users
+      const viewMembers = perms.view_members
+      const viewThirdPartyAgents = perms.view_third_party_agents
+      const viewLoans = perms.view_loans
+      const viewSaccoLoans = perms.view_sacco_loans
+      const viewLoanProducts = perms.view_loan_products
+      const viewSavings = perms.view_savings
+      const viewInvestments = perms.view_investments
+      const viewInvestmentReports = perms.view_investment_reports
+      const viewTransactions = perms.view_transactions
+      const viewInvoices = perms.view_invoices
+      const viewBankAccounts = perms.view_bank_accouts
+      const viewGrants = perms.view_grants
+      const viewUnclaimedDeposits = perms.view_unclaimed_deposits
+      const viewExpenses = perms.view_expenses
+      const editLoanPolicies = perms.edit_loan_policies
+      const editMembershipPolicies = perms.edit_membership_policies
+      const editInvoicePolicies = perms.edit_invoice_policies
+      const editSharePolicies = perms.edit_share_policies
+      const editBranchFinancialInfo = perms.edit_branch_financial_info
+      const editInstitutionInfo = perms.edit_institution_info
+      const editBranchInfo = perms.edit_branch_info
+      const editRolePermissions = perms.edit_role_permissions
+      const viewChats = perms.view_chats
 
       const role = String(actor.role || "").trim().toLowerCase()
       const actorIsAdminRole = role === "super_admin" || role === "system_admin" || role === "institution_admin"

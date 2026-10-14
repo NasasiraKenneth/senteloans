@@ -338,15 +338,13 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
         if (!canApprove) return { error: "missing_permission:approve_loan" as const }
       }
 
-      const [loanRes, actorRes] = await Promise.all([
-        client.query(
-          `SELECT id, institution_id, branch_id, member_id, status, approved_at, loan_product_id
-           FROM loans
-           WHERE id = $1`,
-          [id]
-        ),
-        client.query(`SELECT id, institution_id, branch_id FROM users WHERE id = $1`, [actor.id]),
-      ])
+      const loanRes = await client.query(
+        `SELECT id, institution_id, branch_id, member_id, status, approved_at, loan_product_id
+         FROM loans
+         WHERE id = $1`,
+        [id],
+      )
+      const actorRes = await client.query(`SELECT id, institution_id, branch_id FROM users WHERE id = $1`, [actor.id])
       const loan = loanRes.rows[0]
       const actorRow = actorRes.rows[0]
       if (!loan) return { error: "not_found" as const }

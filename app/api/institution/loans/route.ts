@@ -329,18 +329,20 @@ export async function POST(req: Request) {
       const borrower = memberCheck.member
       if (borrower.branch_id !== actor.branch_id) return { error: "cross_branch_operation_forbidden" as const }
 
-      const [productRes, topUpLoanRes] = await Promise.all([
-        client.query(`SELECT id, institution_id, branch_id, status, product_name, interest_rate, minimum_amount, maximum_amount, minimum_tenure_months, maximum_tenure_months, guarantors_required, interest_calculation_method FROM loan_products WHERE id = $1`, [loan_product_id]),
+      const productRes = await client.query(
+        `SELECT id, institution_id, branch_id, status, product_name, interest_rate, minimum_amount, maximum_amount, minimum_tenure_months, maximum_tenure_months, guarantors_required, interest_calculation_method FROM loan_products WHERE id = $1`,
+        [loan_product_id],
+      )
+      const topUpLoanRes =
         loan_type === "top up"
-          ? client.query(
+          ? await client.query(
               `SELECT id, institution_id, branch_id, member_id, outstanding_balance, status
                FROM loans
                WHERE id = $1
                LIMIT 1`,
-              [top_up_loan_id]
+              [top_up_loan_id],
             )
-          : Promise.resolve({ rows: [] as any[] }),
-      ])
+          : { rows: [] as any[] }
       const product = productRes.rows[0]
       const topUpLoan = topUpLoanRes.rows[0]
       if (!product) return { error: "loan_product_not_found" as const }

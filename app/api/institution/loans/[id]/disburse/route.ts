@@ -135,15 +135,13 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       const allowed = await hasPermission(client, actor, "disburse_loan")
       if (!allowed) return { error: "missing_permission:disburse_loan" as const }
 
-      const [loanRes, actorRes] = await Promise.all([
-        client.query(
-          `SELECT id, institution_id, branch_id, member_id, application_id, status, approved_at, total_amount, principal_amount, interest_rate, tenure_months, loan_product_id, loan_type, disbursement_balance
-           FROM loans
-           WHERE id = $1`,
-          [id],
-        ),
-        client.query(`SELECT id, institution_id, branch_id FROM users WHERE id = $1`, [actor.id]),
-      ])
+      const loanRes = await client.query(
+        `SELECT id, institution_id, branch_id, member_id, application_id, status, approved_at, total_amount, principal_amount, interest_rate, tenure_months, loan_product_id, loan_type, disbursement_balance
+         FROM loans
+         WHERE id = $1`,
+        [id],
+      )
+      const actorRes = await client.query(`SELECT id, institution_id, branch_id FROM users WHERE id = $1`, [actor.id])
       const loan = loanRes.rows[0]
       const actorRow = actorRes.rows[0]
       if (!loan) return { error: "not_found" as const }

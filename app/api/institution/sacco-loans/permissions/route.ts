@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { runWithAuth } from "@/lib/db"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
-import { hasPermission, isSuperAdmin, requireStaffSession, resolveActorContext } from "@/lib/api/rbac"
+import { hasPermission, hasPermissions, isSuperAdmin, requireStaffSession, resolveActorContext } from "@/lib/api/rbac"
 
 export async function GET(req: Request) {
   const apiPath = getApiPath(req)
@@ -16,23 +16,22 @@ export async function GET(req: Request) {
       const actor = await resolveActorContext(client, sess.authUserId)
       if (!actor?.institution_id) return null
 
-      const [
-        viewSaccoLoans,
-        createSaccoLoan,
-        approveSaccoLoan,
-        rejectSaccoLoan,
-        disburseSaccoLoan,
-        activateSaccoLoan,
-        recordSaccoLoanPayment,
-      ] = await Promise.all([
-        hasPermission(client, actor, "view_sacco_loans"),
-        hasPermission(client, actor, "create_sacco_loan"),
-        hasPermission(client, actor, "approve_sacco_loan"),
-        hasPermission(client, actor, "reject_sacco_loan"),
-        hasPermission(client, actor, "disburse_sacco_loan"),
-        hasPermission(client, actor, "activate_sacco_loan"),
-        hasPermission(client, actor, "record_sacco_loan_payment"),
-      ])
+      const perms = await hasPermissions(client, actor, [
+        "view_sacco_loans",
+        "create_sacco_loan",
+        "approve_sacco_loan",
+        "reject_sacco_loan",
+        "disburse_sacco_loan",
+        "activate_sacco_loan",
+        "record_sacco_loan_payment",
+      ] as const)
+      const viewSaccoLoans = perms.view_sacco_loans
+      const createSaccoLoan = perms.create_sacco_loan
+      const approveSaccoLoan = perms.approve_sacco_loan
+      const rejectSaccoLoan = perms.reject_sacco_loan
+      const disburseSaccoLoan = perms.disburse_sacco_loan
+      const activateSaccoLoan = perms.activate_sacco_loan
+      const recordSaccoLoanPayment = perms.record_sacco_loan_payment
 
       const branches = isSuperAdmin(actor)
         ? (

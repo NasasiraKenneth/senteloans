@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { runWithAuth } from "@/lib/db"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
+import { hasPermissions } from "@/lib/api/rbac"
 
 type ActorContext = {
   id: string
@@ -20,37 +21,10 @@ async function resolveActorContext(client: any, authUserId: string): Promise<Act
        u.branch_id,
        u.role_id,
        CASE
-         WHEN r.name = 'System Admin' THEN 'system_admin'
-         WHEN r.name = 'Super Admin' THEN 'super_admin'
-         WHEN r.name = 'Admin' THEN 'institution_admin'
-         WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
-         ELSE NULL
-       END AS role
-     FROM users u
-     LEFT JOIN roles r ON r.id = u.role_id
-     WHERE u.auth_id = $1
-     LIMIT 1`,
+         WHEN r.name = 'System Admin' THEN 'system_admin'\n         WHEN r.name = 'Super Admin' THEN 'super_admin'\n         WHEN r.name = 'Admin' THEN 'institution_admin'\n         WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')\n         ELSE NULL\n       END AS role\n     FROM users u\n     LEFT JOIN roles r ON r.id = u.role_id\n     WHERE u.auth_id = $1\n     LIMIT 1`,
     [authUserId]
   )
   return actorRes.rows[0] || null
-}
-
-async function hasPermission(client: any, actor: ActorContext, permission: string): Promise<boolean> {
-  const role = String(actor.role || "").trim().toLowerCase()
-  if (role === "super_admin") return true
-  if (!actor.role_id || !actor.branch_id) return false
-
-  const permRes = await client.query(
-    `SELECT 1
-     FROM role_permissions rp
-     JOIN permissions p ON p.id = rp.permission_id
-     WHERE rp.role_id = $1
-       AND rp.branch_id = $2
-       AND p.name = $3
-     LIMIT 1`,
-    [actor.role_id, actor.branch_id, permission]
-  )
-  return permRes.rowCount > 0
 }
 
 export async function GET(req: Request) {
@@ -71,10 +45,9 @@ export async function GET(req: Request) {
       if (!actor) return null
       const role = String(actor.role || "").trim().toLowerCase()
 
-      const [viewTransactions, createTransaction] = await Promise.all([
-        hasPermission(client, actor, "view_transactions"),
-        hasPermission(client, actor, "create_transaction"),
-      ])
+      const perms = await hasPermissions(client, actor, ["view_transactions", "create_transaction"] as const)
+      const viewTransactions = perms.view_transactions
+      const createTransaction = perms.create_transaction
 
       const branches =
         role === "super_admin"

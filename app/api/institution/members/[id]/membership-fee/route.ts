@@ -8,18 +8,18 @@ import { resolveActorContext, hasPermission } from "@/lib/api/rbac"
 import { assertBranchActive, type BranchStatus } from "@/lib/branches/branch-status"
 import { assertMemberActiveRow, type MemberStatus } from "@/lib/members/member-status"
 import { createTransaction } from "@/lib/transactions/create-transaction"
-import { applyDailyFinanceEntry } from "@/lib/finances/daily-finance"
-import { getBranchBankAccount, adjustBankAccountBalance, type BankAccountRow } from "@/lib/finances/bank-account"
+import {
+  settlePaymentByMode,
+  PaymentSettlementFailure,
+} from "@/lib/finances/settle-payment-mode"
 import {
   findOpenMemberMembershipInvoice,
   recordInvoicePayment,
+  cancelInvoicePaymentByTransactionId,
   syncInvoiceStatusFromPayments,
 } from "@/lib/invoices/invoice-payments"
 import { notifyMembershipFeePayment } from "@/lib/notifications/fee-events"
 import { enqueueMembershipFeeEmails } from "@/lib/email/fee-emails"
-
-// Bank-routed payment modes settle into a branch bank account.
-const BANK_ROUTED_MODES = ["Bank Transfer", "Cheque", "Card"]
 
 type MembershipFeePostCommit = {
   actorId: string
@@ -104,18 +104,20 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       const paidRes = await client.query(paidQuery, paidParams)
       const membershipFeePaid = Number(paidRes.rows[0]?.total_paid ?? 0)
 
-      // Payment history from invoice_payments (linking transactions and invoices for partial payments)
-      // with fallback to membership_fees for seed/legacy records.
+      // Payment history: invoice_payments + direct fee payment transactions + seed membership_fees
       const paymentsRes = await client.query(
         `SELECT
             ip.id::text AS id,
+            t.id::text AS transaction_id,
             t.transaction_number,
             ip.amount::numeric AS amount,
             COALESCE(t.mode, 'Cash') AS mode,
             COALESCE(t.description, 'Membership fee payment') AS description,
             COALESCE(t.reference_number, '') AS reference_number,
+            t.bank_account_id::text AS bank_account_id,
+            COALESCE(t.charges, 0)::numeric AS transaction_charges,
             ip.payment_date AS transaction_date,
-            'Completed'::transaction_status AS status
+            COALESCE(ip.status, t.status::text, 'Completed') AS status
          FROM invoice_payments ip
          JOIN transactions t ON t.id = ip.transaction_id
          JOIN invoices inv ON inv.id = ip.invoice_id
@@ -127,14 +129,37 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
            )
          UNION ALL
          SELECT
+            t.id::text AS id,
+            t.id::text AS transaction_id,
+            t.transaction_number,
+            t.amount::numeric AS amount,
+            COALESCE(t.mode, 'Cash') AS mode,
+            COALESCE(t.description, 'Membership fee payment') AS description,
+            COALESCE(t.reference_number, '') AS reference_number,
+            t.bank_account_id::text AS bank_account_id,
+            COALESCE(t.charges, 0)::numeric AS transaction_charges,
+            t.transaction_date AS transaction_date,
+            t.status::text AS status
+         FROM transactions t
+         WHERE t.institution_id = $1 AND t.member_id = $2
+           AND t.type = 'Fee Payment'
+           AND NOT EXISTS (
+             SELECT 1 FROM invoice_payments ip3
+             WHERE ip3.transaction_id = t.id
+           )
+         UNION ALL
+         SELECT
             mf.id::text AS id,
+            NULL::text AS transaction_id,
             'SEED-' || upper(substr(mf.id::text, 1, 8)) AS transaction_number,
             mf.amount_paid::numeric AS amount,
             'Cash' AS mode,
             'Membership fee payment' AS description,
             '' AS reference_number,
+            NULL::text AS bank_account_id,
+            0::numeric AS transaction_charges,
             mf.payment_date AS transaction_date,
-            'Completed'::transaction_status AS status
+            'Completed' AS status
          FROM membership_fees mf
          WHERE mf.institution_id = $1 AND mf.member_id = $2
            AND mf.amount_paid > 0
@@ -147,6 +172,12 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
                   WHERE it2.invoice_id = inv2.id
                     AND LOWER(it2.description) LIKE '%membership fee%'
                )
+           )
+           AND NOT EXISTS (
+             SELECT 1 FROM transactions t2
+             WHERE t2.institution_id = mf.institution_id
+               AND t2.member_id = mf.member_id
+               AND t2.type = 'Fee Payment'
            )
          ORDER BY transaction_date DESC`,
         [actor.institution_id, memberId]
@@ -212,8 +243,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       return NextResponse.json({ error: "invalid_mode" }, { status: 400 })
     }
 
-    // Optional transaction charges (e.g. bank/mobile-money fees). Recorded on the
-    // transaction only; must be a non-negative number.
     const transactionChargesRaw = body?.transaction_charges
     const transactionCharges =
       transactionChargesRaw == null || transactionChargesRaw === ""
@@ -223,8 +252,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       return NextResponse.json({ error: "invalid_transaction_charges" }, { status: 400 })
     }
 
-    // Resolve payment date (defaults to now). Reject obviously bad input and
-    // future dates so the audit trail / ledger stays sane.
     let resolvedPaymentDate = new Date()
     if (paymentDateRaw) {
       const parsed = new Date(paymentDateRaw)
@@ -265,26 +292,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         }
       }
 
-      // Reusable branch gate: block fee payments against inactive branches.
       const branchCheck = await assertBranchActive(client, memberRow.branch_id)
       if (!branchCheck.ok) {
         return {
           error: branchCheck.error as "branch_not_found" | "branch_inactive",
           branchStatus: branchCheck.error === "branch_inactive" ? branchCheck.status : undefined,
         }
-      }
-
-      // Bank-routed payments settle into a branch bank account, which we credit
-      // with the fee amount. Validate the selected account up-front.
-      let bankAccount: BankAccountRow | null = null
-      if (BANK_ROUTED_MODES.includes(mode)) {
-        if (!bankAccountIdInput) return { error: "bank_account_required" as const }
-        bankAccount = await getBranchBankAccount(client, {
-          bankAccountId: bankAccountIdInput,
-          institutionId: actor.institution_id,
-          branchId: memberRow.branch_id,
-        })
-        if (!bankAccount) return { error: "bank_account_not_found" as const }
       }
 
       const cfgRes = await client.query(
@@ -345,7 +358,23 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       try {
         await client.query("BEGIN")
 
-        // Shared transaction writer: collision-safe number + audit log.
+        const effectiveMode =
+          mode === "Cheque" || mode === "Card" ? "Bank Transfer" : mode
+
+        // 1. Unified financial settlement using PaymentFlow "inflow"
+        const { bankAccount } = await settlePaymentByMode(client, {
+          institutionId: actor.institution_id,
+          branchId: memberRow.branch_id,
+          amount,
+          charges: transactionCharges,
+          mode: effectiveMode,
+          flow: "inflow",
+          actor,
+          bankAccountId: bankAccountIdInput || null,
+          referenceNumber: referenceNumber || null,
+        })
+
+        // 2. Shared transaction writer
         const tx = await createTransaction(client, {
           institutionId: actor.institution_id,
           branchId: memberRow.branch_id,
@@ -353,7 +382,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
           bankAccountId: bankAccount?.id ?? null,
           type: "Fee Payment",
           amount,
-          mode,
+          mode: effectiveMode,
           description,
           referenceNumber: referenceNumber || null,
           balanceBefore,
@@ -364,26 +393,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         })
         const txRow = { id: tx.id }
         const transactionNumber = tx.transactionNumber
-
-        // Credit the selected branch bank account for bank-routed payments.
-        if (bankAccount) {
-          await adjustBankAccountBalance(client, {
-            account: bankAccount,
-            amount,
-            actor,
-          })
-        }
-
-        // Roll the fee payment into the branch's daily finance ledger for the
-        // actual posting day (today). Backdated payments still post to today's
-        // row so the running cash position stays accurate.
-        await applyDailyFinanceEntry(client, {
-          institutionId: actor.institution_id,
-          branchId: memberRow.branch_id,
-          amount,
-          mode,
-          actor,
-        })
 
         let feeRowId: string
         const effectiveInvoiceId = openInvoiceForIns?.id || existingFee?.invoice_id || null
@@ -493,34 +502,32 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
           }
         }
 
-      // Resolve institution name for post-commit notifications/emails.
-      const instRes = await client.query<{ name: string }>(
-        `SELECT name FROM institutions WHERE id = $1`,
-        [actor.institution_id],
-      )
-      const institutionName = instRes.rows[0]?.name || ""
+        const instRes = await client.query<{ name: string }>(
+          `SELECT name FROM institutions WHERE id = $1`,
+          [actor.institution_id],
+        )
+        const institutionName = instRes.rows[0]?.name || ""
 
-      // Stash context for best-effort notifications + emails after COMMIT.
-      postCommit = {
-        actorId: actor.id,
-        institutionId: actor.institution_id,
-        branchId: memberRow.branch_id,
-        institutionName,
-        currency,
-        member: {
-          id: String(memberRow.id),
-          full_name: String(memberRow.full_name || ""),
-          member_number: String(memberRow.member_number || ""),
-          email: memberRow.email ? String(memberRow.email) : "",
-        },
-        fee: { amount, remaining: balanceAfter },
-        transaction: {
-          id: txRow.id,
-          transaction_number: transactionNumber,
-          amount,
-        },
-        invoice: postCommitInvoice,
-      }
+        postCommit = {
+          actorId: actor.id,
+          institutionId: actor.institution_id,
+          branchId: memberRow.branch_id,
+          institutionName,
+          currency,
+          member: {
+            id: String(memberRow.id),
+            full_name: String(memberRow.full_name || ""),
+            member_number: String(memberRow.member_number || ""),
+            email: memberRow.email ? String(memberRow.email) : "",
+          },
+          fee: { amount, remaining: balanceAfter },
+          transaction: {
+            id: txRow.id,
+            transaction_number: transactionNumber,
+            amount,
+          },
+          invoice: postCommitInvoice,
+        }
 
         await client.query("COMMIT")
 
@@ -544,8 +551,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         result.error === "cross_tenant_forbidden" ||
         result.error === "missing_permission:edit_membership_fee" ||
         result.error === "branch_inactive" ||
-        result.error === "branch_not_found" ||
-        result.error === "member_inactive"
+        result.error === "branch_not_found"
           ? 403
           : result.error === "member_not_found"
             ? 404
@@ -562,12 +568,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     }
     apiLog("info", "member.membership_fee.create.success", { method: "POST", apiPath, status: 201, memberId, authUserId: session.user.authUserId })
 
-    // Post-commit side-effects: notifications + emails. Best-effort — never
-    // raise back to the client (the payment is already persisted).
     const ctx = postCommit as MembershipFeePostCommit | null
     if (ctx) {
       try {
-        // Fresh client so staff fan-out can query users/roles.
         const notifyRes = await runWithoutAuth((notifyClient) =>
           notifyMembershipFeePayment({
             client: notifyClient,
@@ -629,8 +632,551 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
     return NextResponse.json(result, { status: 201 })
   } catch (e: unknown) {
+    if (e instanceof PaymentSettlementFailure) {
+      return NextResponse.json({ error: e.code }, { status: 400 })
+    }
     const err = e as Error
     apiLog("error", "member.membership_fee.create.error", { method: "POST", apiPath, status: 500, error: err?.message || "Unexpected error" })
+    return NextResponse.json({ error: err?.message || "Unexpected error" }, { status: 500 })
+  }
+}
+
+/**
+ * PATCH: Edit / replace an existing membership fee payment.
+ * Implements Approach A (Void & Re-issue):
+ * 1. Outflow settlement reverses original transaction funds via settlePaymentByMode.
+ * 2. Marks original transaction as status = 'Cancelled'.
+ * 3. Marks linked invoice_payments row as status = 'Cancelled' and re-syncs invoice.
+ * 4. Inflow settlement applies new payment funds via settlePaymentByMode.
+ * 5. Creates replacement transaction row.
+ * 6. Records new invoice_payments row and re-syncs invoice.
+ * 7. Recalculates and updates membership_fees running totals.
+ */
+export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const apiPath = getApiPath(req)
+  try {
+    const { id: memberId } = await params
+    if (!memberId) return NextResponse.json({ error: "Missing member id" }, { status: 400 })
+
+    const session = await getServerSession(authOptions)
+    if (!session?.user?.authUserId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+    if (session.user.type !== "staff") {
+      return NextResponse.json({ error: "no_app_user_profile" }, { status: 403 })
+    }
+
+    const body = await req.json().catch(() => ({})) as Record<string, unknown>
+    const transactionId = typeof body.transaction_id === "string" ? body.transaction_id.trim() : ""
+    const newAmount = Number(body.amount)
+    const newMode = body.mode as string
+    const reason = typeof body.reason === "string" ? body.reason.trim() : "Edited by staff"
+    const referenceNumber = typeof body.reference_number === "string" ? body.reference_number.trim() : ""
+    const paymentDateRaw = typeof body.paymentDate === "string" ? body.paymentDate.trim() : ""
+    const bankAccountIdInput = typeof body.bank_account_id === "string" ? body.bank_account_id.trim() : ""
+
+    if (!transactionId) {
+      return NextResponse.json({ error: "missing_transaction_id" }, { status: 400 })
+    }
+    if (!Number.isFinite(newAmount) || newAmount <= 0) {
+      return NextResponse.json({ error: "invalid_amount" }, { status: 400 })
+    }
+    const validModes = ["Cash", "Mobile Money", "Bank Transfer", "Cheque", "Card"]
+    if (!newMode || !validModes.includes(String(newMode))) {
+      return NextResponse.json({ error: "invalid_mode" }, { status: 400 })
+    }
+
+    const newCharges = body?.transaction_charges == null || body?.transaction_charges === ""
+      ? 0
+      : Number(body.transaction_charges)
+    if (Number.isNaN(newCharges) || newCharges < 0) {
+      return NextResponse.json({ error: "invalid_transaction_charges" }, { status: 400 })
+    }
+
+    let resolvedPaymentDate = new Date()
+    if (paymentDateRaw) {
+      const parsed = new Date(paymentDateRaw)
+      if (Number.isNaN(parsed.getTime())) {
+        return NextResponse.json({ error: "invalid_payment_date" }, { status: 400 })
+      }
+      const endOfToday = new Date()
+      endOfToday.setHours(23, 59, 59, 999)
+      if (parsed.getTime() > endOfToday.getTime()) {
+        return NextResponse.json({ error: "payment_date_in_future" }, { status: 400 })
+      }
+      resolvedPaymentDate = parsed
+    }
+
+    const result = await runWithAuth(session.user.authUserId, async (client) => {
+      const actor = await resolveActorContext(client, session!.user!.authUserId)
+      if (!actor) return { error: "user_not_linked" as const }
+      const allowed = await hasPermission(client, actor, "edit_membership_fee")
+      if (!allowed) return { error: "missing_permission:edit_membership_fee" as const }
+
+      const memberRes = await client.query(
+        `SELECT id, institution_id, branch_id, status, full_name, member_number, email FROM members WHERE id = $1`,
+        [memberId]
+      )
+      const memberRow = memberRes.rows[0]
+      if (!memberRow) return { error: "member_not_found" as const }
+      if (memberRow.institution_id !== actor.institution_id) {
+        return { error: "cross_tenant_forbidden" as const }
+      }
+
+      const memberCheck = assertMemberActiveRow(memberRow)
+      if (!memberCheck.ok) {
+        return {
+          error: memberCheck.error as "member_inactive",
+          memberStatus: memberCheck.status as MemberStatus,
+        }
+      }
+
+      const branchCheck = await assertBranchActive(client, memberRow.branch_id)
+      if (!branchCheck.ok) {
+        return {
+          error: branchCheck.error as "branch_not_found" | "branch_inactive",
+          branchStatus: branchCheck.error === "branch_inactive" ? branchCheck.status : undefined,
+        }
+      }
+
+      // Fetch original transaction
+      const txRes = await client.query<{
+        id: string
+        institution_id: string
+        branch_id: string
+        member_id: string
+        amount: string
+        charges: string | null
+        mode: string
+        reference_number: string | null
+        bank_account_id: string | null
+        status: string
+        description: string | null
+        transaction_number: string
+        transaction_date: string
+      }>(
+        `SELECT id, institution_id, branch_id, member_id, amount, charges, mode,
+                reference_number, bank_account_id, status, description, transaction_number, transaction_date
+         FROM transactions
+         WHERE id = $1 AND institution_id = $2 AND member_id = $3 AND type = 'Fee Payment'`,
+        [transactionId, actor.institution_id, memberId]
+      )
+      const originalTx = txRes.rows[0]
+      if (!originalTx) return { error: "transaction_not_found" as const }
+      if (originalTx.status === "Cancelled" || originalTx.status === "Reversed") {
+        return { error: "transaction_already_cancelled" as const }
+      }
+
+      // Find linked invoice id
+      const invPayRes = await client.query<{ id: string; invoice_id: string }>(
+        `SELECT id, invoice_id FROM invoice_payments WHERE transaction_id = $1`,
+        [originalTx.id]
+      )
+      const linkedInvoiceId = invPayRes.rows[0]?.invoice_id || null
+
+      const originalAmount = Number(originalTx.amount)
+      const originalCharges = originalTx.charges ? Number(originalTx.charges) : 0
+
+      // Check remaining fee limit
+      const feeRes = await client.query<{ id: string; amount_paid: string; total_membership_fee: string; balance_after: string; invoice_id: string | null }>(
+        `SELECT id, amount_paid, total_membership_fee, balance_after, invoice_id
+         FROM membership_fees
+         WHERE institution_id = $1 AND member_id = $2
+         ORDER BY created_at DESC LIMIT 1`,
+        [actor.institution_id, memberId]
+      )
+      const feeRow = feeRes.rows[0]
+      const totalMembershipFee = Number(feeRow?.total_membership_fee || 0)
+      const currentPaid = Number(feeRow?.amount_paid || 0)
+      const paidWithoutOld = Math.max(0, currentPaid - originalAmount)
+      const remainingForEdit = Math.max(0, totalMembershipFee - paidWithoutOld)
+
+      if (totalMembershipFee > 0 && newAmount > remainingForEdit + 0.01) {
+        return { error: "amount_exceeds_remaining" as const, remaining: remainingForEdit }
+      }
+
+      const txDate = resolvedPaymentDate.toISOString()
+      const newPaid = paidWithoutOld + newAmount
+      const newBalanceBefore = totalMembershipFee
+      const newBalanceAfter = Math.max(0, totalMembershipFee - newPaid)
+
+      try {
+        await client.query("BEGIN")
+
+        const originalMode =
+          originalTx.mode === "Cheque" || originalTx.mode === "Card"
+            ? "Bank Transfer"
+            : originalTx.mode
+
+        // 1. Outflow settlement for original transaction
+        await settlePaymentByMode(client, {
+          institutionId: actor.institution_id,
+          branchId: memberRow.branch_id,
+          amount: originalAmount,
+          charges: originalCharges,
+          mode: originalMode,
+          flow: "outflow",
+          actor,
+          bankAccountId: originalTx.bank_account_id,
+          referenceNumber: originalTx.reference_number,
+        })
+
+        // 2. Mark original transaction as Cancelled
+        const updatedOldDesc = `${originalTx.description || "Fee payment"} (Replaced by new payment: ${reason})`
+        await client.query(
+          `UPDATE transactions
+              SET status = 'Cancelled',
+                  description = $1,
+                  updated_at = NOW()
+            WHERE id = $2`,
+          [updatedOldDesc, originalTx.id]
+        )
+
+        // 3. Mark original invoice_payments row as Cancelled and re-sync invoice
+        await cancelInvoicePaymentByTransactionId(client, originalTx.id, {
+          institutionId: actor.institution_id,
+          branchId: memberRow.branch_id,
+          userId: actor.id,
+        })
+
+        const effectiveNewMode =
+          newMode === "Cheque" || newMode === "Card" ? "Bank Transfer" : newMode
+
+        // 4. Inflow settlement for replacement payment
+        const { bankAccount: settledBankAccount } = await settlePaymentByMode(client, {
+          institutionId: actor.institution_id,
+          branchId: memberRow.branch_id,
+          amount: newAmount,
+          charges: newCharges,
+          mode: effectiveNewMode,
+          flow: "inflow",
+          actor,
+          bankAccountId: bankAccountIdInput || null,
+          referenceNumber: referenceNumber || null,
+        })
+
+        // 5. Create replacement transaction
+        const newTx = await createTransaction(client, {
+          institutionId: actor.institution_id,
+          branchId: memberRow.branch_id,
+          memberId,
+          bankAccountId: settledBankAccount?.id ?? null,
+          type: "Fee Payment",
+          amount: newAmount,
+          mode: effectiveNewMode,
+          description: `Fee payment (replaces ${originalTx.transaction_number}: ${reason})`,
+          referenceNumber: referenceNumber || null,
+          balanceBefore: newBalanceBefore,
+          balanceAfter: newBalanceAfter,
+          charges: newCharges,
+          processedBy: actor.id,
+          transactionDate: txDate,
+        })
+
+        // 6. Record replacement invoice_payment if linked to invoice
+        const effectiveInvoiceId = linkedInvoiceId || feeRow?.invoice_id || null
+        if (effectiveInvoiceId) {
+          await recordInvoicePayment(client, {
+            institutionId: actor.institution_id,
+            branchId: memberRow.branch_id,
+            invoiceId: effectiveInvoiceId,
+            amount: newAmount,
+            paymentDate: txDate,
+            processedBy: actor.id,
+            transactionId: newTx.id,
+          })
+          await syncInvoiceStatusFromPayments(client, effectiveInvoiceId, {
+            institutionId: actor.institution_id,
+            branchId: memberRow.branch_id,
+            userId: actor.id,
+          })
+        }
+
+        // 7. Update membership_fees running totals
+        if (feeRow) {
+          await client.query(
+            `UPDATE membership_fees
+                SET amount_paid = $1,
+                    balance_before = $2,
+                    balance_after = $3,
+                    modified_by = $4,
+                    updated_at = NOW()
+              WHERE id = $5`,
+            [newPaid, newBalanceBefore, newBalanceAfter, actor.id, feeRow.id]
+          )
+
+          await auditLogger.logUpdate(
+            "membership_fees",
+            feeRow.id,
+            { amount_paid: currentPaid, balance_after: Number(feeRow.balance_after) },
+            { amount_paid: newPaid, balance_after: newBalanceAfter, reason },
+            actor.institution_id,
+            actor.id,
+            { branch_id: memberRow.branch_id },
+            client
+          )
+        }
+
+        await auditLogger.logUpdate(
+          "transactions",
+          originalTx.id,
+          { status: originalTx.status },
+          { status: "Cancelled", replaced_by: newTx.id, reason },
+          actor.institution_id,
+          actor.id,
+          { branch_id: memberRow.branch_id },
+          client
+        )
+
+        await client.query("COMMIT")
+
+        return {
+          ok: true,
+          oldTransactionId: originalTx.id,
+          newTransactionId: newTx.id,
+          newTransactionNumber: newTx.transactionNumber,
+          membershipFeePaid: newPaid,
+        }
+      } catch (err) {
+        await client.query("ROLLBACK")
+        throw err
+      }
+    })
+
+    if (result && "error" in result) {
+      const status =
+        result.error === "cross_tenant_forbidden" ||
+        result.error === "missing_permission:edit_membership_fee" ||
+        result.error === "branch_inactive" ||
+        result.error === "branch_not_found"
+          ? 403
+          : result.error === "member_not_found" || result.error === "transaction_not_found"
+            ? 404
+            : 400
+      const body: Record<string, unknown> = { error: result.error }
+      if ("remaining" in result) body.remaining = (result as any).remaining
+      return NextResponse.json(body, { status })
+    }
+
+    apiLog("info", "member.membership_fee.patch.success", { method: "PATCH", apiPath, status: 200, memberId, authUserId: session.user.authUserId })
+    return NextResponse.json(result, { status: 200 })
+  } catch (e: unknown) {
+    if (e instanceof PaymentSettlementFailure) {
+      return NextResponse.json({ error: e.code }, { status: 400 })
+    }
+    const err = e as Error
+    apiLog("error", "member.membership_fee.patch.error", { method: "PATCH", apiPath, status: 500, error: err?.message || "Unexpected error" })
+    return NextResponse.json({ error: err?.message || "Unexpected error" }, { status: 500 })
+  }
+}
+
+/**
+ * DELETE: Cancel / void an existing membership fee payment.
+ * 1. Outflow settlement reverses transaction funds via settlePaymentByMode.
+ * 2. Marks transaction row as status = 'Cancelled'.
+ * 3. Marks linked invoice_payments row as status = 'Cancelled' and re-syncs invoice.
+ * 4. Recalculates and updates membership_fees running totals.
+ */
+export async function DELETE(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const apiPath = getApiPath(req)
+  try {
+    const { id: memberId } = await params
+    if (!memberId) return NextResponse.json({ error: "Missing member id" }, { status: 400 })
+
+    const session = await getServerSession(authOptions)
+    if (!session?.user?.authUserId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+    if (session.user.type !== "staff") {
+      return NextResponse.json({ error: "no_app_user_profile" }, { status: 403 })
+    }
+
+    const body = await req.json().catch(() => ({})) as Record<string, unknown>
+    const transactionId = typeof body.transaction_id === "string" ? body.transaction_id.trim() : ""
+    const reason = typeof body.reason === "string" ? body.reason.trim() : "Cancelled by staff"
+
+    if (!transactionId) {
+      return NextResponse.json({ error: "missing_transaction_id" }, { status: 400 })
+    }
+
+    const result = await runWithAuth(session.user.authUserId, async (client) => {
+      const actor = await resolveActorContext(client, session!.user!.authUserId)
+      if (!actor) return { error: "user_not_linked" as const }
+      const allowed = await hasPermission(client, actor, "edit_membership_fee")
+      if (!allowed) return { error: "missing_permission:edit_membership_fee" as const }
+
+      const memberRes = await client.query(
+        `SELECT id, institution_id, branch_id, status, full_name, member_number, email FROM members WHERE id = $1`,
+        [memberId]
+      )
+      const memberRow = memberRes.rows[0]
+      if (!memberRow) return { error: "member_not_found" as const }
+      if (memberRow.institution_id !== actor.institution_id) {
+        return { error: "cross_tenant_forbidden" as const }
+      }
+
+      const branchCheck = await assertBranchActive(client, memberRow.branch_id)
+      if (!branchCheck.ok) {
+        return {
+          error: branchCheck.error as "branch_not_found" | "branch_inactive",
+          branchStatus: branchCheck.error === "branch_inactive" ? branchCheck.status : undefined,
+        }
+      }
+
+      // Fetch transaction
+      const txRes = await client.query<{
+        id: string
+        institution_id: string
+        branch_id: string
+        member_id: string
+        amount: string
+        charges: string | null
+        mode: string
+        reference_number: string | null
+        bank_account_id: string | null
+        status: string
+        description: string | null
+        transaction_number: string
+        transaction_date: string
+      }>(
+        `SELECT id, institution_id, branch_id, member_id, amount, charges, mode,
+                reference_number, bank_account_id, status, description, transaction_number, transaction_date
+         FROM transactions
+         WHERE id = $1 AND institution_id = $2 AND member_id = $3 AND type = 'Fee Payment'`,
+        [transactionId, actor.institution_id, memberId]
+      )
+      const tx = txRes.rows[0]
+      if (!tx) return { error: "transaction_not_found" as const }
+      if (tx.status === "Cancelled" || tx.status === "Reversed") {
+        return { error: "transaction_already_cancelled" as const }
+      }
+
+      const txAmount = Number(tx.amount)
+      const txCharges = tx.charges ? Number(tx.charges) : 0
+
+      try {
+        await client.query("BEGIN")
+
+        const txMode =
+          tx.mode === "Cheque" || tx.mode === "Card" ? "Bank Transfer" : tx.mode
+
+        // 1. Outflow settlement reverses branch float / bank account
+        await settlePaymentByMode(client, {
+          institutionId: actor.institution_id,
+          branchId: memberRow.branch_id,
+          amount: txAmount,
+          charges: txCharges,
+          mode: txMode,
+          flow: "outflow",
+          actor,
+          bankAccountId: tx.bank_account_id,
+          referenceNumber: tx.reference_number,
+        })
+
+        // 2. Mark transaction as Cancelled
+        const updatedDesc = `${tx.description || "Fee payment"} (Cancelled: ${reason})`
+        await client.query(
+          `UPDATE transactions
+              SET status = 'Cancelled',
+                  description = $1,
+                  updated_at = NOW()
+            WHERE id = $2`,
+          [updatedDesc, tx.id]
+        )
+
+        // 3. Mark linked invoice_payments row as Cancelled and re-sync invoice
+        await cancelInvoicePaymentByTransactionId(client, tx.id, {
+          institutionId: actor.institution_id,
+          branchId: memberRow.branch_id,
+          userId: actor.id,
+        })
+
+        // 4. Update membership_fees balance
+        const feeRes = await client.query<{ id: string; amount_paid: string; total_membership_fee: string; balance_after: string }>(
+          `SELECT id, amount_paid, total_membership_fee, balance_after
+           FROM membership_fees
+           WHERE institution_id = $1 AND member_id = $2
+           ORDER BY created_at DESC LIMIT 1`,
+          [actor.institution_id, memberId]
+        )
+        const feeRow = feeRes.rows[0]
+        if (feeRow) {
+          const currentPaid = Number(feeRow.amount_paid || 0)
+          const totalFee = Number(feeRow.total_membership_fee || 0)
+          const newPaid = Math.max(0, currentPaid - txAmount)
+          const newBalanceAfter = Math.max(0, totalFee - newPaid)
+          const newBalanceBefore = totalFee
+
+          await client.query(
+            `UPDATE membership_fees
+                SET amount_paid = $1,
+                    balance_before = $2,
+                    balance_after = $3,
+                    modified_by = $4,
+                    updated_at = NOW()
+              WHERE id = $5`,
+            [newPaid, newBalanceBefore, newBalanceAfter, actor.id, feeRow.id]
+          )
+
+          await auditLogger.logUpdate(
+            "membership_fees",
+            feeRow.id,
+            { amount_paid: currentPaid, balance_after: Number(feeRow.balance_after) },
+            { amount_paid: newPaid, balance_after: newBalanceAfter, reason },
+            actor.institution_id,
+            actor.id,
+            { branch_id: memberRow.branch_id },
+            client
+          )
+        }
+
+        await auditLogger.logUpdate(
+          "transactions",
+          tx.id,
+          { status: tx.status },
+          { status: "Cancelled", reason },
+          actor.institution_id,
+          actor.id,
+          { branch_id: memberRow.branch_id },
+          client
+        )
+
+        await client.query("COMMIT")
+
+        return {
+          ok: true,
+          cancelledTransactionId: tx.id,
+          transactionNumber: tx.transaction_number,
+        }
+      } catch (err) {
+        await client.query("ROLLBACK")
+        throw err
+      }
+    })
+
+    if (result && "error" in result) {
+      const status =
+        result.error === "cross_tenant_forbidden" ||
+        result.error === "missing_permission:edit_membership_fee" ||
+        result.error === "branch_inactive" ||
+        result.error === "branch_not_found" ||
+        result.error === "member_inactive"
+          ? 403
+          : result.error === "member_not_found" || result.error === "transaction_not_found"
+            ? 404
+            : 400
+      const body: Record<string, unknown> = { error: result.error }
+      return NextResponse.json(body, { status })
+    }
+
+    apiLog("info", "member.membership_fee.delete.success", { method: "DELETE", apiPath, status: 200, memberId, authUserId: session.user.authUserId })
+    return NextResponse.json(result, { status: 200 })
+  } catch (e: unknown) {
+    if (e instanceof PaymentSettlementFailure) {
+      return NextResponse.json({ error: e.code }, { status: 400 })
+    }
+    const err = e as Error
+    apiLog("error", "member.membership_fee.delete.error", { method: "DELETE", apiPath, status: 500, error: err?.message || "Unexpected error" })
     return NextResponse.json({ error: err?.message || "Unexpected error" }, { status: 500 })
   }
 }

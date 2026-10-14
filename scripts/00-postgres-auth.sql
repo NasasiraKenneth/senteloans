@@ -4,15 +4,26 @@
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- Auth users table (replaces Supabase auth.users for app-backed auth)
+-- Acts as a unified credential identity store.
+-- An identity can link to a Staff profile (users.auth_id) AND/OR a Member profile (members.auth_id).
 CREATE TABLE IF NOT EXISTS public.app_auth_users (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_type VARCHAR(155) NOT NULL,
+    user_type VARCHAR(155) DEFAULT 'user',
     username VARCHAR(155) UNIQUE NOT NULL,
     email VARCHAR(255) UNIQUE NOT NULL,
     password_hash TEXT NOT NULL,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Ensure column allows default 'user' if already created with NOT NULL without default
+DO $$
+BEGIN
+    ALTER TABLE public.app_auth_users ALTER COLUMN user_type SET DEFAULT 'user';
+    ALTER TABLE public.app_auth_users ALTER COLUMN user_type DROP NOT NULL;
+EXCEPTION
+    WHEN OTHERS THEN NULL;
+END $$;
 
 CREATE INDEX IF NOT EXISTS idx_app_auth_users_email ON public.app_auth_users(email);
 
@@ -28,6 +39,6 @@ AS $$
   SELECT NULLIF(trim(current_setting('app.current_user_id', true)), '')::uuid;
 $$;
 
-COMMENT ON TABLE public.app_auth_users IS 'App-backed auth users (replaces Supabase auth.users). Link via users.auth_id / members.auth_id';
+COMMENT ON TABLE public.app_auth_users IS 'Unified auth users identity store. Link via users.auth_id (staff) and/or members.auth_id (member/client) for single or dual-role accounts.';
 
 CREATE INDEX IF NOT EXISTS idx_app_auth_users_username ON public.app_auth_users(username);

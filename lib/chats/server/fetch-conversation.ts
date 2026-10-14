@@ -177,10 +177,8 @@ export async function loadConversationRows(
     [conversationIds, currentIdentityId],
   )
 
-  const [participantsRes, referencesRes] = await Promise.all([
-    client.query(PARTICIPANTS_SQL, [conversationIds]),
-    client.query(REFERENCES_SQL, [conversationIds]),
-  ])
+  const participantsRes = await client.query(PARTICIPANTS_SQL, [conversationIds])
+  const referencesRes = await client.query(REFERENCES_SQL, [conversationIds])
 
   const participantsByConversation = new Map<string, ChatParticipant[]>()
   for (const row of participantsRes.rows as ParticipantRow[]) {

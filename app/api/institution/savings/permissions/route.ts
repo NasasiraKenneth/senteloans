@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { runWithAuth } from "@/lib/db"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
+import { hasPermissions } from "@/lib/api/rbac"
 
 type ActorContext = {
   id: string
@@ -35,24 +36,6 @@ async function resolveActorContext(client: any, authUserId: string): Promise<Act
   return actorRes.rows[0] || null
 }
 
-async function hasPermission(client: any, actor: ActorContext, permission: string): Promise<boolean> {
-  const role = String(actor.role || "").trim().toLowerCase()
-  if (role === "super_admin") return true
-  if (!actor.role_id || !actor.branch_id) return false
-
-  const permRes = await client.query(
-    `SELECT 1
-     FROM role_permissions rp
-     JOIN permissions p ON p.id = rp.permission_id
-     WHERE rp.role_id = $1
-       AND rp.branch_id = $2
-       AND p.name = $3
-     LIMIT 1`,
-    [actor.role_id, actor.branch_id, permission]
-  )
-  return permRes.rowCount > 0
-}
-
 export async function GET(req: Request) {
   const apiPath = getApiPath(req)
   try {
@@ -71,14 +54,20 @@ export async function GET(req: Request) {
       if (!actor) return null
       const role = String(actor.role || "").trim().toLowerCase()
 
-      const [viewSavings, viewAccount, createTransaction, addAccount, editAccount, generateAccountStatements] = await Promise.all([
-        hasPermission(client, actor, "view_savings"),
-        hasPermission(client, actor, "view_account"),
-        hasPermission(client, actor, "create_transaction"),
-        hasPermission(client, actor, "add_account"),
-        hasPermission(client, actor, "edit_account"),
-        hasPermission(client, actor, "generate_account_statements"),
-      ])
+      const perms = await hasPermissions(client, actor, [
+        "view_savings",
+        "view_account",
+        "create_transaction",
+        "add_account",
+        "edit_account",
+        "generate_account_statements",
+      ] as const)
+      const viewSavings = perms.view_savings
+      const viewAccount = perms.view_account
+      const createTransaction = perms.create_transaction
+      const addAccount = perms.add_account
+      const editAccount = perms.edit_account
+      const generateAccountStatements = perms.generate_account_statements
 
       const branches =
         role === "super_admin"

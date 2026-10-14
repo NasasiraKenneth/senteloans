@@ -1,5 +1,5 @@
 import type { PoolClient } from "pg"
-import { hasPermission, type ActorContext } from "@/lib/api/rbac"
+import { hasPermissions, type ActorContext } from "@/lib/api/rbac"
 
 /** Matches scripts/09-seed-users.sql (includes legacy typo view_bank_accouts). */
 export const FINANCE_PERMISSIONS = {
@@ -18,10 +18,10 @@ export const FINANCE_PERMISSIONS = {
 } as const
 
 export async function canViewAnyFinanceModule(client: PoolClient, actor: ActorContext): Promise<boolean> {
-  const checks = await Promise.all([
-    hasPermission(client, actor, FINANCE_PERMISSIONS.viewBankAccounts),
-    hasPermission(client, actor, FINANCE_PERMISSIONS.viewGrants),
-    hasPermission(client, actor, FINANCE_PERMISSIONS.viewUnclaimedDeposits),
+  const perms = await hasPermissions(client, actor, [
+    FINANCE_PERMISSIONS.viewBankAccounts,
+    FINANCE_PERMISSIONS.viewGrants,
+    FINANCE_PERMISSIONS.viewUnclaimedDeposits,
   ])
-  return checks.some(Boolean)
+  return Object.values(perms).some(Boolean)
 }

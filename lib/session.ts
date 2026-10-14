@@ -39,12 +39,25 @@ export type SessionData = {
   name: string
   role: string
   type?: AppSessionUser["type"]
+  activeRole?: AppSessionUser["activeRole"]
+  availableRoles?: AppSessionUser["availableRoles"]
   institutionId?: string
   institution?: StaffInstitutionSnapshot
 }
 
 export type AuthSessionSeed = Partial<
-  Pick<AppSessionUser, "userId" | "authUserId" | "email" | "name" | "role" | "type" | "institutionId">
+  Pick<
+    AppSessionUser,
+    | "userId"
+    | "authUserId"
+    | "email"
+    | "name"
+    | "role"
+    | "type"
+    | "activeRole"
+    | "availableRoles"
+    | "institutionId"
+  >
 >
 
 function isBrowser(): boolean {
@@ -104,6 +117,8 @@ export function mergeSessionFromAuthUser(user: AuthSessionSeed): SessionData {
     name: user.name || existing?.name || "",
     role: user.role || existing?.role || "",
     type: user.type || existing?.type,
+    activeRole: user.activeRole || existing?.activeRole,
+    availableRoles: user.availableRoles || existing?.availableRoles,
     institutionId: user.institutionId || existing?.institutionId,
     institution: existing?.institution,
   }

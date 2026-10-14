@@ -16,6 +16,8 @@ type AuthSessionUser = {
   role?: string
   institutionId?: string
   type?: string
+  activeRole?: "staff" | "client" | "system_admin"
+  availableRoles?: Array<"staff" | "client" | "system_admin">
 }
 
 function normalizeLogo(logo: unknown): string | null {
@@ -32,6 +34,8 @@ export function seedStaffSessionFromAuthUser(user: AuthSessionUser): SessionData
     ...(user.role ? { role: user.role } : {}),
     ...(user.institutionId ? { institutionId: user.institutionId } : {}),
     ...(user.type === "staff" || user.type === "client" ? { type: user.type } : {}),
+    ...(user.activeRole ? { activeRole: user.activeRole } : {}),
+    ...(user.availableRoles ? { availableRoles: user.availableRoles } : {}),
   })
 }
 
@@ -77,6 +81,8 @@ export async function hydrateStaffSession(): Promise<SessionData | null> {
       name: user.name || localSession?.name || "",
       role: user.role || localSession?.role || "",
       type: "staff",
+      activeRole: user.activeRole || localSession?.activeRole,
+      availableRoles: user.availableRoles || localSession?.availableRoles,
       institutionId: user.institutionId || localSession?.institutionId,
       institution: localSession?.institution,
     }

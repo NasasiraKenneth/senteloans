@@ -3,6 +3,8 @@ import type { PoolClient } from "pg"
 /** Values for app_auth_users.user_type */
 export const AUTH_USER_TYPE_MEMBER = "member"
 export const AUTH_USER_TYPE_INSTITUTION_STAFF = "institution_staff"
+export const AUTH_USER_TYPE_HYBRID = "hybrid"
+export const AUTH_USER_TYPE_USER = "user"
 
 export function normalizeUsernameBase(email: string): string {
   const local = String(email || "").split("@")[0] || "user"

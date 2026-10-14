@@ -93,24 +93,48 @@ export async function resolveActorContext(
   return (actorRes.rows[0] as ActorContext | undefined) || null
 }
 
+export async function hasPermissions<T extends string>(
+  client: PoolClient,
+  actor: Pick<ActorContext, "role" | "role_id" | "branch_id">,
+  permissions: readonly T[] | T[],
+): Promise<Record<T, boolean>> {
+  const result = {} as Record<T, boolean>
+  for (const perm of permissions) {
+    result[perm] = false
+  }
+  if (isSuperAdmin(actor)) {
+    for (const perm of permissions) {
+      result[perm] = true
+    }
+    return result
+  }
+  if (!actor.role_id || !actor.branch_id || permissions.length === 0) {
+    return result
+  }
+
+  const permRes = await client.query<{ name: T }>(
+    `SELECT p.name
+     FROM role_permissions rp
+     JOIN permissions p ON p.id = rp.permission_id
+     WHERE rp.role_id = $1
+       AND rp.branch_id = $2
+       AND p.name = ANY($3::text[])`,
+    [actor.role_id, actor.branch_id, permissions],
+  )
+
+  for (const row of permRes.rows) {
+    result[row.name] = true
+  }
+  return result
+}
+
 export async function hasPermission(
   client: PoolClient,
   actor: Pick<ActorContext, "role" | "role_id" | "branch_id">,
   permission: string,
 ): Promise<boolean> {
-  if (isSuperAdmin(actor)) return true
-  if (!actor.role_id || !actor.branch_id) return false
-  const permRes = await client.query(
-    `SELECT 1
-     FROM role_permissions rp
-     JOIN permissions p ON p.id = rp.permission_id
-     WHERE rp.role_id = $1
-       AND rp.branch_id = $2
-       AND p.name = $3
-     LIMIT 1`,
-    [actor.role_id, actor.branch_id, permission],
-  )
-  return (permRes.rowCount ?? 0) > 0
+  const res = await hasPermissions(client, actor, [permission])
+  return !!res[permission]
 }
 
 export function scopeWhere(params: {

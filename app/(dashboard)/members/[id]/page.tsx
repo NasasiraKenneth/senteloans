@@ -34,6 +34,9 @@ import Link from "next/link"
 import { motion, AnimatePresence } from "framer-motion"
 import { cn } from "@/lib/utils"
 import AddMembershipFeeModal from "../components/membershipFee/add"
+import EditMembershipFeeModal from "../components/membershipFee/edit"
+import CancelMembershipFeeModal from "../components/membershipFee/cancel"
+import type { FeePaymentRecord } from "../components/forms/editMembershipFeeForm"
 import AddSharesModal from "../components/shares/add"
 import SharesCalculatorModal from "../components/shares/calculator"
 import AddOpeningBalanceModal from "../components/openningBalance/add"
@@ -147,6 +150,9 @@ export default function UserProfilePage() {
   const [activeTab, setActiveTab] = useState<MemberTab>("overview")
   const [showSharesCalculator, setShowSharesCalculator] = useState(false)
   const [showMembershipFeeModal, setShowMembershipFeeModal] = useState(false)
+  const [feePayments, setFeePayments] = useState<FeePaymentRecord[]>([])
+  const [editingPayment, setEditingPayment] = useState<FeePaymentRecord | null>(null)
+  const [cancellingPayment, setCancellingPayment] = useState<FeePaymentRecord | null>(null)
   const [showSharesModal, setShowSharesModal] = useState(false)
   const [showOpeningBalanceModal, setShowOpeningBalanceModal] = useState(false)
   const [showAddKycModal, setShowAddKycModal] = useState(false)
@@ -458,6 +464,73 @@ export default function UserProfilePage() {
     }
   }
 
+  const refreshMembershipFee = async () => {
+    if (!user?.id) return
+    try {
+      const res = await fetch(`/api/institution/members/${user.id}/membership-fee`, { cache: "no-store" })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) return
+      if (typeof data.membershipFee === "number") setMembershipFee(data.membershipFee)
+      if (typeof data.membershipFeePaid === "number") setMembershipFeePaid(data.membershipFeePaid)
+      if (Array.isArray(data.payments)) setFeePayments(data.payments)
+    } catch {
+      // ignore; UI keeps current values
+    }
+  }
+
+  const handleFeeSuccess = async () => {
+    await refreshMembershipFee()
+    try {
+      const res = await fetch(`/api/institution/members/${userId}`, { cache: "no-store" })
+      if (res.ok) {
+        const data = await res.json()
+        if (data?.member) {
+          if (typeof data.membershipFee === "number") setMembershipFee(data.membershipFee)
+          if (typeof data.member.membership_fee_paid === "number") setMembershipFeePaid(data.member.membership_fee_paid)
+          setUser(mapMemberFromApi(data.member as Record<string, unknown>))
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  useEffect(() => {
+    if (user?.id) {
+      void refreshMembershipFee()
+    }
+  }, [user?.id])
+
+  const refreshMemberDocs = async () => {
+    if (!userId) return
+    try {
+      const res = await fetch(`/api/institution/members/${userId}`, { cache: "no-store" })
+      if (!res.ok) return
+      const data = await res.json()
+      const member = data?.member
+      if (!member) return
+      const mapped = mapMemberFromApi(member as Record<string, unknown>)
+      setUser((prev: any) => (prev ? { ...prev, ...mapped } : mapped))
+    } catch {
+      // Best-effort refresh after upload.
+    }
+  }
+
+  const refreshShares = async () => {
+    if (!user?.id) return
+    try {
+      const res = await fetch(`/api/institution/members/${user.id}/shares`, { cache: "no-store" })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) return
+      const rows: any[] = Array.isArray(data.shares) ? data.shares : []
+      const totalShares = rows.reduce((sum, r) => sum + Number(r.number_of_shares || 0), 0)
+      const totalValue = rows.reduce((sum, r) => sum + Number(r.total_value || 0), 0)
+      setUser((prev: any) => (prev ? { ...prev, numberOfShares: totalShares, totalShareValue: totalValue } : prev))
+    } catch {
+      // ignore; UI keeps current values
+    }
+  }
+
   if (loading) {
     return (
       <>
@@ -491,48 +564,6 @@ export default function UserProfilePage() {
   const formatCurrency = (amount: number) => fmtCurrency(amount, currency)
   const formatLoanMoney = (amount: number) => fmtCurrency(amount, currency, { fractionDigits: 2 })
 
-  const refreshMembershipFee = async () => {
-    if (!user?.id) return
-    try {
-      const res = await fetch(`/api/institution/members/${user.id}/membership-fee`, { cache: "no-store" })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) return
-      if (typeof data.membershipFee === "number") setMembershipFee(data.membershipFee)
-      if (typeof data.membershipFeePaid === "number") setMembershipFeePaid(data.membershipFeePaid)
-    } catch {
-      // ignore; UI keeps current values
-    }
-  }
-
-  const refreshMemberDocs = async () => {
-    if (!userId) return
-    try {
-      const res = await fetch(`/api/institution/members/${userId}`, { cache: "no-store" })
-      if (!res.ok) return
-      const data = await res.json()
-      const member = data?.member
-      if (!member) return
-      const mapped = mapMemberFromApi(member as Record<string, unknown>)
-      setUser((prev: any) => (prev ? { ...prev, ...mapped } : mapped))
-    } catch {
-      // Best-effort refresh after upload.
-    }
-  }
-
-  const refreshShares = async () => {
-    if (!user?.id) return
-    try {
-      const res = await fetch(`/api/institution/members/${user.id}/shares`, { cache: "no-store" })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) return
-      const rows: any[] = Array.isArray(data.shares) ? data.shares : []
-      const totalShares = rows.reduce((sum, r) => sum + Number(r.number_of_shares || 0), 0)
-      const totalValue = rows.reduce((sum, r) => sum + Number(r.total_value || 0), 0)
-      setUser((prev: any) => (prev ? { ...prev, numberOfShares: totalShares, totalShareValue: totalValue } : prev))
-    } catch {
-      // ignore; UI keeps current values
-    }
-  }
 
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString("en-UG", {
@@ -748,7 +779,7 @@ export default function UserProfilePage() {
                     <div>
                       <div className="text-sm font-semibold text-green-800">Client login credentials generated</div>
                       <div className="text-sm text-green-900 mt-1">
-                        Credentials were emailed to the member. You can also share the temporary password securely. They can log in via <code>/client-login</code> using:
+                        Credentials were emailed to the member. You can also share the temporary password securely. They can log in via <code>/login</code> using:
                       </div>
                       <div className="mt-2 grid gap-2 sm:grid-cols-2">
                         <div>
@@ -932,12 +963,108 @@ export default function UserProfilePage() {
                       )}
                     </div>
 
-                    {!isFullyPaid && (
+                    {!isFullyPaid && canEditMembershipFee && (
                       <div className="pt-1">
                         <Button variant="outline" size="sm" onClick={() => setShowMembershipFeeModal(true)}>
                           <DollarSign className="mr-2 h-4 w-4" />
                           Record Fee
                         </Button>
+                      </div>
+                    )}
+
+                    {/* Payment History & Management */}
+                    {feePayments.length > 0 && (
+                      <div className="pt-4 border-t border-border/70 space-y-2.5">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                            Payment History
+                          </span>
+                          <span className="text-xs text-muted-foreground">
+                            {feePayments.length} {feePayments.length === 1 ? "entry" : "entries"}
+                          </span>
+                        </div>
+                        <div className="divide-y divide-border/60 rounded-lg border border-border/70 overflow-hidden bg-background">
+                          {feePayments.map((p) => {
+                            const isCancelled =
+                              String(p.status).toLowerCase() === "cancelled" ||
+                              String(p.status).toLowerCase() === "reversed"
+                            return (
+                              <div
+                                key={p.id}
+                                className={cn(
+                                  "flex flex-wrap items-center justify-between gap-3 p-3 text-xs transition-colors",
+                                  isCancelled ? "bg-muted/30 opacity-70" : "hover:bg-muted/15"
+                                )}
+                              >
+                                <div className="space-y-0.5">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="font-mono font-medium text-foreground">
+                                      {p.transaction_number}
+                                    </span>
+                                    <Badge
+                                      variant="outline"
+                                      className={cn(
+                                        "text-[10px] px-1.5 py-0 h-4",
+                                        isCancelled
+                                          ? "border-red-200 bg-red-50 text-red-700"
+                                          : "border-emerald-200 bg-emerald-50 text-emerald-700"
+                                      )}
+                                    >
+                                      {p.status}
+                                    </Badge>
+                                    <span className="text-muted-foreground">via {p.mode}</span>
+                                  </div>
+                                  <div className="flex items-center gap-2 text-muted-foreground">
+                                    <span>
+                                      {new Date(p.transaction_date).toLocaleDateString("en-UG", {
+                                        year: "numeric",
+                                        month: "short",
+                                        day: "numeric",
+                                      })}
+                                    </span>
+                                    {p.reference_number ? (
+                                      <>
+                                        <span>•</span>
+                                        <span>Ref: {p.reference_number}</span>
+                                      </>
+                                    ) : null}
+                                  </div>
+                                </div>
+
+                                <div className="flex items-center gap-3">
+                                  <span
+                                    className={cn(
+                                      "font-semibold text-sm",
+                                      isCancelled ? "line-through text-muted-foreground" : "text-foreground"
+                                    )}
+                                  >
+                                    {formatCurrency(Number(p.amount))}
+                                  </span>
+                                  {!isCancelled && p.transaction_id && canEditMembershipFee && (
+                                    <div className="flex items-center gap-1">
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
+                                        onClick={() => setEditingPayment(p)}
+                                      >
+                                        Edit
+                                      </Button>
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-7 px-2 text-xs text-red-600 hover:text-red-700 hover:bg-red-50"
+                                        onClick={() => setCancellingPayment(p)}
+                                      >
+                                        Void
+                                      </Button>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            )
+                          })}
+                        </div>
                       </div>
                     )}
                   </div>
@@ -1399,7 +1526,27 @@ export default function UserProfilePage() {
         onClose={() => setShowMembershipFeeModal(false)}
         memberId={user.id}
         currency={currency}
-        onSuccess={refreshMembershipFee}
+        onSuccess={handleFeeSuccess}
+      />
+
+      <EditMembershipFeeModal
+        isOpen={!!editingPayment}
+        onClose={() => setEditingPayment(null)}
+        memberId={user.id}
+        payment={editingPayment}
+        currency={currency}
+        totalFee={membershipFee}
+        currentPaid={membershipFeePaid}
+        onSuccess={handleFeeSuccess}
+      />
+
+      <CancelMembershipFeeModal
+        isOpen={!!cancellingPayment}
+        onClose={() => setCancellingPayment(null)}
+        memberId={user.id}
+        payment={cancellingPayment}
+        currency={currency}
+        onSuccess={handleFeeSuccess}
       />
 
       <AddSharesModal

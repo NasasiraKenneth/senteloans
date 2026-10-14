@@ -1,7 +1,7 @@
 # SenteLoans - Open Source SACCO & MFI Management Platform
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Next.js](https://img.shields.io/badge/Next.js-14.2-black)](https://nextjs.org/)
+[![Next.js](https://img.shields.io/badge/Next.js-16.4-black)](https://nextjs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue)](https://www.typescriptlang.org/)
 [![Supabase](https://img.shields.io/badge/Supabase-Backend-green)](https://supabase.com/)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
@@ -71,10 +71,10 @@ Sente Loan currently empowers Ugandan Saccos, money lenders and Micro finance in
 - **Treasurer/Auditor**: Financial reporting, compliance tracking, and audit trails
 - **SACCO Member**: Self-service portal for account information and loan applications
 
-## 🛠 Technical Stack
+## 🛠️ Technical Stack
 
 ### Frontend
-- **Framework**: Next.js 14.2.25 with App Router
+- **Framework**: Next.js 16.4 with App Router
 - **Language**: TypeScript 5
 - **Runtime**: React 19
 - **Styling**: Tailwind CSS 4.1.9 with custom design system
@@ -298,45 +298,3 @@ For security vulnerabilities, please see our [Security Policy](SECURITY.md).
 - [ ] Multi-country support
 - [ ] WhatsApp integration
 - [ ] Voice banking
-
-## 🌟 Use Cases
-
-### For SACCOs
-- Manage member shares and contributions
-- Process loan applications and approvals
-- Track savings accounts
-- Generate compliance reports
-- Member self-service portal
-
-### For MFIs
-- Client onboarding with KYC
-- Group lending management
-- Repayment tracking
-- Portfolio risk analysis
-- Field officer mobile access
-
-### For Money Lenders
-- Quick loan processing
-- Collateral management
-- Payment reminders
-- Default tracking
-- Business analytics
-
-## 📄 License
-
-SenteLoans is open source software licensed under the [MIT License](LICENSE).
-
-## 🙏 Acknowledgments
-
-- Built with [Next.js](https://nextjs.org/), [Supabase](https://supabase.com/), and [Tailwind CSS](https://tailwindcss.com/)
-- UI components from [shadcn/ui](https://ui.shadcn.com/)
-- Inspired by the needs of African financial institutions
-- Supported by the open source community
-
----
-
-**Built with ❤️ for African SACCOs, MFIs, and Financial Cooperatives**
-
-*Empowering financial inclusion through open source technology*
-
-🌍 **Made in Uganda, for Africa**

@@ -155,7 +155,7 @@ export async function GET(
             i.subtotal, i.vat, i.total_amount, i.inwords, i.invoice_type, i.status,
             i.created_by, i.created_at, i.modified_by, i.updated_at,
             COALESCE((
-              SELECT SUM(ip.amount) FROM invoice_payments ip WHERE ip.invoice_id = i.id
+              SELECT SUM(ip.amount) FROM invoice_payments ip WHERE ip.invoice_id = i.id AND LOWER(COALESCE(ip.status, 'completed')) NOT IN ('cancelled', 'reversed')
             ), 0)::numeric AS paid_amount,
             MAX(m.full_name) AS member_name,
             MAX(c.name) AS client_name,

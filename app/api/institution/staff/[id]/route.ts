@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { runWithAuth } from "@/lib/db"
 import { hash } from "bcryptjs"
+import { getUniqueUsername } from "@/lib/auth-users"
 import { auditLogger } from "@/lib/audit/audit-logger"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
 import {
@@ -59,24 +60,19 @@ export async function GET(
 
       const res = await client.query(
         `SELECT
-                u.id,
-                u.full_name,
-                u.email,
-                u.phone_number,
-                u.role_id,
-                b.name AS branch_name,
-                CASE
-                  WHEN r.name = 'System Admin' THEN 'system_admin'
-                  WHEN r.name = 'Super Admin' THEN 'super_admin'
-                  WHEN r.name = 'Admin' THEN 'institution_admin'
-                  WHEN r.name IS NOT NULL THEN regexp_replace(lower(r.name), '[^a-z0-9]+', '_', 'g')
-                  ELSE NULL
-                END AS role,
-                u.status,
-                u.joined_at,
-                u.last_login,
-                u.created_at,
-                a.username
+           u.id,
+           u.full_name,
+           u.email,
+           u.phone_number,
+           u.role_id,
+           r.name AS role_name,
+           u.branch_id,
+           b.name AS branch_name,
+           u.status,
+           u.joined_at,
+           u.last_login,
+           u.created_at,
+           a.username
          FROM users u
          LEFT JOIN roles r ON r.id = u.role_id
          LEFT JOIN branches b ON b.id = u.branch_id
@@ -131,7 +127,7 @@ export async function PUT(
     const lastName = String(body.lastName || "").trim()
     const email = String(body.email || "").trim().toLowerCase()
     const phoneNumber = String(body.phoneNumber || "").trim()
-    const username = String(body.username || "").trim().toLowerCase()
+    const rawUsername = String(body.username || "").trim().toLowerCase()
     const password = String(body.password || "").trim()
     const status = String(body.status || "Active").trim()
     const joinDate = String(body.joinDate || "").trim()
@@ -140,7 +136,6 @@ export async function PUT(
     if (!firstName) return NextResponse.json({ error: "First name is required" }, { status: 400 })
     if (!lastName) return NextResponse.json({ error: "Last name is required" }, { status: 400 })
     if (!email) return NextResponse.json({ error: "Email is required" }, { status: 400 })
-    if (!username) return NextResponse.json({ error: "Username is required" }, { status: 400 })
     if (!selectedRoleId) return NextResponse.json({ error: "A role is required" }, { status: 400 })
     if (!VALID_STAFF_STATUSES.includes(status as (typeof VALID_STAFF_STATUSES)[number]))
       return NextResponse.json({ error: `Invalid status: ${status}` }, { status: 400 })
@@ -199,10 +194,19 @@ export async function PUT(
         if (emailCheck.rows.length > 0) return { error: "email_already_exists" as const }
       }
 
+      let authUsername = rawUsername
       if (existing.auth_id) {
+        if (!authUsername) {
+          const authRow = await client.query<{ username: string }>(
+            `SELECT username FROM app_auth_users WHERE id = $1 LIMIT 1`,
+            [existing.auth_id]
+          )
+          authUsername = authRow.rows[0]?.username || (await getUniqueUsername(client, email, existing.auth_id))
+        }
+
         const usernameCheck = await client.query(
           `SELECT id FROM app_auth_users WHERE (username = $1 OR email = $2) AND id != $3`,
-          [username, email, existing.auth_id]
+          [authUsername, email, existing.auth_id]
         )
         if (usernameCheck.rows.length > 0) return { error: "username_or_auth_email_already_exists" as const }
       }
@@ -234,12 +238,12 @@ export async function PUT(
           const passwordHash = await hash(password, 10)
           await client.query(
             `UPDATE app_auth_users SET email = $1, username = $2, password_hash = $3, updated_at = NOW() WHERE id = $4`,
-            [email, username, passwordHash, existing.auth_id]
+            [email, authUsername, passwordHash, existing.auth_id]
           )
         } else {
           await client.query(
             `UPDATE app_auth_users SET email = $1, username = $2, updated_at = NOW() WHERE id = $3`,
-            [email, username, existing.auth_id]
+            [email, authUsername, existing.auth_id]
           )
         }
       }

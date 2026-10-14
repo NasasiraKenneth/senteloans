@@ -297,59 +297,57 @@ export async function fetchLoanReportAggregates(
     pipeline: Number(row.pipeline ?? 0),
   }
 
-  const [statusRes, productRes, typeRes, monthRes, collectionsRes] = await Promise.all([
-    client.query(
-      `SELECT l.status, COUNT(*)::int AS count,
-              COALESCE(SUM(l.principal_amount), 0)::numeric AS principal,
-              COALESCE(SUM(l.outstanding_balance), 0)::numeric AS outstanding
-       FROM loans l WHERE ${where}
-       GROUP BY l.status ORDER BY count DESC`,
-      params,
-    ),
-    client.query(
-      `SELECT COALESCE(lp.product_name, 'Unknown') AS name,
-              COUNT(*)::int AS count,
-              COALESCE(SUM(l.outstanding_balance), 0)::numeric AS outstanding
-       FROM loans l
-       LEFT JOIN loan_products lp ON lp.id = l.loan_product_id
-       WHERE ${where}
-       GROUP BY lp.product_name
-       ORDER BY outstanding DESC
-       LIMIT 8`,
-      params,
-    ),
-    client.query(
-      `SELECT COALESCE(l.loan_type, 'normal') AS loan_type,
-              COUNT(*)::int AS count,
-              COALESCE(SUM(l.principal_amount), 0)::numeric AS principal
-       FROM loans l WHERE ${where}
-       GROUP BY l.loan_type ORDER BY count DESC`,
-      params,
-    ),
-    client.query(
-      `SELECT to_char(l.application_date, 'YYYY-MM') AS month,
-              COUNT(*)::int AS count,
-              COALESCE(SUM(l.principal_amount), 0)::numeric AS principal
-       FROM loans l
-       WHERE ${where} AND l.application_date IS NOT NULL
-       GROUP BY 1 ORDER BY 1 ASC`,
-      params,
-    ),
-    client.query(
-      `SELECT
-         to_char(lr.payment_date, 'YYYY-MM') AS month,
-         COALESCE(SUM(lr.interest_amount), 0)::numeric AS interest_collected,
-         COALESCE(SUM(GREATEST(0, lr.penalty_amount)), 0)::numeric AS penalties_collected
-       FROM loan_repayments lr
-       INNER JOIN loans l ON l.id = lr.loan_id
-       WHERE ${where}
-         AND lr.payment_date IS NOT NULL
-         AND lr.amount_paid > 0
-       GROUP BY 1
-       ORDER BY 1 ASC`,
-      params,
-    ),
-  ])
+  const statusRes = await client.query(
+    `SELECT l.status, COUNT(*)::int AS count,
+            COALESCE(SUM(l.principal_amount), 0)::numeric AS principal,
+            COALESCE(SUM(l.outstanding_balance), 0)::numeric AS outstanding
+     FROM loans l WHERE ${where}
+     GROUP BY l.status ORDER BY count DESC`,
+    params,
+  )
+  const productRes = await client.query(
+    `SELECT COALESCE(lp.product_name, 'Unknown') AS name,
+            COUNT(*)::int AS count,
+            COALESCE(SUM(l.outstanding_balance), 0)::numeric AS outstanding
+     FROM loans l
+     LEFT JOIN loan_products lp ON lp.id = l.loan_product_id
+     WHERE ${where}
+     GROUP BY lp.product_name
+     ORDER BY outstanding DESC
+     LIMIT 8`,
+    params,
+  )
+  const typeRes = await client.query(
+    `SELECT COALESCE(l.loan_type, 'normal') AS loan_type,
+            COUNT(*)::int AS count,
+            COALESCE(SUM(l.principal_amount), 0)::numeric AS principal
+     FROM loans l WHERE ${where}
+     GROUP BY l.loan_type ORDER BY count DESC`,
+    params,
+  )
+  const monthRes = await client.query(
+    `SELECT to_char(date_trunc('month', l.application_date), 'Mon YYYY') AS month,
+            date_trunc('month', l.application_date) AS sort_month,
+            COUNT(*)::int AS count,
+            COALESCE(SUM(l.principal_amount), 0)::numeric AS principal,
+            COALESCE(SUM(l.disbursement_balance), 0)::numeric AS disbursed
+     FROM loans l
+     WHERE ${where} AND l.application_date >= (CURRENT_DATE - INTERVAL '12 months')
+     GROUP BY date_trunc('month', l.application_date)
+     ORDER BY sort_month ASC`,
+    params,
+  )
+  const collectionsRes = await client.query(
+    `SELECT to_char(date_trunc('month', lr.payment_date), 'Mon YYYY') AS month,
+            date_trunc('month', lr.payment_date) AS sort_month,
+            COALESCE(SUM(lr.amount_paid), 0)::numeric AS amount
+     FROM loan_repayments lr
+     INNER JOIN loans l ON l.id = lr.loan_id
+     WHERE ${where} AND lr.payment_date >= (CURRENT_DATE - INTERVAL '12 months')
+     GROUP BY date_trunc('month', lr.payment_date)
+     ORDER BY sort_month ASC`,
+    params,
+  )
 
   const breakdown: LoanReportBreakdown = {
     by_status: statusRes.rows.map((r: Record<string, unknown>) => ({

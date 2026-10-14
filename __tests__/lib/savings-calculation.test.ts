@@ -1,6 +1,6 @@
 import { calculateNextBillingDate, calculatePreviousBillingDates } from '@/lib/members/savings-calculation'
 
-describe('calculateNextBillingDate', () => {
+describe('calculateNextBillingDate - baseline regression tests', () => {
   it('returns null if start date is missing or invalid', () => {
     expect(calculateNextBillingDate({ startDate: null, frequencyUnit: 'MONTH', frequencyValue: 1 })).toBeNull()
     expect(calculateNextBillingDate({ startDate: 'invalid-date', frequencyUnit: 'MONTH', frequencyValue: 1 })).toBeNull()
@@ -11,6 +11,7 @@ describe('calculateNextBillingDate', () => {
       startDate: '2026-09-01',
       frequencyUnit: 'DAY',
       frequencyValue: 2,
+      currentDate: '2026-09-01',
     })
     expect(res).toBe('2026-09-03')
   })
@@ -20,6 +21,7 @@ describe('calculateNextBillingDate', () => {
       startDate: '2026-09-01',
       frequencyUnit: 'WEEK',
       frequencyValue: 1,
+      currentDate: '2026-09-01',
     })
     expect(res).toBe('2026-09-08')
   })
@@ -31,6 +33,7 @@ describe('calculateNextBillingDate', () => {
       frequencyUnit: 'WEEK',
       frequencyValue: 1,
       autoSavingsDay: 'Friday',
+      currentDate: '2026-09-01',
     })
     expect(res).toBe('2026-09-04')
   })
@@ -43,6 +46,7 @@ describe('calculateNextBillingDate', () => {
         frequencyUnit: 'MONTH',
         frequencyValue: 1,
         autoSavingsDay: 'includes 4',
+        currentDate: '2026-09-01',
       })
     ).toBe('2026-09-04')
 
@@ -53,6 +57,7 @@ describe('calculateNextBillingDate', () => {
         frequencyUnit: 'MONTH',
         frequencyValue: 1,
         autoSavingsDay: 'includes 4',
+        currentDate: '2026-09-05',
       })
     ).toBe('2026-09-14')
 
@@ -63,6 +68,7 @@ describe('calculateNextBillingDate', () => {
         frequencyUnit: 'MONTH',
         frequencyValue: 1,
         autoSavingsDay: 'includes 4',
+        currentDate: '2026-09-25',
       })
     ).toBe('2026-10-04')
 
@@ -73,6 +79,7 @@ describe('calculateNextBillingDate', () => {
         frequencyUnit: 'MONTH',
         frequencyValue: 1,
         autoSavingsDay: 'includes 6',
+        currentDate: '2026-09-01',
       })
     ).toBe('2026-09-06')
 
@@ -82,6 +89,7 @@ describe('calculateNextBillingDate', () => {
         frequencyUnit: 'MONTH',
         frequencyValue: 1,
         autoSavingsDay: 'includes 7',
+        currentDate: '2026-09-01',
       })
     ).toBe('2026-09-07')
 
@@ -91,6 +99,7 @@ describe('calculateNextBillingDate', () => {
         frequencyUnit: 'MONTH',
         frequencyValue: 1,
         autoSavingsDay: 'includes 8',
+        currentDate: '2026-09-01',
       })
     ).toBe('2026-09-08')
 
@@ -100,6 +109,7 @@ describe('calculateNextBillingDate', () => {
         frequencyUnit: 'MONTH',
         frequencyValue: 1,
         autoSavingsDay: 'includes 9',
+        currentDate: '2026-09-01',
       })
     ).toBe('2026-09-09')
 
@@ -109,6 +119,7 @@ describe('calculateNextBillingDate', () => {
         frequencyUnit: 'MONTH',
         frequencyValue: 1,
         autoSavingsDay: 'includes 0',
+        currentDate: '2026-09-01',
       })
     ).toBe('2026-09-10')
   })
@@ -120,6 +131,7 @@ describe('calculateNextBillingDate', () => {
       frequencyUnit: 'MONTH',
       frequencyValue: 1,
       autoSavingsDay: '1st Monday',
+      currentDate: '2026-09-01',
     })
     expect(resMonday).toBe('2026-10-05')
 
@@ -129,6 +141,7 @@ describe('calculateNextBillingDate', () => {
       frequencyUnit: 'MONTH',
       frequencyValue: 1,
       autoSavingsDay: '1st Sunday',
+      currentDate: '2026-09-01',
     })
     expect(resSunday).toBe('2026-10-04')
   })
@@ -139,6 +152,7 @@ describe('calculateNextBillingDate', () => {
       frequencyUnit: 'MONTH',
       frequencyValue: 1,
       autoSavingsDay: '15',
+      currentDate: '2026-09-01',
     })
     expect(res).toBe('2026-10-15')
   })
@@ -150,6 +164,7 @@ describe('calculateNextBillingDate', () => {
       frequencyUnit: 'MONTH',
       frequencyValue: 1,
       autoSavingsDay: 'last_day',
+      currentDate: '2026-09-01',
     })
     expect(res).toBe('2026-10-31')
   })
@@ -159,8 +174,107 @@ describe('calculateNextBillingDate', () => {
       startDate: '2026-09-01',
       frequencyUnit: 'YEAR',
       frequencyValue: 1,
+      currentDate: '2026-09-01',
     })
     expect(res).toBe('2027-09-01')
+  })
+})
+
+describe('calculateNextBillingDate - future date rollover when start date is in the past', () => {
+  it('rolls forward next billing date from past to the future (e.g. 10th June start -> 10th October)', () => {
+    // Start date is 2026-06-10. First billing would normally be 2026-07-10, but currentDate is 2026-10-09.
+    // It should advance past July 10, Aug 10, Sep 10 to future 2026-10-10.
+    const res = calculateNextBillingDate({
+      startDate: '2026-06-10',
+      frequencyUnit: 'MONTH',
+      frequencyValue: 1,
+      autoSavingsDay: '10',
+      currentDate: '2026-10-09',
+    })
+    expect(res).toBe('2026-10-10')
+  })
+
+  it('rolls forward next billing date when autoSavingsDay is not specified', () => {
+    const res = calculateNextBillingDate({
+      startDate: '2026-06-10',
+      frequencyUnit: 'MONTH',
+      frequencyValue: 1,
+      currentDate: '2026-10-09',
+    })
+    expect(res).toBe('2026-10-10')
+  })
+
+  it('rolls forward for multi-month intervals (e.g. every 2 months)', () => {
+    // Start 2026-06-10 -> 2026-08-10 (past) -> 2026-10-10 (future relative to 2026-10-09)
+    const res = calculateNextBillingDate({
+      startDate: '2026-06-10',
+      frequencyUnit: 'MONTH',
+      frequencyValue: 2,
+      autoSavingsDay: '10',
+      currentDate: '2026-10-09',
+    })
+    expect(res).toBe('2026-10-10')
+  })
+
+  it('rolls forward for DAY frequency when start date is in the past', () => {
+    // Start 2026-06-10, every 1 day, currentDate 2026-10-09 -> returns 2026-10-09
+    const res = calculateNextBillingDate({
+      startDate: '2026-06-10',
+      frequencyUnit: 'DAY',
+      frequencyValue: 1,
+      currentDate: '2026-10-09',
+    })
+    expect(res).toBe('2026-10-09')
+  })
+
+  it('rolls forward for WEEK frequency with weekday when start date is in the past', () => {
+    // Start 2026-06-10 (Wednesday), autoSavingsDay Friday, currentDate 2026-10-09 (Friday)
+    const res = calculateNextBillingDate({
+      startDate: '2026-06-10',
+      frequencyUnit: 'WEEK',
+      frequencyValue: 1,
+      autoSavingsDay: 'Friday',
+      currentDate: '2026-10-09',
+    })
+    expect(res).toBe('2026-10-09')
+  })
+
+  it('rolls forward for YEAR frequency when start date was multiple years ago', () => {
+    // Start 2022-06-10, every 1 year, currentDate 2026-10-09 -> returns 2027-06-10
+    const res = calculateNextBillingDate({
+      startDate: '2022-06-10',
+      frequencyUnit: 'YEAR',
+      frequencyValue: 1,
+      currentDate: '2026-10-09',
+    })
+    expect(res).toBe('2027-06-10')
+  })
+
+  it('rolls forward for ordinal weekdays when past cycles have elapsed', () => {
+    // Start 2026-06-01, autoSavingsDay 1st Monday, currentDate 2026-10-09
+    // October 1st Monday was 2026-10-05 (which is before 2026-10-09)
+    // Next future 1st Monday is in November: 2026-11-02
+    const res = calculateNextBillingDate({
+      startDate: '2026-06-01',
+      frequencyUnit: 'MONTH',
+      frequencyValue: 1,
+      autoSavingsDay: '1st Monday',
+      currentDate: '2026-10-09',
+    })
+    expect(res).toBe('2026-11-02')
+  })
+
+  it('rolls forward for "includes X" pattern when past occurrences have elapsed', () => {
+    // Start 2026-06-01, autoSavingsDay includes 4, currentDate 2026-10-09
+    // Past dates: June, July, Aug, Sep, Oct 4. Next future is Oct 14: 2026-10-14
+    const res = calculateNextBillingDate({
+      startDate: '2026-06-01',
+      frequencyUnit: 'MONTH',
+      frequencyValue: 1,
+      autoSavingsDay: 'includes 4',
+      currentDate: '2026-10-09',
+    })
+    expect(res).toBe('2026-10-14')
   })
 })
 

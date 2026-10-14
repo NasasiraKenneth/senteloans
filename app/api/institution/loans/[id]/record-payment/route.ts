@@ -452,13 +452,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
           )
           const ctxRow = ctxRes.rows[0] as Record<string, unknown> | undefined
           if (ctxRow) {
-            const [instRes, cfgRes] = await Promise.all([
-              client.query<{ name: string }>(`SELECT name FROM institutions WHERE id = $1`, [institutionId]),
-              client.query<{ currency: string }>(
-                `SELECT currency FROM config WHERE branch_id = $1 ORDER BY created_at DESC LIMIT 1`,
-                [loanBranchId],
-              ),
-            ])
+            const instRes = await client.query<{ name: string }>(`SELECT name FROM institutions WHERE id = $1`, [institutionId])
+            const cfgRes = await client.query<{ currency: string }>(
+              `SELECT currency FROM config WHERE branch_id = $1 ORDER BY created_at DESC LIMIT 1`,
+              [loanBranchId],
+            )
             postCommit = {
               actorId: actor.id,
               institutionId,

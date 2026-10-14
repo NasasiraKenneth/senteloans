@@ -31,12 +31,10 @@ const PAYMENT_MODES = [
   { value: "Cash", label: "Cash" },
   { value: "Mobile Money", label: "Mobile Money" },
   { value: "Bank Transfer", label: "Bank Transfer" },
-  { value: "Cheque", label: "Cheque" },
-  { value: "Card", label: "Card" },
 ]
 
 // Payment modes that settle into a branch bank account (require account selection).
-const BANK_ROUTED_MODES = ["Bank Transfer", "Cheque", "Card"]
+const BANK_ROUTED_MODES = ["Bank Transfer"]
 
 export default function MembershipFeeForm({
   memberId,

@@ -12,7 +12,7 @@ export interface UserFormData {
   phoneNumber: string;
   status: string;
   joinDate: string;
-  username: string;
+  username?: string;
   password?: string;
   confirmPassword?: string;
   roleId: string;
@@ -299,24 +299,20 @@ const RolesStep = ({control, errors, roleOptions, roleOptionsLoading}: any) => (
     </div>
 );
 
-const LoginStep = ({register, errors, watch, editMode}: any) => (
+const LoginStep = ({register, errors, watch, editMode}: any) => {
+  const currentUsername = watch('username');
+  return (
     <div className="space-y-6">
-      <div>
-        <label htmlFor="username" className="block text-sm font-medium text-gray-700 mb-1">
-          Username <span className="text-red-500">*</span>
-        </label>
-        <div className="relative">
-          <FiUser className="absolute left-3 top-1/2 transform -translate-y-1/2 text-lg text-gray-400"/>
-          <input
-              id="username"
-              type="text"
-              placeholder="Username"
-              className={`w-full pl-10 pr-3 py-2.5 text-sm border rounded-md focus:ring-[1.5px] focus:ring-[#f08c2b] focus:border-transparent focus:outline-none transition-all duration-200 ${errors.username ? 'border-red-500' : 'border-gray-300 hover:border-gray-400'}`}
-              {...register('username', {required: 'Username is required'})}
-          />
+      {editMode && currentUsername ? (
+        <div className="p-3 bg-gray-50 border border-gray-200 rounded-md text-xs text-gray-700 flex items-center justify-between">
+          <span className="text-gray-500">Username:</span>
+          <span className="font-medium text-gray-900">{currentUsername}</span>
         </div>
-        {errors.username && <p className="mt-1 text-xs text-red-500">{errors.username.message}</p>}
-      </div>
+      ) : (
+        <div className="p-3 bg-amber-50 border border-amber-200 rounded-md text-xs text-amber-800">
+          The login username is automatically generated from the email address upon creation.
+        </div>
+      )}
       <div>
         <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1">
           {editMode ? 'New Password' : 'Password'} {!editMode && <span className="text-red-500">*</span>}
@@ -371,7 +367,8 @@ const LoginStep = ({register, errors, watch, editMode}: any) => (
         {errors.confirmPassword && <p className="mt-1 text-xs text-red-500">{errors.confirmPassword.message}</p>}
       </div>
     </div>
-);
+  );
+};
 
 const UserForm: React.FC<UserFormProps> = ({
   initialValues = {},
@@ -434,7 +431,7 @@ const UserForm: React.FC<UserFormProps> = ({
     switch (step) {
       case 0: return ['firstName', 'lastName', 'email', 'phoneNumber', 'status', 'joinDate'];
       case 1: return ['roleId'];
-      case 2: return ['username', 'password', 'confirmPassword'];
+      case 2: return ['password', 'confirmPassword'];
       default: return [];
     }
   };

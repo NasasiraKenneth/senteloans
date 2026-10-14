@@ -6,6 +6,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { NotificationBell } from "@/components/notification-bell"
 import { ChatMessagesButton } from "@/components/chat-messages-button"
+import { WorkspaceRoleSwitcher } from "@/components/workspace-role-switcher"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -104,7 +105,9 @@ export function ClientPortalHeader({
         </div>
 
         {/* Right — Actions */}
-        <div className="flex shrink-0 items-center gap-1">
+        <div className="flex shrink-0 items-center gap-1.5">
+          <WorkspaceRoleSwitcher />
+
           {readInstitutionConfigModuleEnabled(institution.config, "chats") ? (
             <ChatMessagesButton
               href="/client-portal/messages"

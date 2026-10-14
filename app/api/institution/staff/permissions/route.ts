@@ -3,7 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { runWithAuth } from "@/lib/db"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
-import { hasPermission, isSuperAdmin, normalizeRole, resolveActorContext } from "@/lib/api/rbac"
+import { hasPermission, hasPermissions, isSuperAdmin, normalizeRole, resolveActorContext } from "@/lib/api/rbac"
 
 export async function GET(req: Request) {
   const apiPath = getApiPath(req)
@@ -25,12 +25,16 @@ export async function GET(req: Request) {
       if (!actor) return null
       const role = normalizeRole(actor.role)
 
-      const [viewUsers, createUser, editUser, hasEditRolePerm] = await Promise.all([
-        hasPermission(client, actor, "view_users"),
-        hasPermission(client, actor, "create_user"),
-        hasPermission(client, actor, "edit_user"),
-        hasPermission(client, actor, "edit_role_permissions"),
-      ])
+      const perms = await hasPermissions(client, actor, [
+        "view_users",
+        "create_user",
+        "edit_user",
+        "edit_role_permissions",
+      ] as const)
+      const viewUsers = perms.view_users
+      const createUser = perms.create_user
+      const editUser = perms.edit_user
+      const hasEditRolePerm = perms.edit_role_permissions
       const editRolePermissions =
         role === "super_admin" ||
         role === "system_admin" ||

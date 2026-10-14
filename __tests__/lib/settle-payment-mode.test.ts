@@ -21,7 +21,7 @@ describe("validatePaymentModeInput", () => {
   })
 
   it("requires bank account for bank-routed modes", () => {
-    expect(validatePaymentModeInput({ mode: "Card", referenceNumber: "REF-1" })).toBe(
+    expect(validatePaymentModeInput({ mode: "Bank Transfer", referenceNumber: "REF-1" })).toBe(
       "bank_account_required",
     )
   })
@@ -32,7 +32,7 @@ describe("settlePaymentByMode outflow", () => {
     const calls: Array<{ sql: string; params: unknown[] }> = []
     const query = jest.fn((sql: string, params: unknown[] = []) => {
       calls.push({ sql, params })
-      if (/FROM bank_accounts/.test(sql) && /WHERE id/.test(sql)) {
+      if (/FROM bank_accounts/.test(sql) && /ba\.id/.test(sql)) {
         return Promise.resolve({
           rows: [
             {
@@ -170,7 +170,7 @@ describe("settlePaymentByMode outflow", () => {
     const calls: Array<{ sql: string; params: unknown[] }> = []
     const query = jest.fn((sql: string, params: unknown[] = []) => {
       calls.push({ sql, params })
-      if (/FROM bank_accounts/.test(sql) && /WHERE id/.test(sql)) {
+      if (/FROM bank_accounts/.test(sql) && /ba\.id/.test(sql)) {
         return Promise.resolve({
           rows: [
             {
@@ -216,7 +216,7 @@ describe("settlePaymentByMode outflow", () => {
         institutionId: "inst-1",
         branchId: "branch-1",
         amount: 100,
-        mode: "Cheque",
+        mode: "InvalidMode",
         flow: "outflow",
         actor,
       }),
@@ -258,7 +258,7 @@ describe("settlePaymentByMode inflow", () => {
     const calls: Array<{ sql: string; params: unknown[] }> = []
     const query = jest.fn((sql: string, params: unknown[] = []) => {
       calls.push({ sql, params })
-      if (/FROM bank_accounts/.test(sql) && /WHERE id/.test(sql)) {
+      if (/FROM bank_accounts/.test(sql) && /ba\.id/.test(sql)) {
         return Promise.resolve({
           rows: [
             {

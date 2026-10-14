@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useRef } from "react"
-import { SessionProvider, signOut } from "next-auth/react"
+import { SessionProvider, signOut, useSession } from "next-auth/react"
 import { usePathname } from "next/navigation"
 import {
   isAuthSessionUnusable,
@@ -16,10 +16,17 @@ import {
  */
 function AuthSessionGuard({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
+  const { status } = useSession()
   const checkedPath = useRef<string | null>(null)
 
   useEffect(() => {
     if (!pathname || isPublicAuthPath(pathname) || !pathRequiresAuth(pathname)) return
+
+    if (status === "unauthenticated") {
+      void redirectToLogin(pathname, () => signOut({ redirect: false }))
+      return
+    }
+
     if (checkedPath.current === pathname) return
     checkedPath.current = pathname
 
@@ -34,7 +41,7 @@ function AuthSessionGuard({ children }: { children: React.ReactNode }) {
     return () => {
       cancelled = true
     }
-  }, [pathname])
+  }, [pathname, status])
 
   return <>{children}</>
 }

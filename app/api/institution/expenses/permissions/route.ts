@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
-import { hasPermission, isSuperAdmin, requireStaffSession, resolveActorContext } from "@/lib/api/rbac"
+import { hasPermission, hasPermissions, isSuperAdmin, requireStaffSession, resolveActorContext } from "@/lib/api/rbac"
 import { runWithAuth } from "@/lib/db"
 
 export async function GET(req: Request) {
@@ -16,25 +16,24 @@ export async function GET(req: Request) {
       const actor = await resolveActorContext(client, sess.authUserId)
       if (!actor?.institution_id) return null
 
-      const [
-        viewExpenses,
-        createExpense,
-        editExpense,
-        editExpenseStatus,
-        recordCashflow,
-        downloadExpense,
-        editCashflow,
-        editCashflowStatus,
-      ] = await Promise.all([
-        hasPermission(client, actor, "view_expenses"),
-        hasPermission(client, actor, "create_expense"),
-        hasPermission(client, actor, "edit_expense"),
-        hasPermission(client, actor, "edit_expense_status"),
-        hasPermission(client, actor, "record_cashflow"),
-        hasPermission(client, actor, "download_expense"),
-        hasPermission(client, actor, "edit_cashflow"),
-        hasPermission(client, actor, "edit_cashflow_status"),
-      ])
+      const perms = await hasPermissions(client, actor, [
+        "view_expenses",
+        "create_expense",
+        "edit_expense",
+        "edit_expense_status",
+        "record_cashflow",
+        "download_expense",
+        "edit_cashflow",
+        "edit_cashflow_status",
+      ] as const)
+      const viewExpenses = perms.view_expenses
+      const createExpense = perms.create_expense
+      const editExpense = perms.edit_expense
+      const editExpenseStatus = perms.edit_expense_status
+      const recordCashflow = perms.record_cashflow
+      const downloadExpense = perms.download_expense
+      const editCashflow = perms.edit_cashflow
+      const editCashflowStatus = perms.edit_cashflow_status
 
       const branches = isSuperAdmin(actor)
         ? (

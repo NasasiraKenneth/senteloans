@@ -35,7 +35,7 @@ npm install
    # macOS (Homebrew)
    brew install postgresql@14
    brew services start postgresql@14
-   createdb senteloans
+   createdb nyuki
 
    # Ubuntu/Debian
    sudo apt install postgresql postgresql-contrib
@@ -321,7 +321,7 @@ You can start the app and log in:
 Start the dev server (if it’s not already running):
 npm run dev
 System admin
-URL: http://localhost:3000/admin-login
+URL: http://localhost:3000
 Email: admin@senteloans.com
 Password: changeme
 Institution staff (e.g. Kampala Central SACCO)

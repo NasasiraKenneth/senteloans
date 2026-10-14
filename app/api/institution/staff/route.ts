@@ -3,7 +3,11 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { runWithAuth } from "@/lib/db"
 import { hash } from "bcryptjs"
-import { AUTH_USER_TYPE_INSTITUTION_STAFF } from "@/lib/auth-users"
+import {
+  AUTH_USER_TYPE_INSTITUTION_STAFF,
+  AUTH_USER_TYPE_HYBRID,
+  getUniqueUsername,
+} from "@/lib/auth-users"
 import * as crypto from "crypto"
 import { auditLogger } from "@/lib/audit/audit-logger"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
@@ -161,7 +165,7 @@ export async function POST(req: Request) {
     const lastName = String(body.lastName || "").trim()
     const email = String(body.email || "").trim().toLowerCase()
     const phoneNumber = String(body.phoneNumber || "").trim()
-    const username = String(body.username || "").trim().toLowerCase()
+    const rawUsername = String(body.username || "").trim().toLowerCase()
     const password = String(body.password || "").trim()
     const status = String(body.status || "Active").trim()
     const joinDate = String(body.joinDate || "").trim()
@@ -170,7 +174,6 @@ export async function POST(req: Request) {
     if (!firstName) return NextResponse.json({ error: "First name is required" }, { status: 400 })
     if (!lastName) return NextResponse.json({ error: "Last name is required" }, { status: 400 })
     if (!email) return NextResponse.json({ error: "Email is required" }, { status: 400 })
-    if (!username) return NextResponse.json({ error: "Username is required" }, { status: 400 })
     if (!password || password.length < 8) return NextResponse.json({ error: "Password must be at least 8 characters" }, { status: 400 })
     if (!selectedRoleId) return NextResponse.json({ error: "A role is required" }, { status: 400 })
     if (!VALID_STAFF_STATUSES.includes(status as (typeof VALID_STAFF_STATUSES)[number]))
@@ -192,27 +195,102 @@ export async function POST(req: Request) {
       const allowed = await hasPermission(client, actor, "create_user")
       if (!allowed) return { error: "missing_permission:create_user" as const }
 
+      // 1. Ensure email is unique in the users table
       const emailCheck = await client.query(
-        `SELECT id FROM users WHERE email = $1`,
+        `SELECT id FROM users WHERE lower(email) = $1`,
         [email]
       )
       if (emailCheck.rows.length > 0)
         return { error: "email_already_exists" as const }
 
-      const usernameCheck = await client.query(
-        `SELECT id FROM app_auth_users WHERE username = $1 OR email = $2`,
-        [username, email]
+      // 2. Check if an account with this email already exists in app_auth_users
+      const existingEmailAuthRes = await client.query<{ id: string; user_type: string; username: string }>(
+        `SELECT id, user_type, username FROM app_auth_users WHERE lower(email) = $1 LIMIT 1`,
+        [email]
       )
-      if (usernameCheck.rows.length > 0)
-        return { error: "username_or_auth_email_already_exists" as const }
+      const existingAuth = existingEmailAuthRes.rows[0]
 
+      let authId: string
       const passwordHash = await hash(password, 10)
-      const authId = crypto.randomUUID()
-      await client.query(
-        `INSERT INTO app_auth_users (id, user_type, username, email, password_hash)
-         VALUES ($1, $2, $3, $4, $5)`,
-        [authId, AUTH_USER_TYPE_INSTITUTION_STAFF, username, email, passwordHash]
-      )
+
+      if (existingAuth) {
+        // If an auth record exists with this email:
+        // Use existing auth username, or auto-generate if missing; if rawUsername was explicitly passed, respect it
+        const targetUsername =
+          rawUsername ||
+          existingAuth.username ||
+          (await getUniqueUsername(client, email, existingAuth.id))
+
+        const usernameCheck = await client.query(
+          `SELECT id FROM app_auth_users WHERE lower(username) = $1 AND id <> $2 LIMIT 1`,
+          [targetUsername, existingAuth.id]
+        )
+        if (usernameCheck.rows.length > 0) {
+          return { error: "username_already_exists" as const }
+        }
+
+        authId = existingAuth.id
+
+        // Check if there is a member record linked to this auth_id or email
+        const memberRes = await client.query<{ id: string; status: string }>(
+          `SELECT id, status FROM members WHERE auth_id = $1 OR lower(email) = $2 LIMIT 1`,
+          [existingAuth.id, email]
+        )
+        const memberRow = memberRes.rows[0]
+        const isMemberActive = Boolean(memberRow && String(memberRow.status).toLowerCase() === "active")
+        const targetUserType = isMemberActive ? AUTH_USER_TYPE_HYBRID : AUTH_USER_TYPE_INSTITUTION_STAFF
+
+        // Update auth user: elevate to hybrid if active member, update password hash and username
+        await client.query(
+          `UPDATE app_auth_users
+           SET user_type = $1, username = $2, password_hash = $3, updated_at = NOW()
+           WHERE id = $4`,
+          [targetUserType, targetUsername, passwordHash, existingAuth.id]
+        )
+
+        // Ensure member record is linked to this auth_id if it had no auth_id yet
+        if (memberRow) {
+          await client.query(
+            `UPDATE members SET auth_id = $1 WHERE id = $2 AND auth_id IS NULL`,
+            [existingAuth.id, memberRow.id]
+          )
+        }
+      } else {
+        // No account in app_auth_users with this email:
+        // Auto-generate unique username (or use rawUsername if provided)
+        const targetUsername = rawUsername || (await getUniqueUsername(client, email))
+        const usernameCheck = await client.query(
+          `SELECT id FROM app_auth_users WHERE lower(username) = $1 LIMIT 1`,
+          [targetUsername]
+        )
+        if (usernameCheck.rows.length > 0) {
+          return { error: "username_already_exists" as const }
+        }
+
+        // Check if an existing member record has this email
+        const memberRes = await client.query<{ id: string; status: string }>(
+          `SELECT id, status FROM members WHERE lower(email) = $1 LIMIT 1`,
+          [email]
+        )
+        const memberRow = memberRes.rows[0]
+        const isMemberActive = Boolean(memberRow && String(memberRow.status).toLowerCase() === "active")
+        const targetUserType = isMemberActive ? AUTH_USER_TYPE_HYBRID : AUTH_USER_TYPE_INSTITUTION_STAFF
+
+        authId = crypto.randomUUID()
+        await client.query(
+          `INSERT INTO app_auth_users (id, user_type, username, email, password_hash)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [authId, targetUserType, targetUsername, email, passwordHash]
+        )
+
+        // If a member record with this email exists, link it to this authId
+        if (memberRow) {
+          await client.query(
+            `UPDATE members SET auth_id = $1 WHERE id = $2 AND auth_id IS NULL`,
+            [authId, memberRow.id]
+          )
+        }
+      }
 
       const roleRow = await resolveRoleById(client, selectedRoleId)
       if (!roleRow?.id) return { error: "role_not_found" as const }
@@ -270,6 +348,7 @@ export async function POST(req: Request) {
       const statusCode =
         result.error === SUPER_ADMIN_WRITE_BLOCKED ? 403 :
         result.error === "email_already_exists" ? 409 :
+        result.error === "username_already_exists" ? 409 :
         result.error === "username_or_auth_email_already_exists" ? 409 :
         result.error === "role_not_found" ? 400 :
         result.error === "invalid_role_for_institution_staff" ? 400 :
@@ -280,6 +359,7 @@ export async function POST(req: Request) {
       const message =
         "message" in result && result.message ? result.message :
         result.error === "email_already_exists" ? "A staff member with this email already exists" :
+        result.error === "username_already_exists" ? "Username is already taken" :
         result.error === "username_or_auth_email_already_exists" ? "Username or email is already taken" :
         result.error === "role_not_found" ? "Selected role is not available in role catalog" :
         result.error === "invalid_role_for_institution_staff" ? "System Admin cannot be assigned as institution staff role" :

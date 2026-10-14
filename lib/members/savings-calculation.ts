@@ -7,6 +7,7 @@ export interface CalculateNextBillingDateParams {
   frequencyUnit: "DAY" | "WEEK" | "MONTH" | "YEAR" | string
   frequencyValue: number | string
   autoSavingsDay?: string | null
+  currentDate?: string | Date | null
 }
 
 export const WEEKDAYS = [
@@ -82,10 +83,16 @@ function getNthWeekdayOfMonth(year: number, monthIndex: number, dayIndex: number
 /**
  * Calculates the next billing date for a savings plan based on
  * start date, frequency unit, frequency value, and auto savings day configuration.
+ *
+ * Ensures the next billing date is never in the past relative to today (or the provided currentDate).
+ * If the computed cycle date is in the past, advances to the corresponding next billing day in the future.
  */
 export function calculateNextBillingDate(params: CalculateNextBillingDateParams): string | null {
   const start = toDateOnly(params.startDate)
   if (!start) return null
+
+  const today = toDateOnly(params.currentDate) || toDateOnly(new Date()) || new Date()
+  today.setHours(12, 0, 0, 0)
 
   const unit = String(params.frequencyUnit || "MONTH").trim().toUpperCase()
   const rawVal = Number(params.frequencyValue)
@@ -95,6 +102,15 @@ export function calculateNextBillingDate(params: CalculateNextBillingDateParams)
   if (unit === "DAY") {
     const next = new Date(start)
     next.setDate(next.getDate() + val)
+    if (next < today) {
+      const diffMs = today.getTime() - next.getTime()
+      const diffDays = Math.floor(diffMs / (24 * 60 * 60 * 1000))
+      const steps = Math.max(1, Math.ceil(diffDays / val))
+      next.setDate(next.getDate() + steps * val)
+      while (next < today) {
+        next.setDate(next.getDate() + val)
+      }
+    }
     return formatDate(next)
   }
 
@@ -106,47 +122,55 @@ export function calculateNextBillingDate(params: CalculateNextBillingDateParams)
       let diff = weekdayIdx - target.getDay()
       if (diff <= 0) diff += 7
       target.setDate(target.getDate() + diff)
+      while (target < today) {
+        target.setDate(target.getDate() + val * 7)
+      }
       return formatDate(target)
     }
     const next = new Date(start)
     next.setDate(next.getDate() + val * 7)
+    while (next < today) {
+      next.setDate(next.getDate() + val * 7)
+    }
     return formatDate(next)
   }
 
   if (unit === "YEAR") {
     const next = new Date(start)
     next.setFullYear(next.getFullYear() + val)
+    while (next < today) {
+      next.setFullYear(next.getFullYear() + val)
+    }
     return formatDate(next)
   }
 
   // MONTH
-  if (!rawDay) {
-    const next = new Date(start)
-    next.setMonth(next.getMonth() + val)
-    return formatDate(next)
-  }
-
-  const dayLower = rawDay.toLowerCase()
+  const dayLower = rawDay ? rawDay.toLowerCase() : ""
 
   // 1) "includes X" pattern (e.g. "includes 4" -> days 4, 14, 24)
   const includesMatch = dayLower.match(/^includes\s+(\d+)$/)
   if (includesMatch) {
     const digit = parseInt(includesMatch[1], 10)
-    const year = start.getFullYear()
-    const month = start.getMonth()
+    const startYear = start.getFullYear()
+    const startMonth = start.getMonth()
+    let curYear = startYear
+    let curMonth = startMonth
+    const maxEndYear = Math.max(startYear, today.getFullYear()) + 10
 
-    for (let mOffset = 0; mOffset <= val + 12; mOffset++) {
-      const curYear = year + Math.floor((month + mOffset) / 12)
-      const curMonth = (month + mOffset) % 12
+    while (curYear <= maxEndYear) {
       const maxDays = getDaysInMonth(curYear, curMonth)
-
       for (let d = 1; d <= maxDays; d++) {
         if (d % 10 === digit) {
           const candDate = new Date(curYear, curMonth, d, 12, 0, 0)
-          if (candDate > start) {
+          if (candDate > start && candDate >= today) {
             return formatDate(candDate)
           }
         }
+      }
+      curMonth++
+      if (curMonth > 11) {
+        curYear += Math.floor(curMonth / 12)
+        curMonth = curMonth % 12
       }
     }
   }
@@ -163,51 +187,73 @@ export function calculateNextBillingDate(params: CalculateNextBillingDateParams)
 
     const wIdx = WEEKDAYS.findIndex((w) => w.toLowerCase() === dayStr)
     if (wIdx !== -1) {
-      let targetYear = start.getFullYear()
-      let targetMonth = start.getMonth() + val
-      if (targetMonth > 11) {
-        targetYear += Math.floor(targetMonth / 12)
-        targetMonth = targetMonth % 12
+      let targetMonthOffset = val
+      let iterations = 0
+      while (iterations < 1200) {
+        iterations++
+        const totalMonths = start.getMonth() + targetMonthOffset
+        const targetYear = start.getFullYear() + Math.floor(totalMonths / 12)
+        const targetMonth = ((totalMonths % 12) + 12) % 12
+        const candDate = getNthWeekdayOfMonth(targetYear, targetMonth, wIdx, ord)
+        if (candDate >= today) {
+          return formatDate(candDate)
+        }
+        targetMonthOffset += val
       }
-      const candDate = getNthWeekdayOfMonth(targetYear, targetMonth, wIdx, ord)
-      return formatDate(candDate)
     }
   }
 
   // 3) Fixed Weekday in Month (e.g. "Monday", "Tuesday", etc.)
   const fixedWIdx = WEEKDAYS.findIndex((w) => w.toLowerCase() === dayLower)
   if (fixedWIdx !== -1) {
-    let targetYear = start.getFullYear()
-    let targetMonth = start.getMonth() + val
-    if (targetMonth > 11) {
-      targetYear += Math.floor(targetMonth / 12)
-      targetMonth = targetMonth % 12
+    let targetMonthOffset = val
+    let iterations = 0
+    while (iterations < 1200) {
+      iterations++
+      const totalMonths = start.getMonth() + targetMonthOffset
+      const targetYear = start.getFullYear() + Math.floor(totalMonths / 12)
+      const targetMonth = ((totalMonths % 12) + 12) % 12
+      const candDate = getNthWeekdayOfMonth(targetYear, targetMonth, fixedWIdx, 1)
+      if (candDate >= today) {
+        return formatDate(candDate)
+      }
+      targetMonthOffset += val
     }
-    const candDate = getNthWeekdayOfMonth(targetYear, targetMonth, fixedWIdx, 1)
-    return formatDate(candDate)
   }
 
-  // 4) Day of Month Number (e.g., "1", "2", "15", "31", "last_day")
+  // 4) Day of Month Number (e.g., "1", "2", "15", "31", "last_day", or default start day)
   let targetDay = 1
+  let isLastDay = false
   if (dayLower === "last_day") {
-    targetDay = 31
+    isLastDay = true
+  } else if (!rawDay) {
+    targetDay = start.getDate()
   } else {
     const parsed = parseInt(rawDay, 10)
     if (Number.isFinite(parsed) && parsed >= 1 && parsed <= 31) {
       targetDay = parsed
+    } else {
+      targetDay = start.getDate()
     }
   }
 
-  let targetYear = start.getFullYear()
-  let targetMonth = start.getMonth() + val
-  if (targetMonth > 11) {
-    targetYear += Math.floor(targetMonth / 12)
-    targetMonth = targetMonth % 12
+  let targetMonthOffset = val
+  let iterations = 0
+  while (iterations < 1200) {
+    iterations++
+    const totalMonths = start.getMonth() + targetMonthOffset
+    const targetYear = start.getFullYear() + Math.floor(totalMonths / 12)
+    const targetMonth = ((totalMonths % 12) + 12) % 12
+    const maxDays = getDaysInMonth(targetYear, targetMonth)
+    const finalDay = isLastDay ? maxDays : Math.min(targetDay, maxDays)
+    const candDate = new Date(targetYear, targetMonth, finalDay, 12, 0, 0)
+    if (candDate >= today) {
+      return formatDate(candDate)
+    }
+    targetMonthOffset += val
   }
 
-  const maxDays = getDaysInMonth(targetYear, targetMonth)
-  const finalDay = Math.min(targetDay, maxDays)
-  return formatDate(new Date(targetYear, targetMonth, finalDay, 12, 0, 0))
+  return null
 }
 
 export interface CalculatePreviousBillingDatesParams {

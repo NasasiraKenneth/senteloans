@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { runWithAuth } from "@/lib/db"
 import { apiLog, getApiPath } from "@/lib/api/api-log"
+import { hasPermissions } from "@/lib/api/rbac"
 
 type ActorContext = {
   id: string
@@ -35,21 +36,6 @@ async function resolveActorContext(client: any, authUserId: string): Promise<Act
   return actorRes.rows[0] || null
 }
 
-async function hasPermission(client: any, actor: ActorContext, permission: string): Promise<boolean> {
-  const role = String(actor.role || "").trim().toLowerCase()
-  if (role === "super_admin") return true
-  if (!actor.role_id || !actor.branch_id) return false
-  const permRes = await client.query(
-    `SELECT 1
-     FROM role_permissions rp
-     JOIN permissions p ON p.id = rp.permission_id
-     WHERE rp.role_id = $1 AND rp.branch_id = $2 AND p.name = $3
-     LIMIT 1`,
-    [actor.role_id, actor.branch_id, permission],
-  )
-  return (permRes.rowCount ?? 0) > 0
-}
-
 export async function GET(req: Request) {
   const apiPath = getApiPath(req)
   try {
@@ -70,25 +56,24 @@ export async function GET(req: Request) {
       const role = String(actor.role || "").trim().toLowerCase()
       const actorIsAdminRole = role === "super_admin" || role === "system_admin" || role === "institution_admin"
 
-      const [
-        editLoanPolicies,
-        editMembershipPolicies,
-        editInvoicePolicies,
-        editSharePolicies,
-        editBranchFinancialInfo,
-        editInstitutionInfo,
-        editBranchInfo,
-        editRolePermissionsRaw,
-      ] = await Promise.all([
-        hasPermission(client, actor, "edit_loan_policies"),
-        hasPermission(client, actor, "edit_membership_policies"),
-        hasPermission(client, actor, "edit_invoice_policies"),
-        hasPermission(client, actor, "edit_share_policies"),
-        hasPermission(client, actor, "edit_branch_financial_info"),
-        hasPermission(client, actor, "edit_institution_info"),
-        hasPermission(client, actor, "edit_branch_info"),
-        hasPermission(client, actor, "edit_role_permissions"),
-      ])
+      const perms = await hasPermissions(client, actor, [
+        "edit_loan_policies",
+        "edit_membership_policies",
+        "edit_invoice_policies",
+        "edit_share_policies",
+        "edit_branch_financial_info",
+        "edit_institution_info",
+        "edit_branch_info",
+        "edit_role_permissions",
+      ] as const)
+      const editLoanPolicies = perms.edit_loan_policies
+      const editMembershipPolicies = perms.edit_membership_policies
+      const editInvoicePolicies = perms.edit_invoice_policies
+      const editSharePolicies = perms.edit_share_policies
+      const editBranchFinancialInfo = perms.edit_branch_financial_info
+      const editInstitutionInfo = perms.edit_institution_info
+      const editBranchInfo = perms.edit_branch_info
+      const editRolePermissionsRaw = perms.edit_role_permissions
 
       return {
         editInstitutionSettings:

@@ -14,6 +14,8 @@ export interface AppSessionUser {
   name: string
   role: string
   type: "staff" | "client"
+  activeRole?: "staff" | "client" | "system_admin"
+  availableRoles?: Array<"staff" | "client" | "system_admin">
   institutionId?: string
   memberId?: string
   clientId?: string
@@ -46,8 +48,10 @@ export const authOptions: NextAuthOptions = {
         if (!email || !password) return null
 
         const rawContext = credentials?.loginContext
-        const loginContext: LoginContext | undefined =
-          rawContext === "institution" || rawContext === "client" ? rawContext : undefined
+        const loginContext: LoginContext | "admin" | undefined =
+          rawContext === "institution" || rawContext === "client" || rawContext === "admin"
+            ? rawContext
+            : undefined
 
         try {
           return await authenticateCredentials(email, password, loginContext)
@@ -58,20 +62,39 @@ export const authOptions: NextAuthOptions = {
       },
     }),
   ],
-  session: { strategy: "jwt", maxAge: 30 * 60,}, // 30 minutes
+  session: { strategy: "jwt", maxAge: 30 * 60 }, // 30 minutes
   callbacks: {
-    async jwt({ token, user }) {
+    async jwt({ token, user, trigger, session }) {
       if (user) {
         token.authUserId = user.authUserId ?? user.id
         token.email = user.email
         token.name = user.name
         token.role = user.role
         token.type = user.type
+        token.activeRole = user.activeRole ?? (user.type === "client" ? "client" : "staff")
+        token.availableRoles = user.availableRoles ?? [user.type === "client" ? "client" : "staff"]
         token.institutionId = user.institutionId
         token.memberId = user.memberId
         token.clientId = user.clientId
         token.userId = user.userId
       }
+
+      // Dynamic workspace/role switching via useSession().update({ activeRole: "client" | "staff" | "system_admin" })
+      if (trigger === "update" && session) {
+        const newActiveRole = session.activeRole as "staff" | "client" | "system_admin" | undefined
+        const roles = Array.isArray(token.availableRoles) ? (token.availableRoles as string[]) : []
+
+        if (newActiveRole && roles.includes(newActiveRole)) {
+          token.activeRole = newActiveRole
+          token.type = newActiveRole === "client" ? "client" : "staff"
+          if (newActiveRole === "client") {
+            token.role = "client"
+          } else if (newActiveRole === "system_admin") {
+            token.role = "system_admin"
+          }
+        }
+      }
+
       return token
     },
     async session({ session, token }) {
@@ -81,6 +104,8 @@ export const authOptions: NextAuthOptions = {
         session.user.name = token.name ?? ""
         session.user.role = token.role ?? ""
         session.user.type = token.type ?? "staff"
+        session.user.activeRole = (token.activeRole as "staff" | "client" | "system_admin") ?? token.type ?? "staff"
+        session.user.availableRoles = (token.availableRoles as Array<"staff" | "client" | "system_admin">) ?? [session.user.type]
         session.user.institutionId = token.institutionId
         session.user.memberId = token.memberId
         session.user.clientId = token.clientId

@@ -6,6 +6,7 @@ import Link from "next/link"
 import { NotificationBell } from "@/components/notification-bell"
 import { ChatMessagesButton } from "@/components/chat-messages-button"
 import { InstitutionLogo } from "@/components/institution-logo"
+import { WorkspaceRoleSwitcher } from "@/components/workspace-role-switcher"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -26,7 +27,6 @@ function getInitials(name: string): string {
   if (parts.length === 1) return parts[0][0].toUpperCase()
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
 }
-
 
 export function DashboardHeader() {
   const router = useRouter()
@@ -146,6 +146,8 @@ export function DashboardHeader() {
 
         {/* Right — Actions */}
         <div className="ml-auto flex items-center gap-2">
+          <WorkspaceRoleSwitcher />
+
           {readInstitutionConfigModuleEnabled(session?.institution?.config, "chats") ? (
             <ChatMessagesButton
               href="/chats"
@@ -163,10 +165,7 @@ export function DashboardHeader() {
               <button className="flex items-center gap-2.5 rounded-lg px-2 py-1.5 transition-colors hover:bg-muted/60 outline-none">
                 {/* Avatar */}
                 <div
-                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[12px] font-bold text-white"
-                  style={{
-                    background: "linear-gradient(135deg, #f08c2b 0%, #d97b1e 100%)",
-                  }}
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[12px] font-bold text-white bg-gradient-to-br from-[#f08c2b] to-[#d97b1e]"
                 >
                   {initials}
                 </div>
@@ -191,10 +190,7 @@ export function DashboardHeader() {
               <DropdownMenuLabel className="font-normal">
                 <div className="flex items-center gap-3 py-1">
                   <div
-                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-[13px] font-bold text-white"
-                    style={{
-                      background: "linear-gradient(135deg, #f08c2b 0%, #d97b1e 100%)",
-                    }}
+                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-[13px] font-bold text-white bg-gradient-to-br from-[#f08c2b] to-[#d97b1e]"
                   >
                     {initials}
                   </div>

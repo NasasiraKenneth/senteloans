@@ -6,6 +6,7 @@ import { hash } from "bcryptjs"
 import * as crypto from "crypto"
 import {
   AUTH_USER_TYPE_MEMBER,
+  AUTH_USER_TYPE_HYBRID,
   getUniqueUsername,
 } from "@/lib/auth-users"
 import { auditLogger } from "@/lib/audit/audit-logger"
@@ -35,7 +36,7 @@ function clientPortalLoginUrl(): string {
     process.env.NEXT_PUBLIC_APP_URL ||
     ""
   ).replace(/\/$/, "")
-  return base ? `${base}/client-login` : "/client-login"
+  return base ? `${base}/login` : "/login"
 }
 
 export async function POST(
@@ -110,15 +111,23 @@ export async function POST(
       const passwordHash = await hash(password, 10)
 
       if (existingAuthId) {
+        const staffRes = await client.query<{ id: string; status: string }>(
+          `SELECT id, status FROM users WHERE auth_id = $1 OR lower(email) = $2 LIMIT 1`,
+          [existingAuthId, email]
+        )
+        const staffUser = staffRes.rows[0]
+        const isStaffActive = Boolean(staffUser && String(staffUser.status).toLowerCase() === "active")
+        const targetUserType = isStaffActive ? AUTH_USER_TYPE_HYBRID : AUTH_USER_TYPE_MEMBER
+
         await client.query(
-          `UPDATE app_auth_users SET password_hash = $1, updated_at = NOW() WHERE id = $2`,
-          [passwordHash, existingAuthId]
+          `UPDATE app_auth_users SET user_type = $1, password_hash = $2, updated_at = NOW() WHERE id = $3`,
+          [targetUserType, passwordHash, existingAuthId]
         )
         await auditLogger.logUpdate(
           "members",
           gate.member.id,
           { auth_id: existingAuthId },
-          { login_enabled: true, password_reset: true },
+          { login_enabled: true, password_reset: true, user_type: targetUserType },
           actor.institution_id,
           actor.id,
           undefined,
@@ -132,10 +141,6 @@ export async function POST(
         const existingAuth = existingEmailRes.rows[0]
 
         if (existingAuth) {
-          if (existingAuth.user_type !== AUTH_USER_TYPE_MEMBER) {
-            return { error: "email_in_use" as const }
-          }
-
           const linkedRes = await client.query<{ id: string }>(
             `SELECT id FROM members WHERE auth_id = $1 AND id <> $2 LIMIT 1`,
             [existingAuth.id, gate.member.id]
@@ -144,31 +149,63 @@ export async function POST(
             return { error: "email_already_linked" as const }
           }
 
+          // Check if user in users table with auth_id or same email is active
+          const staffRes = await client.query<{ id: string; status: string; auth_id: string | null }>(
+            `SELECT id, status, auth_id FROM users WHERE auth_id = $1 OR lower(email) = $2 LIMIT 1`,
+            [existingAuth.id, email]
+          )
+          const staffUser = staffRes.rows[0]
+          const isStaffActive = Boolean(staffUser && String(staffUser.status).toLowerCase() === "active")
+          const targetUserType = isStaffActive ? AUTH_USER_TYPE_HYBRID : AUTH_USER_TYPE_MEMBER
+
           await client.query(
-            `UPDATE app_auth_users SET password_hash = $1, updated_at = NOW() WHERE id = $2`,
-            [passwordHash, existingAuth.id]
+            `UPDATE app_auth_users SET user_type = $1, password_hash = $2, updated_at = NOW() WHERE id = $3`,
+            [targetUserType, passwordHash, existingAuth.id]
           )
           await client.query(`UPDATE members SET auth_id = $1 WHERE id = $2`, [
             existingAuth.id,
             gate.member.id,
           ])
+
+          if (staffUser && !staffUser.auth_id) {
+            await client.query(`UPDATE users SET auth_id = $1 WHERE id = $2`, [
+              existingAuth.id,
+              staffUser.id,
+            ])
+          }
+
           await auditLogger.logInsert(
             "members",
             gate.member.id,
-            { auth_id: existingAuth.id, login_enabled: true },
+            { auth_id: existingAuth.id, login_enabled: true, user_type: targetUserType },
             actor.institution_id,
             actor.id,
             undefined,
             client
           )
         } else {
+          // If no match in app_auth_users: create record like how it already works
+          const staffRes = await client.query<{ id: string; status: string }>(
+            `SELECT id, status FROM users WHERE lower(email) = $1 LIMIT 1`,
+            [email]
+          )
+          const staffUser = staffRes.rows[0]
+          const isStaffActive = Boolean(staffUser && String(staffUser.status).toLowerCase() === "active")
+          const targetUserType = isStaffActive ? AUTH_USER_TYPE_HYBRID : AUTH_USER_TYPE_MEMBER
+
           const authId = crypto.randomUUID()
           const username = await getUniqueUsername(client, email)
           await client.query(
             `INSERT INTO app_auth_users (id, user_type, username, email, password_hash)
              VALUES ($1, $2, $3, $4, $5)`,
-            [authId, AUTH_USER_TYPE_MEMBER, username, email, passwordHash]
+            [authId, targetUserType, username, email, passwordHash]
           )
+          if (staffUser) {
+            await client.query(`UPDATE users SET auth_id = $1 WHERE id = $2 AND auth_id IS NULL`, [
+              authId,
+              staffUser.id,
+            ])
+          }
           await client.query(`UPDATE members SET auth_id = $1 WHERE id = $2`, [
             authId,
             gate.member.id,
@@ -176,7 +213,7 @@ export async function POST(
           await auditLogger.logInsert(
             "members",
             gate.member.id,
-            { auth_id: authId, login_enabled: true },
+            { auth_id: authId, login_enabled: true, user_type: targetUserType },
             actor.institution_id,
             actor.id,
             undefined,
