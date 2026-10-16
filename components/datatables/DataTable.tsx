@@ -170,14 +170,14 @@ export default function DataTable<Row>({
     }
 
     const headerCells = useMemo(() => (
-        <tr>
+        <tr className="border-b border-gray-200 dark:border-zinc-800">
             {hasDetail && (
-                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-8"></th>
+                <th className="px-4 py-3.5 text-left text-xs font-semibold text-gray-500 dark:text-zinc-400 uppercase tracking-wider w-8"></th>
             )}
             {columns.map(col => (
                 <th
                     key={col.key}
-                    className={`px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider ${col.headerClassName ?? ''}`}
+                    className={`px-4 py-3.5 text-left text-xs font-semibold text-gray-500 dark:text-zinc-400 uppercase tracking-wider ${col.headerClassName ?? ''}`}
                     style={col.width ? {width: col.width} : undefined}
                 >
                     {col.header}
@@ -193,7 +193,7 @@ export default function DataTable<Row>({
             tooltip={exportActions.excelLoading ? "Preparing XLS…" : "Export XLS"}
             onClick={() => exportActions.onExcel?.()}
             disabled={!!exportActions.excelDisabled || !!exportActions.excelLoading}
-            className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-green-200 bg-background text-green-600 hover:bg-green-50 hover:text-green-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+            className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-green-200 dark:border-green-800/40 bg-white dark:bg-zinc-900 text-green-600 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-950/30 hover:border-green-300 dark:hover:border-green-700/60 transition-colors disabled:opacity-40 disabled:cursor-not-allowed shadow-xs"
           >
             {exportActions.excelLoading ? (
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -207,7 +207,7 @@ export default function DataTable<Row>({
             tooltip={exportActions.pdfLoading ? "Preparing PDF…" : "Export PDF"}
             onClick={() => exportActions.onPdf?.()}
             disabled={!!exportActions.pdfDisabled || !!exportActions.pdfLoading}
-            className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-red-200 bg-background text-red-600 hover:bg-red-50 hover:text-red-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+            className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-red-200 dark:border-red-800/40 bg-white dark:bg-zinc-900 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 hover:border-red-300 dark:hover:border-red-700/60 transition-colors disabled:opacity-40 disabled:cursor-not-allowed shadow-xs"
           >
             {exportActions.pdfLoading ? (
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -221,7 +221,7 @@ export default function DataTable<Row>({
             tooltip={exportActions.summaryPdfLoading ? "Preparing PDF…" : "Summary PDF"}
             onClick={() => exportActions.onSummaryPdf?.()}
             disabled={!!exportActions.summaryPdfDisabled || !!exportActions.summaryPdfLoading}
-            className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-red-200 bg-background text-red-600 hover:bg-red-50 hover:text-red-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+            className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-red-200 dark:border-red-800/40 bg-white dark:bg-zinc-900 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 hover:border-red-300 dark:hover:border-red-700/60 transition-colors disabled:opacity-40 disabled:cursor-not-allowed shadow-xs"
           >
             {exportActions.summaryPdfLoading ? (
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -234,12 +234,11 @@ export default function DataTable<Row>({
     ) : null
 
     return (
-        <div className={`flex flex-col rounded-lg shadow-sm border border-gray-200 ${className ?? ''}`}>
+        <div className={`flex flex-col rounded-xl shadow-xs border border-gray-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 transition-colors ${className ?? ''}`}>
 
             {/*
                 ➤ TOP SECTION
-                This section now grows naturally without clipping.
-                You can stack ANYTHING here.
+                This section grows naturally without clipping.
             */}
             <div className="flex flex-col w-full space-y-4 p-4">
 
@@ -248,18 +247,18 @@ export default function DataTable<Row>({
                         variants={itemVariants}
                         initial="hidden"
                         animate="visible"
-                        className="bg-white rounded-xl p-4 shadow-sm border border-gray-200"
+                        className="bg-white dark:bg-zinc-900/90 rounded-xl p-4 shadow-xs border border-gray-200 dark:border-zinc-800"
                     >
                         <div className="flex items-center justify-between">
                             <div className="flex items-center space-x-3">
                                 <motion.div
                                     whileHover={{rotate: [0, 10, -10, 0], scale: 1.1}}
                                     transition={{duration: 0.4}}
-                                    className="bg-[#de4925] p-2 rounded-lg"
+                                    className="bg-brand text-white p-2 rounded-lg shadow-sm shadow-brand/20"
                                 >
-                                    <Icon provider="fa" iconName="FaTable" size={20} color="white"/>
+                                    <Icon provider="fa" iconName="FaTable" size={18} color="white"/>
                                 </motion.div>
-                                <span className="text-base font-semibold text-gray-900">
+                                <span className="text-base font-semibold text-gray-900 dark:text-zinc-100">
                                     {title}
                                 </span>
                             </div>
@@ -279,7 +278,7 @@ export default function DataTable<Row>({
                 }
 
                 {tabularFilters && tabularFilters?.length > 0 && (
-                    <div className="w-full ">
+                    <div className="w-full">
                         <TabularFilters
                             filters={tabularFilters}
                             onChange={handleOnTabularFilterChange}
@@ -290,25 +289,36 @@ export default function DataTable<Row>({
 
             {/*
                 ➤ TABLE WRAPPER
-                ONLY the scrollable table area uses overflow-x-auto
+                Uses overflow-x-auto with auto-hiding scrollbar
             */}
-            <div className="px-2 overflow-x-auto">
+            <div className="px-2 overflow-x-auto scrollbar-autohide">
                 <table className="w-full min-w-[700px]">
-                    <thead className="bg-gray-50">
+                    <thead className="bg-gray-50/90 dark:bg-zinc-900/90 sticky top-0 z-10 backdrop-blur-xs">
                     {headerCells}
                     </thead>
 
-                    <tbody className="bg-white divide-y divide-gray-200">
+                    <tbody className="bg-white dark:bg-zinc-950 divide-y divide-gray-100 dark:divide-zinc-800/80">
                     {loading ? (
                         <tr>
                             <td colSpan={(columns.length + (hasDetail ? 1 : 0))}
-                                className="px-4 py-6 text-center text-gray-500">Loading...
+                                className="px-4 py-12 text-center text-gray-500 dark:text-zinc-400">
+                                <div className="flex flex-col items-center justify-center gap-3">
+                                    <Loader2 className="h-6 w-6 animate-spin text-brand" />
+                                    <span className="text-sm font-medium">Loading data...</span>
+                                </div>
                             </td>
                         </tr>
                     ) : rows.length === 0 ? (
                         <tr>
                             <td colSpan={(columns.length + (hasDetail ? 1 : 0))}
-                                className="px-4 py-6 text-center text-gray-500">{emptyMessage}</td>
+                                className="px-4 py-12 text-center text-gray-500 dark:text-zinc-400">
+                                <div className="flex flex-col items-center justify-center gap-2">
+                                    <div className="w-10 h-10 rounded-full bg-gray-100 dark:bg-zinc-900 flex items-center justify-center text-gray-400 dark:text-zinc-500 border border-gray-200/60 dark:border-zinc-800">
+                                        <Icon provider="fa" iconName="FaTable" size={16} />
+                                    </div>
+                                    <span className="text-sm font-medium text-gray-600 dark:text-zinc-400">{emptyMessage}</span>
+                                </div>
+                            </td>
                         </tr>
                     ) : rows.map((row, idx) => {
                         const id = getId(row, idx)
@@ -318,7 +328,7 @@ export default function DataTable<Row>({
                                     initial={{opacity: 0}}
                                     animate={{opacity: 1}}
                                     transition={{duration: 0.3}}
-                                    className={`hover:bg-gray-50 ${onRowClick ? 'cursor-pointer' : ''}`}
+                                    className={`hover:bg-brand/[0.04] dark:hover:bg-zinc-900/70 transition-colors ${onRowClick ? 'cursor-pointer' : ''}`}
                                     onClick={(e) => {
                                         const target = e.target as HTMLElement | null
                                         if (target && target.closest('button, a, input, select, textarea, [data-no-row-click], .actions-cell, [role="button"]')) {
@@ -328,13 +338,13 @@ export default function DataTable<Row>({
                                     }}
                                 >
                                     {hasDetail && (
-                                        <td className="px-4 py-2 whitespace-nowrap">
+                                        <td className="px-4 py-3 whitespace-nowrap">
                                             <button
                                                 onClick={(e) => {
                                                     e.stopPropagation();
                                                     toggle(id);
                                                 }}
-                                                className="text-gray-400 hover:text-gray-600 transition-colors"
+                                                className="text-gray-400 hover:text-brand dark:hover:text-brand transition-colors"
                                             >
                                                 <motion.div animate={{rotate: isExpanded(id) ? 90 : 0}}
                                                             transition={{duration: 0.2}}>
@@ -351,7 +361,7 @@ export default function DataTable<Row>({
                                     {columns.map(col => (
                                         <td key={col.key}
                                             onClick={col.key === 'actions' ? (e) => e.stopPropagation() : undefined}
-                                            className={`px-4 py-2 whitespace-nowrap text-sm text-gray-900 ${col.cellClassName ?? ''}`}>
+                                            className={`px-4 py-3.5 whitespace-nowrap text-sm text-gray-800 dark:text-zinc-200 ${col.cellClassName ?? ''}`}>
                                             {col.render ? col.render(row) : col.accessor ? col.accessor(row) : null}
                                         </td>
                                     ))}
@@ -370,12 +380,12 @@ export default function DataTable<Row>({
                                                     opacity: {duration: 0.3},
                                                     height: {duration: 0.4}
                                                 }}
-                                                className="bg-gray-50"
+                                                className="bg-gray-50/60 dark:bg-zinc-900/40"
                                             >
                                                 <td colSpan={(columns.length + (hasDetail ? 1 : 0))}
                                                     className="px-4 py-4">
                                                     <div
-                                                        className="bg-white rounded-lg border border-gray-200 shadow-sm">
+                                                        className="bg-white dark:bg-zinc-900/90 rounded-lg border border-gray-200 dark:border-zinc-800 shadow-sm p-4 text-gray-800 dark:text-zinc-200">
                                                         {renderDetail?.(row)}
                                                     </div>
                                                 </td>
@@ -390,16 +400,91 @@ export default function DataTable<Row>({
                 </table>
             </div>
             {pagination && (
-                <TablePagination
-                    component="div"
-                    count={pagination.total}
-                    page={pagination.page}
-                    onPageChange={pagination.onPageChange}
-                    rowsPerPage={pagination.rowsPerPage}
-                    onRowsPerPageChange={pagination.onRowsPerPageChange}
-                    rowsPerPageOptions={pagination.rowsPerPageOptions ?? [5, 10, 25]}
-                    className={pagination.className ?? 'border-t border-gray-200 min-w-[700px]'}
-                />
+                <div className="border-t border-gray-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 text-gray-700 dark:text-zinc-300 min-w-[700px]">
+                    <TablePagination
+                        component="div"
+                        count={pagination.total}
+                        page={pagination.page}
+                        onPageChange={pagination.onPageChange}
+                        rowsPerPage={pagination.rowsPerPage}
+                        onRowsPerPageChange={pagination.onRowsPerPageChange}
+                        rowsPerPageOptions={pagination.rowsPerPageOptions ?? [5, 10, 25]}
+                        SelectProps={{
+                            MenuProps: {
+                                PaperProps: {
+                                    sx: {
+                                        backgroundColor: 'var(--color-card, #18181b)',
+                                        color: 'var(--color-foreground, #f4f4f5)',
+                                        border: '1px solid var(--color-border, rgba(255, 255, 255, 0.1))',
+                                        boxShadow: '0 12px 36px rgba(0,0,0,0.45)',
+                                        borderRadius: '12px',
+                                        mt: 0.5,
+                                        '& .MuiMenuItem-root': {
+                                            fontSize: '0.8125rem',
+                                            color: 'inherit',
+                                            padding: '8px 16px',
+                                            borderRadius: '6px',
+                                            margin: '2px 4px',
+                                            transition: 'background-color 0.15s ease',
+                                            '&:hover': {
+                                                backgroundColor: 'rgba(var(--ui-p-rgb, 240, 140, 43), 0.12)',
+                                            },
+                                            '&.Mui-selected': {
+                                                backgroundColor: 'rgba(var(--ui-p-rgb, 240, 140, 43), 0.2)',
+                                                color: 'var(--color-brand, #f08c2b)',
+                                                fontWeight: 600,
+                                                '&:hover': {
+                                                    backgroundColor: 'rgba(var(--ui-p-rgb, 240, 140, 43), 0.28)',
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }}
+                        sx={{
+                            color: 'inherit',
+                            '.MuiTablePagination-toolbar': {
+                                minHeight: '52px',
+                                paddingLeft: '16px',
+                                paddingRight: '16px',
+                            },
+                            '.MuiTablePagination-selectLabel, .MuiTablePagination-displayedRows': {
+                                fontSize: '0.8125rem',
+                                fontWeight: 500,
+                                opacity: 0.85,
+                            },
+                            '.MuiTablePagination-select': {
+                                fontSize: '0.8125rem',
+                                fontWeight: 600,
+                                paddingLeft: '8px',
+                                paddingRight: '24px !important',
+                                color: 'inherit'
+                            },
+                            '.MuiTablePagination-selectIcon': {
+                                color: 'inherit',
+                                opacity: 0.65,
+                            },
+                            '.MuiTablePagination-actions': {
+                                marginLeft: '16px',
+                            },
+                            '.MuiTablePagination-actions button': {
+                                color: 'inherit',
+                                padding: '6px',
+                                borderRadius: '8px',
+                                transition: 'all 0.15s ease',
+                                '&:disabled': {
+                                    opacity: 0.3,
+                                },
+                                '&:not(:disabled):hover': {
+                                    color: 'var(--color-brand, #f08c2b)',
+                                    backgroundColor: 'rgba(var(--ui-p-rgb, 240, 140, 43), 0.12)',
+                                }
+                            }
+                        }}
+                        className={pagination.className}
+                    />
+                </div>
             )}
         </div>
     )

@@ -27,15 +27,24 @@ export default function TooltipButton({
       slotProps={{
         tooltip: {
           sx: {
-            bgcolor: "white",
-            color: "#282f40",
+            bgcolor: "var(--color-card, #ffffff)",
+            color: "var(--color-foreground, #1a1a1a)",
             fontSize: "0.75rem",
+            fontWeight: 500,
             padding: "6px 10px",
-            boxShadow: "0 4px 20px rgba(0,0,0,0.15)",
+            boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
             borderRadius: "8px",
+            border: "1px solid var(--color-border, #e5e7eb)",
           },
         },
-        arrow: { sx: { color: "white" } },
+        arrow: {
+          sx: {
+            color: "var(--color-card, #ffffff)",
+            "&::before": {
+              border: "1px solid var(--color-border, #e5e7eb)",
+            },
+          },
+        },
       }}
     >
       <span className="inline-block">

@@ -32,7 +32,7 @@ export default function LoginPage() {
     <Suspense
       fallback={
         <div className="flex min-h-screen items-center justify-center bg-zinc-950">
-          <Loader2 className="h-6 w-6 animate-spin text-[#f08c2b]" />
+          <Loader2 className="h-6 w-6 animate-spin text-brand" />
         </div>
       }
     >
@@ -96,7 +96,7 @@ function LoginForm() {
   if (status === "loading") {
     return (
       <div className="flex min-h-screen items-center justify-center bg-zinc-950">
-        <Loader2 className="h-6 w-6 animate-spin text-[#f08c2b]" />
+        <Loader2 className="h-6 w-6 animate-spin text-brand" />
       </div>
     )
   }
@@ -287,35 +287,35 @@ function LoginForm() {
   ]
 
   return (
-    <div className="min-h-screen w-full bg-white flex flex-col lg:flex-row overflow-hidden selection:bg-[#f08c2b] selection:text-black">
+    <div className="min-h-screen w-full bg-white flex flex-col lg:flex-row overflow-hidden selection:bg-brand selection:text-black">
       {/* ── Left: Dark Black & Orange Brand & Features Showcase ── */}
       <motion.div
-        className="hidden lg:flex flex-1 bg-gradient-to-br from-black via-zinc-950 to-[#180d04] items-center rounded-br-[8rem] rounded-r-2xl justify-center p-12 relative overflow-hidden border-r border-zinc-900"
+        className="hidden lg:flex flex-1 bg-gradient-to-br from-black via-zinc-950 to-brand-dark items-center rounded-br-[8rem] rounded-r-2xl justify-center p-12 relative overflow-hidden border-r border-zinc-900"
         variants={containerVariants}
         initial="hidden"
         animate="visible"
       >
         {/* Animated Background Orbs */}
         <div className="absolute inset-0 overflow-hidden pointer-events-none">
-          <div className="absolute -top-40 -left-40 w-96 h-96 bg-[#f08c2b]/15 rounded-full blur-3xl animate-pulse" />
-          <div className="absolute -bottom-40 -right-40 w-96 h-96 bg-orange-600/10 rounded-full blur-3xl animate-pulse" />
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-80 h-80 bg-[#f08c2b]/5 rounded-full blur-3xl" />
+          <div className="absolute -top-40 -left-40 w-96 h-96 bg-brand/15 rounded-full blur-3xl animate-pulse" />
+          <div className="absolute -bottom-40 -right-40 w-96 h-96 bg-brand-700/10 rounded-full blur-3xl animate-pulse" />
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-80 h-80 bg-brand/5 rounded-full blur-3xl" />
         </div>
 
         {/* Grid Pattern Overlay */}
         <div className="absolute inset-0 opacity-10 pointer-events-none">
-          <div className="absolute inset-0 bg-[radial-gradient(#f08c2b_1px,transparent_1px)] [background-size:24px_24px]" />
+          <div className="absolute inset-0 bg-[radial-gradient(var(--color-brand)_1px,transparent_1px)] [background-size:24px_24px]" />
         </div>
 
         <div className="max-w-lg text-center relative z-10">
           {/* Logo & Brand Showcase */}
           <motion.div className="relative mb-10" variants={itemVariants}>
             <div className="w-64 h-64 mx-auto bg-zinc-900/80 backdrop-blur-md rounded-3xl shadow-2xl flex flex-col items-center justify-center p-8 border border-white/10 group">
-              <div className="w-20 h-20 rounded-2xl bg-[#f08c2b] flex items-center justify-center shadow-xl shadow-[#f08c2b]/30 mb-4 transform group-hover:scale-105 transition-transform duration-300">
+              <div className="w-20 h-20 rounded-2xl bg-brand flex items-center justify-center shadow-xl shadow-brand/30 mb-4 transform group-hover:scale-105 transition-transform duration-300">
                 <Coins className="h-10 w-10 text-black" />
               </div>
               <span className="text-3xl font-black tracking-tight text-white flex items-center">
-                NYUKI<span className="text-[#f08c2b] ml-0.5">.</span>
+                NYUKI<span className="text-brand ml-0.5">.</span>
               </span>
               <span className="text-xs text-zinc-400 font-mono uppercase tracking-widest mt-1">
                 SACCO Management Engine
@@ -324,7 +324,7 @@ function LoginForm() {
 
             {/* Floating Elements */}
             <motion.div
-              className="absolute top-6 right-6 w-6 h-6 bg-[#f08c2b]/30 rounded-full blur-[1px]"
+              className="absolute top-6 right-6 w-6 h-6 bg-brand/30 rounded-full blur-[1px]"
               animate={{ y: [0, -10, 0] }}
               transition={{ duration: 2, repeat: Number.POSITIVE_INFINITY }}
             />
@@ -334,7 +334,7 @@ function LoginForm() {
               transition={{ duration: 2.5, repeat: Number.POSITIVE_INFINITY }}
             />
             <motion.div
-              className="absolute top-1/2 left-2 w-3 h-3 bg-[#f08c2b]/40 rounded-full"
+              className="absolute top-1/2 left-2 w-3 h-3 bg-brand/40 rounded-full"
               animate={{ x: [0, 10, 0] }}
               transition={{ duration: 3, repeat: Number.POSITIVE_INFINITY }}
             />
@@ -353,11 +353,11 @@ function LoginForm() {
               {features.map((feature, index) => (
                 <motion.div
                   key={index}
-                  className="bg-zinc-900/70 backdrop-blur-md rounded-xl p-4 border border-white/10 hover:border-[#f08c2b]/40 hover:bg-zinc-900 transition-all duration-300 text-left"
+                  className="bg-zinc-900/70 backdrop-blur-md rounded-xl p-4 border border-white/10 hover:border-brand/40 hover:bg-zinc-900 transition-all duration-300 text-left"
                   whileHover={{ scale: 1.03, y: -2 }}
                   variants={itemVariants}
                 >
-                  <feature.icon className="w-5 h-5 text-[#f08c2b] mb-2" />
+                  <feature.icon className="w-5 h-5 text-brand mb-2" />
                   <h4 className="text-white font-bold text-xs mb-0.5">{feature.title}</h4>
                   <p className="text-zinc-400 text-[11px] leading-tight">{feature.desc}</p>
                 </motion.div>
@@ -378,14 +378,14 @@ function LoginForm() {
           {/* Logo & Brand Header */}
           <motion.div className="text-center" variants={itemVariants}>
             <Link href="/" className="inline-flex items-center gap-3 mb-3 group">
-              <div className="w-12 h-12 rounded-xl bg-[#f08c2b] flex items-center justify-center shadow-lg shadow-[#f08c2b]/25 group-hover:scale-105 transition-transform">
+              <div className="w-12 h-12 rounded-xl bg-brand flex items-center justify-center shadow-lg shadow-brand/25 group-hover:scale-105 transition-transform">
                 <Coins className="h-6 w-6 text-black" />
               </div>
               <span className="text-2xl font-black tracking-tight text-zinc-900 flex items-center">
-                NYUKI<span className="text-[#f08c2b] ml-0.5">.</span>
+                NYUKI<span className="text-brand ml-0.5">.</span>
               </span>
             </Link>
-            <p className="text-xs font-mono font-semibold uppercase tracking-widest text-[#f08c2b]">
+            <p className="text-xs font-mono font-semibold uppercase tracking-widest text-brand">
               Unified Portal Access
             </p>
           </motion.div>
@@ -402,7 +402,7 @@ function LoginForm() {
                 className="space-y-6"
               >
                 <div className="text-center space-y-1.5">
-                  <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#f08c2b]/10 border border-[#f08c2b]/25 text-xs font-semibold text-[#f08c2b] mb-1">
+                  <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-brand/10 border border-brand/25 text-xs font-semibold text-brand mb-1">
                     <Sparkles className="w-3.5 h-3.5" />
                     Multiple Roles Detected
                   </div>
@@ -420,10 +420,10 @@ function LoginForm() {
                       type="button"
                       onClick={() => handleSelectWorkspace("staff")}
                       disabled={isSelectingRole}
-                      className="w-full group p-4 rounded-2xl border-2 border-zinc-200 hover:border-[#f08c2b] bg-white hover:bg-zinc-50/80 transition-all text-left flex items-center justify-between shadow-sm hover:shadow-md cursor-pointer"
+                      className="w-full group p-4 rounded-2xl border-2 border-zinc-200 hover:border-brand bg-white hover:bg-zinc-50/80 transition-all text-left flex items-center justify-between shadow-sm hover:shadow-md cursor-pointer"
                     >
                       <div className="flex items-center gap-3.5">
-                        <div className="w-12 h-12 rounded-xl bg-zinc-900 text-[#f08c2b] flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+                        <div className="w-12 h-12 rounded-xl bg-zinc-900 text-brand flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
                           <Briefcase className="w-6 h-6" />
                         </div>
                         <div>
@@ -431,7 +431,7 @@ function LoginForm() {
                           <p className="text-xs text-zinc-500">Loan management, member approvals & daily operations</p>
                         </div>
                       </div>
-                      <ArrowRight className="w-5 h-5 text-zinc-400 group-hover:text-[#f08c2b] group-hover:translate-x-1 transition-all" />
+                      <ArrowRight className="w-5 h-5 text-zinc-400 group-hover:text-brand group-hover:translate-x-1 transition-all" />
                     </button>
                   )}
 
@@ -440,10 +440,10 @@ function LoginForm() {
                       type="button"
                       onClick={() => handleSelectWorkspace("client")}
                       disabled={isSelectingRole}
-                      className="w-full group p-4 rounded-2xl border-2 border-zinc-200 hover:border-[#f08c2b] bg-white hover:bg-zinc-50/80 transition-all text-left flex items-center justify-between shadow-sm hover:shadow-md cursor-pointer"
+                      className="w-full group p-4 rounded-2xl border-2 border-zinc-200 hover:border-brand bg-white hover:bg-zinc-50/80 transition-all text-left flex items-center justify-between shadow-sm hover:shadow-md cursor-pointer"
                     >
                       <div className="flex items-center gap-3.5">
-                        <div className="w-12 h-12 rounded-xl bg-[#f08c2b]/15 text-[#f08c2b] flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+                        <div className="w-12 h-12 rounded-xl bg-brand/15 text-brand flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
                           <Users className="w-6 h-6" />
                         </div>
                         <div>
@@ -451,7 +451,7 @@ function LoginForm() {
                           <p className="text-xs text-zinc-500">Personal savings, share registers, loan requests & statements</p>
                         </div>
                       </div>
-                      <ArrowRight className="w-5 h-5 text-zinc-400 group-hover:text-[#f08c2b] group-hover:translate-x-1 transition-all" />
+                      <ArrowRight className="w-5 h-5 text-zinc-400 group-hover:text-brand group-hover:translate-x-1 transition-all" />
                     </button>
                   )}
 
@@ -460,18 +460,18 @@ function LoginForm() {
                       type="button"
                       onClick={() => handleSelectWorkspace("system_admin")}
                       disabled={isSelectingRole}
-                      className="w-full group p-4 rounded-2xl border-2 border-zinc-200 hover:border-[#f08c2b] bg-white hover:bg-zinc-50/80 transition-all text-left flex items-center justify-between shadow-sm hover:shadow-md cursor-pointer"
+                      className="w-full group p-4 rounded-2xl border-2 border-zinc-200 hover:border-brand bg-white hover:bg-zinc-50/80 transition-all text-left flex items-center justify-between shadow-sm hover:shadow-md cursor-pointer"
                     >
                       <div className="flex items-center gap-3.5">
                         <div className="w-12 h-12 rounded-xl bg-black text-white flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
-                          <Shield className="w-6 h-6 text-[#f08c2b]" />
+                          <Shield className="w-6 h-6 text-brand" />
                         </div>
                         <div>
                           <h4 className="font-bold text-sm text-zinc-900">System Admin Portal</h4>
                           <p className="text-xs text-zinc-500">Global SACCO tenancy governance & platform administration</p>
                         </div>
                       </div>
-                      <ArrowRight className="w-5 h-5 text-zinc-400 group-hover:text-[#f08c2b] group-hover:translate-x-1 transition-all" />
+                      <ArrowRight className="w-5 h-5 text-zinc-400 group-hover:text-brand group-hover:translate-x-1 transition-all" />
                     </button>
                   )}
                 </div>
@@ -517,7 +517,7 @@ function LoginForm() {
                     {/* Email Field */}
                     <div className="space-y-2">
                       <label htmlFor="email" className="text-zinc-700 font-semibold text-xs flex items-center gap-2">
-                        <Mail className="w-3.5 h-3.5 text-[#f08c2b]" />
+                        <Mail className="w-3.5 h-3.5 text-brand" />
                         Email Address
                       </label>
                       <div className="relative">
@@ -536,7 +536,7 @@ function LoginForm() {
                           className={`w-full h-12 px-4 pl-11 rounded-xl border-2 text-sm text-zinc-900 bg-white placeholder:text-zinc-400 transition-all duration-200 outline-none ${
                             errors.email
                               ? "border-red-400 bg-red-50/50"
-                              : "border-zinc-200 hover:border-[#f08c2b]/40 focus:border-[#f08c2b] focus:ring-4 focus:ring-[#f08c2b]/15"
+                              : "border-zinc-200 hover:border-brand/40 focus:border-brand focus:ring-4 focus:ring-brand/15"
                           }`}
                         />
                         <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-400 w-4 h-4" />
@@ -558,7 +558,7 @@ function LoginForm() {
                     {/* Password Field */}
                     <div className="space-y-2">
                       <label htmlFor="password" className="text-zinc-700 font-semibold text-xs flex items-center gap-2">
-                        <Lock className="w-3.5 h-3.5 text-[#f08c2b]" />
+                        <Lock className="w-3.5 h-3.5 text-brand" />
                         Password
                       </label>
                       <div className="relative">
@@ -576,7 +576,7 @@ function LoginForm() {
                           className={`w-full h-12 px-4 pl-11 pr-11 rounded-xl border-2 text-sm text-zinc-900 bg-white placeholder:text-zinc-400 transition-all duration-200 outline-none ${
                             errors.password
                               ? "border-red-400 bg-red-50/50"
-                              : "border-zinc-200 hover:border-[#f08c2b]/40 focus:border-[#f08c2b] focus:ring-4 focus:ring-[#f08c2b]/15"
+                              : "border-zinc-200 hover:border-brand/40 focus:border-brand focus:ring-4 focus:ring-brand/15"
                           }`}
                         />
                         <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-400 w-4 h-4" />
@@ -612,7 +612,7 @@ function LoginForm() {
                         type="checkbox"
                         checked={rememberMe}
                         onChange={(e) => setRememberMe(e.target.checked)}
-                        className="w-4 h-4 text-[#f08c2b] bg-zinc-100 border-zinc-300 rounded focus:ring-[#f08c2b] focus:ring-2 accent-[#f08c2b]"
+                        className="w-4 h-4 text-brand bg-zinc-100 border-zinc-300 rounded focus:ring-brand focus:ring-2 accent-brand"
                       />
                       <span className="font-medium">Remember me</span>
                     </label>
@@ -627,7 +627,7 @@ function LoginForm() {
                     whileTap={{ scale: isLoading ? 1 : 0.99 }}
                     type="submit"
                     disabled={isLoading}
-                    className={`w-full h-12 bg-gradient-to-r from-zinc-900 via-black to-[#f08c2b] text-white rounded-xl font-extrabold text-sm transition-all duration-200 shadow-xl shadow-black/10 hover:shadow-2xl cursor-pointer ${
+                    className={`w-full h-12 bg-gradient-to-r from-zinc-900 via-black to-brand text-white rounded-xl font-extrabold text-sm transition-all duration-200 shadow-xl shadow-black/10 hover:shadow-2xl cursor-pointer ${
                       isLoading ? "opacity-70 cursor-not-allowed" : ""
                     }`}
                   >
@@ -639,7 +639,7 @@ function LoginForm() {
                     ) : (
                       <div className="flex items-center justify-center gap-2">
                         <span>Sign In</span>
-                        <ArrowRight className="w-4 h-4 text-[#f08c2b]" />
+                        <ArrowRight className="w-4 h-4 text-brand" />
                       </div>
                     )}
                   </motion.button>

@@ -7,7 +7,7 @@ type InstitutionLogoProps = {
   className?: string
   imageClassName?: string
   initialsClassName?: string
-  /** "brand" = orange gradient fallback; "theme" = uses CSS primary tokens */
+  /** "brand" = theme palette gradient fallback; "theme" = uses CSS primary tokens */
   tone?: "brand" | "theme"
 }
 
@@ -40,13 +40,13 @@ export function InstitutionLogo({
         "flex items-center justify-center font-semibold",
         tone === "theme"
           ? "border border-primary/20 bg-primary/10 text-primary"
-          : "border border-[#f08c2b]/15 text-[#f08c2b]",
+          : "border border-brand/25 text-brand",
         className,
       )}
       style={
         tone === "theme"
           ? undefined
-          : { background: "linear-gradient(135deg, rgba(240,140,43,0.15) 0%, rgba(240,140,43,0.05) 100%)" }
+          : { background: "linear-gradient(135deg, rgba(var(--ui-p-rgb, 240, 140, 43), 0.18) 0%, rgba(var(--ui-p-rgb, 240, 140, 43), 0.05) 100%)" }
       }
       aria-label={label}
     >

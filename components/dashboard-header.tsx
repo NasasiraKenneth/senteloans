@@ -105,7 +105,7 @@ export function DashboardHeader() {
             <InstitutionLogo
               name={institutionName}
               logo={session?.institution?.logo}
-              className="h-7 w-7 rounded-lg border border-[#f08c2b]/15"
+              className="h-7 w-7 rounded-lg border border-brand/25"
               initialsClassName="text-[10px]"
             />
             <span className="hidden text-[13px] font-semibold text-foreground md:block">
@@ -165,7 +165,7 @@ export function DashboardHeader() {
               <button className="flex items-center gap-2.5 rounded-lg px-2 py-1.5 transition-colors hover:bg-muted/60 outline-none">
                 {/* Avatar */}
                 <div
-                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[12px] font-bold text-white bg-gradient-to-br from-[#f08c2b] to-[#d97b1e]"
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[12px] font-bold text-white bg-brand shadow-xs shadow-brand/20"
                 >
                   {initials}
                 </div>
@@ -190,7 +190,7 @@ export function DashboardHeader() {
               <DropdownMenuLabel className="font-normal">
                 <div className="flex items-center gap-3 py-1">
                   <div
-                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-[13px] font-bold text-white bg-gradient-to-br from-[#f08c2b] to-[#d97b1e]"
+                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-[13px] font-bold text-white bg-brand shadow-xs shadow-brand/20"
                   >
                     {initials}
                   </div>

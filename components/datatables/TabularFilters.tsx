@@ -24,31 +24,31 @@ const TabularFilters: React.FC<TabularFiltersProps> = ({ filters, onChange, valu
 
   return (
       <>
-        <div className="text-xs font-medium text-gray-600 border border-gray-100 bg-white rounded-lg mb-4">
+        <div className="text-xs font-medium text-gray-600 dark:text-zinc-400 border border-gray-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 rounded-xl mb-4 overflow-x-auto scrollbar-autohide shadow-xs">
           <LayoutGroup id="tabular-filters">
-            <ul className="flex flex-col md:flex-row w-full">
+            <ul className="flex flex-col md:flex-row w-full min-w-max md:min-w-0">
               {filters.map((filter, idx) => {
                 const isActive = activeIndex === idx;
 
                 return (
                     <li
                         key={idx}
-                        className="w-full md:flex-1 border-b md:border-b-0 md:border-r border-gray-100 last:border-0 md:last:border-r-0"
+                        className="w-full md:flex-1 border-b md:border-b-0 md:border-r border-gray-100 dark:border-zinc-800/80 last:border-0 md:last:border-r-0"
                     >
                       <motion.button
                           onClick={() => handleChange(idx, filter.value)}
                           whileTap={{ scale: 0.985 }}
                           transition={tapTransition}
-                          className="relative w-full px-3 py-2 text-xs overflow-hidden isolate"
+                          className="relative w-full px-4 py-2.5 text-xs overflow-hidden isolate cursor-pointer hover:bg-gray-50/60 dark:hover:bg-zinc-800/50 transition-colors"
                       >
                         {isActive && (
                           <motion.span
                             layoutId="active-tabular-filter-bg"
-                            className="absolute inset-0 rounded-none md:rounded-none bg-[#de4925]"
+                            className="absolute inset-0 bg-brand shadow-xs shadow-brand/20"
                             transition={slideTransition}
                           />
                         )}
-                        <span className={`relative z-10 inline-block transition-colors duration-200 ${isActive ? "text-white font-semibold" : "text-gray-500 hover:text-[#de4925]"}`}>
+                        <span className={`relative z-10 inline-block transition-colors duration-200 ${isActive ? "text-white font-semibold" : "text-gray-600 dark:text-zinc-400 hover:text-brand dark:hover:text-zinc-100"}`}>
                           {filter.label}
                         </span>
                       </motion.button>
@@ -58,7 +58,7 @@ const TabularFilters: React.FC<TabularFiltersProps> = ({ filters, onChange, valu
             </ul>
           </LayoutGroup>
         </div>
-        <hr className="border-gray-400" />
+        <hr className="border-gray-200 dark:border-zinc-800" />
       </>
   );
 };

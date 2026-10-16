@@ -19,7 +19,7 @@ export interface FilterField {
     label: string;
     options?: { value: any; label: string }[];
     multiple?: boolean;
-    type: 'select' | 'text' |'date-range'
+    type: 'select' | 'text' | 'date-range'
 }
 
 const POPOVER_WIDTH = 320;
@@ -97,7 +97,7 @@ const TableFilter: React.FC<SelectFilterProps> = ({filter, onChange, value, layo
             ? Array.isArray(selectedValues) && selectedValues.length > 0
             : !!selectedValues;
 
-    const widthClass = layout === 'horizontal' ? 'w-auto min-w-[300px]' : 'w-full';
+    const widthClass = layout === 'horizontal' ? 'w-auto min-w-[300px] max-w-full' : 'w-full';
 
     const allSelected = filter.multiple && options.length > 0 &&
         options.every(o => Array.isArray(selectedValues) && selectedValues.includes(o.value));
@@ -109,11 +109,11 @@ const TableFilter: React.FC<SelectFilterProps> = ({filter, onChange, value, layo
             {/* Trigger Button */}
             <div
                 ref={buttonRef}
-                className={`flex items-center gap-3 bg-white p-3 mt-1 border  transition-all duration-200 ${widthClass}
+                className={`flex items-center gap-3 bg-white dark:bg-zinc-900/90 p-3 mt-1 rounded-xl border transition-all duration-200 ${widthClass}
                     ${isTextInputMode ? '' : 'cursor-pointer'}
                     ${hasSelection
-                    ? 'border-[#de4925] shadow-[0_0_10px_rgba(222,73,37,0.25)]'
-                    : 'border-[#75a6cd] hover:border-teal-500'
+                    ? 'border-brand bg-brand/[0.04] dark:bg-brand/10 shadow-[0_0_12px_rgba(var(--ui-p-rgb,240,140,43),0.2)]'
+                    : 'border-gray-200 dark:border-zinc-800 hover:border-brand/40 text-gray-700 dark:text-zinc-300 hover:bg-gray-50/50 dark:hover:bg-zinc-800/40'
                 }`}
                 onClick={(e) => !isTextInputMode && handleClick(e)}
             >
@@ -122,22 +122,38 @@ const TableFilter: React.FC<SelectFilterProps> = ({filter, onChange, value, layo
                         provider="io5"
                         iconName="IoFilterOutline"
                         size={20}
-                        className={hasSelection ? "text-[#de4925]" : "text-gray-600"}
+                        className={hasSelection ? "text-brand" : "text-gray-500 dark:text-zinc-400"}
                     />
                 )}
 
                 {isTextInputMode ?
                     (
-                        <input
-                            type="text"
-                            placeholder={filter.label}
-                            value={selectedValues || ""}
-                            onChange={(e) => {
-                                setSelectedValues(e.target.value);
-                                onChange(e.target.value);
-                            }}
-                            className="flex-1 outline-none text-gray-700 placeholder-gray-400 text-sm"
-                        />
+                        <div className="flex items-center justify-between w-full">
+                            <input
+                                type="text"
+                                placeholder={filter.label}
+                                value={selectedValues || ""}
+                                onChange={(e) => {
+                                    setSelectedValues(e.target.value);
+                                    onChange(e.target.value);
+                                }}
+                                className="flex-1 outline-none bg-transparent text-gray-800 dark:text-zinc-100 placeholder-gray-400 dark:placeholder-zinc-500 text-sm"
+                            />
+                            {selectedValues ? (
+                                <button
+                                    type="button"
+                                    onClick={(e) => {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        setSelectedValues("");
+                                        onChange("");
+                                    }}
+                                    className="ml-2 p-1 hover:bg-gray-100 dark:hover:bg-zinc-800 rounded-full transition-colors"
+                                >
+                                    <Icon provider="io5" iconName="IoClose" size={16} className="text-gray-400 dark:text-zinc-400 hover:text-gray-700 dark:hover:text-zinc-200" />
+                                </button>
+                            ) : null}
+                        </div>
                     ) :
                     isDateRange ?
                         (
@@ -168,15 +184,14 @@ const TableFilter: React.FC<SelectFilterProps> = ({filter, onChange, value, layo
                                                 <Icon
                                                     provider="fa"
                                                     iconName="FaCalendarAlt"
-                                                    className={hasSelection ? "text-[#de4925]" : "text-gray-600"}
+                                                    className={hasSelection ? "text-brand" : "text-gray-500 dark:text-zinc-400"}
                                                 />
 
                                                 <span
                                                     className={`text-sm truncate ${
-                                                        hasSelection ? "text-gray-700 font-medium" : "text-gray-500"
+                                                        hasSelection ? "text-gray-900 dark:text-zinc-100 font-medium" : "text-gray-500 dark:text-zinc-400"
                                                     }`}
                                                 >
-
                                                     {hasSelection && selectedValues && selectedValues.length > 1
                                                         ?
                                                             <span>{convertDate(selectedValues[0])} - {convertDate(selectedValues[1], true)}</span>
@@ -197,9 +212,9 @@ const TableFilter: React.FC<SelectFilterProps> = ({filter, onChange, value, layo
                                                         datePickerRef.current?.closeCalendar?.();
                                                         handleClose();
                                                     }}
-                                                    className="ml-2 p-1 hover:bg-gray-200 rounded-full transition-colors"
+                                                    className="ml-2 p-1 hover:bg-gray-100 dark:hover:bg-zinc-800 rounded-full transition-colors"
                                                 >
-                                                    <Icon provider="io5" iconName="IoClose" size={16} className="text-gray-500" />
+                                                    <Icon provider="io5" iconName="IoClose" size={16} className="text-gray-400 dark:text-zinc-400 hover:text-gray-700 dark:hover:text-zinc-200" />
                                                 </button>
                                             )}
                                         </div>
@@ -212,13 +227,13 @@ const TableFilter: React.FC<SelectFilterProps> = ({filter, onChange, value, layo
                         )
 
                             : (
-                                <div className="flex-1 min-w-0">
+                                <div className="flex-1">
                                     {hasSelection ? (
                                         <div className="flex items-center gap-2">
-                                <span className="text-gray-700 font-medium whitespace-nowrap">
+                                <span className="text-gray-700 dark:text-zinc-300 font-medium whitespace-nowrap">
                                     {filter.label}:
                                 </span>
-                                            <div className="flex-1 overflow-x-auto scrollbar-hide">
+                                            <div className="flex-1 overflow-x-auto scrollbar-autohide">
                                                 <div className="inline-flex items-center gap-1.5">
                                                     {filter.multiple ? (
                                                         (Array.isArray(selectedValues) ? selectedValues : []).map(val => {
@@ -226,30 +241,30 @@ const TableFilter: React.FC<SelectFilterProps> = ({filter, onChange, value, layo
                                                             return (
                                                                 <span
                                                                     key={val}
-                                                                    className="inline-flex items-center gap-1.5 bg-[#de4925]/10 text-[#c53e20] text-xs font-medium px-2.5 py-1 rounded-full border border-[#de4925]/30 whitespace-nowrap"
+                                                                    className="inline-flex items-center gap-1.5 bg-brand/10 dark:bg-brand/15 text-brand dark:text-brand text-xs font-semibold px-2.5 py-1 rounded-full border border-brand/25 dark:border-brand/35 whitespace-nowrap"
                                                                 >
                                                         <span
                                                             className="max-w-[120px] truncate">{opt?.label || val}</span>
                                                         <button
                                                             onClick={(e) => removeTag(val, e)}
-                                                            className="flex-shrink-0 w-4 h-4 rounded-full hover:bg-[#de4925]/30 flex items-center justify-center"
+                                                            className="flex-shrink-0 w-4 h-4 rounded-full hover:bg-brand/20 dark:hover:bg-brand/30 flex items-center justify-center text-brand transition-colors"
                                                         >
                                                             <Icon provider="io5" iconName="IoClose" size={14}
-                                                                  className="text-[#c53e20]"/>
+                                                                  className="text-brand"/>
                                                         </button>
                                                     </span>
                                                             );
                                                         })
                                                     ) : (
                                                         <span
-                                                            className="inline-flex items-center gap-1.5 bg-[#de4925]/10 text-[#c53e20] text-xs font-medium px-2.5 py-1 rounded-full border border-[#de4925]/30">
+                                                            className="inline-flex items-center gap-1.5 bg-brand/10 dark:bg-brand/15 text-brand dark:text-brand text-xs font-semibold px-2.5 py-1 rounded-full border border-brand/25 dark:border-brand/35">
                                                 {options.find(o => o.value === selectedValues)?.label || selectedValues}
                                                             <button
                                                                 onClick={(e) => removeTag(selectedValues, e)}
-                                                                className="w-4 h-4 rounded-full hover:bg-[#de4925]/30 flex items-center justify-center"
+                                                                className="w-4 h-4 rounded-full hover:bg-brand/20 dark:hover:bg-brand/30 flex items-center justify-center text-brand transition-colors"
                                                             >
                                                     <Icon provider="io5" iconName="IoClose" size={14}
-                                                          className="text-[#c53e20]"/>
+                                                          className="text-brand"/>
                                                 </button>
                                             </span>
                                                     )}
@@ -257,7 +272,7 @@ const TableFilter: React.FC<SelectFilterProps> = ({filter, onChange, value, layo
                                             </div>
                                         </div>
                                     ) : (
-                                        <span className="text-gray-700 font-medium">{filter.label}</span>
+                                        <span className="text-gray-700 dark:text-zinc-300 font-medium">{filter.label}</span>
                                     )}
                                 </div>
                             )}
@@ -275,9 +290,13 @@ const TableFilter: React.FC<SelectFilterProps> = ({filter, onChange, value, layo
                         sx: {
                             width: POPOVER_WIDTH,
                             maxWidth: "none",
-                            borderRadius: "12px",
-                            boxShadow: "0 10px 40px rgba(0,0,0,0.15)",
+                            borderRadius: "16px",
+                            boxShadow: "0 16px 40px rgba(0,0,0,0.35)",
                             mt: 1.5,
+                            backgroundColor: "var(--color-card, #18181b)",
+                            color: "var(--color-foreground, #f4f4f5)",
+                            border: "1px solid var(--color-border, rgba(255, 255, 255, 0.1))",
+                            overflow: "hidden",
                         },
                     }}
                 >
@@ -286,42 +305,43 @@ const TableFilter: React.FC<SelectFilterProps> = ({filter, onChange, value, layo
                         animate={{opacity: 1, scale: 1, y: 0}}
                         exit={{opacity: 0, scale: 0.95}}
                         transition={{duration: 0.2}}
+                        className="bg-white dark:bg-zinc-900 text-gray-900 dark:text-zinc-100 rounded-2xl overflow-hidden"
                     >
                         <div className="p-3 pb-2">
                             <button
                                 onClick={handleClose}
-                                className="absolute top-3 right-3 text-gray-500 hover:text-gray-700 z-10"
+                                className="absolute top-3 right-3 text-gray-400 hover:text-gray-700 dark:text-zinc-400 dark:hover:text-white z-10 transition-colors p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-zinc-800"
                             >
-                                <Icon provider="io5" iconName="IoClose" size={22}/>
+                                <Icon provider="io5" iconName="IoClose" size={18}/>
                             </button>
 
                             {/* Select All (Only for multiple) */}
                             {filter.multiple && options.length > 0 && (
                                 <label
                                     onClick={handleSelectAll}
-                                    className="flex items-center gap-3 px-3 py-3 mb-1 cursor-pointer hover:bg-gray-50 rounded-lg transition-colors border-b border-gray-100"
+                                    className="flex items-center gap-3 px-3 py-2.5 mb-1 cursor-pointer hover:bg-brand/5 dark:hover:bg-zinc-800/80 rounded-lg transition-colors border-b border-gray-100 dark:border-zinc-800"
                                 >
                                     <div className={`
                                         relative w-5 h-5 border-2 flex items-center justify-center rounded-md transition-all
-                                        ${allSelected ? 'bg-[#de4925] border-[#de4925]' :
-                                        someSelected ? 'bg-[#de4925] border-[#de4925]' :
-                                            'bg-white border-gray-400 hover:border-gray-600'}
+                                        ${allSelected ? 'bg-brand border-brand shadow-xs shadow-brand/30' :
+                                        someSelected ? 'bg-brand border-brand shadow-xs shadow-brand/30' :
+                                            'bg-white dark:bg-zinc-800 border-gray-300 dark:border-zinc-700 hover:border-brand/70'}
                                     `}>
                                         {allSelected && (
-                                            <Icon provider="io5" iconName="IoCheckmark" size={18}
+                                            <Icon provider="io5" iconName="IoCheckmark" size={16}
                                                   className="text-white font-bold"/>
                                         )}
                                         {someSelected && (
-                                            <div className="w-3 h-3 bg-white rounded-sm"></div>
+                                            <div className="w-2.5 h-2.5 bg-white rounded-xs"></div>
                                         )}
                                     </div>
-                                    <span className="text-sm font-semibold text-gray-800">
+                                    <span className="text-sm font-semibold text-gray-800 dark:text-zinc-200">
                                         {allSelected ? 'Deselect All' : 'Select All'}
                                     </span>
                                 </label>
                             )}
 
-                            <div className="max-h-60 overflow-y-auto">
+                            <div className="max-h-60 overflow-y-auto scrollbar-autohide pr-1">
                                 {options.map((option) => {
                                     const isSelected = filter.multiple
                                         ? Array.isArray(selectedValues) && selectedValues.includes(option.value)
@@ -330,7 +350,7 @@ const TableFilter: React.FC<SelectFilterProps> = ({filter, onChange, value, layo
                                     return (
                                         <label
                                             key={option.value}
-                                            className="flex items-center gap-3 px-3 py-3 cursor-pointer hover:bg-gray-50 rounded-lg transition-colors"
+                                            className="flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-brand/5 dark:hover:bg-zinc-800/70 rounded-lg transition-colors"
                                         >
                                             <input
                                                 type={filter.multiple ? "checkbox" : "radio"}
@@ -340,23 +360,27 @@ const TableFilter: React.FC<SelectFilterProps> = ({filter, onChange, value, layo
                                             />
 
                                             <div className={`
-                                                relative w-5 h-5 border-2 flex items-center justify-center rounded-md transition-all
+                                                relative w-5 h-5 border-2 flex items-center justify-center ${filter.multiple ? 'rounded-md' : 'rounded-full'} transition-all
                                                 ${isSelected
-                                                ? 'bg-[#de4925] border-[#de4925]'
-                                                : 'bg-white border-gray-400 hover:border-gray-600'
+                                                ? 'bg-brand border-brand shadow-xs shadow-brand/30'
+                                                : 'bg-white dark:bg-zinc-800 border-gray-300 dark:border-zinc-700 hover:border-brand/70'
                                             }
                                             `}>
                                                 {isSelected && (
-                                                    <Icon
-                                                        provider="io5"
-                                                        iconName="IoCheckmark"
-                                                        size={18}
-                                                        className="text-white font-bold"
-                                                    />
+                                                    filter.multiple ? (
+                                                        <Icon
+                                                            provider="io5"
+                                                            iconName="IoCheckmark"
+                                                            size={16}
+                                                            className="text-white font-bold"
+                                                        />
+                                                    ) : (
+                                                        <div className="w-2 h-2 rounded-full bg-white" />
+                                                    )
                                                 )}
                                             </div>
 
-                                            <span className="text-sm text-gray-800 select-none">
+                                            <span className={`text-sm select-none transition-colors ${isSelected ? 'text-brand dark:text-brand font-medium' : 'text-gray-800 dark:text-zinc-200'}`}>
                                                 {option.label}
                                             </span>
                                         </label>
@@ -366,13 +390,13 @@ const TableFilter: React.FC<SelectFilterProps> = ({filter, onChange, value, layo
 
                             {/* Clear All */}
                             {filter.multiple && hasSelection && (
-                                <div className="border-t border-gray-200 mt-3 pt-3 px-3">
+                                <div className="border-t border-gray-100 dark:border-zinc-800 mt-2 pt-2 px-1">
                                     <button
                                         onClick={() => {
                                             setSelectedValues([]);
                                             onChange([]);
                                         }}
-                                        className="w-full text-sm font-medium text-red-600 hover:text-red-700 hover:bg-red-50 py-2.5 rounded-lg transition-colors"
+                                        className="w-full text-xs font-semibold text-red-500 dark:text-red-400 hover:text-red-600 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-950/40 py-2 rounded-lg transition-colors"
                                     >
                                         Clear all selections
                                     </button>

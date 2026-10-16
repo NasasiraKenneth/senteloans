@@ -1,6 +1,6 @@
 'use client';
 
-import React  from "react";
+import React from "react";
 import {FilterField} from "@/components/datatables/TableFilter";
 import {TableFilter} from "@/components/datatables/index";
 
@@ -22,18 +22,18 @@ export function TableFilters({
   }
 
   const containerClass = layout === 'horizontal'
-    ? 'flex flex-row gap-2 items-center flex-wrap'
+    ? 'flex flex-row gap-2.5 items-center flex-wrap w-full'
     : 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4';
 
   const wrapperClass = layout === 'horizontal'
-    ? className
+    ? `w-full ${className}`
     : `space-y-4 ${className}`;
 
   return (
     <div className={wrapperClass}>
-      {/* Filter Controls */}
+      {/* Filter Controls with wrapping and auto-expansion */}
       <div className={containerClass}>
-        {filterFields.map((filter,index) => (
+        {filterFields.map((filter, index) => (
           <TableFilter
             key={`${filter.field}-${index}`}
             filter={filter}
@@ -43,11 +43,9 @@ export function TableFilters({
           />
         ))}
       </div>
-      <hr className="border-gray-400 mt-4" />
+      <hr className="border-gray-200 dark:border-zinc-800 mt-2" />
     </div>
   );
 }
-
-
 
 export default TableFilters;
