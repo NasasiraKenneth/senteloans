@@ -4,7 +4,7 @@ import React, { useEffect, useState, useRef } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import { Palette, Sun, Moon, Check, Sparkles } from "lucide-react"
 
-export type UiAccent = "orange" | "amber" | "blue" | "green"
+export type UiAccent = "orange" | "yellow" | "red" | "black" | "blue" | "green"
 
 interface AccentOption {
   id: UiAccent
@@ -15,7 +15,9 @@ interface AccentOption {
 
 const ACCENT_OPTIONS: AccentOption[] = [
   { id: "orange", name: "Warm Orange (Brand)", color: "#f08c2b", border: "rgba(240, 140, 43, 0.4)" },
-  { id: "amber", name: "Amber Gold", color: "#f59e0b", border: "rgba(245, 158, 11, 0.4)" },
+  { id: "yellow", name: "Sun Yellow", color: "#eab308", border: "rgba(234, 179, 8, 0.4)" },
+  { id: "red", name: "Crimson Red", color: "#dc2626", border: "rgba(220, 38, 38, 0.4)" },
+  { id: "black", name: "Slate Black", color: "#0f172a", border: "rgba(15, 23, 42, 0.4)" },
   { id: "blue", name: "Classic Blue", color: "#0077eb", border: "rgba(0, 119, 235, 0.4)" },
   { id: "green", name: "Emerald Green", color: "#16a34a", border: "rgba(22, 163, 74, 0.4)" },
 ]
@@ -30,7 +32,10 @@ export function ThemePaletteSwitcher() {
   useEffect(() => {
     setMounted(true)
     try {
-      const savedAccent = (localStorage.getItem("senteloans_ui_accent") as UiAccent) || "orange"
+      let savedAccent = (localStorage.getItem("senteloans_ui_accent") as UiAccent) || "orange"
+      if ((savedAccent as string) === "amber") {
+        savedAccent = "yellow"
+      }
       setCurrentAccent(savedAccent)
       document.documentElement.setAttribute("data-ui-accent", savedAccent)
 
@@ -145,12 +150,12 @@ export function ThemePaletteSwitcher() {
                 >
                   {isDark ? (
                     <>
-                      <Moon className="w-3 h-3 text-amber-400" />
+                      <Moon className="w-3 h-3 text-yellow-400" />
                       <span className="text-[10px]">Dark</span>
                     </>
                   ) : (
                     <>
-                      <Sun className="w-3 h-3 text-amber-500" />
+                      <Sun className="w-3 h-3 text-yellow-500" />
                       <span className="text-[10px]">Light</span>
                     </>
                   )}

@@ -45,6 +45,14 @@ function mapError(code: unknown): string {
     return `Maximum holding limit is ${c.replace("maximum_shares_", "")} share(s).`
   }
   switch (c) {
+    case "shares_already_transferred_or_sold":
+      return "Cannot reduce or void this share record because some or all of the shares have already been transferred or sold."
+    case "share_record_already_cancelled":
+      return "This share record has already been voided or cancelled."
+    case "insufficient_shares":
+      return "Member has insufficient shares to perform this reduction."
+    case "insufficient_account_balance":
+      return "Insufficient savings account balance to complete this transaction."
     case "missing_permission:edit_shares":
       return "You do not have permission to edit share purchases."
     case "invalid_number_of_shares":
@@ -151,11 +159,19 @@ export default function EditSharesModal({
         throw new Error(mapError(body?.code || body?.error))
       }
 
-      toast({
-        variant: "success",
-        title: "Share purchase updated",
-        description: `Successfully updated ${data.numberOfShares} share${data.numberOfShares === 1 ? "" : "s"} purchase record.`,
-      })
+      if (body?.voided) {
+        toast({
+          variant: "success",
+          title: "Share purchase voided",
+          description: "Shares were reduced to 0 and the record has been cancelled.",
+        })
+      } else {
+        toast({
+          variant: "success",
+          title: "Share purchase updated",
+          description: `Successfully updated ${data.numberOfShares} share${data.numberOfShares === 1 ? "" : "s"} purchase record.`,
+        })
+      }
       onSuccess?.()
       onClose()
     } catch (e: unknown) {
@@ -197,11 +213,19 @@ export default function EditSharesModal({
         throw new Error(mapError(body?.code || body?.error))
       }
 
-      toast({
-        variant: "success",
-        title: "Share transfer updated",
-        description: `Successfully updated transfer of ${data.numberOfShares} share${data.numberOfShares === 1 ? "" : "s"}.`,
-      })
+      if (body?.voided) {
+        toast({
+          variant: "success",
+          title: "Share transfer voided",
+          description: "Transfer was set to 0 and marked as cancelled.",
+        })
+      } else {
+        toast({
+          variant: "success",
+          title: "Share transfer updated",
+          description: `Successfully updated transfer of ${data.numberOfShares} share${data.numberOfShares === 1 ? "" : "s"}.`,
+        })
+      }
       onSuccess?.()
       onClose()
     } catch (e: unknown) {
@@ -247,11 +271,19 @@ export default function EditSharesModal({
         throw new Error(mapError(body?.code || body?.error))
       }
 
-      toast({
-        variant: "success",
-        title: "Share buy-off updated",
-        description: `Successfully updated buy-off of ${data.numberOfShares} share${data.numberOfShares === 1 ? "" : "s"}.`,
-      })
+      if (body?.voided) {
+        toast({
+          variant: "success",
+          title: "Share buy-off voided",
+          description: "Buy-off was set to 0 and marked as cancelled.",
+        })
+      } else {
+        toast({
+          variant: "success",
+          title: "Share buy-off updated",
+          description: `Successfully updated buy-off of ${data.numberOfShares} share${data.numberOfShares === 1 ? "" : "s"}.`,
+        })
+      }
       onSuccess?.()
       onClose()
     } catch (e: unknown) {

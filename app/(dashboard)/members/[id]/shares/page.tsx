@@ -21,10 +21,12 @@ import {
 import AddSharesModal from "../../components/shares/add"
 import EditSharesModal from "../../components/shares/edit"
 import MoveSharesModal from "../../components/shares/moveShare"
+import VoidSharesModal from "../../components/shares/void"
 import SharesCalculatorModal from "../../components/shares/calculator"
 import {
   ArrowLeft,
   ArrowRightLeft,
+  Ban,
   Calendar,
   Calculator,
   Coins,
@@ -133,6 +135,8 @@ export default function MemberSharesPage() {
   const [showCalculatorModal, setShowCalculatorModal] = useState(false)
   const [showEditModal, setShowEditModal] = useState(false)
   const [selectedShareForEdit, setSelectedShareForEdit] = useState<ShareTransaction | null>(null)
+  const [showVoidModal, setShowVoidModal] = useState(false)
+  const [selectedShareForVoid, setSelectedShareForVoid] = useState<ShareTransaction | null>(null)
 
   // DataTable pagination & filters
   const [page, setPage] = useState(0)
@@ -269,38 +273,39 @@ export default function MemberSharesPage() {
     if (!dateFilter?.start && !dateFilter?.end) return shares
 
     return shares.filter((s) => {
-      const targetDate = s.date || s.created_at
-      if (!targetDate) return true
-      const d = new Date(targetDate).getTime()
-      if (dateFilter.start && d < new Date(dateFilter.start).getTime()) return false
-      if (dateFilter.end) {
-        const endOfDay = new Date(dateFilter.end)
-        endOfDay.setHours(23, 59, 59, 999)
-        if (d > endOfDay.getTime()) return false
-      }
+      if (!s.date) return false
+      const d = new Date(s.date)
+      if (dateFilter.start && d < new Date(dateFilter.start)) return false
+      if (dateFilter.end && d > new Date(dateFilter.end)) return false
       return true
     })
   }, [shares, dateFilter])
 
+  // Paginated share rows
   const paginatedShares = useMemo(() => {
     const start = page * rowsPerPage
     return filteredShares.slice(start, start + rowsPerPage)
   }, [filteredShares, page, rowsPerPage])
 
-  // Calculate cumulative stats
+  // Calculate cumulative stats (excluding cancelled/voided shares)
   const summary = useMemo(() => {
-    const totalShares = shares.length > 0 && shares[0].remaining_shares > 0
-      ? shares[0].remaining_shares
-      : shares.reduce((acc, s) => acc + s.number_of_shares, 0)
-    const totalValue = shares.reduce((acc, s) => acc + s.total_value, 0)
-    const latestPurchase = shares.length > 0 ? (shares[0].date || shares[0].created_at) : null
-    const effectiveShareValue = cfgShareValue ?? (member?.shareValue || (shares.length > 0 ? shares[0].share_value : 0))
+    const activeShares = shares.filter((s) => s.status !== "cancelled")
+    const totalShares =
+      activeShares.length > 0 && activeShares[0].remaining_shares > 0
+        ? activeShares[0].remaining_shares
+        : activeShares.reduce((acc, s) => acc + s.number_of_shares, 0)
+    const totalValue = activeShares.reduce((acc, s) => acc + s.total_value, 0)
+    const latestPurchase =
+      activeShares.length > 0 ? (activeShares[0].date || activeShares[0].created_at) : null
+    const effectiveShareValue =
+      cfgShareValue ??
+      (member?.shareValue || (activeShares.length > 0 ? activeShares[0].share_value : 0))
 
     return {
       totalShares: totalShares || (member?.numberOfShares || 0),
       totalValue: totalValue || (member?.totalShareValue || 0),
       shareValue: effectiveShareValue,
-      purchaseCount: shares.length,
+      purchaseCount: activeShares.length,
       latestPurchase,
       minShares: cfgMinShares,
       maxShares: cfgMaxShares,
@@ -321,9 +326,10 @@ export default function MemberSharesPage() {
       },
       {
         key: "type",
-        header: "Type",
+        header: "Acquisition Type",
         render: (row) => {
-          const acq = String(row.acquisition_type || "purchase").toLowerCase()
+          const acq = String(row.acquisition_type || "purchase").toLowerCase().trim()
+          const isCancelled = row.status === "cancelled"
           const label =
             acq === "purchase"
               ? "Purchase"
@@ -333,20 +339,37 @@ export default function MemberSharesPage() {
                   ? "Transfer Out"
                   : acq === "redemption"
                     ? "Redemption"
-                    : acq
-          const badgeClass =
-            acq === "purchase"
+                    : acq === "sell" || acq === "buy_out"
+                      ? "Sold (Buy-Out)"
+                      : acq === "buy" || acq === "buy_off"
+                        ? "Bought (Buy-Off)"
+                        : acq
+
+          const badgeClass = isCancelled
+            ? "bg-zinc-100 text-zinc-500 border-zinc-200 dark:bg-zinc-800/60 dark:text-zinc-400"
+            : acq === "purchase"
               ? "bg-orange-50 text-orange-700 border-orange-200 dark:bg-orange-950/40 dark:text-orange-300"
               : acq === "transfer_in"
                 ? "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300"
                 : acq === "transfer_out"
-                  ? "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300"
+                  ? "bg-yellow-50 text-yellow-800 border-yellow-200 dark:bg-yellow-950/40 dark:text-yellow-300"
                   : "bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/40 dark:text-rose-300"
+
           return (
             <div className="space-y-0.5">
-              <Badge variant="outline" className={cn("text-xs font-semibold", badgeClass)}>
-                {label}
-              </Badge>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <Badge variant="outline" className={cn("text-xs font-semibold", badgeClass)}>
+                  {label}
+                </Badge>
+                {isCancelled && (
+                  <Badge
+                    variant="outline"
+                    className="border-red-300 bg-red-50 text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300 text-[10px] font-bold"
+                  >
+                    Voided
+                  </Badge>
+                )}
+              </div>
               {row.transfer_member_name ? (
                 <p className="text-[10px] text-muted-foreground">
                   {row.transfer_type === "from" ? "From: " : "To: "}
@@ -362,7 +385,12 @@ export default function MemberSharesPage() {
         header: "Transaction Ref",
         render: (row) => (
           <div className="space-y-0.5">
-            <span className="font-mono text-xs font-semibold text-foreground">
+            <span
+              className={cn(
+                "font-mono text-xs font-semibold text-foreground",
+                row.status === "cancelled" && "line-through opacity-60 text-muted-foreground",
+              )}
+            >
               {row.transaction_number || (row.transaction_id ? row.transaction_id.slice(0, 8).toUpperCase() : "—")}
             </span>
           </div>
@@ -372,14 +400,17 @@ export default function MemberSharesPage() {
         key: "shares",
         header: "Shares",
         render: (row) => {
+          const isCancelled = row.status === "cancelled"
           const isDebit = row.acquisition_type === "transfer_out" || row.acquisition_type === "sell"
           return (
             <div
               className={cn(
                 "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-bold",
-                isDebit
-                  ? "bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300"
-                  : "bg-orange-50 text-orange-700 dark:bg-orange-950/40 dark:text-orange-300"
+                isCancelled
+                  ? "bg-zinc-100 text-zinc-400 line-through dark:bg-zinc-800 dark:text-zinc-500"
+                  : isDebit
+                    ? "bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300"
+                    : "bg-orange-50 text-orange-700 dark:bg-orange-950/40 dark:text-orange-300",
               )}
             >
               <TrendingUp className={cn("h-3.5 w-3.5", isDebit && "rotate-180")} />
@@ -404,11 +435,21 @@ export default function MemberSharesPage() {
         header: "Total Value",
         headerClassName: "text-right",
         cellClassName: "text-right",
-        render: (row) => (
-          <span className="whitespace-nowrap font-semibold text-orange-600 dark:text-orange-400">
-            {formatMoney(row.total_value)}
-          </span>
-        ),
+        render: (row) => {
+          const isCancelled = row.status === "cancelled"
+          return (
+            <span
+              className={cn(
+                "whitespace-nowrap font-semibold",
+                isCancelled
+                  ? "line-through text-muted-foreground opacity-60"
+                  : "text-orange-600 dark:text-orange-400",
+              )}
+            >
+              {formatMoney(row.total_value)}
+            </span>
+          )
+        },
       },
       {
         key: "remaining_shares",
@@ -416,7 +457,12 @@ export default function MemberSharesPage() {
         headerClassName: "text-right",
         cellClassName: "text-right",
         render: (row) => (
-          <span className="font-mono text-xs font-semibold text-foreground">
+          <span
+            className={cn(
+              "font-mono text-xs font-semibold text-foreground",
+              row.status === "cancelled" && "line-through opacity-60 text-muted-foreground",
+            )}
+          >
             {row.remaining_shares.toLocaleString()} shares
           </span>
         ),
@@ -443,16 +489,36 @@ export default function MemberSharesPage() {
                   icon: <Pencil className="h-4 w-4" />,
                   label: "Edit share record",
                   variant: "primary",
-                  disabled: !canEditShares || member?.status !== "Active",
+                  disabled: !canEditShares || member?.status !== "Active" || row.status === "cancelled",
                   disabledTooltip:
-                    member?.status !== "Active"
-                      ? `${clientTerm} must be Active to edit shares`
-                      : !canEditShares
-                        ? "You do not have permission to edit shares"
-                        : undefined,
+                    row.status === "cancelled"
+                      ? "This share record has already been voided"
+                      : member?.status !== "Active"
+                        ? `${clientTerm} must be Active to edit shares`
+                        : !canEditShares
+                          ? "You do not have permission to edit shares"
+                          : undefined,
                   onClick: (r) => {
                     setSelectedShareForEdit(r)
                     setShowEditModal(true)
+                  },
+                },
+                {
+                  icon: <Ban className="h-4 w-4" />,
+                  label: "Void share record",
+                  variant: "danger",
+                  disabled: !canEditShares || member?.status !== "Active" || row.status === "cancelled",
+                  disabledTooltip:
+                    row.status === "cancelled"
+                      ? "This share record has already been voided"
+                      : member?.status !== "Active"
+                        ? `${clientTerm} must be Active to void shares`
+                        : !canEditShares
+                          ? "You do not have permission to void shares"
+                          : undefined,
+                  onClick: (r) => {
+                    setSelectedShareForVoid(r)
+                    setShowVoidModal(true)
                   },
                 },
               ]}
@@ -478,7 +544,10 @@ export default function MemberSharesPage() {
     const raw = params as Record<string, any>
     setPage(0)
     if (raw?.date && typeof raw.date === "object") {
-      setDateFilter(raw.date)
+      setDateFilter({
+        start: raw.date.start || undefined,
+        end: raw.date.end || undefined,
+      })
     } else {
       setDateFilter(null)
     }
@@ -486,105 +555,96 @@ export default function MemberSharesPage() {
 
   if (loading) {
     return (
-      <div className="max-w-6xl mx-auto animate-pulse space-y-6">
-        <div className="h-4 w-32 rounded bg-muted" />
-        <div className="rounded-xl border bg-card p-6 space-y-3">
-          <div className="h-6 w-48 rounded bg-muted" />
-          <div className="h-4 w-72 rounded bg-muted" />
-        </div>
+      <div className="space-y-6">
+        <div className="h-8 w-48 animate-pulse rounded bg-muted" />
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {[1, 2, 3, 4].map((i) => (
-            <div key={i} className="h-24 rounded-xl border bg-muted/40" />
+          {[...Array(4)].map((_, i) => (
+            <div key={i} className="h-24 animate-pulse rounded-xl border border-border bg-card" />
           ))}
         </div>
-        <div className="h-64 rounded-xl border bg-muted/40" />
+        <div className="h-64 animate-pulse rounded-xl border border-border bg-card" />
       </div>
     )
   }
 
-  if (!member) {
+  if (error || !member) {
     return (
-      <div className="max-w-lg mx-auto text-center py-16 space-y-4">
-        {error ? <p className="text-sm text-red-600">{error}</p> : null}
-        <h1 className="text-2xl font-bold">{clientTerm} not found</h1>
-        <p className="text-muted-foreground">
-          The requested {clientTerm.toLowerCase()} could not be found or you may not have access.
+      <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border py-16 text-center">
+        <ShieldAlert className="h-10 w-10 text-muted-foreground" />
+        <h2 className="mt-4 text-base font-semibold">{error || "Member not found"}</h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Could not load share records. Please verify the {clientTerm.toLowerCase()} exists and you have proper permissions.
         </p>
-        <Link href="/members">
-          <Button className="mt-2">Back to {clientTerm}s</Button>
-        </Link>
+        <Button variant="outline" className="mt-4" onClick={() => router.back()}>
+          <ArrowLeft className="mr-2 h-4 w-4" /> Go Back
+        </Button>
       </div>
     )
   }
 
-  const canBuyShares = Boolean(hasSharesFeature && canEditShares)
   const isMemberActive = member.status === "Active"
+  const canBuyShares = Boolean(hasSharesFeature && canEditShares)
 
   return (
-    <div className="max-w-6xl mx-auto space-y-6">
-      {/* Back Link */}
-      <Link
-        href={`/members/${userId}`}
-        className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-orange-600 transition-colors"
-      >
-        <ArrowLeft className="h-4 w-4" />
-        Back to profile
-      </Link>
-
-      {/* Hero Header Banner */}
-      <div className="relative overflow-hidden rounded-xl border bg-card">
-        <div className="h-14 bg-linear-to-r from-orange-500/20 via-orange-500/10 to-transparent" />
-        <div className="px-6 pb-5 -mt-6">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-            <div>
-              <div className="flex items-center gap-2">
-                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-orange-100 dark:bg-orange-950/50">
-                  <TrendingUp className="h-5 w-5 text-orange-600 dark:text-orange-400" />
-                </div>
-                <div>
-                  <h1 className="text-2xl font-bold tracking-tight text-foreground">Shares Portfolio</h1>
-                </div>
-              </div>
-              <p className="mt-2 text-sm text-muted-foreground flex flex-wrap items-center gap-2">
-                <span className="font-semibold text-foreground">{member.fullName}</span>
-                <span>·</span>
-                <span>{member.clientNumber}</span>
-                <span>·</span>
-                <Badge
-                  variant="outline"
-                  className={cn(
-                    "text-xs",
-                    member.status === "Active"
-                      ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"
-                      : "border-border bg-muted text-muted-foreground"
-                  )}
-                >
-                  {member.status}
-                </Badge>
-              </p>
-            </div>
-
-            {/* Header Action Buttons */}
-            <div className="flex flex-wrap items-center gap-2">
-              <Button
+    <div className="space-y-6">
+      {/* Page Header */}
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-3">
+          <Button
+            variant="outline"
+            size="icon"
+            className="h-9 w-9 shrink-0"
+            onClick={() => router.push(`/members/${member.id}`)}
+          >
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
+          <div>
+            <div className="flex items-center gap-2">
+              <h1 className="text-xl font-bold tracking-tight text-foreground sm:text-2xl">
+                {member.fullName}
+              </h1>
+              <Badge
                 variant="outline"
-                size="sm"
-                onClick={() => setShowCalculatorModal(true)}
+                className={cn(
+                  "text-xs font-semibold",
+                  isMemberActive
+                    ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-400"
+                    : "border-yellow-200 bg-yellow-50 text-yellow-800 dark:border-yellow-900/50 dark:bg-yellow-950/30 dark:text-yellow-400"
+                )}
               >
-                <Calculator className="mr-2 h-4 w-4" />
-                Calculator
-              </Button>
+                {member.status}
+              </Badge>
+            </div>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {clientTerm} No: <span className="font-mono font-medium text-foreground">{member.clientNumber}</span>
+              {member.joinDate ? ` • Joined ${formatDate(member.joinDate)}` : ""}
+            </p>
+          </div>
+        </div>
 
+        {/* Action Controls */}
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowCalculatorModal(true)}
+            className="gap-1.5"
+          >
+            <Calculator className="h-3.5 w-3.5 text-muted-foreground" />
+            Share Calculator
+          </Button>
+
+          <div className="relative">
+            <div className="flex items-center gap-2">
               {canBuyShares && (
                 <Button
                   size="sm"
-                  className="bg-orange-600 hover:bg-orange-700 text-white"
                   onClick={() => setShowBuyModal(true)}
                   disabled={!isMemberActive}
                   title={!isMemberActive ? "Member must be Active to purchase shares" : undefined}
+                  className="bg-orange-600 hover:bg-orange-700 text-white"
                 >
-                  <Plus className="mr-2 h-4 w-4" />
-                  Buy Shares
+                  <Plus className="mr-1.5 h-4 w-4" /> Buy Shares
                 </Button>
               )}
 
@@ -614,8 +674,8 @@ export default function MemberSharesPage() {
 
       {/* Inactive Member Notice */}
       {!isMemberActive && (
-        <div className="flex items-center gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-300">
-          <ShieldAlert className="h-5 w-5 shrink-0 text-amber-600" />
+        <div className="flex items-center gap-3 rounded-lg border border-yellow-200 bg-yellow-50 p-4 text-sm text-yellow-800 dark:border-yellow-900/50 dark:bg-yellow-950/30 dark:text-yellow-300">
+          <ShieldAlert className="h-5 w-5 shrink-0 text-yellow-600 dark:text-yellow-400" />
           <p>
             This {clientTerm.toLowerCase()} is currently <strong>{member.status}</strong>. New share purchases can only be recorded for active members.
           </p>
@@ -650,7 +710,7 @@ export default function MemberSharesPage() {
           value={`${summary.purchaseCount} ${summary.purchaseCount === 1 ? "Record" : "Records"}`}
           subLabel={summary.latestPurchase ? `Latest: ${formatDate(summary.latestPurchase)}` : "No purchases yet"}
           icon={Calendar}
-          accent="bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-400"
+          accent="bg-yellow-100 text-yellow-800 dark:bg-yellow-950/50 dark:text-yellow-400"
         />
       </div>
 
@@ -792,6 +852,25 @@ export default function MemberSharesPage() {
           onSuccess={() => {
             setShowEditModal(false)
             setSelectedShareForEdit(null)
+            void loadData()
+          }}
+        />
+      )}
+
+      {showVoidModal && selectedShareForVoid && (
+        <VoidSharesModal
+          isOpen={showVoidModal}
+          onClose={() => {
+            setShowVoidModal(false)
+            setSelectedShareForVoid(null)
+          }}
+          share={selectedShareForVoid}
+          memberId={member.id}
+          memberFullName={member.fullName}
+          currency={currency}
+          onSuccess={() => {
+            setShowVoidModal(false)
+            setSelectedShareForVoid(null)
             void loadData()
           }}
         />
