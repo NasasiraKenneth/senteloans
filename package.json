@@ -78,7 +78,7 @@
     "lucide-react": "^0.454.0",
     "moment": "^2.30.1",
     "moment-timezone": "^0.6.0",
-    "next": "^16.4.0",
+    "next": "^16.4.3",
     "next-auth": "^4.24.10",
     "next-themes": "latest",
     "nodemailer": "7.0.13",
