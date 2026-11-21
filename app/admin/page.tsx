@@ -41,15 +41,25 @@ function formatDate(iso: string | null): string {
 
 export default async function AdminDashboard() {
   const session = await getServerSession(authOptions)
-  if (!session?.user?.authUserId) return redirect("/admin-login")
-  if (session.user.role !== "system_admin") return redirect("/admin-login")
+  if (!session?.user?.authUserId) {
+    return redirect(`/login?portal=admin&redirect=${encodeURIComponent("/admin")}`)
+  }
+  const isSysAdmin = session.user.activeRole === "system_admin" || session.user.role === "system_admin"
+  if (!isSysAdmin) {
+    if (session.user.availableRoles?.includes("system_admin")) {
+      return redirect("/login-select?portal=admin")
+    }
+    return redirect("/login?portal=admin&reason=forbidden")
+  }
 
   const headersList = await headers()
   const res = await fetch(`${baseUrl}/api/admin/dashboard-stats`, {
     cache: "no-store",
     headers: { Cookie: headersList.get("cookie") ?? "" },
   })
-  if (res.status === 401 || res.status === 403) return redirect("/admin-login")
+  if (res.status === 401 || res.status === 403) {
+    return redirect("/login?portal=admin&reason=unauthorized")
+  }
   if (!res.ok) throw new Error("Failed to load dashboard stats")
   const stats = await res.json()
 
@@ -289,38 +299,8 @@ export default async function AdminDashboard() {
                   />
                 </div>
               </div>
-
-              {/* Money Lenders - Commented out as requested */}
-              {/*
-              <div className="space-y-2">
-                <div className="flex justify-between items-center text-xs">
-                  <span className="font-semibold text-slate-700">Money Lenders</span>
-                  <span className="font-bold text-slate-900">{moneyLenderCount}</span>
-                </div>
-                <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
-                  <div
-                    className="bg-emerald-500 h-2 rounded-full transition-all duration-500"
-                    style={{ width: '0%' }}
-                  />
-                </div>
-              </div>
-              */}
             </CardContent>
           </div>
-
-          {/* System Integrity - Commented out as requested */}
-          {/*
-          <div className="p-5 pt-0">
-            <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200/80 text-xs text-slate-600 space-y-1">
-              <div className="font-semibold text-slate-800 flex items-center gap-1">
-                <ShieldCheck className="h-3.5 w-3.5 text-[#F08C2B]" /> System Integrity
-              </div>
-              <p className="text-[11px] leading-relaxed text-slate-500">
-                Institutional queries strictly exclude unverified or Money Lender categories.
-              </p>
-            </div>
-          </div>
-          */}
         </Card>
       </div>
     </div>

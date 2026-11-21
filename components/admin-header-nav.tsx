@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { WorkspaceRoleSwitcher } from "@/components/workspace-role-switcher";
 
 const navigation = [
   {
@@ -70,9 +71,9 @@ export function AdminHeaderNav() {
     try {
       setLoggingOut(true);
       await fetch("/api/logout", { method: "POST" });
-      await signOut({ callbackUrl: "/admin-login" });
+      await signOut({ callbackUrl: "/login?portal=admin" });
     } catch {
-      router.push("/admin-login");
+      router.push("/login?portal=admin");
     } finally {
       setLoggingOut(false);
     }
@@ -139,8 +140,11 @@ export function AdminHeaderNav() {
           </nav>
         </div>
 
-        {/* Right: Live Status + User Dropdown */}
-        <div className="hidden md:flex items-center space-x-4">
+        {/* Right: Live Status + Role Switcher + User Dropdown */}
+        <div className="hidden md:flex items-center space-x-3.5">
+          {/* Workspace Role Switcher for hybrid accounts */}
+          <WorkspaceRoleSwitcher />
+
           {/* Live System Indicator */}
           <div className="flex items-center space-x-2 px-3 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200/80 text-xs font-semibold">
             <span className="relative flex h-2 w-2">
@@ -224,7 +228,8 @@ export function AdminHeaderNav() {
         </div>
 
         {/* Mobile Hamburger Button */}
-        <div className="flex md:hidden items-center">
+        <div className="flex md:hidden items-center gap-2">
+          <WorkspaceRoleSwitcher />
           <Button
             variant="ghost"
             size="icon"

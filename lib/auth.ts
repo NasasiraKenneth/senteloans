@@ -16,6 +16,7 @@ export interface AppSessionUser {
   type: "staff" | "client"
   activeRole?: "staff" | "client" | "system_admin"
   availableRoles?: Array<"staff" | "client" | "system_admin">
+  staffRole?: string
   institutionId?: string
   memberId?: string
   clientId?: string
@@ -73,6 +74,7 @@ export const authOptions: NextAuthOptions = {
         token.type = user.type
         token.activeRole = user.activeRole ?? (user.type === "client" ? "client" : "staff")
         token.availableRoles = user.availableRoles ?? [user.type === "client" ? "client" : "staff"]
+        token.staffRole = user.staffRole || (user.type === "staff" && user.role !== "system_admin" ? user.role : undefined)
         token.institutionId = user.institutionId
         token.memberId = user.memberId
         token.clientId = user.clientId
@@ -91,6 +93,8 @@ export const authOptions: NextAuthOptions = {
             token.role = "client"
           } else if (newActiveRole === "system_admin") {
             token.role = "system_admin"
+          } else if (newActiveRole === "staff") {
+            token.role = (token.staffRole as string) || "staff"
           }
         }
       }
@@ -106,6 +110,7 @@ export const authOptions: NextAuthOptions = {
         session.user.type = token.type ?? "staff"
         session.user.activeRole = (token.activeRole as "staff" | "client" | "system_admin") ?? token.type ?? "staff"
         session.user.availableRoles = (token.availableRoles as Array<"staff" | "client" | "system_admin">) ?? [session.user.type]
+        session.user.staffRole = token.staffRole as string | undefined
         session.user.institutionId = token.institutionId
         session.user.memberId = token.memberId
         session.user.clientId = token.clientId

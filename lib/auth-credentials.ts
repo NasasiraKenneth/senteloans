@@ -130,6 +130,7 @@ async function authenticateWithClient(
     email,
     name: (isClient ? memberRow?.full_name : staff?.full_name) || memberRow?.full_name || staff?.full_name || "User",
     role: activeRole === "system_admin" ? "system_admin" : (isClient ? "client" : (staff?.role ?? "")),
+    staffRole: staff?.role ?? "staff",
     type: isClient ? "client" : "staff",
     activeRole,
     availableRoles,

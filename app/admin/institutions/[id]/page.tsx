@@ -18,8 +18,11 @@ interface InstitutionDetailPageProps {
 export default async function InstitutionDetailPage({ params }: InstitutionDetailPageProps) {
   const { id } = await params
   const session = await getServerSession(authOptions)
-  if (!session?.user?.authUserId) return redirect("/admin-login")
-  if (session.user.role !== "system_admin") return redirect("/admin-login")
+  if (!session?.user?.authUserId) {
+    return redirect(`/login?portal=admin&redirect=${encodeURIComponent(`/admin/institutions/${id}`)}`)
+  }
+  const isSysAdmin = session.user.activeRole === "system_admin" || session.user.role === "system_admin"
+  if (!isSysAdmin) return redirect("/login-select?portal=admin")
 
   const institution = await runWithoutAuth(async (client) => {
     const res = await client.query(
@@ -289,8 +292,6 @@ export default async function InstitutionDetailPage({ params }: InstitutionDetai
               )}
             </CardContent>
           </Card>
-
-          {/* Admin Users moved to main content */}
         </div>
       </div>
     </div>

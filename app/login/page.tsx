@@ -65,9 +65,9 @@ function LoginForm() {
     const user = session.user
     const available = user.availableRoles || []
 
-    // If multi-role and user hasn't explicitly chosen a workspace in this session, allow choosing
-    if (available.length > 1 && !user.activeRole) {
-      setDualRoleUser(user)
+    // If multi-role (hybrid account) and no explicit redirect/portal was requested, forward to /login-select
+    if (available.length > 1 && !searchParams.get("redirect") && !requestedPortal) {
+      router.replace("/login-select")
       return
     }
 
@@ -91,7 +91,7 @@ function LoginForm() {
       target = "/dashboard"
     }
     router.replace(target)
-  }, [status, session, router, redirectTo, searchParams, dualRoleUser])
+  }, [status, session, router, redirectTo, searchParams, dualRoleUser, requestedPortal])
 
   if (status === "loading") {
     return (
@@ -210,9 +210,13 @@ function LoginForm() {
 
       const available = authUser.availableRoles || []
 
-      // If user has both staff and client roles, present portal selector!
+      // If user has multiple roles (hybrid account), route to /login-select so they choose their destination!
       if (available.length > 1 && !requestedPortal) {
-        setDualRoleUser(authUser)
+        showLoginSuccess("Multiple roles detected. Choose your workspace.")
+        showPostLoginGreetingToast(toast, authUser.name)
+        await new Promise((resolve) => setTimeout(resolve, 350))
+        router.push("/login-select")
+        router.refresh()
         return
       }
 

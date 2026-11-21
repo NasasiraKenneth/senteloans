@@ -11,10 +11,14 @@ export default async function AdminLayout({
 }) {
   const session = await getServerSession(authOptions)
   if (!session?.user?.authUserId) {
-    return redirect(`/admin-login?redirect=${encodeURIComponent("/admin")}`)
+    return redirect(`/login?portal=admin&redirect=${encodeURIComponent("/admin")}`)
   }
-  if (session.user.role !== "system_admin") {
-    return redirect("/admin-login?reason=forbidden")
+  const isSystemAdmin = session.user.activeRole === "system_admin" || session.user.role === "system_admin"
+  if (!isSystemAdmin) {
+    if (session.user.availableRoles?.includes("system_admin")) {
+      return redirect("/login-select?portal=admin")
+    }
+    return redirect("/login?portal=admin&reason=forbidden")
   }
 
   return (
@@ -26,6 +30,3 @@ export default async function AdminLayout({
     </div>
   )
 }
-
-
-

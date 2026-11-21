@@ -3,19 +3,14 @@ import { getToken } from "next-auth/jwt"
 import { isInstitutionProtectedPath } from "@/lib/institution-protected-routes"
 
 const ADMIN_PREFIX = "/admin"
-const ADMIN_LOGIN = "/admin-login"
-const INSTITUTION_LOGIN = "/login"
 const CLIENT_PREFIX = "/client-portal"
-const CLIENT_LOGIN = "/client-login"
 
 function isAdminRoute(pathname: string) {
-  if (!pathname.startsWith(ADMIN_PREFIX)) return false
-  if (pathname === ADMIN_LOGIN || pathname.startsWith(`${ADMIN_LOGIN}/`)) return false
-  return true
+  return pathname.startsWith(ADMIN_PREFIX)
 }
 
 function isInstitutionProtectedRoute(pathname: string) {
-  if (pathname === INSTITUTION_LOGIN || pathname.startsWith(`${INSTITUTION_LOGIN}/`)) return false
+  if (pathname === "/login" || pathname.startsWith("/login/")) return false
   return isInstitutionProtectedPath(pathname)
 }
 
@@ -26,29 +21,61 @@ function isClientProtectedRoute(pathname: string) {
 export async function proxy(req: NextRequest) {
   const { pathname, search } = req.nextUrl
 
+  // Redirect legacy /admin-login and /client-login paths to unified /login
+  if (pathname === "/admin-login" || pathname === "/admin-login/") {
+    const url = req.nextUrl.clone()
+    url.pathname = "/login"
+    url.search = "?portal=admin"
+    return NextResponse.redirect(url)
+  }
+
+  if (pathname === "/client-login" || pathname === "/client-login/") {
+    const url = req.nextUrl.clone()
+    url.pathname = "/login"
+    url.search = "?portal=client"
+    return NextResponse.redirect(url)
+  }
+
   const isAdmin = isAdminRoute(pathname)
   const isInstitution = isInstitutionProtectedRoute(pathname)
   const isClientProtected = isClientProtectedRoute(pathname)
-  const isClientLogin = pathname === CLIENT_LOGIN || pathname.startsWith(`${CLIENT_LOGIN}/`)
-  if (!isAdmin && !isInstitution && !isClientProtected && !isClientLogin) return NextResponse.next()
+
+  if (!isAdmin && !isInstitution && !isClientProtected) return NextResponse.next()
 
   const token = await getToken({
     req,
     secret: process.env.NEXTAUTH_SECRET,
   })
   const role = token?.role ?? null
+  const activeRole = (token?.activeRole as string) ?? (role === "client" ? "client" : role === "system_admin" ? "system_admin" : "staff")
   const hasSession = !!token
 
   if (!hasSession) {
-    if (isClientLogin) return NextResponse.next()
     const url = req.nextUrl.clone()
-    url.pathname = isAdmin ? ADMIN_LOGIN : isClientProtected ? CLIENT_LOGIN : INSTITUTION_LOGIN
-    url.search = `?redirect=${encodeURIComponent(`${pathname}${search || ""}`)}`
+    url.pathname = "/login"
+    const portal = isAdmin ? "admin" : isClientProtected ? "client" : "institution"
+    url.search = `?portal=${portal}&redirect=${encodeURIComponent(`${pathname}${search || ""}`)}`
     return NextResponse.redirect(url)
   }
 
+  if (isAdmin) {
+    const isSysAdmin = activeRole === "system_admin" || role === "system_admin"
+    if (!isSysAdmin) {
+      if (token?.availableRoles && Array.isArray(token.availableRoles) && token.availableRoles.includes("system_admin")) {
+        const url = req.nextUrl.clone()
+        url.pathname = "/login-select"
+        url.search = "?portal=admin"
+        return NextResponse.redirect(url)
+      }
+      const url = req.nextUrl.clone()
+      url.pathname = "/login"
+      url.search = `?portal=admin&redirect=${encodeURIComponent(`${pathname}${search || ""}`)}`
+      return NextResponse.redirect(url)
+    }
+  }
+
   if (isInstitution) {
-    if (role === "client") {
+    if (activeRole === "client") {
       const url = req.nextUrl.clone()
       url.pathname = CLIENT_PREFIX
       url.search = ""
@@ -57,24 +84,12 @@ export async function proxy(req: NextRequest) {
   }
 
   if (isClientProtected) {
-    if (role !== "client") {
+    if (activeRole !== "client") {
       const url = req.nextUrl.clone()
       url.pathname = "/dashboard"
       url.search = ""
       return NextResponse.redirect(url)
     }
-  }
-
-  // Client login: only bounce users who are already signed in as a client.
-  // Staff may open /client-login in another tab (e.g. to test or share the link).
-  if (isClientLogin) {
-    if (role === "client") {
-      const url = req.nextUrl.clone()
-      url.pathname = CLIENT_PREFIX
-      url.search = ""
-      return NextResponse.redirect(url)
-    }
-    return NextResponse.next()
   }
 
   return NextResponse.next()
@@ -125,5 +140,6 @@ export const config = {
     "/client-login",
     "/client-portal",
     "/client-portal/:path*",
+    "/login-select",
   ],
 }

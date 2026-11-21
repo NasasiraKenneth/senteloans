@@ -4,7 +4,7 @@
 /node_modules
 /.agents/
 /.cursor/
-
+/tmp/
 /kenn
 
 # next.js
