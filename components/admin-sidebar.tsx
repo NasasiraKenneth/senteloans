@@ -50,14 +50,14 @@ export function AdminSidebar() {
   }
 
   return (
-    <div className="flex h-full w-64 flex-col bg-primary">
+    <div className="flex h-full w-64 flex-col bg-[#0f0f12] text-white border-r border-white/10">
       {/* Logo */}
-      <div className="flex h-16 items-center px-6">
-        <Link href="/admin" className="flex items-center space-x-2">
-          <Shield className="h-8 w-8 text-white" />
+      <div className="flex h-16 items-center px-6 border-b border-white/10">
+        <Link href="/admin" className="flex items-center space-x-2 no-underline">
+          <Shield className="h-8 w-8 text-brand" />
           <div className="text-white">
             <div className="text-lg font-bold">Nyuki</div>
-            <div className="text-xs text-primary-foreground/70">System Admin</div>
+            <div className="text-xs text-zinc-400">System Admin</div>
           </div>
         </Link>
       </div>
@@ -71,10 +71,10 @@ export function AdminSidebar() {
               key={item.name}
               href={item.href}
               className={cn(
-                "flex items-center px-3 py-2 text-sm font-medium rounded-lg transition-colors cursor-pointer",
+                "flex items-center px-3 py-2 text-sm font-medium rounded-lg transition-colors cursor-pointer no-underline",
                 isActive
-                  ? "bg-primary/10 text-white font-medium"
-                  : "text-primary-foreground/70 hover:text-white hover:bg-primary/5",
+                  ? "bg-brand text-brand-foreground font-semibold shadow-sm"
+                  : "text-zinc-400 hover:text-white hover:bg-white/10",
               )}
             >
               <item.icon className="mr-3 h-5 w-5" />
@@ -85,8 +85,8 @@ export function AdminSidebar() {
       </nav>
 
       {/* User Info */}
-      <div className="border-t border-primary-foreground/10 p-4">
-        <div className="text-sm text-primary-foreground/70">Logged in as</div>
+      <div className="border-t border-white/10 p-4">
+        <div className="text-sm text-zinc-400">Logged in as</div>
         <div className="text-sm font-medium text-white mb-3">System Administrator</div>
 
         <Button
@@ -94,7 +94,7 @@ export function AdminSidebar() {
           variant="ghost"
           size="sm"
           disabled={loggingOut}
-          className="w-full justify-start text-primary-foreground/70 hover:text-white hover:bg-primary/10"
+          className="w-full justify-start text-zinc-400 hover:text-white hover:bg-white/10"
         >
           <LogOut className="mr-2 h-4 w-4" />
           {loggingOut ? "Logging out..." : "Logout"}

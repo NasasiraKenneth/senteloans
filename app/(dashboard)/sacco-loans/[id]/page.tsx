@@ -513,8 +513,8 @@ export default function SaccoLoanDetailPage() {
 
           <div className="rounded-xl border bg-card p-4">
             <div className="flex items-center gap-2 mb-2">
-              <div className="p-1.5 rounded-lg bg-orange-100">
-                <TrendingDown className="h-4 w-4 text-orange-600" />
+              <div className="p-1.5 rounded-lg bg-brand/15">
+                <TrendingDown className="h-4 w-4 text-brand" />
               </div>
               <span className="text-xs font-medium text-muted-foreground">
                 Outstanding

@@ -153,7 +153,7 @@ export function ContactPicker({
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search by name or role..."
-          className="h-9 pl-9 focus-visible:ring-[#f08c2b]/40"
+          className="h-9 pl-9 focus-visible:ring-brand/40"
         />
       </div>
 
@@ -167,7 +167,7 @@ export function ContactPicker({
               className={cn(
                 "rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors",
                 filter === item.id
-                  ? "bg-[#f08c2b] text-white"
+                  ? "bg-brand text-brand-foreground"
                   : "bg-muted/60 text-muted-foreground hover:bg-muted",
               )}
             >
@@ -192,7 +192,7 @@ export function ContactPicker({
                 onClick={() => toggleContact(contact.id)}
                 className={cn(
                   "flex w-full items-center gap-3 border-b border-border/60 px-3 py-2.5 text-left transition-colors last:border-b-0",
-                  isSelected ? "bg-[#fff7ed]" : "hover:bg-muted/40",
+                  isSelected ? "bg-brand/10" : "hover:bg-muted/40",
                 )}
               >
                 <Avatar className="h-9 w-9 shrink-0">
@@ -219,7 +219,7 @@ export function ContactPicker({
                   className={cn(
                     "flex h-5 w-5 shrink-0 items-center justify-center rounded-full border",
                     isSelected
-                      ? "border-[#f08c2b] bg-[#f08c2b] text-white"
+                      ? "border-brand bg-brand text-brand-foreground"
                       : "border-border bg-background text-transparent",
                   )}
                 >

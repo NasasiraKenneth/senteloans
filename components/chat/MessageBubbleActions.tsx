@@ -57,7 +57,7 @@ export function MessageBubbleActions({
         size="icon"
         className={cn(
           "h-7 w-7 hover:bg-muted",
-          isPinned ? "text-[#f08c2b] hover:text-[#c46f12]" : "text-muted-foreground hover:text-foreground",
+          isPinned ? "text-brand hover:text-brand-700" : "text-muted-foreground hover:text-foreground",
         )}
         onClick={onPin}
         aria-label={isPinned ? "Unpin message" : "Pin message"}

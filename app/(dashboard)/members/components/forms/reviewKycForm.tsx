@@ -67,14 +67,14 @@ function DocPreviewCard({ label, url }: DocPreview) {
   const isPdf = url.toLowerCase().includes(".pdf")
 
   return (
-    <div className="overflow-hidden rounded-lg border border-gray-200 bg-white">
+    <div className="overflow-hidden rounded-lg border border-border bg-card">
       <div className="flex items-center justify-between gap-2 border-b border-gray-100 bg-gray-50 px-3 py-2">
         <span className="text-xs font-medium text-gray-700">{label}</span>
         <a
           href={url}
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-flex items-center gap-1 text-xs font-medium text-[#f08c2b] hover:underline"
+          className="inline-flex items-center gap-1 text-xs font-medium text-brand hover:underline"
         >
           Open
           <ExternalLink className="h-3 w-3" />
@@ -202,7 +202,7 @@ export default function ReviewKycForm({
 
       <div className="space-y-4 rounded-lg border border-amber-200 bg-amber-50/60 p-4">
         <div className="flex flex-wrap items-center gap-2">
-          <Badge variant="outline" className="border-amber-300 bg-white text-amber-800">
+          <Badge variant="outline" className="border-amber-500/35 bg-amber-500/10 text-amber-700 dark:text-amber-300">
             {formatKycDocTypeLabel(item.docType)}
           </Badge>
           <span className="inline-flex items-center gap-1 text-xs text-amber-900/80">
@@ -257,7 +257,7 @@ export default function ReviewKycForm({
         </Button>
         <Button
           type="button"
-          className="bg-[#f08c2b] hover:bg-[#e07d1f] text-white"
+          className="bg-brand hover:bg-brand-700 text-brand-foreground"
           onClick={() => void handleSubmit()}
           disabled={busy}
         >

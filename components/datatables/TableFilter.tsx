@@ -329,10 +329,10 @@ const TableFilter: React.FC<SelectFilterProps> = ({filter, onChange, value, layo
                                     `}>
                                         {allSelected && (
                                             <Icon provider="io5" iconName="IoCheckmark" size={16}
-                                                  className="text-white font-bold"/>
+                                                  className="text-brand-foreground font-bold"/>
                                         )}
                                         {someSelected && (
-                                            <div className="w-2.5 h-2.5 bg-white rounded-xs"></div>
+                                            <div className="w-2.5 h-2.5 bg-brand-foreground rounded-xs"></div>
                                         )}
                                     </div>
                                     <span className="text-sm font-semibold text-gray-800 dark:text-zinc-200">
@@ -372,10 +372,10 @@ const TableFilter: React.FC<SelectFilterProps> = ({filter, onChange, value, layo
                                                             provider="io5"
                                                             iconName="IoCheckmark"
                                                             size={16}
-                                                            className="text-white font-bold"
+                                                            className="text-brand-foreground font-bold"
                                                         />
                                                     ) : (
-                                                        <div className="w-2 h-2 rounded-full bg-white" />
+                                                        <div className="w-2 h-2 rounded-full bg-brand-foreground" />
                                                     )
                                                 )}
                                             </div>

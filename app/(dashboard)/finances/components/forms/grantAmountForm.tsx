@@ -44,12 +44,12 @@ const defaultValues: GrantAmountFormData = {
 }
 
 const inputClass = (hasError: boolean) =>
-  `w-full pl-10 pr-3 py-2.5 text-sm border rounded-md transition-all duration-200 focus:ring-[1.5px] focus:ring-[#f08c2b] focus:border-transparent focus:outline-none ${
+  `w-full pl-10 pr-3 py-2.5 text-sm border rounded-md transition-all duration-200 focus:ring-[1.5px] focus:ring-brand focus:border-transparent focus:outline-none ${
     hasError ? "border-red-500" : "border-gray-300 hover:border-gray-400"
   }`
 
 const plainInputClass = (hasError: boolean) =>
-  `w-full px-3 py-2.5 text-sm border rounded-md transition-all duration-200 focus:ring-[1.5px] focus:ring-[#f08c2b] focus:border-transparent focus:outline-none ${
+  `w-full px-3 py-2.5 text-sm border rounded-md transition-all duration-200 focus:ring-[1.5px] focus:ring-brand focus:border-transparent focus:outline-none ${
     hasError ? "border-red-500" : "border-gray-300 hover:border-gray-400"
   }`
 
@@ -153,7 +153,7 @@ export default function GrantAmountForm({
 
   return (
     <form onSubmit={handleSubmit} className="flex max-h-[calc(100vh-12rem)] flex-col gap-4 overflow-y-auto p-4">
-      <div className="rounded-lg border border-[#f08c2b]/20 bg-[#f08c2b]/5 p-3 text-sm">
+      <div className="rounded-lg border border-brand/20 bg-brand/5 p-3 text-sm">
         <p className="font-medium text-gray-900">{summary.third_party_agent_name}</p>
         <div className="mt-1 grid grid-cols-2 gap-x-4 gap-y-0.5 text-xs text-muted-foreground">
           <span>Total grant</span>
@@ -276,7 +276,7 @@ export default function GrantAmountForm({
         <Button
           type="submit"
           disabled={disabled}
-          className="bg-[#f08c2b] text-white transition-colors hover:!bg-[#f08c2b] hover:!text-black"
+          className="bg-brand text-brand-foreground transition-colors hover:!bg-brand-700 hover:!text-brand-foreground"
         >
           {loading ? "Saving…" : "Add amount"}
         </Button>

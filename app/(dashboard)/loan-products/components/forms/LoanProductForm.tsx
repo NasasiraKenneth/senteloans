@@ -67,8 +67,8 @@ const defaultValues: LoanProductFormData = {
 }
 
 const inputClass = (hasError: boolean) =>
-  `w-full px-3 py-2.5 text-sm border rounded-md transition-all duration-200 focus:ring-[1.5px] focus:ring-[#f08c2b] focus:border-transparent focus:outline-none ${
-    hasError ? "border-red-500" : "border-gray-300 hover:border-gray-400"
+  `w-full px-3 py-2.5 text-sm bg-background text-foreground border rounded-md transition-all duration-200 focus:border-brand focus:outline-none ${
+    hasError ? "border-red-500" : "border-border hover:border-brand/50"
   }`
 
 export default function LoanProductForm({
@@ -154,10 +154,10 @@ export default function LoanProductForm({
     <form onSubmit={handleSubmit} className="p-6 space-y-6 max-h-[calc(100vh-10rem)] overflow-y-auto">
       {/* Product Identity */}
       <div>
-        <h4 className="text-sm font-semibold text-gray-800 mb-3">Product Identity</h4>
+        <h4 className="text-sm font-semibold text-foreground mb-3">Product Identity</h4>
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-foreground/90 mb-1">
               Product Name <span className="text-red-500">*</span>
             </label>
             <input
@@ -170,7 +170,7 @@ export default function LoanProductForm({
             {errors.product_name && <p className="mt-1 text-xs text-red-500">{errors.product_name}</p>}
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-foreground/90 mb-1">
               Product Code (Short) <span className="text-red-500">*</span>
             </label>
             <input
@@ -184,7 +184,7 @@ export default function LoanProductForm({
           </div>
         </div>
         <div className="mt-4">
-          <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+          <label className="block text-sm font-medium text-foreground/90 mb-1">Description</label>
           <textarea
             rows={2}
             placeholder="Brief description of the loan product..."
@@ -195,14 +195,14 @@ export default function LoanProductForm({
         </div>
       </div>
 
-      <hr className="border-gray-200" />
+      <hr className="border-border" />
 
       {/* Amount & Interest */}
       <div>
-        <h4 className="text-sm font-semibold text-gray-800 mb-3">Amount &amp; Interest</h4>
+        <h4 className="text-sm font-semibold text-foreground mb-3">Amount &amp; Interest</h4>
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-foreground/90 mb-1">
               Minimum Amount ({currency}) <span className="text-red-500">*</span>
             </label>
             <input
@@ -217,7 +217,7 @@ export default function LoanProductForm({
             {errors.minimum_amount && <p className="mt-1 text-xs text-red-500">{errors.minimum_amount}</p>}
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-foreground/90 mb-1">
               Maximum Amount ({currency}) <span className="text-red-500">*</span>
             </label>
             <input
@@ -234,7 +234,7 @@ export default function LoanProductForm({
         </div>
         <div className="grid grid-cols-2 gap-4 mt-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-foreground/90 mb-1">
               Interest Rate (%) <span className="text-red-500">*</span>
             </label>
             <input
@@ -249,19 +249,19 @@ export default function LoanProductForm({
             {errors.interest_rate && <p className="mt-1 text-xs text-red-500">{errors.interest_rate}</p>}
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Calculation Method</label>
+            <label className="block text-sm font-medium text-foreground/90 mb-1">Calculation Method</label>
             <div
               onClick={(e) => setMethodAnchor(e.currentTarget)}
-              className={`flex items-center justify-between w-full px-3 py-2.5 text-sm border rounded-md cursor-pointer transition-all duration-200 ${
+              className={`flex items-center justify-between w-full px-3 py-2.5 text-sm bg-background border rounded-md cursor-pointer transition-all duration-200 ${
                 Boolean(methodAnchor)
-                  ? "ring-[1.5px] ring-[#f08c2b] border-transparent"
-                  : "border-gray-300 hover:border-gray-400"
+                  ? "border-brand ring-1 ring-brand/40"
+                  : "border-border hover:border-brand/50"
               }`}
             >
-              <span className="text-gray-900">
+              <span className="text-foreground">
                 {methodOptions.find((o) => o.value === form.interest_calculation_method)?.label || "Select method"}
               </span>
-              <svg className={`h-4 w-4 text-gray-400 transition-transform ${Boolean(methodAnchor) ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <svg className={`h-4 w-4 text-muted-foreground transition-transform ${Boolean(methodAnchor) ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
               </svg>
             </div>
@@ -275,7 +275,10 @@ export default function LoanProductForm({
                 sx: {
                   width: methodAnchor?.offsetWidth || 200,
                   borderRadius: "10px",
-                  boxShadow: "0 10px 40px rgba(0,0,0,0.15)",
+                  backgroundColor: "var(--popover)",
+                  color: "var(--popover-foreground)",
+                  border: "1px solid var(--border)",
+                  boxShadow: "0 10px 40px rgba(0,0,0,0.2)",
                   mt: 0.5,
                 },
               }}
@@ -287,18 +290,18 @@ export default function LoanProductForm({
                     <div
                       key={opt.value}
                       onClick={() => { set("interest_calculation_method", opt.value); setMethodAnchor(null) }}
-                      className="flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-gray-50 rounded-lg transition-colors"
+                      className="flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-muted rounded-lg transition-colors"
                     >
                       <div className={`relative w-4.5 h-4.5 border-2 flex items-center justify-center rounded-md transition-all ${
-                        isSelected ? "bg-[#f08c2b] border-[#f08c2b]" : "bg-white border-gray-400 hover:border-gray-600"
+                        isSelected ? "bg-brand border-brand" : "bg-background border-border hover:border-brand/60"
                       }`}>
                         {isSelected && (
-                          <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                          <svg className="w-3 h-3 text-brand-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
                             <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                           </svg>
                         )}
                       </div>
-                      <span className="text-sm text-gray-800">{opt.label}</span>
+                      <span className="text-sm text-foreground">{opt.label}</span>
                     </div>
                   )
                 })}
@@ -308,14 +311,14 @@ export default function LoanProductForm({
         </div>
       </div>
 
-      <hr className="border-gray-200" />
+      <hr className="border-border" />
 
       {/* Tenure */}
       <div>
-        <h4 className="text-sm font-semibold text-gray-800 mb-3">Tenure (Months)</h4>
+        <h4 className="text-sm font-semibold text-foreground mb-3">Tenure (Months)</h4>
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-foreground/90 mb-1">
               Minimum <span className="text-red-500">*</span>
             </label>
             <input
@@ -329,7 +332,7 @@ export default function LoanProductForm({
             {errors.minimum_tenure_months && <p className="mt-1 text-xs text-red-500">{errors.minimum_tenure_months}</p>}
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-foreground/90 mb-1">
               Maximum <span className="text-red-500">*</span>
             </label>
             <input
@@ -345,14 +348,14 @@ export default function LoanProductForm({
         </div>
       </div>
 
-      <hr className="border-gray-200" />
+      <hr className="border-border" />
 
       {/* Requirements & Fees */}
       <div>
-        <h4 className="text-sm font-semibold text-gray-800 mb-3">Requirements &amp; Fees</h4>
+        <h4 className="text-sm font-semibold text-foreground mb-3">Requirements &amp; Fees</h4>
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Processing Fee (%)</label>
+            <label className="block text-sm font-medium text-foreground/90 mb-1">Processing Fee (%)</label>
             <input
               type="number"
               min="0"
@@ -364,7 +367,7 @@ export default function LoanProductForm({
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Guarantors Required</label>
+            <label className="block text-sm font-medium text-foreground/90 mb-1">Guarantors Required</label>
             <input
               type="number"
               min="0"
@@ -384,10 +387,10 @@ export default function LoanProductForm({
                 checked={form.collateral_required}
                 onChange={(e) => set("collateral_required", e.target.checked)}
               />
-              <div className="w-9 h-5 bg-gray-300 rounded-full peer-checked:bg-[#f08c2b] transition-colors" />
-              <div className="absolute left-0.5 top-0.5 bg-white w-4 h-4 rounded-full transition-transform peer-checked:translate-x-4 shadow" />
+              <div className="w-9 h-5 bg-muted-foreground/30 rounded-full peer-checked:bg-brand transition-colors" />
+              <div className="absolute left-0.5 top-0.5 bg-white w-4 h-4 rounded-full transition-transform peer-checked:translate-x-4 peer-checked:bg-brand-foreground shadow" />
             </div>
-            <span className="text-sm text-gray-700">Collateral Required</span>
+            <span className="text-sm text-foreground/90">Collateral Required</span>
           </label>
           <label className="flex items-center gap-2.5 cursor-pointer">
             <div className="relative">
@@ -397,31 +400,31 @@ export default function LoanProductForm({
                 checked={form.insurance_required}
                 onChange={(e) => set("insurance_required", e.target.checked)}
               />
-              <div className="w-9 h-5 bg-gray-300 rounded-full peer-checked:bg-[#f08c2b] transition-colors" />
-              <div className="absolute left-0.5 top-0.5 bg-white w-4 h-4 rounded-full transition-transform peer-checked:translate-x-4 shadow" />
+              <div className="w-9 h-5 bg-muted-foreground/30 rounded-full peer-checked:bg-brand transition-colors" />
+              <div className="absolute left-0.5 top-0.5 bg-white w-4 h-4 rounded-full transition-transform peer-checked:translate-x-4 peer-checked:bg-brand-foreground shadow" />
             </div>
-            <span className="text-sm text-gray-700">Insurance Required</span>
+            <span className="text-sm text-foreground/90">Insurance Required</span>
           </label>
         </div>
       </div>
 
-      <hr className="border-gray-200" />
+      <hr className="border-border" />
 
       {/* Eligibilities */}
       <div>
         <div className="flex items-center justify-between mb-3">
-          <h4 className="text-sm font-semibold text-gray-800">Eligibilities</h4>
+          <h4 className="text-sm font-semibold text-foreground">Eligibilities</h4>
           <button
             type="button"
             onClick={addEligibility}
-            className="px-3 py-1.5 text-xs font-medium text-white bg-[#f08c2b] rounded-md hover:bg-[#d97a1f] transition-colors"
+            className="px-3 py-1.5 text-xs font-medium text-brand-foreground bg-brand rounded-md hover:bg-brand-700 transition-colors cursor-pointer"
           >
             Add Eligibility
           </button>
         </div>
 
         {(form.eligibilities || []).length === 0 ? (
-          <div className="text-xs text-gray-500 border border-dashed border-gray-300 rounded-md px-3 py-3">
+          <div className="text-xs text-muted-foreground border border-dashed border-border rounded-md px-3 py-3">
             No eligibilities added yet.
           </div>
         ) : (
@@ -443,17 +446,17 @@ export default function LoanProductForm({
                       checked={item.status === "Active"}
                       onChange={(e) => toggleEligibilityStatus(item.id, e.target.checked)}
                     />
-                    <div className="w-9 h-5 bg-gray-300 rounded-full peer-checked:bg-[#f08c2b] transition-colors" />
-                    <div className="absolute left-0.5 top-0.5 bg-white w-4 h-4 rounded-full transition-transform peer-checked:translate-x-4 shadow" />
+                    <div className="w-9 h-5 bg-muted-foreground/30 rounded-full peer-checked:bg-brand transition-colors" />
+                    <div className="absolute left-0.5 top-0.5 bg-white w-4 h-4 rounded-full transition-transform peer-checked:translate-x-4 peer-checked:bg-brand-foreground shadow" />
                   </div>
-                  <span className="text-sm text-gray-700">
+                  <span className="text-sm text-foreground/90">
                     {item.status}
                   </span>
                 </label>
                 <button
                   type="button"
                   onClick={() => removeEligibility(item.id)}
-                  className="px-2.5 py-2 text-xs font-medium text-red-600 border border-red-200 rounded-md hover:bg-red-50 transition-colors"
+                  className="px-2.5 py-2 text-xs font-medium text-red-600 dark:text-red-400 border border-red-200 dark:border-red-900/50 rounded-md hover:bg-red-500/10 transition-colors cursor-pointer"
                 >
                   <FaTrash className="w-3 h-3" />
                 </button>
@@ -465,24 +468,24 @@ export default function LoanProductForm({
         {errors.eligibilities && <p className="mt-1 text-xs text-red-500">{errors.eligibilities}</p>}
       </div>
 
-      <hr className="border-gray-200" />
+      <hr className="border-border" />
 
       {/* Status */}
       <div>
-        <h4 className="text-sm font-semibold text-gray-800 mb-3">Status</h4>
+        <h4 className="text-sm font-semibold text-foreground mb-3">Status</h4>
         <div>
           <div
             onClick={(e) => setStatusAnchor(e.currentTarget)}
-            className={`flex items-center justify-between w-full px-3 py-2.5 text-sm border rounded-md cursor-pointer transition-all duration-200 ${
+            className={`flex items-center justify-between w-full px-3 py-2.5 text-sm bg-background border rounded-md cursor-pointer transition-all duration-200 ${
               Boolean(statusAnchor)
-                ? "ring-[1.5px] ring-[#f08c2b] border-transparent"
-                : "border-gray-300 hover:border-gray-400"
+                ? "border-brand ring-1 ring-brand/40"
+                : "border-border hover:border-brand/50"
             }`}
           >
-            <span className={form.status ? "text-gray-900" : "text-gray-400"}>
+            <span className={form.status ? "text-foreground" : "text-muted-foreground"}>
               {statusOptions.find((o) => o.value === form.status)?.label || "Select status"}
             </span>
-            <svg className={`h-4 w-4 text-gray-400 transition-transform ${Boolean(statusAnchor) ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <svg className={`h-4 w-4 text-muted-foreground transition-transform ${Boolean(statusAnchor) ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
             </svg>
           </div>
@@ -496,7 +499,10 @@ export default function LoanProductForm({
               sx: {
                 width: statusAnchor?.offsetWidth || 200,
                 borderRadius: "10px",
-                boxShadow: "0 10px 40px rgba(0,0,0,0.15)",
+                backgroundColor: "var(--popover)",
+                color: "var(--popover-foreground)",
+                border: "1px solid var(--border)",
+                boxShadow: "0 10px 40px rgba(0,0,0,0.2)",
                 mt: 0.5,
               },
             }}
@@ -508,18 +514,18 @@ export default function LoanProductForm({
                   <div
                     key={opt.value}
                     onClick={() => { set("status", opt.value); setStatusAnchor(null) }}
-                    className="flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-gray-50 rounded-lg transition-colors"
+                    className="flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-muted rounded-lg transition-colors"
                   >
                     <div className={`relative w-4.5 h-4.5 border-2 flex items-center justify-center rounded-md transition-all ${
-                      isSelected ? "bg-[#f08c2b] border-[#f08c2b]" : "bg-white border-gray-400 hover:border-gray-600"
+                      isSelected ? "bg-brand border-brand" : "bg-background border-border hover:border-brand/60"
                     }`}>
                       {isSelected && (
-                        <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                        <svg className="w-3 h-3 text-brand-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
                           <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                         </svg>
                       )}
                     </div>
-                    <span className="text-sm text-gray-800">{opt.label}</span>
+                    <span className="text-sm text-foreground">{opt.label}</span>
                   </div>
                 )
               })}
@@ -533,7 +539,7 @@ export default function LoanProductForm({
         <button
           type="submit"
           disabled={loading}
-          className="px-6 py-2.5 text-sm font-medium text-white bg-[#f08c2b] rounded-lg hover:bg-[#d97a1f] transition-colors disabled:opacity-50"
+          className="px-6 py-2.5 text-sm font-medium text-brand-foreground bg-brand rounded-lg hover:bg-brand-700 transition-colors disabled:opacity-50"
         >
           {loading ? "Saving..." : editMode ? "Save Changes" : "Create Product"}
         </button>

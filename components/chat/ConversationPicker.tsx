@@ -44,7 +44,7 @@ function matchesFilter(conversation: ChatConversation, filter: ConversationFilte
 function typeAccent(type: ConversationType): string {
   switch (type) {
     case "LOAN":
-      return "ring-[#f08c2b]/40"
+      return "ring-brand/40"
     case "SUPPORT":
       return "ring-sky-400/40"
     case "GROUP":
@@ -153,7 +153,7 @@ export function ConversationPicker({
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search conversations..."
-          className="h-9 pl-9 focus-visible:ring-[#f08c2b]/40"
+          className="h-9 pl-9 focus-visible:ring-brand/40"
         />
       </div>
 
@@ -166,7 +166,7 @@ export function ConversationPicker({
             className={cn(
               "rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors",
               filter === item.id
-                ? "bg-[#f08c2b] text-white"
+                ? "bg-brand text-brand-foreground"
                 : "bg-muted/60 text-muted-foreground hover:bg-muted",
             )}
           >
@@ -199,7 +199,7 @@ export function ConversationPicker({
                 onClick={() => toggleConversation(conversation.id)}
                 className={cn(
                   "flex w-full items-center gap-3 border-b border-border/60 px-3 py-2.5 text-left transition-colors last:border-b-0",
-                  isSelected ? "bg-[#fff7ed]" : "hover:bg-muted/40",
+                  isSelected ? "bg-brand/10" : "hover:bg-muted/40",
                 )}
               >
                 <Avatar className={cn("h-9 w-9 shrink-0 ring-2", typeAccent(conversation.type))}>
@@ -229,7 +229,7 @@ export function ConversationPicker({
                   className={cn(
                     "flex h-5 w-5 shrink-0 items-center justify-center rounded-full border",
                     isSelected
-                      ? "border-[#f08c2b] bg-[#f08c2b] text-white"
+                      ? "border-brand bg-brand text-brand-foreground"
                       : "border-border bg-background text-transparent",
                   )}
                 >

@@ -29,7 +29,7 @@ export function ParticipantNameLink({
     <Link
       href={href}
       className={cn(
-        "rounded-sm transition-colors hover:text-[#c46f12] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#f08c2b]/40",
+        "rounded-sm transition-colors hover:text-brand hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40",
         className,
       )}
     >

@@ -48,7 +48,7 @@ const TabularFilters: React.FC<TabularFiltersProps> = ({ filters, onChange, valu
                             transition={slideTransition}
                           />
                         )}
-                        <span className={`relative z-10 inline-block transition-colors duration-200 ${isActive ? "text-white font-semibold" : "text-gray-600 dark:text-zinc-400 hover:text-brand dark:hover:text-zinc-100"}`}>
+                        <span className={`relative z-10 inline-block transition-colors duration-200 ${isActive ? "text-brand-foreground font-semibold" : "text-gray-600 dark:text-zinc-400 hover:text-brand dark:hover:text-zinc-100"}`}>
                           {filter.label}
                         </span>
                       </motion.button>

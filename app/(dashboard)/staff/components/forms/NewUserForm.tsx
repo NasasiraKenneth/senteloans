@@ -50,7 +50,7 @@ const BioStep = ({ register, errors, control }: any) => (
                 id="firstName"
                 type="text"
                 placeholder="First Name"
-                className={`w-full pl-10 pr-3 py-2.5 text-sm rounded-md border transition-all duration-200 focus:ring-[1.5px] focus:ring-[#f08c2b] focus:border-transparent focus:outline-none
+                className={`w-full pl-10 pr-3 py-2.5 text-sm rounded-md border transition-all duration-200 focus:ring-[1.5px] focus:ring-brand focus:border-transparent focus:outline-none
                   ${errors.firstName 
                     ? 'border-red-500 focus:ring-red-500' 
                     : 'border-gray-300 hover:border-gray-400'
@@ -71,7 +71,7 @@ const BioStep = ({ register, errors, control }: any) => (
                 id="lastName"
                 type="text"
                 placeholder="Last Name"
-                className={`w-full pl-10 pr-3 py-2.5 text-sm rounded-md border transition-all duration-200 focus:ring-[1.5px] focus:ring-[#f08c2b] focus:border-transparent focus:outline-none
+                className={`w-full pl-10 pr-3 py-2.5 text-sm rounded-md border transition-all duration-200 focus:ring-[1.5px] focus:ring-brand focus:border-transparent focus:outline-none
                   ${errors.lastName 
                     ? 'border-red-500 focus:ring-red-500' 
                     : 'border-gray-300 hover:border-gray-400'
@@ -93,7 +93,7 @@ const BioStep = ({ register, errors, control }: any) => (
               id="email"
               type="email"
               placeholder="Email"
-              className={`w-full pl-10 pr-3 py-2.5 text-sm border rounded-md focus:ring-[1.5px] focus:ring-[#f08c2b] focus:border-transparent focus:outline-none transition-all duration-200 ${errors.email ? 'border-red-500' : 'border-gray-300 hover:border-gray-400'}`}
+              className={`w-full pl-10 pr-3 py-2.5 text-sm border rounded-md focus:ring-[1.5px] focus:ring-brand focus:border-transparent focus:outline-none transition-all duration-200 ${errors.email ? 'border-red-500' : 'border-gray-300 hover:border-gray-400'}`}
               {...register('email', {
                 required: 'Email is required',
                 pattern: {
@@ -115,7 +115,7 @@ const BioStep = ({ register, errors, control }: any) => (
               id="phoneNumber"
               type="tel"
               placeholder="+256 7XX XXX XXX"
-              className={`w-full pl-10 pr-3 py-2.5 text-sm border rounded-md focus:ring-[1.5px] focus:ring-[#f08c2b] focus:border-transparent focus:outline-none transition-all duration-200 ${errors.phoneNumber ? 'border-red-500' : 'border-gray-300 hover:border-gray-400'}`}
+              className={`w-full pl-10 pr-3 py-2.5 text-sm border rounded-md focus:ring-[1.5px] focus:ring-brand focus:border-transparent focus:outline-none transition-all duration-200 ${errors.phoneNumber ? 'border-red-500' : 'border-gray-300 hover:border-gray-400'}`}
               {...register('phoneNumber', {required: 'Phone number is required'})}
           />
         </div>
@@ -141,7 +141,7 @@ const BioStep = ({ register, errors, control }: any) => (
                         onClick={(e) => setStatusAnchor(e.currentTarget)}
                         className={`flex items-center justify-between w-full px-3 py-2.5 text-sm border rounded-md cursor-pointer transition-all duration-200 ${
                           statusOpen
-                            ? 'ring-[1.5px] ring-[#f08c2b] border-transparent'
+                            ? 'ring-[1.5px] ring-brand border-transparent'
                             : errors.status
                               ? 'border-red-500'
                               : 'border-gray-300 hover:border-gray-400'
@@ -179,10 +179,10 @@ const BioStep = ({ register, errors, control }: any) => (
                                 className="flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-gray-50 rounded-lg transition-colors"
                             >
                               <div className={`relative w-4.5 h-4.5 border-2 flex items-center justify-center rounded-md transition-all ${
-                                isSelected ? 'bg-[#f08c2b] border-[#f08c2b]' : 'bg-white border-gray-400 hover:border-gray-600'
+                                isSelected ? 'bg-brand border-brand' : 'bg-background border-border hover:border-brand/60'
                               }`}>
                                 {isSelected && (
-                                  <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                                  <svg className="w-3 h-3 text-brand-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
                                     <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                                   </svg>
                                 )}
@@ -235,7 +235,7 @@ const BioStep = ({ register, errors, control }: any) => (
                               onClick={openCalendar}
                               className={`flex items-center gap-2 w-full px-3 py-2.5 text-sm border rounded-md cursor-pointer transition-all duration-200 ${
                                 dateOpen
-                                  ? 'ring-[1.5px] ring-[#f08c2b] border-transparent'
+                                  ? 'ring-[1.5px] ring-brand border-transparent'
                                   : errors.joinDate
                                     ? 'border-red-500'
                                     : 'border-gray-300 hover:border-gray-400'
@@ -285,7 +285,7 @@ const RolesStep = ({control, errors, roleOptions, roleOptionsLoading}: any) => (
                         name="staff-role"
                         checked={value === role.value}
                         onChange={() => onChange(role.value)}
-                        className="text-[#f08c2b] accent-[#f08c2b] focus:ring-[#f08c2b]"
+                        className="text-brand accent-brand focus:ring-brand"
                       />
                       <span className="text-sm text-gray-700">{role.label}</span>
                     </label>
@@ -323,7 +323,7 @@ const LoginStep = ({register, errors, watch, editMode}: any) => {
               id="password"
               type="password"
               placeholder={editMode ? "Enter new password (leave blank to keep current)" : "Password"}
-              className={`w-full pl-10 pr-3 py-2.5 text-sm border rounded-md focus:ring-[1.5px] focus:ring-[#f08c2b] focus:border-transparent focus:outline-none transition-all duration-200 ${errors.password ? 'border-red-500' : 'border-gray-300 hover:border-gray-400'}`}
+              className={`w-full pl-10 pr-3 py-2.5 text-sm border rounded-md focus:ring-[1.5px] focus:ring-brand focus:border-transparent focus:outline-none transition-all duration-200 ${errors.password ? 'border-red-500' : 'border-gray-300 hover:border-gray-400'}`}
               {...register('password', {
                 required: !editMode ? 'Password is required' : false,
                 minLength: { value: 8, message: 'Password must be at least 8 characters' },
@@ -348,7 +348,7 @@ const LoginStep = ({register, errors, watch, editMode}: any) => {
               id="confirmPassword"
               type="password"
               placeholder={editMode ? "Confirm new password" : "Confirm Password"}
-              className={`w-full pl-10 pr-3 py-2.5 text-sm border rounded-md focus:ring-[1.5px] focus:ring-[#f08c2b] focus:border-transparent focus:outline-none transition-all duration-200 ${errors.confirmPassword ? 'border-red-500' : 'border-gray-300 hover:border-gray-400'}`}
+              className={`w-full pl-10 pr-3 py-2.5 text-sm border rounded-md focus:ring-[1.5px] focus:ring-brand focus:border-transparent focus:outline-none transition-all duration-200 ${errors.confirmPassword ? 'border-red-500' : 'border-gray-300 hover:border-gray-400'}`}
               {...register('confirmPassword', {
                 required: !editMode ? 'Please confirm your password' : false,
                 validate: (value: string | undefined) => {
@@ -470,7 +470,7 @@ const UserForm: React.FC<UserFormProps> = ({
   };
 
   return (
-    <div className="bg-white p-8 rounded-xl shadow-md max-w-2xl mx-auto">
+    <div className="bg-card border border-border p-8 rounded-xl shadow-md max-w-2xl mx-auto">
       {isSubmitted && successMessage && (
         <Alert severity="success" sx={{ mb: 6 }}>{successMessage}</Alert>
       )}
@@ -484,11 +484,16 @@ const UserForm: React.FC<UserFormProps> = ({
             alternativeLabel
             className="mb-8"
             sx={{
-              '& .MuiStepIcon-root.Mui-active': { color: '#f08c2b' },
-              '& .MuiStepIcon-root.Mui-completed': { color: '#f08c2b' },
-              '& .MuiStepConnector-line': { borderColor: '#e5e7eb' },
-              '& .Mui-active .MuiStepConnector-line': { borderColor: '#f08c2b' },
-              '& .Mui-completed .MuiStepConnector-line': { borderColor: '#f08c2b' },
+              '& .MuiStepIcon-root.Mui-active': { color: 'var(--ui-p-600, #f08c2b)' },
+              '& .MuiStepIcon-root.Mui-completed': { color: 'var(--ui-p-600, #f08c2b)' },
+              '& .MuiStepIcon-root.Mui-active .MuiStepIcon-text': { fill: 'var(--brand-foreground, #ffffff)' },
+              '& .MuiStepLabel-label': { color: 'var(--color-muted-foreground, #6b7280)' },
+              '& .MuiStepLabel-label.Mui-active, & .MuiStepLabel-label.Mui-completed': {
+                color: 'var(--color-foreground, #1a1a1a)',
+              },
+              '& .MuiStepConnector-line': { borderColor: 'var(--color-border, #e5e7eb)' },
+              '& .Mui-active .MuiStepConnector-line': { borderColor: 'var(--ui-p-600, #f08c2b)' },
+              '& .Mui-completed .MuiStepConnector-line': { borderColor: 'var(--ui-p-600, #f08c2b)' },
             }}
           >
             {steps.map((label) => (
@@ -503,8 +508,8 @@ const UserForm: React.FC<UserFormProps> = ({
             {activeStep === 2 && <LoginStep register={register} errors={errors} watch={watch} editMode={editMode} />}
             {activeStep === steps.length && (
               <div className="text-center">
-                <h3 className="text-lg font-medium text-gray-900 mb-4">Review and Submit</h3>
-                <p className="text-sm text-gray-600">Please review your information before submitting.</p>
+                <h3 className="text-lg font-medium text-foreground mb-4">Review and Submit</h3>
+                <p className="text-sm text-muted-foreground">Please review your information before submitting.</p>
               </div>
             )}
           </Box>
@@ -514,15 +519,15 @@ const UserForm: React.FC<UserFormProps> = ({
               onClick={handleBack}
               variant="outlined"
               sx={{
-                borderColor: '#777',
-                color: '#000',
+                borderColor: 'var(--color-border, #d1d5db)',
+                color: 'var(--color-foreground, #1a1a1a)',
                 textTransform: 'none',
                 px: 4,
                 py: 1,
                 '&:hover': {
-                  borderColor: '#f08c2b',
+                  borderColor: 'var(--ui-p-600, #f08c2b)',
                   backgroundColor: 'transparent',
-                  color: '#000',
+                  color: 'var(--color-foreground, #1a1a1a)',
                 },
               }}
             >
@@ -535,7 +540,16 @@ const UserForm: React.FC<UserFormProps> = ({
                   type="button"
                   onClick={handleSubmit(handleFormSubmit)}
                   disabled={loading}
-                  sx={{ backgroundColor: '#f08c2b', textTransform: 'none', px: 4, py: 1 }}
+                  sx={{
+                    backgroundColor: 'var(--ui-p-600, #f08c2b)',
+                    color: 'var(--brand-foreground, #ffffff)',
+                    textTransform: 'none',
+                    px: 4,
+                    py: 1,
+                    '&:hover': {
+                      backgroundColor: 'var(--ui-p-700, #c2410c)',
+                    },
+                  }}
                 >
                   {loading ? 'Saving...' : (editMode ? 'Save Changes' : 'Create System User')}
                 </Button>
@@ -546,14 +560,14 @@ const UserForm: React.FC<UserFormProps> = ({
                   onClick={handleNext}
                   disabled={loading || hasStepErrors(activeStep)}
                   sx={{
-                    backgroundColor: '#000',
-                    color: '#fff',
+                    backgroundColor: 'var(--ui-p-600, #f08c2b)',
+                    color: 'var(--brand-foreground, #ffffff)',
                     textTransform: 'none',
                     px: 4,
                     py: 1,
                     boxShadow: 'none',
                     '&:hover': {
-                      backgroundColor: '#f08c2b',
+                      backgroundColor: 'var(--ui-p-700, #c2410c)',
                       boxShadow: 'none',
                     },
                   }}

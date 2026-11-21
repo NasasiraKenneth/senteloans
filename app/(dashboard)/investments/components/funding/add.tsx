@@ -53,7 +53,7 @@ export default function AddFunding({ isOpen, onClose, onSuccess }: AddFundingPro
     }
   }, [isOpen])
   const inputClass =
-    "w-full px-3 py-2.5 text-sm border border-gray-300 rounded-md transition-all duration-200 focus:ring-[1.5px] focus:ring-[#f08c2b] focus:border-transparent focus:outline-none hover:border-gray-400"
+    "w-full px-3 py-2.5 text-sm border border-gray-300 rounded-md transition-all duration-200 focus:ring-[1.5px] focus:ring-brand focus:border-transparent focus:outline-none hover:border-gray-400"
 
   return (
     <ReeveModal isOpen={isOpen} onClose={onClose} title="Add Funding" className="z-20">

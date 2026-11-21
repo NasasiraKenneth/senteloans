@@ -16,7 +16,7 @@ interface BranchFormProps {
 }
 
 const inputClass = (hasError: boolean = false) =>
-  `w-full px-3 py-2.5 text-sm border rounded-md transition-all duration-200 focus:ring-[1.5px] focus:ring-[#f08c2b] focus:border-transparent focus:outline-none ${
+  `w-full px-3 py-2.5 text-sm border rounded-md transition-all duration-200 focus:ring-[1.5px] focus:ring-brand focus:border-transparent focus:outline-none ${
     hasError ? "border-red-500" : "border-gray-300 hover:border-gray-400"
   }`
 
@@ -313,18 +313,18 @@ export function BranchForm({
 
         {/* SECTION 2: COLLAPSIBLE ADMIN USER DETAILS (HIDDEN IN EDIT MODE) */}
         {!isEditMode && (
-          <div className="border border-orange-200/80 rounded-xl overflow-hidden bg-orange-50/20">
+          <div className="border border-brand/30 rounded-xl overflow-hidden bg-brand/5">
             <button
               type="button"
               onClick={() => setIsAdminExpanded(!isAdminExpanded)}
-              className="w-full flex items-center justify-between p-3.5 bg-orange-50/60 hover:bg-orange-100/60 text-xs font-bold text-[#f08c2b] uppercase tracking-wider transition-colors text-left"
+              className="w-full flex items-center justify-between p-3.5 bg-brand/10 hover:bg-brand/15 text-xs font-bold text-brand uppercase tracking-wider transition-colors text-left"
             >
               <span className="flex items-center gap-2">
-                <UserCheck className="h-4 w-4 text-[#f08c2b]" />
+                <UserCheck className="h-4 w-4 text-brand" />
                 Branch Admin User Account (Optional)
               </span>
               <ChevronDown
-                className={`h-4 w-4 transition-transform duration-200 text-[#f08c2b] ${
+                className={`h-4 w-4 transition-transform duration-200 text-brand ${
                   isAdminExpanded ? "rotate-180" : ""
                 }`}
               />
@@ -339,7 +339,7 @@ export function BranchForm({
                   transition={{ duration: 0.2 }}
                   className="overflow-hidden"
                 >
-                  <div className="p-4 border-t border-orange-100 bg-white space-y-4">
+                  <div className="p-4 border-t border-brand/20 bg-card space-y-4">
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div>
                         <label className="block text-xs font-semibold text-gray-700 mb-1">
@@ -472,7 +472,7 @@ export function BranchForm({
         <Button
           type="submit"
           disabled={submitting}
-          className="bg-[#f08c2b] hover:bg-[#e07b1a] text-white font-semibold text-xs rounded-md px-5 shadow-xs"
+          className="bg-brand hover:bg-brand-700 text-brand-foreground font-semibold text-xs rounded-md px-5 shadow-xs"
         >
           {submitting ? (
             <>

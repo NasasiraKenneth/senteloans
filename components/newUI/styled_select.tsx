@@ -45,26 +45,26 @@ export default function StyledSelect({
           if (disabled) return;
           setAnchor(e.currentTarget);
         }}
-        className={`flex items-center justify-between w-full px-3 py-2 text-sm border rounded-md transition-all duration-200 ${
+        className={`flex items-center justify-between w-full px-3 py-2 text-sm border rounded-md bg-background transition-all duration-200 ${
           disabled
-            ? "bg-gray-100 text-gray-400 cursor-not-allowed border-gray-200"
+            ? "bg-muted/50 text-muted-foreground cursor-not-allowed border-border"
             : open
-            ? "ring-[1.5px] ring-[#f08c2b] border-transparent cursor-pointer"
-            : "border-gray-300 hover:border-gray-400 cursor-pointer"
+            ? "ring-[1.5px] ring-brand border-transparent cursor-pointer"
+            : "border-input hover:border-brand/50 cursor-pointer"
         }`}
       >
         <div className="flex flex-col text-left overflow-hidden">
-          <span className={value ? "text-gray-900 font-medium truncate" : "text-gray-400 truncate"}>
+          <span className={value ? "text-foreground font-medium truncate" : "text-muted-foreground truncate"}>
             {selectedOpt ? safeText(selectedOpt.label) : placeholder}
           </span>
           {showSelectedDescription && selectedOpt?.description && (
-            <span className="text-xs text-gray-500 font-normal truncate">
+            <span className="text-xs text-muted-foreground font-normal truncate">
               {safeText(selectedOpt.description)}
             </span>
           )}
         </div>
         <svg
-          className={`h-4 w-4 text-gray-400 transition-transform flex-shrink-0 ml-2 ${open ? "rotate-180" : ""}`}
+          className={`h-4 w-4 text-muted-foreground transition-transform flex-shrink-0 ml-2 ${open ? "rotate-180" : ""}`}
           fill="none"
           viewBox="0 0 24 24"
           stroke="currentColor"
@@ -91,8 +91,11 @@ export default function StyledSelect({
           sx: {
             width: anchor?.offsetWidth || 220,
             borderRadius: "10px",
-            boxShadow: "0 10px 40px rgba(0,0,0,0.15)",
+            boxShadow: "0 10px 40px rgba(0,0,0,0.2)",
             mt: 0.5,
+            backgroundColor: "var(--color-card, #ffffff)",
+            color: "var(--color-foreground, #1a1a1a)",
+            border: "1px solid var(--color-border, #e5e7eb)",
           },
         }}
       >
@@ -102,7 +105,7 @@ export default function StyledSelect({
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search..."
-              className="w-full px-3 py-2 mb-2 border rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-[#f08c2b]"
+              className="w-full px-3 py-2 mb-2 border border-border bg-background text-foreground placeholder:text-muted-foreground rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-brand"
             />
           )}
 
@@ -118,18 +121,18 @@ export default function StyledSelect({
                     setAnchor(null);
                     setSearch(""); // reset search after selection
                   }}
-                  className="flex items-start gap-3 px-3 py-2.5 cursor-pointer hover:bg-gray-50 rounded-lg transition-colors"
+                  className="flex items-start gap-3 px-3 py-2.5 cursor-pointer hover:bg-brand/10 rounded-lg transition-colors"
                 >
                   <div
                     className={`relative w-4.5 h-4.5 border-2 flex items-center justify-center rounded-md transition-all mt-0.5 flex-shrink-0 ${
                       isSelected
-                        ? "bg-[#f08c2b] border-[#f08c2b]"
-                        : "bg-white border-gray-400 hover:border-gray-600"
+                        ? "bg-brand border-brand"
+                        : "bg-background border-border hover:border-brand/60"
                     }`}
                   >
                     {isSelected && (
                       <svg
-                        className="w-3 h-3 text-white"
+                        className="w-3 h-3 text-brand-foreground"
                         fill="none"
                         viewBox="0 0 24 24"
                         stroke="currentColor"
@@ -144,9 +147,9 @@ export default function StyledSelect({
                     )}
                   </div>
                   <div className="flex flex-col text-left">
-                    <span className="text-sm font-medium text-gray-800">{safeText(opt?.label)}</span>
+                    <span className="text-sm font-medium text-foreground">{safeText(opt?.label)}</span>
                     {opt.description && (
-                      <span className="text-xs text-gray-500 font-normal mt-0.5 leading-snug">
+                      <span className="text-xs text-muted-foreground font-normal mt-0.5 leading-snug">
                         {safeText(opt.description)}
                       </span>
                     )}

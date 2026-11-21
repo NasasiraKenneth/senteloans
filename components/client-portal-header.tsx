@@ -207,7 +207,7 @@ export function ClientPortalHeader({
                     "shrink-0 text-[9px] font-semibold",
                     client.status === "Active"
                       ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-600"
-                      : "border-[#f08c2b]/30 bg-[#f08c2b]/10 text-[#f08c2b]",
+                      : "border-brand/30 bg-brand/10 text-brand",
                   )}
                 >
                   {client.status}

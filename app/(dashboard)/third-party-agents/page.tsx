@@ -271,14 +271,14 @@ export default function ThirdPartyAgentsPage() {
       header: "Partner Agent",
       render: (row) => (
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-white border-2 border-[#F08C2B] text-[#F08C2B] font-bold flex items-center justify-center text-xs flex-shrink-0 shadow-2xs">
+          <div className="w-8 h-8 rounded-lg bg-brand/10 border-2 border-brand text-brand font-bold flex items-center justify-center text-xs flex-shrink-0 shadow-2xs">
             <Building2 className="h-4 w-4" />
           </div>
           <div>
-            <div className="font-semibold text-slate-900 hover:text-[#F08C2B] transition-colors cursor-pointer">
+            <div className="font-semibold text-foreground hover:text-brand transition-colors cursor-pointer">
               {row.name}
             </div>
-            {row.branch_name && <div className="text-xs text-slate-400">{row.branch_name}</div>}
+            {row.branch_name && <div className="text-xs text-muted-foreground">{row.branch_name}</div>}
           </div>
         </div>
       ),
@@ -288,12 +288,12 @@ export default function ThirdPartyAgentsPage() {
       header: "Contact Details",
       render: (row) => (
         <div className="space-y-0.5 text-xs">
-          <div className="flex items-center gap-1.5 text-slate-700 font-medium">
-            <Phone className="h-3.5 w-3.5 text-[#F08C2B]" />
+          <div className="flex items-center gap-1.5 text-foreground/80 font-medium">
+            <Phone className="h-3.5 w-3.5 text-brand" />
             {row.phone || "—"}
           </div>
           {row.email && (
-            <div className="flex items-center gap-1.5 text-slate-400">
+            <div className="flex items-center gap-1.5 text-muted-foreground">
               <Mail className="h-3.5 w-3.5" />
               {row.email}
             </div>
@@ -305,8 +305,8 @@ export default function ThirdPartyAgentsPage() {
       key: "address",
       header: "Address",
       render: (row) => (
-        <div className="flex items-center gap-1.5 text-xs text-slate-600 font-medium">
-          <MapPin className="h-3.5 w-3.5 text-slate-400" />
+        <div className="flex items-center gap-1.5 text-xs text-muted-foreground font-medium">
+          <MapPin className="h-3.5 w-3.5 text-muted-foreground/70" />
           <span>{row.address || "—"}</span>
         </div>
       ),
@@ -316,19 +316,19 @@ export default function ThirdPartyAgentsPage() {
       header: "Status",
       render: (row) => {
         const statusStyles: Record<string, string> = {
-          Active: "bg-emerald-50 text-emerald-700 border-emerald-300",
-          Inactive: "bg-slate-50 text-slate-700 border-slate-300",
-          Suspended: "bg-rose-50 text-rose-700 border-rose-300",
+          Active: "bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-500/15 dark:text-emerald-300 dark:border-emerald-500/30",
+          Inactive: "bg-muted text-muted-foreground border-border",
+          Suspended: "bg-rose-50 text-rose-700 border-rose-300 dark:bg-rose-500/15 dark:text-rose-300 dark:border-rose-500/30",
         }
         return (
           <span
             className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold border ${
-              statusStyles[row.status] || "bg-slate-50 text-slate-700 border-slate-300"
+              statusStyles[row.status] || "bg-muted text-muted-foreground border-border"
             }`}
           >
             <span
               className={`h-1.5 w-1.5 rounded-full ${
-                row.status === "Active" ? "bg-emerald-500" : row.status === "Suspended" ? "bg-rose-500" : "bg-slate-400"
+                row.status === "Active" ? "bg-emerald-500" : row.status === "Suspended" ? "bg-rose-500" : "bg-muted-foreground"
               }`}
             />
             {row.status}
@@ -340,8 +340,8 @@ export default function ThirdPartyAgentsPage() {
       key: "created_at",
       header: "Onboarded",
       render: (row) => (
-        <div className="flex items-center gap-1.5 text-xs text-slate-600 font-medium">
-          <Calendar className="h-3.5 w-3.5 text-slate-400" />
+        <div className="flex items-center gap-1.5 text-xs text-muted-foreground font-medium">
+          <Calendar className="h-3.5 w-3.5 text-muted-foreground/70" />
           <span>{formatDate(row.created_at)}</span>
         </div>
       ),
@@ -358,7 +358,7 @@ export default function ThirdPartyAgentsPage() {
       label: "Quick View",
       onClick: (row: ThirdPartyAgentRecord) => handleQuickView(row),
       variant: "view",
-      icon: <Eye className="h-4 w-4 text-[#F08C2B]" />,
+      icon: <Eye className="h-4 w-4 text-brand" />,
     },
     {
       label: "Edit",
@@ -396,12 +396,12 @@ export default function ThirdPartyAgentsPage() {
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Third Party Agents</h1>
-            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold text-[#F08C2B] bg-white border border-[#F08C2B]/40">
+            <h1 className="text-2xl font-bold text-foreground tracking-tight">Third Party Agents</h1>
+            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold text-brand bg-brand/10 border border-brand/30">
               <Sparkles className="h-3 w-3 mr-1" /> Partner Directory
             </span>
           </div>
-          <p className="text-sm text-slate-500 mt-1">Manage external organizations, partners, and contacts.</p>
+          <p className="text-sm text-muted-foreground mt-1">Manage external organizations, partners, and contacts.</p>
         </div>
 
         <div className="flex items-center gap-3">
@@ -409,15 +409,15 @@ export default function ThirdPartyAgentsPage() {
           {canCreateAgent ? (
             <Button
               onClick={() => setIsAddOpen(true)}
-              className="group relative h-11 px-5 rounded-2xl bg-white text-slate-800 border border-slate-300 hover:border-[#F08C2B] hover:text-[#F08C2B] hover:bg-orange-50/60 transition-all duration-200 font-semibold text-xs sm:text-sm shadow-2xs cursor-pointer flex items-center gap-2"
+              className="group relative h-11 px-5 rounded-2xl bg-card text-foreground border border-border hover:border-brand hover:text-brand hover:bg-brand/10 transition-all duration-200 font-semibold text-xs sm:text-sm shadow-2xs cursor-pointer flex items-center gap-2"
             >
-              <Plus className="h-4 w-4 text-[#F08C2B] group-hover:scale-110 transition-transform stroke-[2.5]" />
+              <Plus className="h-4 w-4 text-brand group-hover:scale-110 transition-transform stroke-[2.5]" />
               <span className="tracking-tight">Add Agent</span>
             </Button>
           ) : (
             <Tooltip title={createDisabledTooltip} placement="top" arrow>
               <span className="inline-block cursor-not-allowed">
-                <Button disabled className="h-11 rounded-2xl bg-slate-100 text-slate-400 px-5 font-semibold border border-slate-200">
+                <Button disabled className="h-11 rounded-2xl bg-muted text-muted-foreground px-5 font-semibold border border-border">
                   <Plus className="mr-2 h-4 w-4" />
                   Add Agent
                 </Button>
@@ -430,55 +430,55 @@ export default function ThirdPartyAgentsPage() {
       {/* Border-Accented Executive Stat Cards */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {/* Card 1: Total Agents */}
-        <Card className="border border-slate-200 border-t-2 border-t-[#F08C2B] bg-white shadow-2xs rounded-2xl transition-all hover:border-slate-300">
+        <Card className="border border-border border-t-2 border-t-brand bg-card shadow-2xs rounded-2xl transition-all hover:border-brand/40">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+            <CardTitle className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               Total Agents
             </CardTitle>
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-orange-200 bg-white text-[#F08C2B]">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-brand/30 bg-brand/10 text-brand">
               <Building2 className="h-4 w-4" />
             </div>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-slate-900">{summary.total}</div>
-            <div className="mt-1 flex items-center gap-1 text-xs text-slate-500">
-              <span className="font-semibold text-slate-700">{activeRate}%</span>
+            <div className="text-2xl font-bold text-foreground">{summary.total}</div>
+            <div className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
+              <span className="font-semibold text-foreground/80">{activeRate}%</span>
               <span>active partner ratio</span>
             </div>
           </CardContent>
         </Card>
 
         {/* Card 2: Active Partners */}
-        <Card className="border border-slate-200 border-t-2 border-t-emerald-500 bg-white shadow-2xs rounded-2xl transition-all hover:border-slate-300">
+        <Card className="border border-border border-t-2 border-t-emerald-500 bg-card shadow-2xs rounded-2xl transition-all hover:border-brand/40">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+            <CardTitle className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               Active Partners
             </CardTitle>
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-emerald-200 bg-white text-emerald-600">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-emerald-500/25 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
               <CheckCircle2 className="h-4 w-4" />
             </div>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-slate-900">{summary.active}</div>
-            <div className="mt-1 flex items-center gap-1.5 text-xs text-emerald-600 font-semibold">
+            <div className="text-2xl font-bold text-foreground">{summary.active}</div>
+            <div className="mt-1 flex items-center gap-1.5 text-xs text-emerald-600 dark:text-emerald-400 font-semibold">
               <CheckCircle2 className="h-3.5 w-3.5" /> Operating actively
             </div>
           </CardContent>
         </Card>
 
         {/* Card 3: Inactive / Suspended */}
-        <Card className="border border-slate-200 border-t-2 border-t-amber-500 bg-white shadow-2xs rounded-2xl transition-all hover:border-slate-300">
+        <Card className="border border-border border-t-2 border-t-amber-500 bg-card shadow-2xs rounded-2xl transition-all hover:border-brand/40">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+            <CardTitle className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               Inactive / Suspended
             </CardTitle>
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-amber-200 bg-white text-amber-600">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-amber-500/25 bg-amber-500/10 text-amber-600 dark:text-amber-400">
               <AlertCircle className="h-4 w-4" />
             </div>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-slate-900">{summary.inactive_suspended}</div>
-            <div className="mt-1 flex items-center gap-1.5 text-xs text-amber-600 font-medium">
+            <div className="text-2xl font-bold text-foreground">{summary.inactive_suspended}</div>
+            <div className="mt-1 flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400 font-medium">
               <AlertCircle className="h-3.5 w-3.5" /> Requires attention
             </div>
           </CardContent>
@@ -488,13 +488,13 @@ export default function ThirdPartyAgentsPage() {
       {/* Partner Analytics Dashboard */}
       <div className="grid gap-6 md:grid-cols-3 pt-1">
         {/* Chart 1: Onboarding Growth Trend (Area Chart) */}
-        <Card className="border border-slate-200 bg-white shadow-2xs rounded-2xl md:col-span-2">
+        <Card className="border border-border bg-card shadow-2xs rounded-2xl md:col-span-2">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <div>
-              <CardTitle className="text-sm font-bold text-slate-900">
+              <CardTitle className="text-sm font-bold text-foreground">
                 Partner Onboarding Growth
               </CardTitle>
-              <p className="text-xs text-slate-500">Monthly new third-party agent registrations</p>
+              <p className="text-xs text-muted-foreground">Monthly new third-party agent registrations</p>
             </div>
           </CardHeader>
           <CardContent className="pt-4">
@@ -503,25 +503,25 @@ export default function ThirdPartyAgentsPage() {
                 <AreaChart data={onboardingTrendData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                   <defs>
                     <linearGradient id="agentColor" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#F08C2B" stopOpacity={0.2} />
-                      <stop offset="95%" stopColor="#F08C2B" stopOpacity={0} />
+                      <stop offset="5%" stopColor="var(--ui-p-600)" stopOpacity={0.25} />
+                      <stop offset="95%" stopColor="var(--ui-p-600)" stopOpacity={0} />
                     </linearGradient>
                   </defs>
-                  <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#64748B" }} axisLine={{ stroke: "#CBD5E1" }} tickLine={{ stroke: "#CBD5E1" }} />
-                  <YAxis tick={{ fontSize: 11, fill: "#64748B" }} axisLine={{ stroke: "#CBD5E1" }} tickLine={{ stroke: "#CBD5E1" }} />
+                  <XAxis dataKey="month" tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} axisLine={{ stroke: "var(--border)" }} tickLine={{ stroke: "var(--border)" }} />
+                  <YAxis tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} axisLine={{ stroke: "var(--border)" }} tickLine={{ stroke: "var(--border)" }} />
                   <RechartsTooltip
                     contentStyle={{
-                      backgroundColor: "#0F172A",
+                      backgroundColor: "var(--popover)",
                       borderRadius: "8px",
-                      border: "none",
-                      color: "#fff",
+                      border: "1px solid var(--border)",
+                      color: "var(--popover-foreground)",
                       fontSize: "12px",
                     }}
                   />
                   <Area
                     type="monotone"
                     dataKey="Agents"
-                    stroke="#F08C2B"
+                    stroke="var(--ui-p-600)"
                     strokeWidth={2}
                     fillOpacity={1}
                     fill="url(#agentColor)"
@@ -533,12 +533,12 @@ export default function ThirdPartyAgentsPage() {
         </Card>
 
         {/* Chart 2: Status Breakdown (Donut Chart) */}
-        <Card className="border border-slate-200 bg-white shadow-2xs rounded-2xl">
+        <Card className="border border-border bg-card shadow-2xs rounded-2xl">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-bold text-slate-900">
+            <CardTitle className="text-sm font-bold text-foreground">
               Partner Status Distribution
             </CardTitle>
-            <p className="text-xs text-slate-500">Active vs Inactive breakdown</p>
+            <p className="text-xs text-muted-foreground">Active vs Inactive breakdown</p>
           </CardHeader>
           <CardContent className="flex flex-col items-center justify-center pt-2">
             <div className="h-40 w-full relative flex items-center justify-center">
@@ -559,29 +559,29 @@ export default function ThirdPartyAgentsPage() {
                   </Pie>
                   <RechartsTooltip
                     contentStyle={{
-                      backgroundColor: "#0F172A",
+                      backgroundColor: "var(--popover)",
                       borderRadius: "8px",
-                      border: "none",
-                      color: "#fff",
+                      border: "1px solid var(--border)",
+                      color: "var(--popover-foreground)",
                       fontSize: "12px",
                     }}
                   />
                 </PieChart>
               </ResponsiveContainer>
               <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                <span className="text-lg font-bold text-slate-900">{activeRate}%</span>
-                <span className="text-[10px] text-slate-500 font-medium">Active</span>
+                <span className="text-lg font-bold text-foreground">{activeRate}%</span>
+                <span className="text-[10px] text-muted-foreground font-medium">Active</span>
               </div>
             </div>
 
             <div className="flex items-center justify-center gap-4 mt-2 text-xs">
               <div className="flex items-center gap-1.5">
                 <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
-                <span className="text-slate-600 font-medium">Active ({summary.active})</span>
+                <span className="text-muted-foreground font-medium">Active ({summary.active})</span>
               </div>
               <div className="flex items-center gap-1.5">
                 <span className="w-2.5 h-2.5 rounded-full bg-amber-500" />
-                <span className="text-slate-600 font-medium">Inactive ({summary.inactive_suspended})</span>
+                <span className="text-muted-foreground font-medium">Inactive ({summary.inactive_suspended})</span>
               </div>
             </div>
           </CardContent>

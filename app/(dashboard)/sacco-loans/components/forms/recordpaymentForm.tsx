@@ -31,7 +31,7 @@ interface RecordPaymentFormProps {
 type BankAccount = { id: string; bank_name: string; bank_account_number: string }
 
 const inputClass = (hasError: boolean) =>
-  `w-full px-3 py-2.5 text-sm border rounded-md transition-all duration-200 focus:ring-[1.5px] focus:ring-[#f08c2b] focus:border-transparent focus:outline-none ${
+  `w-full px-3 py-2.5 text-sm border rounded-md transition-all duration-200 focus:ring-[1.5px] focus:ring-brand focus:border-transparent focus:outline-none ${
     hasError ? "border-red-500" : "border-gray-300 hover:border-gray-400"
   }`
 

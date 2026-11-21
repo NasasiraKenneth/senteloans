@@ -72,7 +72,7 @@ interface EditBuyOffSharesFormProps {
 }
 
 const inputClass =
-  "w-full px-3 py-2.5 text-sm rounded-md border transition-all duration-200 focus:ring-[1.5px] focus:ring-[#f08c2b] focus:border-transparent focus:outline-none border-gray-300 hover:border-gray-400 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-100"
+  "w-full px-3 py-2.5 text-sm rounded-md border transition-all duration-200 focus:ring-[1.5px] focus:ring-brand focus:border-transparent focus:outline-none border-gray-300 hover:border-gray-400 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-100"
 
 const BUY_OFF_MODES = [
   { value: "Cash", label: "Cash" },
@@ -494,7 +494,7 @@ export default function EditBuyOffSharesForm({
 
         <div className="space-y-2 text-xs">
           {/* Row 1: Previous Value */}
-          <div className="flex items-center justify-between rounded-lg border border-slate-200 bg-white px-3.5 py-2.5 dark:border-slate-800 dark:bg-slate-900">
+          <div className="flex items-center justify-between rounded-lg border border-border bg-card px-3.5 py-2.5">
             <div>
               <p className="font-medium text-slate-600 dark:text-slate-300">Previous Buy-Off Value</p>
               <p className="text-[10px] text-slate-400">
@@ -505,7 +505,7 @@ export default function EditBuyOffSharesForm({
           </div>
 
           {/* Row 2: New Value */}
-          <div className="flex items-center justify-between rounded-lg border border-slate-200 bg-white px-3.5 py-2.5 dark:border-slate-800 dark:bg-slate-900">
+          <div className="flex items-center justify-between rounded-lg border border-border bg-card px-3.5 py-2.5">
             <div>
               <p className="font-medium text-slate-600 dark:text-slate-300">New Buy-Off Value</p>
               <p className="text-[10px] text-slate-400">
@@ -522,7 +522,7 @@ export default function EditBuyOffSharesForm({
                 ? "border-amber-200 bg-amber-50/70 dark:border-amber-900/40 dark:bg-amber-950/20"
                 : valueDifference < 0
                   ? "border-blue-200 bg-blue-50/70 dark:border-blue-900/40 dark:bg-blue-950/20"
-                  : "border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900"
+                  : "border-border bg-card"
             }`}
           >
             <div>
@@ -659,7 +659,7 @@ export default function EditBuyOffSharesForm({
             type="button"
             onClick={onCancel}
             disabled={loading}
-            className="inline-flex h-9 items-center justify-center rounded-md border border-gray-300 bg-white px-4 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
+            className="inline-flex h-9 items-center justify-center rounded-md border border-border bg-card px-4 text-sm font-medium text-foreground transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
           >
             Cancel
           </button>
@@ -668,7 +668,7 @@ export default function EditBuyOffSharesForm({
           type="button"
           onClick={handleSubmit}
           disabled={loading}
-          className="inline-flex h-9 items-center justify-center rounded-md bg-[#f08c2b] px-4 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex h-9 items-center justify-center rounded-md bg-brand px-4 text-sm font-medium text-brand-foreground transition-colors hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {loading ? "Saving Changes…" : "Update Buy-Off Record"}
         </button>

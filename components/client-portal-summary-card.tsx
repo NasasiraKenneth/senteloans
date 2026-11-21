@@ -78,7 +78,7 @@ export function ClientPortalSummaryCard({
       whileHover={href ? { y: -2 } : undefined}
       className={cn(
         "group relative overflow-hidden rounded-2xl border border-border/70 bg-card p-4 shadow-sm transition-all duration-300",
-        href && "cursor-pointer hover:border-primary/20 hover:shadow-md",
+        href && "cursor-pointer hover:border-brand/30 hover:shadow-md",
         href && theme.glow,
         className,
       )}
@@ -103,7 +103,7 @@ export function ClientPortalSummaryCard({
         </div>
 
         {href ? (
-          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted/60 text-muted-foreground transition-colors group-hover:bg-primary/10 group-hover:text-primary">
+          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted/60 text-muted-foreground transition-colors group-hover:bg-brand/10 group-hover:text-brand">
             <ChevronRight className="h-4 w-4" />
           </span>
         ) : null}
@@ -123,7 +123,7 @@ export function ClientPortalSummaryCard({
 
   if (href) {
     return (
-      <Link href={href} className="block outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 rounded-2xl">
+      <Link href={href} className="block outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 rounded-2xl">
         {content}
       </Link>
     )

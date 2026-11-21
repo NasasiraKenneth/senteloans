@@ -15,14 +15,14 @@ export default async function AdminSettingsPage() {
   return (
     <div className="p-6 space-y-6">
       <div>
-        <h1 className="text-3xl font-bold text-primary">System Settings</h1>
+        <h1 className="text-3xl font-bold text-foreground">System Settings</h1>
         <p className="text-muted-foreground">Configure system-wide options</p>
       </div>
 
-      <Card>
+      <Card className="border-border bg-card">
         <CardHeader>
           <CardTitle className="flex items-center">
-            <Settings className="mr-2 h-5 w-5" />
+            <Settings className="mr-2 h-5 w-5 text-brand" />
             General
           </CardTitle>
         </CardHeader>

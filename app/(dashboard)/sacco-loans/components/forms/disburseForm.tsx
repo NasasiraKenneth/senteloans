@@ -157,7 +157,7 @@ export default function DisburseForm({
   const showDateErr = submitAttempted && Boolean(dateError)
 
   const productStyleInputClass = (hasError = false) =>
-    `w-full px-3 py-2.5 text-sm border rounded-md transition-all duration-200 focus:ring-[1.5px] focus:ring-[#f08c2b] focus:border-transparent focus:outline-none ${
+    `w-full px-3 py-2.5 text-sm border rounded-md transition-all duration-200 focus:ring-[1.5px] focus:ring-brand focus:border-transparent focus:outline-none ${
       hasError ? "border-red-500" : "border-gray-300 hover:border-gray-400"
     }`
 
@@ -206,8 +206,8 @@ export default function DisburseForm({
           <p className="text-sm text-red-700">{error}</p>
         </div>
       ) : null}
-      <div className="rounded-xl border border-[#f08c2b]/25 bg-linear-to-r from-[#fff3e8] to-white p-3">
-        <Label className="text-xs font-semibold uppercase tracking-wide text-[#de4925]">Disbursement Type</Label>
+      <div className="rounded-xl border border-brand/25 bg-linear-to-r from-brand/10 to-card p-3">
+        <Label className="text-xs font-semibold uppercase tracking-wide text-brand">Disbursement Type</Label>
         <div className="mt-2 grid grid-cols-2 gap-2">
           {(["complete", "partial"] as const).map((type) => {
             const selected = disbursementType === type
@@ -218,12 +218,12 @@ export default function DisburseForm({
                 onClick={() => setDisbursementType(type)}
                 className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium transition ${
                   selected
-                    ? "border-[#f08c2b] bg-[#f08c2b]/10 text-[#de4925]"
-                    : "border-gray-200 bg-white text-gray-700 hover:border-gray-300"
+                    ? "border-brand bg-brand/10 text-brand"
+                    : "border-border bg-card text-foreground hover:border-brand/40"
                 }`}
               >
                 {selected ? (
-                  <CircleDot className="h-4 w-4 text-[#f08c2b]" />
+                  <CircleDot className="h-4 w-4 text-brand" />
                 ) : (
                   <Circle className="h-4 w-4 text-gray-400" />
                 )}

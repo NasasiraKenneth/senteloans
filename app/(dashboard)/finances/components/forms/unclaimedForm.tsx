@@ -46,7 +46,7 @@ function isBankTransferMode(mode: string): boolean {
 }
 
 const inputClass = (hasError: boolean) =>
-  `w-full px-3 py-2.5 text-sm border rounded-md transition-all duration-200 focus:ring-[1.5px] focus:ring-[#f08c2b] focus:border-transparent focus:outline-none ${
+  `w-full px-3 py-2.5 text-sm border rounded-md transition-all duration-200 focus:ring-[1.5px] focus:ring-brand focus:border-transparent focus:outline-none ${
     hasError ? "border-red-500" : "border-gray-300 hover:border-gray-400"
   }`
 
@@ -315,7 +315,7 @@ export default function UnclaimedForm({
         <Button
           type="submit"
           disabled={disabled}
-          className="bg-[#f08c2b] text-white transition-colors hover:!bg-[#f08c2b] hover:!text-black"
+          className="bg-brand text-brand-foreground transition-colors hover:!bg-brand-700 hover:!text-brand-foreground"
         >
           {loading ? "Saving…" : mode === "edit" ? "Save changes" : "Add deposit"}
         </Button>

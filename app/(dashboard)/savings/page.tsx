@@ -407,21 +407,21 @@ export default function SavingsPage() {
   const getAccountTypeColor = (type: string) => {
     const t = String(type || "").toLowerCase();
     if (t.includes("volunt")) {
-      return "bg-blue-50 text-blue-700 border border-blue-200";
+      return "bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-500/15 dark:text-blue-300 dark:border-blue-500/30";
     }
     if (t.includes("fix") || t.includes("deposit")) {
-      return "bg-purple-50 text-purple-700 border border-purple-200 font-semibold";
+      return "bg-purple-50 text-purple-700 border border-purple-200 font-semibold dark:bg-purple-500/15 dark:text-purple-300 dark:border-purple-500/30";
     }
     if (t.includes("share")) {
-      return "bg-orange-50 text-orange-700 border border-orange-200";
+      return "bg-brand/10 text-brand border border-brand/25";
     }
     if (t.includes("group")) {
-      return "bg-emerald-50 text-emerald-700 border border-emerald-200";
+      return "bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-500/15 dark:text-emerald-300 dark:border-emerald-500/30";
     }
     if (t.includes("current")) {
-      return "bg-cyan-50 text-cyan-700 border border-cyan-200";
+      return "bg-cyan-50 text-cyan-700 border border-cyan-200 dark:bg-cyan-500/15 dark:text-cyan-300 dark:border-cyan-500/30";
     }
-    return "bg-slate-50 text-slate-700 border border-slate-200";
+    return "bg-muted text-muted-foreground border border-border";
   };
 
   // Calculate statistics
@@ -543,7 +543,7 @@ export default function SavingsPage() {
   }, [newAccountsFilter]);
 
   // 4. Savings Accounts Distribution Totals (Pie Chart: Number of Voluntary vs Fixed Accounts)
-  const PROPORTION_COLORS = ["#f08c2b", "#1f1f24", "#d97706", "#78350f"];
+  const PROPORTION_COLORS = ["var(--ui-p-600)", "var(--ui-p-800)", "var(--ui-p-400)", "var(--ui-p-300)"];
 
   const savingsDistributionPieData = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -570,7 +570,7 @@ export default function SavingsPage() {
       key: "account_number",
       header: "Account Number",
       render: (row) => (
-        <span className="text-sm font-mono font-medium text-slate-700">
+        <span className="text-sm font-mono font-medium text-foreground/80">
           {row.account_number}
         </span>
       ),
@@ -580,10 +580,10 @@ export default function SavingsPage() {
       header: "Member Name",
       render: (row) => (
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-full bg-white border-2 border-[#F08C2B] text-[#F08C2B] font-extrabold flex items-center justify-center text-xs flex-shrink-0 shadow-2xs">
+          <div className="w-8 h-8 rounded-full bg-brand/10 border-2 border-brand text-brand font-extrabold flex items-center justify-center text-xs flex-shrink-0 shadow-2xs">
             {getInitials(row.client_name)}
           </div>
-          <div className="font-semibold text-slate-900 hover:text-[#F08C2B] transition-colors cursor-pointer">
+          <div className="font-semibold text-foreground hover:text-brand transition-colors cursor-pointer">
             {row.client_name}
           </div>
         </div>
@@ -606,7 +606,7 @@ export default function SavingsPage() {
       key: "available_balance",
       header: "Available Balance",
       render: (row) => (
-        <div className="font-bold text-slate-900 text-sm">
+        <div className="font-bold text-foreground text-sm">
           {formatCurrency(Number(row.available_balance || 0))}
         </div>
       ),
@@ -615,7 +615,7 @@ export default function SavingsPage() {
       key: "total_balance",
       header: "Total Balance",
       render: (row) => (
-        <div className="font-semibold text-slate-700 text-sm">
+        <div className="font-semibold text-foreground/80 text-sm">
           {formatCurrency(Number(row.total_balance || 0))}
         </div>
       ),
@@ -625,20 +625,20 @@ export default function SavingsPage() {
       header: "Status",
       render: (row) => {
         const statusStyles: Record<string, string> = {
-          Active: "bg-emerald-50 text-emerald-700 border-emerald-300",
-          Inactive: "bg-slate-50 text-slate-700 border-slate-300",
-          Suspended: "bg-rose-50 text-rose-700 border-rose-300",
-          Closed: "bg-slate-50 text-slate-700 border-slate-300",
+          Active: "bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-500/15 dark:text-emerald-300 dark:border-emerald-500/30",
+          Inactive: "bg-muted text-muted-foreground border-border",
+          Suspended: "bg-rose-50 text-rose-700 border-rose-300 dark:bg-rose-500/15 dark:text-rose-300 dark:border-rose-500/30",
+          Closed: "bg-muted text-muted-foreground border-border",
         };
         return (
           <span
             className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold border ${
-              statusStyles[row.status] || "bg-slate-50 text-slate-700 border-slate-300"
+              statusStyles[row.status] || "bg-muted text-muted-foreground border-border"
             }`}
           >
             <span
               className={`h-1.5 w-1.5 rounded-full ${
-                row.status === "Active" ? "bg-emerald-500" : row.status === "Suspended" ? "bg-rose-500" : "bg-slate-400"
+                row.status === "Active" ? "bg-emerald-500" : row.status === "Suspended" ? "bg-rose-500" : "bg-muted-foreground"
               }`}
             />
             {row.status}
@@ -650,8 +650,8 @@ export default function SavingsPage() {
       key: "open_date",
       header: "Opened",
       render: (row) => (
-        <div className="flex items-center gap-1.5 text-xs text-slate-600 font-medium">
-          <Calendar className="h-3.5 w-3.5 text-slate-400" />
+        <div className="flex items-center gap-1.5 text-xs text-muted-foreground font-medium">
+          <Calendar className="h-3.5 w-3.5 text-muted-foreground/70" />
           <span>{formatDate(row.open_date)}</span>
         </div>
       ),
@@ -668,7 +668,7 @@ export default function SavingsPage() {
       label: "View Account",
       onClick: handleView,
       variant: "view",
-      icon: <Eye className="h-4 w-4 text-[#F08C2B]" />,
+      icon: <Eye className="h-4 w-4 text-brand" />,
     },
     {
       label: "Transaction",
@@ -725,14 +725,14 @@ export default function SavingsPage() {
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="text-2xl font-bold text-slate-900 tracking-tight">
+              <h1 className="text-2xl font-bold text-foreground tracking-tight">
                 Savings & Fixed Accounts
               </h1>
-              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold text-[#F08C2B] bg-white border border-[#F08C2B]/40">
+              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold text-brand bg-brand/10 border border-brand/30">
                 <Sparkles className="h-3 w-3 mr-1" /> Savings Hub
               </span>
             </div>
-            <p className="text-sm text-slate-500 mt-1">
+            <p className="text-sm text-muted-foreground mt-1">
               Manage member savings accounts, track deposit growth, and monitor fixed account maturity due dates.
             </p>
           </div>
@@ -742,15 +742,15 @@ export default function SavingsPage() {
             {savingsPermissions.addAccount ? (
               <Button
                 onClick={() => setNewAccountOpen(true)}
-                className="group relative h-11 px-5 rounded-2xl bg-white text-slate-800 border border-slate-300 hover:border-[#F08C2B] hover:text-[#F08C2B] hover:bg-orange-50/60 transition-all duration-200 font-semibold text-xs sm:text-sm shadow-2xs cursor-pointer flex items-center gap-2"
+                className="group relative h-11 px-5 rounded-2xl bg-card text-foreground border border-border hover:border-brand hover:text-brand hover:bg-brand/10 transition-all duration-200 font-semibold text-xs sm:text-sm shadow-2xs cursor-pointer flex items-center gap-2"
               >
-                <Plus className="h-4 w-4 text-[#F08C2B] group-hover:scale-110 transition-transform stroke-[2.5]" />
+                <Plus className="h-4 w-4 text-brand group-hover:scale-110 transition-transform stroke-[2.5]" />
                 <span className="tracking-tight">New Savings Account</span>
               </Button>
             ) : (
               <Tooltip title="Missing add_account permission" placement="top" arrow>
                 <span className="inline-block cursor-not-allowed">
-                  <Button disabled className="h-11 rounded-2xl bg-slate-100 text-slate-400 px-5 font-semibold border border-slate-200">
+                  <Button disabled className="h-11 rounded-2xl bg-muted text-muted-foreground px-5 font-semibold border border-border">
                     <Plus className="mr-2 h-4 w-4" />
                     New Savings Account
                   </Button>
@@ -763,75 +763,75 @@ export default function SavingsPage() {
         {/* Border-Accented Executive Stat Cards */}
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {/* Card 1: Total Savings */}
-          <Card className="border border-slate-200 border-t-2 border-t-[#F08C2B] bg-white shadow-2xs rounded-2xl transition-all hover:border-slate-300">
+          <Card className="border border-border border-t-2 border-t-brand bg-card shadow-2xs rounded-2xl transition-all hover:border-brand/40">
             <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+              <CardTitle className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                 Total Savings Balance
               </CardTitle>
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-orange-200 bg-white text-[#F08C2B]">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-brand/30 bg-brand/10 text-brand">
                 <PiggyBank className="h-4 w-4" />
               </div>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-slate-900">
+              <div className="text-2xl font-bold text-foreground">
                 {formatCurrency(totalSavings)}
               </div>
-              <div className="mt-1 flex items-center gap-1 text-xs text-slate-500">
+              <div className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
                 <span>Avg. balance:</span>
-                <span className="font-semibold text-slate-700">{formatCurrency(averageBalance)}</span>
+                <span className="font-semibold text-foreground/80">{formatCurrency(averageBalance)}</span>
               </div>
             </CardContent>
           </Card>
 
           {/* Card 2: Active Accounts */}
-          <Card className="border border-slate-200 border-t-2 border-t-emerald-500 bg-white shadow-2xs rounded-2xl transition-all hover:border-slate-300">
+          <Card className="border border-border border-t-2 border-t-emerald-500 bg-card shadow-2xs rounded-2xl transition-all hover:border-brand/40">
             <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+              <CardTitle className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                 Active Savings Accounts
               </CardTitle>
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-emerald-200 bg-white text-emerald-600">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-emerald-500/25 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
                 <Users className="h-4 w-4" />
               </div>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-slate-900">{activeAccounts}</div>
-              <div className="mt-1 flex items-center gap-1.5 text-xs text-emerald-600 font-semibold">
+              <div className="text-2xl font-bold text-foreground">{activeAccounts}</div>
+              <div className="mt-1 flex items-center gap-1.5 text-xs text-emerald-600 dark:text-emerald-400 font-semibold">
                 <CheckCircle2 className="h-3.5 w-3.5" /> Out of {totalAccounts} total accounts
               </div>
             </CardContent>
           </Card>
 
           {/* Card 3: Dormant Accounts */}
-          <Card className="border border-slate-200 border-t-2 border-t-purple-500 bg-white shadow-2xs rounded-2xl transition-all hover:border-slate-300">
+          <Card className="border border-border border-t-2 border-t-purple-500 bg-card shadow-2xs rounded-2xl transition-all hover:border-brand/40">
             <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+              <CardTitle className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                 Dormant Accounts
               </CardTitle>
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-purple-200 bg-white text-purple-600">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-purple-500/25 bg-purple-500/10 text-purple-600 dark:text-purple-400">
                 <AlertCircle className="h-4 w-4" />
               </div>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-slate-900">{dormantAccountsCount}</div>
-              <div className="mt-1 flex items-center gap-1.5 text-xs text-purple-600 font-semibold">
+              <div className="text-2xl font-bold text-foreground">{dormantAccountsCount}</div>
+              <div className="mt-1 flex items-center gap-1.5 text-xs text-purple-600 dark:text-purple-400 font-semibold">
                 <AlertCircle className="h-3.5 w-3.5" /> Inactive accounts
               </div>
             </CardContent>
           </Card>
 
           {/* Card 4: Recent Activity */}
-          <Card className="border border-slate-200 border-t-2 border-t-sky-500 bg-white shadow-2xs rounded-2xl transition-all hover:border-slate-300">
+          <Card className="border border-border border-t-2 border-t-sky-500 bg-card shadow-2xs rounded-2xl transition-all hover:border-brand/40">
             <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+              <CardTitle className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                 Recent Activity
               </CardTitle>
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-sky-200 bg-white text-sky-600">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-sky-500/25 bg-sky-500/10 text-sky-600 dark:text-sky-400">
                 <TrendingUp className="h-4 w-4" />
               </div>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-slate-900">{transactions.length}</div>
-              <div className="mt-1 flex items-center gap-1.5 text-xs text-slate-500">
+              <div className="text-2xl font-bold text-foreground">{transactions.length}</div>
+              <div className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
                 <span>Recent transactions logged</span>
               </div>
             </CardContent>
@@ -843,20 +843,20 @@ export default function SavingsPage() {
           {/* ROW 1: Savings Activity & Balance Trends (Left 7 cols) + Top 10 Saving Members (Right 5 cols) */}
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
             {/* Left Card: Savings Activity & Balance Trends */}
-            <Card className="border border-slate-200 bg-white shadow-2xs rounded-2xl flex flex-col justify-between hover:border-slate-300 transition-all lg:col-span-7">
-              <CardHeader className="flex flex-col sm:flex-row sm:items-center sm:justify-between pb-2 pt-3 px-4 gap-2 border-b border-slate-100">
+            <Card className="border border-border bg-card shadow-2xs rounded-2xl flex flex-col justify-between hover:border-brand/40 transition-all lg:col-span-7">
+              <CardHeader className="flex flex-col sm:flex-row sm:items-center sm:justify-between pb-2 pt-3 px-4 gap-2 border-b border-border/60">
                 <div>
-                  <CardTitle className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                    <TrendingUp className="h-4 w-4 text-[#F08C2B]" />
+                  <CardTitle className="text-sm font-bold text-foreground flex items-center gap-2">
+                    <TrendingUp className="h-4 w-4 text-brand" />
                     Savings Activity & Balance Trends
                   </CardTitle>
-                  <p className="text-[11px] text-slate-500 mt-0.5">
+                  <p className="text-[11px] text-muted-foreground mt-0.5">
                     Tracks Total Savings Balance, Deposits, and Withdrawals
                   </p>
                 </div>
 
                 {/* Time Filter Segmented Buttons */}
-                <div className="flex flex-wrap gap-0.5 bg-slate-100 p-0.5 rounded-lg text-xs font-medium self-start sm:self-auto">
+                <div className="flex flex-wrap gap-0.5 bg-muted p-0.5 rounded-lg text-xs font-medium self-start sm:self-auto">
                   {(["Today", "Last 7 Days", "Monthly", "Quarterly", "Yearly"] as const).map((period) => (
                     <button
                       key={period}
@@ -864,8 +864,8 @@ export default function SavingsPage() {
                       onClick={() => setLineGraphPeriod(period)}
                       className={`px-2 py-0.5 rounded transition-all text-xs font-semibold cursor-pointer ${
                         lineGraphPeriod === period
-                          ? "bg-white text-slate-900 font-bold shadow-2xs"
-                          : "text-slate-500 hover:text-slate-800"
+                          ? "bg-brand text-brand-foreground font-bold shadow-2xs"
+                          : "text-muted-foreground hover:text-foreground"
                       }`}
                     >
                       {period}
@@ -877,15 +877,15 @@ export default function SavingsPage() {
                 <div className="h-56 w-full">
                   <ResponsiveContainer width="100%" height="100%">
                     <LineChart data={lineGraphData} margin={{ top: 5, right: 10, left: -10, bottom: 0 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#CBD5E1" strokeOpacity={0.4} />
-                      <XAxis dataKey="period" tick={{ fontSize: 10, fill: "#64748B" }} axisLine={{ stroke: "#CBD5E1" }} tickLine={{ stroke: "#CBD5E1" }} />
-                      <YAxis tick={{ fontSize: 10, fill: "#64748B" }} axisLine={{ stroke: "#CBD5E1" }} tickLine={{ stroke: "#CBD5E1" }} tickFormatter={(v) => formatCurrency(v).replace("UGX", "").trim()} />
+                      <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" strokeOpacity={0.6} />
+                      <XAxis dataKey="period" tick={{ fontSize: 10, fill: "var(--muted-foreground)" }} axisLine={{ stroke: "var(--border)" }} tickLine={{ stroke: "var(--border)" }} />
+                      <YAxis tick={{ fontSize: 10, fill: "var(--muted-foreground)" }} axisLine={{ stroke: "var(--border)" }} tickLine={{ stroke: "var(--border)" }} tickFormatter={(v) => formatCurrency(v).replace("UGX", "").trim()} />
                       <RechartsTooltip
                         contentStyle={{
-                          backgroundColor: "#0F172A",
+                          backgroundColor: "var(--popover)",
                           borderRadius: "8px",
-                          border: "none",
-                          color: "#fff",
+                          border: "1px solid var(--border)",
+                          color: "var(--popover-foreground)",
                           fontSize: "12px",
                         }}
                         formatter={(val: any, name: any) => [
@@ -894,7 +894,7 @@ export default function SavingsPage() {
                         ]}
                       />
                       <Legend iconType="circle" wrapperStyle={{ paddingTop: 4, fontSize: "11px" }} />
-                      <Line type="monotone" dataKey="balance" name="balance" stroke="#F08C2B" strokeWidth={2.5} dot={false} activeDot={{ r: 5 }} />
+                      <Line type="monotone" dataKey="balance" name="balance" stroke="var(--ui-p-600)" strokeWidth={2.5} dot={false} activeDot={{ r: 5 }} />
                       <Line type="monotone" dataKey="deposits" name="deposits" stroke="#10B981" strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
                       <Line type="monotone" dataKey="withdrawals" name="withdrawals" stroke="#EF4444" strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
                     </LineChart>
@@ -904,10 +904,10 @@ export default function SavingsPage() {
             </Card>
 
             {/* Right Card: Top 10 Saving Members */}
-            <Card className="border border-slate-200 bg-white shadow-2xs rounded-2xl flex flex-col justify-between hover:border-slate-300 transition-all overflow-hidden lg:col-span-5">
-              <CardHeader className="bg-white pb-1 pt-3 flex flex-row items-center justify-center gap-2">
-                <Users className="h-4 w-4 text-[#F08C2B]" />
-                <CardTitle className="text-sm font-semibold text-slate-900 text-center">Top 10 Saving Members</CardTitle>
+            <Card className="border border-border bg-card shadow-2xs rounded-2xl flex flex-col justify-between hover:border-brand/40 transition-all overflow-hidden lg:col-span-5">
+              <CardHeader className="bg-card pb-1 pt-3 flex flex-row items-center justify-center gap-2">
+                <Users className="h-4 w-4 text-brand" />
+                <CardTitle className="text-sm font-semibold text-foreground text-center">Top 10 Saving Members</CardTitle>
               </CardHeader>
               <CardContent className="p-3 pt-1">
                 <div className="h-56 w-full">
@@ -917,20 +917,20 @@ export default function SavingsPage() {
                       data={topSavingMembersData}
                       margin={{ top: 5, right: 10, left: 10, bottom: 0 }}
                     >
-                      <CartesianGrid strokeDasharray="3 3" stroke="#CBD5E1" strokeOpacity={0.4} />
-                      <XAxis type="number" tick={{ fontSize: 9, fill: "#64748B" }} axisLine={{ stroke: "#CBD5E1" }} tickLine={{ stroke: "#CBD5E1" }} tickFormatter={(v) => `${(v / 1000000).toFixed(1)}M`} />
-                      <YAxis type="category" dataKey="memberName" width={90} tick={{ fontSize: 9, fill: "#334155" }} axisLine={false} tickLine={false} />
+                      <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" strokeOpacity={0.6} />
+                      <XAxis type="number" tick={{ fontSize: 9, fill: "var(--muted-foreground)" }} axisLine={{ stroke: "var(--border)" }} tickLine={{ stroke: "var(--border)" }} tickFormatter={(v) => `${(v / 1000000).toFixed(1)}M`} />
+                      <YAxis type="category" dataKey="memberName" width={90} tick={{ fontSize: 9, fill: "var(--foreground)" }} axisLine={false} tickLine={false} />
                       <RechartsTooltip
                         contentStyle={{
-                          backgroundColor: "#0F172A",
+                          backgroundColor: "var(--popover)",
                           borderRadius: "8px",
-                          border: "none",
-                          color: "#fff",
+                          border: "1px solid var(--border)",
+                          color: "var(--popover-foreground)",
                           fontSize: "12px",
                         }}
                         formatter={(val: any) => [formatCurrency(Number(val || 0)), "Savings Balance"]}
                       />
-                      <Bar dataKey="balance" fill="#F08C2B" radius={[0, 4, 4, 0]} barSize={12} />
+                      <Bar dataKey="balance" fill="var(--ui-p-600)" radius={[0, 4, 4, 0]} barSize={12} />
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
@@ -941,18 +941,18 @@ export default function SavingsPage() {
           {/* ROW 2: Account Growth & Dormant Activity (Left 7 cols) + {Fixed Savings Calendar & Savings Distribution} (Right 5 cols) */}
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
             {/* Left Card: Account Growth & Dormant Activity */}
-            <Card className="border border-slate-200 bg-white shadow-2xs rounded-2xl flex flex-col justify-between hover:border-slate-300 transition-all lg:col-span-7">
-              <CardHeader className="flex flex-row items-center justify-between pb-2 pt-3 px-4 border-b border-slate-100">
+            <Card className="border border-border bg-card shadow-2xs rounded-2xl flex flex-col justify-between hover:border-brand/40 transition-all lg:col-span-7">
+              <CardHeader className="flex flex-row items-center justify-between pb-2 pt-3 px-4 border-b border-border/60">
                 <div>
-                  <CardTitle className="text-sm font-bold text-slate-900 flex items-center gap-1.5">
-                    <BarChart2 className="h-4 w-4 text-[#F08C2B]" />
+                  <CardTitle className="text-sm font-bold text-foreground flex items-center gap-1.5">
+                    <BarChart2 className="h-4 w-4 text-brand" />
                     Account Growth & Dormant Activity
                   </CardTitle>
-                  <p className="text-[11px] text-slate-500 mt-0.5">New Openings vs Inactive Accounts</p>
+                  <p className="text-[11px] text-muted-foreground mt-0.5">New Openings vs Inactive Accounts</p>
                 </div>
 
                 {/* Filter buttons: Daily, Monthly, Yearly */}
-                <div className="flex items-center gap-0.5 bg-slate-100 p-0.5 rounded-lg text-xs font-medium">
+                <div className="flex items-center gap-0.5 bg-muted p-0.5 rounded-lg text-xs font-medium">
                   {(["Daily", "Monthly", "Yearly"] as const).map((filter) => (
                     <button
                       key={filter}
@@ -960,8 +960,8 @@ export default function SavingsPage() {
                       onClick={() => setNewAccountsFilter(filter)}
                       className={`px-2 py-0.5 rounded transition-all text-xs font-semibold cursor-pointer ${
                         newAccountsFilter === filter
-                          ? "bg-white text-slate-900 font-bold shadow-2xs"
-                          : "text-slate-500 hover:text-slate-800"
+                          ? "bg-brand text-brand-foreground font-bold shadow-2xs"
+                          : "text-muted-foreground hover:text-foreground"
                       }`}
                     >
                       {filter}
@@ -973,15 +973,15 @@ export default function SavingsPage() {
                 <div className="h-72 w-full">
                   <ResponsiveContainer width="100%" height="100%">
                     <ComposedChart data={mergedAccountsData} margin={{ top: 10, right: 10, left: -18, bottom: 0 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#CBD5E1" strokeOpacity={0.4} />
-                      <XAxis dataKey="period" tick={{ fontSize: 10, fill: "#64748B" }} axisLine={{ stroke: "#CBD5E1" }} tickLine={{ stroke: "#CBD5E1" }} />
-                      <YAxis tick={{ fontSize: 10, fill: "#64748B" }} axisLine={{ stroke: "#CBD5E1" }} tickLine={{ stroke: "#CBD5E1" }} />
+                      <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" strokeOpacity={0.6} />
+                      <XAxis dataKey="period" tick={{ fontSize: 10, fill: "var(--muted-foreground)" }} axisLine={{ stroke: "var(--border)" }} tickLine={{ stroke: "var(--border)" }} />
+                      <YAxis tick={{ fontSize: 10, fill: "var(--muted-foreground)" }} axisLine={{ stroke: "var(--border)" }} tickLine={{ stroke: "var(--border)" }} />
                       <RechartsTooltip
                         contentStyle={{
-                          backgroundColor: "#0F172A",
+                          backgroundColor: "var(--popover)",
                           borderRadius: "8px",
-                          border: "none",
-                          color: "#fff",
+                          border: "1px solid var(--border)",
+                          color: "var(--popover-foreground)",
                           fontSize: "12px",
                         }}
                       />
@@ -995,15 +995,15 @@ export default function SavingsPage() {
             </Card>
 
             {/* Right Column Stack: Fixed Savings Calendar & Savings Accounts Distribution Totals (Scrollable Container) */}
-            <div className="lg:col-span-5 max-h-[470px] overflow-y-auto pr-1 space-y-4 scrollbar-thin scrollbar-thumb-slate-200">
+            <div className="lg:col-span-5 max-h-[470px] overflow-y-auto pr-1 space-y-4 scrollbar-thin">
               {/* 1. Fixed Savings Calendar Grid */}
               <InteractiveSavingsCalendarGrid />
 
               {/* 2. Savings Accounts Distribution Totals (Pie / Donut Chart) */}
-              <Card className="border border-slate-200 bg-white shadow-2xs rounded-2xl flex flex-col justify-between hover:border-slate-300 transition-all overflow-hidden">
-                <CardHeader className="bg-white pb-1 pt-3 flex flex-row items-center justify-center gap-2">
-                  <Coins className="h-4 w-4 text-[#F08C2B]" />
-                  <CardTitle className="text-sm font-semibold text-slate-900 text-center">Savings Accounts Distribution Totals</CardTitle>
+              <Card className="border border-border bg-card shadow-2xs rounded-2xl flex flex-col justify-between hover:border-brand/40 transition-all overflow-hidden">
+                <CardHeader className="bg-card pb-1 pt-3 flex flex-row items-center justify-center gap-2">
+                  <Coins className="h-4 w-4 text-brand" />
+                  <CardTitle className="text-sm font-semibold text-foreground text-center">Savings Accounts Distribution Totals</CardTitle>
                 </CardHeader>
                 <CardContent className="p-3 pt-1 flex flex-col items-center justify-center">
                   <div className="h-44 w-full text-xs">
@@ -1024,7 +1024,7 @@ export default function SavingsPage() {
                           ))}
                         </Pie>
                         <RechartsTooltip
-                          contentStyle={{ background: "#18181b", borderColor: "#27272a", borderRadius: 8, color: "#fff" }}
+                          contentStyle={{ background: "var(--popover)", borderColor: "var(--border)", borderRadius: 8, color: "var(--popover-foreground)" }}
                           formatter={(val: any) => [`${Number(val || 0)} Accounts`, "Number of Accounts"]}
                         />
                         <Legend verticalAlign="bottom" height={24} iconType="circle" />
@@ -1040,7 +1040,7 @@ export default function SavingsPage() {
         {/* Main Data Section: Accounts Table + Recent Tx Sidebar */}
         <div className="flex items-start gap-6">
           <div className="min-w-0 flex-1 space-y-6">
-            {error && <div className="text-sm text-red-600">{error}</div>}
+            {error && <div className="text-sm text-destructive">{error}</div>}
 
             {!sidebarOpen && (
               <div className="flex justify-end">
@@ -1050,7 +1050,7 @@ export default function SavingsPage() {
                   onClick={() => setSidebarOpen(true)}
                   className="gap-2 cursor-pointer"
                 >
-                  <PanelRightOpen className="h-4 w-4 text-[#F08C2B]" />
+                  <PanelRightOpen className="h-4 w-4 text-brand" />
                   Recent Transactions
                 </Button>
               </div>
@@ -1099,16 +1099,16 @@ export default function SavingsPage() {
               opacity: sidebarOpen ? 1 : 0,
             }}
           >
-            <Card className="border border-slate-200 bg-white shadow-2xs rounded-2xl h-fit">
-              <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-3 border-b border-slate-100">
+            <Card className="border border-border bg-card shadow-2xs rounded-2xl h-fit">
+              <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-3 border-b border-border/60">
                 <div>
-                  <CardTitle className="text-sm font-bold text-slate-900">Recent Transactions</CardTitle>
-                  <CardDescription className="text-xs text-slate-500">Latest savings account activity</CardDescription>
+                  <CardTitle className="text-sm font-bold text-foreground">Recent Transactions</CardTitle>
+                  <CardDescription className="text-xs text-muted-foreground">Latest savings account activity</CardDescription>
                 </div>
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="h-8 w-8 shrink-0 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-full cursor-pointer"
+                  className="h-8 w-8 shrink-0 text-muted-foreground hover:text-foreground hover:bg-muted rounded-full cursor-pointer"
                   onClick={() => setSidebarOpen(false)}
                 >
                   <PanelRightClose className="h-4 w-4" />
@@ -1119,16 +1119,16 @@ export default function SavingsPage() {
                   {recentTransactions.map((transaction: any) => (
                     <div
                       key={transaction.id}
-                      className="flex items-center justify-between py-1 border-b border-slate-100 last:border-0"
+                      className="flex items-center justify-between py-1 border-b border-border/60 last:border-0"
                     >
                       <div>
-                        <p className="text-sm font-semibold text-slate-900">
+                        <p className="text-sm font-semibold text-foreground">
                           {transaction.memberName}
                         </p>
-                        <p className="text-xs text-slate-500">
+                        <p className="text-xs text-muted-foreground">
                           {transaction.type} &bull; {transaction.mode}
                         </p>
-                        <p className="text-xs text-slate-400 mt-0.5">
+                        <p className="text-xs text-muted-foreground/80 mt-0.5">
                           {new Date(transaction.date).toLocaleDateString()}
                         </p>
                       </div>
@@ -1139,8 +1139,8 @@ export default function SavingsPage() {
                             transaction.type === "Loan Disbursement" ||
                             transaction.type === "Opening Balance" ||
                             transaction.type === "Shares Purchase"
-                              ? "text-emerald-600"
-                              : "text-rose-600"
+                              ? "text-emerald-600 dark:text-emerald-400"
+                              : "text-rose-600 dark:text-rose-400"
                           }`}
                         >
                           {transaction.type === "Deposit" ||
@@ -1151,7 +1151,7 @@ export default function SavingsPage() {
                             : "-"}
                           {formatCurrency(Number(transaction.amount || 0))}
                         </p>
-                        <p className="text-xs text-slate-500">
+                        <p className="text-xs text-muted-foreground">
                           Bal: {formatCurrency(Number(transaction.balance || 0))}
                         </p>
                       </div>
@@ -1163,7 +1163,7 @@ export default function SavingsPage() {
                     <Button
                       variant="outline"
                       size="sm"
-                      className="w-full bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 font-semibold rounded-xl text-xs cursor-pointer"
+                      className="w-full bg-card hover:bg-brand/10 hover:text-brand hover:border-brand/40 text-foreground border border-border font-semibold rounded-xl text-xs cursor-pointer transition-colors"
                     >
                       View All Transactions
                     </Button>
@@ -1220,21 +1220,21 @@ function InteractiveSavingsCalendarGrid() {
   const selectedEvents = selectedDay ? events[selectedDay] || [] : []
 
   return (
-    <Card className="overflow-hidden border border-slate-200 bg-white shadow-2xs rounded-2xl flex flex-col justify-between">
-      <CardHeader className="bg-white pb-1 pt-4 flex flex-row items-center justify-center gap-2">
-        <CalendarDays className="h-4.5 w-4.5 text-[#F08C2B]" />
-        <CardTitle className="text-sm font-semibold text-slate-900 text-center">Fixed Savings Calendar</CardTitle>
+    <Card className="overflow-hidden border border-border bg-card shadow-2xs rounded-2xl flex flex-col justify-between">
+      <CardHeader className="bg-card pb-1 pt-4 flex flex-row items-center justify-center gap-2">
+        <CalendarDays className="h-4.5 w-4.5 text-brand" />
+        <CardTitle className="text-sm font-semibold text-foreground text-center">Fixed Savings Calendar</CardTitle>
       </CardHeader>
       <CardContent className="p-4 space-y-4 flex-1 flex flex-col justify-between">
         {/* Month label */}
-        <div className="flex items-center justify-between text-xs font-bold uppercase tracking-wider text-slate-500">
+        <div className="flex items-center justify-between text-xs font-bold uppercase tracking-wider text-muted-foreground">
           <span>{monthNames[currentMonth]} {currentYear}</span>
         </div>
 
         {/* Days grid */}
         <div className="grid grid-cols-7 gap-1 text-center text-xs">
           {["S", "M", "T", "W", "T", "F", "S"].map((d, idx) => (
-            <span key={idx} className="font-semibold text-slate-400 py-1">{d}</span>
+            <span key={idx} className="font-semibold text-muted-foreground py-1">{d}</span>
           ))}
 
           {/* Spacers */}
@@ -1255,10 +1255,10 @@ function InteractiveSavingsCalendarGrid() {
                 onClick={() => setSelectedDay(day)}
                 type="button"
                 className={cn(
-                  "relative flex flex-col items-center justify-center py-1.5 rounded-lg transition-colors font-medium outline-none h-8 w-8 mx-auto cursor-pointer",
-                  isToday && "bg-slate-100 font-bold text-[#F08C2B]",
-                  isSelected && !isToday && "bg-[#F08C2B]/15 text-[#F08C2B]",
-                  !isSelected && !isToday && "hover:bg-slate-50"
+                  "relative flex flex-col items-center justify-center py-1.5 rounded-lg transition-colors font-medium outline-none h-8 w-8 mx-auto cursor-pointer text-foreground",
+                  isToday && "bg-muted font-bold text-brand",
+                  isSelected && !isToday && "bg-brand/15 text-brand font-semibold",
+                  !isSelected && !isToday && "hover:bg-muted/60"
                 )}
               >
                 <span>{day}</span>
@@ -1269,7 +1269,7 @@ function InteractiveSavingsCalendarGrid() {
                         key={evIdx}
                         className={cn(
                           "h-1 w-1 rounded-full",
-                          ev.type === "deposit" ? "bg-[#F08C2B]" : "bg-emerald-500"
+                          ev.type === "deposit" ? "bg-brand" : "bg-emerald-500"
                         )}
                       />
                     ))}
@@ -1281,32 +1281,32 @@ function InteractiveSavingsCalendarGrid() {
         </div>
 
         {/* Event detail section */}
-        <div className="border-t border-slate-100 pt-3 space-y-2">
-          <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+        <div className="border-t border-border/60 pt-3 space-y-2">
+          <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
             Schedule for {selectedDay ? `${monthNames[currentMonth]} ${selectedDay}` : "Selected Day"}
           </div>
           {selectedEvents.length > 0 ? (
             <div className="space-y-2">
               {selectedEvents.map((ev, idx) => (
-                <div key={idx} className="flex gap-2.5 rounded-lg bg-slate-50 p-2 border border-slate-200 text-xs">
+                <div key={idx} className="flex gap-2.5 rounded-lg bg-muted/40 p-2 border border-border text-xs">
                   <div
                     className={cn(
                       "w-1 rounded-full shrink-0",
-                      ev.type === "deposit" ? "bg-[#F08C2B]" : "bg-emerald-500"
+                      ev.type === "deposit" ? "bg-brand" : "bg-emerald-500"
                     )}
                   />
                   <div>
-                    <h4 className="font-semibold text-slate-800 flex items-center gap-1">
+                    <h4 className="font-semibold text-foreground flex items-center gap-1">
                       {ev.type === "unlock" && <Lock className="h-3 w-3 text-emerald-500 shrink-0" />}
                       <span>{ev.title}</span>
                     </h4>
-                    <p className="text-[10px] text-slate-500 mt-0.5">{ev.desc}</p>
+                    <p className="text-[10px] text-muted-foreground mt-0.5">{ev.desc}</p>
                   </div>
                 </div>
               ))}
             </div>
           ) : (
-            <p className="text-xs text-slate-400 italic py-1">No lock-in deposit actions scheduled for this day</p>
+            <p className="text-xs text-muted-foreground italic py-1">No lock-in deposit actions scheduled for this day</p>
           )}
         </div>
       </CardContent>

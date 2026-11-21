@@ -39,11 +39,16 @@ interface DailyReportFormProps {
 const STEPS = ["Enter amounts", "Review"] as const
 
 const stepperSx = {
-  "& .MuiStepIcon-root.Mui-active": { color: "#f08c2b" },
-  "& .MuiStepIcon-root.Mui-completed": { color: "#f08c2b" },
-  "& .MuiStepConnector-line": { borderColor: "#e5e7eb" },
-  "& .Mui-active .MuiStepConnector-line": { borderColor: "#f08c2b" },
-  "& .Mui-completed .MuiStepConnector-line": { borderColor: "#f08c2b" },
+  "& .MuiStepIcon-root.Mui-active": { color: "var(--ui-p-600, #f08c2b)" },
+  "& .MuiStepIcon-root.Mui-completed": { color: "var(--ui-p-600, #f08c2b)" },
+  "& .MuiStepIcon-root.Mui-active .MuiStepIcon-text": { fill: "var(--brand-foreground, #ffffff)" },
+  "& .MuiStepLabel-label": { color: "var(--color-muted-foreground, #6b7280)" },
+  "& .MuiStepLabel-label.Mui-active, & .MuiStepLabel-label.Mui-completed": {
+    color: "var(--color-foreground, #1a1a1a)",
+  },
+  "& .MuiStepConnector-line": { borderColor: "var(--color-border, #e5e7eb)" },
+  "& .Mui-active .MuiStepConnector-line": { borderColor: "var(--ui-p-600, #f08c2b)" },
+  "& .Mui-completed .MuiStepConnector-line": { borderColor: "var(--ui-p-600, #f08c2b)" },
 }
 
 function buildDefaults(initialValues?: Partial<DailyReportFormData>): DailyReportFormData {
@@ -57,12 +62,12 @@ function buildDefaults(initialValues?: Partial<DailyReportFormData>): DailyRepor
 }
 
 const inputClass = (hasError: boolean, extra = "") =>
-  `w-full pl-10 pr-3 py-2.5 text-sm border rounded-md transition-all duration-200 focus:ring-[1.5px] focus:ring-[#f08c2b] focus:border-transparent focus:outline-none ${
+  `w-full pl-10 pr-3 py-2.5 text-sm border rounded-md transition-all duration-200 focus:ring-[1.5px] focus:ring-brand focus:border-transparent focus:outline-none ${
     hasError ? "border-red-500" : "border-gray-300 hover:border-gray-400"
   } ${extra}`
 
 const selectClass = (hasError: boolean) =>
-  `w-full px-3 py-2.5 text-sm border rounded-md transition-all duration-200 focus:ring-[1.5px] focus:ring-[#f08c2b] focus:border-transparent focus:outline-none ${
+  `w-full px-3 py-2.5 text-sm border rounded-md transition-all duration-200 focus:ring-[1.5px] focus:ring-brand focus:border-transparent focus:outline-none ${
     hasError ? "border-red-500" : "border-gray-300 hover:border-gray-400"
   }`
 
@@ -335,7 +340,7 @@ export default function DailyReportForm({
             </p>
 
             <div className="flex flex-col gap-4">
-              <div className="flex flex-col gap-3 rounded-md border border-gray-100 bg-white p-3">
+              <div className="flex flex-col gap-3 rounded-md border border-border bg-card p-3">
                 <div className="flex items-center justify-between">
                   <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
                     Bank accounts
@@ -463,9 +468,9 @@ export default function DailyReportForm({
               </div>
             </div>
 
-            <div className="mt-4 flex items-center justify-between rounded-md border border-[#f08c2b]/15 bg-[#f08c2b]/5 px-3 py-2">
+            <div className="mt-4 flex items-center justify-between rounded-md border border-brand/15 bg-brand/5 px-3 py-2">
               <span className="flex items-center gap-2 text-sm font-medium text-gray-700">
-                <Sigma className="h-4 w-4 text-[#f08c2b]" />
+                <Sigma className="h-4 w-4 text-brand" />
                 Declared total
               </span>
               <span className="font-mono text-sm font-semibold text-gray-900">
@@ -486,13 +491,13 @@ export default function DailyReportForm({
           </p>
 
           {showBranchPicker && (
-            <div className="mb-4 rounded-md border border-gray-100 bg-white p-3">
+            <div className="mb-4 rounded-md border border-border bg-card p-3">
               <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Branch</p>
               <p className="mt-1 text-sm text-gray-900">{branchLabel || "—"}</p>
             </div>
           )}
 
-          <div className="mb-4 rounded-md border border-gray-100 bg-white p-3">
+          <div className="mb-4 rounded-md border border-border bg-card p-3">
             <div className="mb-2 flex items-center gap-2">
               <Landmark className="h-4 w-4 text-gray-400" />
               <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
@@ -529,7 +534,7 @@ export default function DailyReportForm({
           </div>
 
           <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <div className="rounded-md border border-gray-100 bg-white p-3">
+            <div className="rounded-md border border-border bg-card p-3">
               <div className="mb-1 flex items-center gap-2">
                 <Smartphone className="h-4 w-4 text-gray-400" />
                 <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
@@ -541,7 +546,7 @@ export default function DailyReportForm({
               </p>
             </div>
 
-            <div className="rounded-md border border-gray-100 bg-white p-3">
+            <div className="rounded-md border border-border bg-card p-3">
               <div className="mb-1 flex items-center gap-2">
                 <Banknote className="h-4 w-4 text-gray-400" />
                 <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
@@ -554,9 +559,9 @@ export default function DailyReportForm({
             </div>
           </div>
 
-          <div className="flex items-center justify-between rounded-md border border-[#f08c2b]/15 bg-[#f08c2b]/5 px-3 py-2">
+          <div className="flex items-center justify-between rounded-md border border-brand/15 bg-brand/5 px-3 py-2">
             <span className="flex items-center gap-2 text-sm font-medium text-gray-700">
-              <Sigma className="h-4 w-4 text-[#f08c2b]" />
+              <Sigma className="h-4 w-4 text-brand" />
               Declared total
             </span>
             <span className="font-mono text-sm font-semibold text-gray-900">
@@ -587,7 +592,7 @@ export default function DailyReportForm({
             type="button"
             onClick={handleNext}
             disabled={disabled}
-            className="bg-[#f08c2b] text-white transition-colors hover:!bg-[#f08c2b] hover:!text-black"
+            className="bg-brand text-brand-foreground transition-colors hover:!bg-brand-700 hover:!text-brand-foreground"
           >
             Next
           </Button>
@@ -596,7 +601,7 @@ export default function DailyReportForm({
             type="button"
             onClick={handleFinalSubmit}
             disabled={disabled}
-            className="bg-[#f08c2b] text-white transition-colors hover:!bg-[#f08c2b] hover:!text-black"
+            className="bg-brand text-brand-foreground transition-colors hover:!bg-brand-700 hover:!text-brand-foreground"
           >
             {loading ? "Saving…" : "Submit daily report"}
           </Button>

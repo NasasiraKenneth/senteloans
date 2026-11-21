@@ -22,7 +22,7 @@ const defaultValues: ExpenseFormData = {
 }
 
 const inputClass = (hasError: boolean) =>
-  `w-full px-3 py-2.5 text-sm border rounded-md transition-all duration-200 focus:ring-[1.5px] focus:ring-[#f08c2b] focus:border-transparent focus:outline-none ${
+  `w-full px-3 py-2.5 text-sm border rounded-md transition-all duration-200 focus:ring-[1.5px] focus:ring-brand focus:border-transparent focus:outline-none ${
     hasError ? "border-red-500" : "border-gray-300 hover:border-gray-400"
   }`
 
@@ -168,7 +168,7 @@ export default function ExpenseForm({
         <Button
           type="submit"
           disabled={disabled}
-          className="transition-colors hover:!bg-[#f08c2b] hover:!text-black"
+          className="transition-colors hover:!bg-brand hover:!text-brand-foreground"
         >
           {loading ? "Saving…" : mode === "edit" ? "Save changes" : "Create expense"}
         </Button>

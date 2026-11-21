@@ -144,7 +144,7 @@ const DetailsStep = ({
                   onClick={(e) => setAnchor(e.currentTarget)}
                   className={`flex items-center justify-between w-full px-3 py-2.5 text-sm border rounded-md cursor-pointer transition-all duration-200 ${
                     open
-                      ? "ring-[1.5px] ring-[#f08c2b] border-transparent"
+                      ? "ring-[1.5px] ring-brand border-transparent"
                       : errors.transactionType
                         ? "border-red-500"
                         : "border-gray-300 hover:border-gray-400"
@@ -197,7 +197,7 @@ const DetailsStep = ({
             min={0}
             step="0.01"
             placeholder="0.00"
-            className={`w-full pl-10 pr-3 py-2.5 text-sm rounded-md border transition-all duration-200 focus:ring-[1.5px] focus:ring-[#f08c2b] focus:border-transparent focus:outline-none ${
+            className={`w-full pl-10 pr-3 py-2.5 text-sm rounded-md border transition-all duration-200 focus:ring-[1.5px] focus:ring-brand focus:border-transparent focus:outline-none ${
               errors.amount ? "border-red-500" : "border-gray-300 hover:border-gray-400"
             }`}
             {...register("amount", {
@@ -301,7 +301,7 @@ const PaymentStep = ({
                     onClick={openCalendar}
                     className={`flex items-center gap-2 w-full px-3 py-2.5 text-sm border rounded-md cursor-pointer transition-all duration-200 ${
                       dateOpen
-                        ? "ring-[1.5px] ring-[#f08c2b] border-transparent"
+                        ? "ring-[1.5px] ring-brand border-transparent"
                         : errors.transactionDate
                           ? "border-red-500"
                           : "border-gray-300 hover:border-gray-400"
@@ -338,7 +338,7 @@ const PaymentStep = ({
                   onClick={(e) => setAnchor(e.currentTarget)}
                   className={`flex items-center justify-between w-full px-3 py-2.5 text-sm border rounded-md cursor-pointer transition-all duration-200 ${
                     open
-                      ? "ring-[1.5px] ring-[#f08c2b] border-transparent"
+                      ? "ring-[1.5px] ring-brand border-transparent"
                       : errors.paymentMethod
                         ? "border-red-500"
                         : "border-gray-300 hover:border-gray-400"
@@ -421,7 +421,7 @@ const PaymentStep = ({
                 min={0}
                 step="0.01"
                 placeholder="0"
-                className={`w-full pl-10 pr-3 py-2.5 text-sm rounded-md border transition-all duration-200 focus:ring-[1.5px] focus:ring-[#f08c2b] focus:border-transparent focus:outline-none ${
+                className={`w-full pl-10 pr-3 py-2.5 text-sm rounded-md border transition-all duration-200 focus:ring-[1.5px] focus:ring-brand focus:border-transparent focus:outline-none ${
                   errors.charges ? "border-red-500" : "border-gray-300 hover:border-gray-400"
                 }`}
                 {...register("charges", {
@@ -448,7 +448,7 @@ const PaymentStep = ({
               id="referenceNumber"
               type="text"
               placeholder="e.g. mobile money, bank transfer reference"
-              className="w-full px-3 py-2.5 text-sm rounded-md border border-gray-300 hover:border-gray-400 transition-all duration-200 focus:ring-[1.5px] focus:ring-[#f08c2b] focus:border-transparent focus:outline-none"
+              className="w-full px-3 py-2.5 text-sm rounded-md border border-gray-300 hover:border-gray-400 transition-all duration-200 focus:ring-[1.5px] focus:ring-brand focus:border-transparent focus:outline-none"
               {...register("referenceNumber")}
             />
             <p className="mt-1 text-xs text-gray-500">Optional reference for this {paymentMethod.toLowerCase()} payment.</p>
@@ -465,7 +465,7 @@ const PaymentStep = ({
         id="notes"
         rows={4}
         placeholder="Optional transaction notes"
-        className="w-full px-3 py-2.5 text-sm rounded-md border border-gray-300 hover:border-gray-400 transition-all duration-200 focus:ring-[1.5px] focus:ring-[#f08c2b] focus:border-transparent focus:outline-none"
+        className="w-full px-3 py-2.5 text-sm rounded-md border border-gray-300 hover:border-gray-400 transition-all duration-200 focus:ring-[1.5px] focus:ring-brand focus:border-transparent focus:outline-none"
         {...register("notes")}
       />
     </div>
@@ -506,8 +506,8 @@ const ReviewStep = ({
 
   return (
     <div className="space-y-4 h-[48vh] overflow-y-auto">
-      <div className="rounded-xl border border-[#111111]/10 bg-white p-4">
-        <h3 className="text-sm font-semibold text-[#111111] mb-4">Review & Confirm</h3>
+      <div className="rounded-xl border border-border bg-card p-4">
+        <h3 className="text-sm font-semibold text-foreground mb-4">Review & Confirm</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
           <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
             <div className="flex items-center gap-2 text-gray-700 mb-1">
@@ -967,7 +967,7 @@ export default function TransactionForm({
   }
 
   return (
-    <div className="bg-white p-8 rounded-xl shadow-md max-w-2xl mx-auto">
+    <div className="bg-card border border-border p-8 rounded-xl shadow-md max-w-2xl mx-auto">
       {isSubmitted && successMessage && <Alert severity="success" sx={{ mb: 6 }}>{successMessage}</Alert>}
       {error && <Alert severity="error" sx={{ mb: 6 }}>{error}</Alert>}
 
@@ -978,8 +978,16 @@ export default function TransactionForm({
             alternativeLabel
             className="mb-8"
             sx={{
-              "& .MuiStepIcon-root.Mui-active": { color: "#f08c2b" },
-              "& .MuiStepIcon-root.Mui-completed": { color: "#f08c2b" },
+              "& .MuiStepIcon-root.Mui-active": { color: "var(--ui-p-600, #f08c2b)" },
+              "& .MuiStepIcon-root.Mui-completed": { color: "var(--ui-p-600, #f08c2b)" },
+              "& .MuiStepIcon-root.Mui-active .MuiStepIcon-text": { fill: "var(--brand-foreground, #ffffff)" },
+              "& .MuiStepLabel-label": { color: "var(--color-muted-foreground, #6b7280)" },
+              "& .MuiStepLabel-label.Mui-active, & .MuiStepLabel-label.Mui-completed": {
+                color: "var(--color-foreground, #1a1a1a)",
+              },
+              "& .MuiStepConnector-line": { borderColor: "var(--color-border, #e5e7eb)" },
+              "& .Mui-active .MuiStepConnector-line": { borderColor: "var(--ui-p-600, #f08c2b)" },
+              "& .Mui-completed .MuiStepConnector-line": { borderColor: "var(--ui-p-600, #f08c2b)" },
             }}
           >
             {steps.map((label) => (
@@ -1031,7 +1039,17 @@ export default function TransactionForm({
               disabled={activeStep === 0 || loading}
               onClick={handleBack}
               variant="outlined"
-              sx={{ borderColor: "#777", color: "#000", textTransform: "none", px: 4, py: 1 }}
+              sx={{
+                borderColor: "var(--color-border, #d1d5db)",
+                color: "var(--color-foreground, #1a1a1a)",
+                textTransform: "none",
+                px: 4,
+                py: 1,
+                "&:hover": {
+                  borderColor: "var(--ui-p-600, #f08c2b)",
+                  backgroundColor: "transparent",
+                },
+              }}
             >
               Back
             </Button>
@@ -1042,7 +1060,16 @@ export default function TransactionForm({
                 type="button"
                 onClick={handleSubmit(handleFormSubmit)}
                 disabled={loading}
-                sx={{ backgroundColor: "#f08c2b", textTransform: "none", px: 4, py: 1 }}
+                sx={{
+                  backgroundColor: "var(--ui-p-600, #f08c2b)",
+                  color: "var(--brand-foreground, #ffffff)",
+                  textTransform: "none",
+                  px: 4,
+                  py: 1,
+                  "&:hover": {
+                    backgroundColor: "var(--ui-p-700, #c2410c)",
+                  },
+                }}
               >
                 {loading ? "Saving..." : "Create Transaction"}
               </Button>
@@ -1052,7 +1079,18 @@ export default function TransactionForm({
                 type="button"
                 onClick={handleNext}
                 disabled={loading || hasStepErrors(activeStep)}
-                sx={{ backgroundColor: "#000", color: "#fff", textTransform: "none", px: 4, py: 1 }}
+                sx={{
+                  backgroundColor: "var(--ui-p-600, #f08c2b)",
+                  color: "var(--brand-foreground, #ffffff)",
+                  textTransform: "none",
+                  px: 4,
+                  py: 1,
+                  boxShadow: "none",
+                  "&:hover": {
+                    backgroundColor: "var(--ui-p-700, #c2410c)",
+                    boxShadow: "none",
+                  },
+                }}
               >
                 Next
               </Button>

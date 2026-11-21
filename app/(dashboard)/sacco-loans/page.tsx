@@ -345,8 +345,8 @@ export default function SaccoLoansPage() {
         header: "Client",
         render: (row) => (
           <div className="flex items-center gap-3">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#f7e6d3]">
-              <span className="text-xs font-semibold text-[#f08c2b]">{getInitials(row.third_party_agent_name || "?")}</span>
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand/15">
+              <span className="text-xs font-semibold text-brand">{getInitials(row.third_party_agent_name || "?")}</span>
             </div>
             <span className="font-medium text-gray-900">{row.third_party_agent_name || "—"}</span>
           </div>

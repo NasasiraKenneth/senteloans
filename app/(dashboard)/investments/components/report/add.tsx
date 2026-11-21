@@ -170,7 +170,7 @@ export default function AddReport({ isOpen, onClose, investmentId, onSubmit }: A
               {cashflows.map((c) => (
                 <div
                   key={c.id}
-                  className="rounded-lg border border-gray-200 bg-white px-3 py-2.5 flex items-start gap-2.5"
+                  className="rounded-lg border border-border bg-card px-3 py-2.5 flex items-start gap-2.5"
                 >
                   <label className="mt-0.5 cursor-pointer">
                     <input
@@ -183,11 +183,11 @@ export default function AddReport({ isOpen, onClose, investmentId, onSubmit }: A
                     <div
                       className={`relative mt-0.5 h-[18px] w-[18px] border-2 flex items-center justify-center rounded-full transition-all ${
                         selectedCashflowIds.includes(c.id)
-                          ? "bg-[#f08c2b] border-[#f08c2b]"
-                          : "bg-white border-gray-400"
+                          ? "bg-brand border-brand"
+                          : "bg-background border-border"
                       }`}
                     >
-                      {selectedCashflowIds.includes(c.id) && <Check className="h-3.5 w-3.5 text-white" />}
+                      {selectedCashflowIds.includes(c.id) && <Check className="h-3.5 w-3.5 text-brand-foreground" />}
                     </div>
                   </label>
                   <div className="min-w-0">

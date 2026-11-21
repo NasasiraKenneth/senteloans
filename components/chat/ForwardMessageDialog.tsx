@@ -42,11 +42,11 @@ function ForwardMessagePreview({
       <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
         Message to forward
       </p>
-      <div className="mt-2 rounded-lg border border-[#f08c2b]/15 bg-[#fff8f1] px-3 py-2.5">
-        <p className="text-[11px] font-medium text-[#c46f12]">{senderName}</p>
+      <div className="mt-2 rounded-lg border border-brand/20 bg-brand/5 px-3 py-2.5">
+        <p className="text-[11px] font-medium text-brand">{senderName}</p>
         {isFile ? (
           <div className="mt-1.5 flex items-center gap-2">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-white text-[#e07d1f] shadow-sm ring-1 ring-[#f08c2b]/15">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-card text-brand shadow-sm ring-1 ring-brand/20">
               <FileText className="h-3.5 w-3.5" />
             </div>
             <p className="min-w-0 truncate text-sm text-foreground">{previewText}</p>
@@ -93,7 +93,7 @@ export function ForwardMessageDialog({
       <DialogContent className="gap-5 sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <CornerUpRight className="h-5 w-5 text-[#f08c2b]" />
+            <CornerUpRight className="h-5 w-5 text-brand" />
             Forward message
           </DialogTitle>
           <DialogDescription>
@@ -114,7 +114,7 @@ export function ForwardMessageDialog({
             onChange={(e) => setCaption(e.target.value)}
             placeholder="Say something about this message..."
             rows={2}
-            className="w-full resize-none rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#f08c2b]/40"
+            className="w-full resize-none rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40"
           />
         </div>
 
@@ -136,7 +136,7 @@ export function ForwardMessageDialog({
           </Button>
           <Button
             type="button"
-            className="bg-[#f08c2b] text-white hover:bg-[#e07d1f]"
+            className="bg-brand text-brand-foreground hover:bg-brand-700"
             disabled={selectedIds.length === 0}
             onClick={handleForward}
           >

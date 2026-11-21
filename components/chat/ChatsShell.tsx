@@ -1086,7 +1086,7 @@ export function ChatsShell({
               <button
                 type="button"
                 onClick={() => void fetchInbox()}
-                className="text-sm font-medium text-[#c46f12] hover:underline"
+                className="text-sm font-medium text-brand hover:underline"
               >
                 Try again
               </button>

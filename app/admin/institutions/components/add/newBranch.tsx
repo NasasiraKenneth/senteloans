@@ -32,7 +32,7 @@ export function AddNewBranchModal({
         onClick={() => setIsOpen(true)}
         className={
           buttonClassName ||
-          "bg-[#f08c2b] hover:bg-[#e07b1a] text-white font-semibold text-xs rounded-2xl shadow-xs flex items-center justify-center gap-1.5 px-4 py-2.5 h-[42px] flex-shrink-0"
+          "bg-brand hover:bg-brand-700 text-brand-foreground font-semibold text-xs rounded-2xl shadow-xs flex items-center justify-center gap-1.5 px-4 py-2.5 h-[42px] flex-shrink-0"
         }
       >
         <Plus className="h-4 w-4" />

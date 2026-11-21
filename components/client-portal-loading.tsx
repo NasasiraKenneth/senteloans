@@ -29,7 +29,7 @@ export function ClientPortalLoading({
         ) : (
           <div className="mx-auto mb-5 h-14 w-14 animate-pulse rounded-xl bg-muted" />
         )}
-          <div className="mx-auto mb-4 h-8 w-8 animate-spin rounded-full border-2 border-primary/20 border-t-primary" />
+          <div className="mx-auto mb-4 h-8 w-8 animate-spin rounded-full border-2 border-brand/20 border-t-brand" />
         <p className="text-sm font-medium text-foreground">{message}</p>
       </div>
     </div>

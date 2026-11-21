@@ -44,7 +44,7 @@ const LOAN_TYPE_OPTIONS = [
 ]
 
 const inputClass = (hasError: boolean) =>
-  `w-full px-3 py-2.5 text-sm border rounded-md transition-all duration-200 focus:ring-[1.5px] focus:ring-[#f08c2b] focus:border-transparent focus:outline-none ${
+  `w-full px-3 py-2.5 text-sm border rounded-md transition-all duration-200 focus:ring-[1.5px] focus:ring-brand focus:border-transparent focus:outline-none ${
     hasError ? "border-red-500" : "border-gray-300 hover:border-gray-400"
   }`
 
@@ -160,16 +160,16 @@ export default function SaccoLoanForm({
   return (
     <div className="w-full max-h-[85vh] overflow-auto">
       <form onSubmit={handleSubmit} className="space-y-5 p-4">
-        <div className="rounded-lg border border-[#f08c2b]/25 bg-linear-to-r from-[#fff3e8] to-white px-4 py-3 text-sm text-gray-900">
+        <div className="rounded-lg border border-brand/25 bg-linear-to-r from-brand/10 to-card px-4 py-3 text-sm text-foreground">
           New external loans are submitted as{" "}
-          <span className="font-semibold text-[#de4925]">Applied</span>. Approval and disbursement happen from the loan
+          <span className="font-semibold text-brand">Applied</span>. Approval and disbursement happen from the loan
           detail page after creation.
         </div>
 
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2 text-base">
-              <Building2 className="h-4 w-4 text-[#f08c2b]" />
+              <Building2 className="h-4 w-4 text-brand" />
               Lender & product
             </CardTitle>
             <CardDescription>Who is providing this facility and what it is for.</CardDescription>
@@ -232,7 +232,7 @@ export default function SaccoLoanForm({
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2 text-base">
-              <Calculator className="h-4 w-4 text-[#f08c2b]" />
+              <Calculator className="h-4 w-4 text-brand" />
               Financial terms
             </CardTitle>
             <CardDescription>Enter the agreed loan figures from the lender.</CardDescription>
@@ -334,7 +334,7 @@ export default function SaccoLoanForm({
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2 text-base">
-              <FileText className="h-4 w-4 text-[#f08c2b]" />
+              <FileText className="h-4 w-4 text-brand" />
               Additional details
             </CardTitle>
             <CardDescription>Optional context for reviewers.</CardDescription>

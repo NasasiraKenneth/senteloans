@@ -25,7 +25,7 @@ interface MembershipFeeFormProps {
 }
 
 const inputClass =
-  "w-full px-3 py-2.5 text-sm rounded-md border transition-all duration-200 focus:ring-[1.5px] focus:ring-[#f08c2b] focus:border-transparent focus:outline-none border-gray-300 hover:border-gray-400"
+  "w-full px-3 py-2.5 text-sm rounded-md border transition-all duration-200 focus:ring-[1.5px] focus:ring-brand focus:border-transparent focus:outline-none border-gray-300 hover:border-gray-400"
 
 const PAYMENT_MODES = [
   { value: "Cash", label: "Cash" },
@@ -180,12 +180,12 @@ export default function MembershipFeeForm({
         </div>
         <div className="h-2 w-full overflow-hidden rounded-full bg-gray-200">
           <div
-            className="h-full rounded-full bg-[#f08c2b] transition-all duration-300"
+            className="h-full rounded-full bg-brand transition-all duration-300"
             style={{ width: `${percentage}%` }}
           />
         </div>
         <div className="flex items-center justify-between text-xs">
-          <span className="font-medium text-[#f08c2b]">{Math.round(percentage)}% paid</span>
+          <span className="font-medium text-brand">{Math.round(percentage)}% paid</span>
           <span className="text-gray-500">Remaining: {fmt(remaining)}</span>
         </div>
       </div>
@@ -206,7 +206,7 @@ export default function MembershipFeeForm({
             value="remaining"
             checked={paymentType === "remaining"}
             onChange={() => setPaymentType("remaining")}
-            className="h-4 w-4 accent-[#f08c2b]"
+            className="h-4 w-4 accent-brand"
           />
           <span className="text-sm text-gray-700">Pay Remaining ({fmt(remaining)})</span>
         </label>
@@ -217,7 +217,7 @@ export default function MembershipFeeForm({
             value="custom"
             checked={paymentType === "custom"}
             onChange={() => setPaymentType("custom")}
-            className="h-4 w-4 accent-[#f08c2b]"
+            className="h-4 w-4 accent-brand"
           />
           <span className="text-sm text-gray-700">Custom Amount</span>
         </label>
@@ -306,7 +306,7 @@ export default function MembershipFeeForm({
           type="button"
           onClick={handleSubmit}
           disabled={loading}
-          className="inline-flex h-9 items-center justify-center rounded-md bg-[#f08c2b] px-4 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex h-9 items-center justify-center rounded-md bg-brand px-4 text-sm font-medium text-brand-foreground transition-colors hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {loading ? "Processing…" : "Record Payment"}
         </button>

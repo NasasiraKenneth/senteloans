@@ -38,17 +38,23 @@ function RequirementCard({
     <div
       className={`rounded-xl border p-4 transition-all ${
         active
-          ? "border-[#f08c2b]/40 bg-linear-to-br from-orange-50 to-amber-50"
-          : "border-gray-200 bg-gray-50"
+          ? "border-brand/35 bg-linear-to-br from-brand/10 via-brand/5 to-card"
+          : "border-border bg-muted/40"
       }`}
     >
       <div className="mb-2 flex items-center gap-2">
-        <div className={`rounded-lg p-2 ${active ? "bg-white text-[#de4925]" : "bg-white text-gray-500"}`}>
+        <div
+          className={`rounded-lg p-2 ${
+            active
+              ? "border border-brand/20 bg-card text-brand"
+              : "border border-border bg-card text-muted-foreground"
+          }`}
+        >
           {icon}
         </div>
-        <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">{title}</p>
+        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{title}</p>
       </div>
-      <p className={`text-sm font-semibold ${active ? "text-gray-900" : "text-gray-500"}`}>{value}</p>
+      <p className={`text-sm font-semibold ${active ? "text-foreground" : "text-muted-foreground"}`}>{value}</p>
     </div>
   )
 }
@@ -58,24 +64,24 @@ export default function LoanProductExpandableContent({ loanProduct }: LoanProduc
 
   return (
     <div className="space-y-5 p-5">
-      <div className="rounded-xl border border-[#f08c2b]/30 bg-linear-to-r from-orange-50 via-amber-50 to-white p-4">
+      <div className="rounded-xl border border-brand/30 bg-linear-to-r from-brand/10 via-brand/5 to-card p-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Loan Product Details</p>
-            <h3 className="mt-1 text-lg font-bold text-gray-900">{loanProduct.product_name}</h3>
-            <p className="mt-1 font-mono text-xs text-gray-600">{loanProduct.product_code}</p>
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Loan Product Details</p>
+            <h3 className="mt-1 text-lg font-bold text-foreground">{loanProduct.product_name}</h3>
+            <p className="mt-1 font-mono text-xs text-muted-foreground">{loanProduct.product_code}</p>
           </div>
-          <span className="inline-flex items-center rounded-full border border-[#f08c2b]/30 bg-white px-3 py-1 text-xs font-semibold text-[#de4925]">
+          <span className="inline-flex items-center rounded-full border border-brand/30 bg-brand/10 px-3 py-1 text-xs font-semibold text-brand">
             {eligibilities.length} Eligibilit{eligibilities.length === 1 ? "y" : "ies"}
           </span>
         </div>
-        <p className="mt-3 text-sm text-gray-700">
+        <p className="mt-3 text-sm text-foreground/80">
           {loanProduct.description?.trim() || "No product description provided."}
         </p>
       </div>
 
       <div>
-        <h4 className="mb-3 text-sm font-semibold uppercase tracking-wide text-gray-600">Requirements</h4>
+        <h4 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">Requirements</h4>
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           <RequirementCard
             title="Collateral"
@@ -105,9 +111,9 @@ export default function LoanProductExpandableContent({ loanProduct }: LoanProduc
       </div>
 
       <div>
-        <h4 className="mb-3 text-sm font-semibold uppercase tracking-wide text-gray-600">Eligibilities</h4>
+        <h4 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">Eligibilities</h4>
         {eligibilities.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-gray-300 bg-gray-50 px-4 py-6 text-center text-sm text-gray-500">
+          <div className="rounded-xl border border-dashed border-border bg-muted/30 px-4 py-6 text-center text-sm text-muted-foreground">
             No eligibility rules configured for this loan product.
           </div>
         ) : (
@@ -117,12 +123,14 @@ export default function LoanProductExpandableContent({ loanProduct }: LoanProduc
               return (
                 <div
                   key={item.id}
-                  className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white px-3 py-2"
+                  className="flex items-center justify-between gap-3 rounded-lg border border-border bg-card px-3 py-2"
                 >
-                  <p className="text-sm font-medium text-gray-800">{item.eligibility}</p>
+                  <p className="text-sm font-medium text-foreground">{item.eligibility}</p>
                   <span
                     className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold ${
-                      isActive ? "bg-green-100 text-green-700" : "bg-gray-200 text-gray-700"
+                      isActive
+                        ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
+                        : "bg-muted text-muted-foreground"
                     }`}
                   >
                     {isActive ? <CheckCircle2 className="h-3.5 w-3.5" /> : <XCircle className="h-3.5 w-3.5" />}

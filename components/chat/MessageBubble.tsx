@@ -64,21 +64,21 @@ function bubbleShellClass(isOwn: boolean, isActiveSearchMatch: boolean, isPinned
   return cn(
     "relative w-fit overflow-hidden text-[13px] leading-[1.45] tracking-[-0.01em]",
     BUBBLE_MAX_WIDTH,
-    (isActiveSearchMatch || isJumpHighlight) && "ring-2 ring-[#f08c2b]/50",
-    isPinned && !isJumpHighlight && !isActiveSearchMatch && "ring-1 ring-[#f08c2b]/30",
+    (isActiveSearchMatch || isJumpHighlight) && "ring-2 ring-brand/50",
+    isPinned && !isJumpHighlight && !isActiveSearchMatch && "ring-1 ring-brand/30",
     isOwn
       ? [
           "rounded-[18px] rounded-br-[5px]",
-          "bg-linear-to-br from-[#fffaf5] via-white to-[#fff5eb]",
+          "bg-brand/[0.08] dark:bg-brand/15",
           "text-foreground",
-          "shadow-[0_1px_1px_rgba(0,0,0,0.03),0_2px_10px_rgba(240,140,43,0.1)]",
-          "ring-1 ring-[#f08c2b]/12",
+          "shadow-[0_1px_1px_rgba(0,0,0,0.03),0_2px_10px_rgba(var(--ui-p-rgb,240,140,43),0.1)]",
+          "ring-1 ring-brand/20",
         ]
       : [
           "rounded-[18px] rounded-bl-[5px]",
-          "bg-white text-foreground",
+          "bg-card text-foreground",
           "shadow-[0_1px_1px_rgba(0,0,0,0.04),0_2px_8px_rgba(15,23,42,0.05)]",
-          "ring-1 ring-black/[0.05]",
+          "ring-1 ring-border/80",
         ],
   )
 }
@@ -100,7 +100,7 @@ function ForwardedQuote({
       className={cn(
         "mb-2 rounded-lg border-l-[3px] px-2.5 py-2",
         isOwn
-          ? "border-[#f08c2b]/50 bg-[#f08c2b]/6"
+          ? "border-brand/60 bg-brand/10"
           : "border-muted-foreground/25 bg-muted/35",
       )}
     >
@@ -108,7 +108,7 @@ function ForwardedQuote({
         <CornerUpRight className="h-3 w-3 shrink-0" />
         <span>Forwarded</span>
       </div>
-      <p className="mt-0.5 text-[11px] font-medium text-[#c46f12]">{forwardedFrom.senderName}</p>
+      <p className="mt-0.5 text-[11px] font-medium text-brand">{forwardedFrom.senderName}</p>
       {isFile ? (
         <div className="mt-1 flex items-center gap-2">
           <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
@@ -215,8 +215,8 @@ export function MessageBubble({
         <mark
           key={index}
           className={cn(
-            "rounded-sm bg-[#fde4c3] px-0.5 text-foreground",
-            isActiveSearchMatch && "bg-[#f08c2b]/35",
+            "rounded-sm bg-brand/20 px-0.5 text-foreground",
+            isActiveSearchMatch && "bg-brand/40",
           )}
         >
           {part.text}
@@ -322,15 +322,15 @@ export function MessageBubble({
               <div
                 className={cn(
                   "flex min-w-0 items-center gap-3 rounded-xl p-2.5",
-                  isOwn ? "bg-[#f08c2b]/6" : "bg-muted/35",
+                  isOwn ? "bg-brand/10" : "bg-muted/35",
                 )}
               >
                 <div
                   className={cn(
                     "flex h-10 w-10 shrink-0 items-center justify-center rounded-lg",
                     isOwn
-                      ? "bg-white text-[#e07d1f] shadow-sm ring-1 ring-[#f08c2b]/15"
-                      : "bg-white text-muted-foreground shadow-sm ring-1 ring-black/4",
+                      ? "bg-card text-brand shadow-sm ring-1 ring-brand/20"
+                      : "bg-card text-muted-foreground shadow-sm ring-1 ring-border/60",
                   )}
                 >
                   <FileText className="h-4 w-4" />

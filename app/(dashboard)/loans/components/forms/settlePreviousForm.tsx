@@ -29,7 +29,7 @@ interface SettlePreviousFormProps {
 }
 
 const inputClass =
-  "w-full px-3 py-2.5 text-sm rounded-md border transition-all duration-200 focus:ring-[1.5px] focus:ring-[#f08c2b] focus:border-transparent focus:outline-none border-gray-300 hover:border-gray-400"
+  "w-full px-3 py-2.5 text-sm rounded-md border transition-all duration-200 focus:ring-[1.5px] focus:ring-brand focus:border-transparent focus:outline-none border-gray-300 hover:border-gray-400"
 
 export default function SettlePreviousForm({
   memberId,
@@ -108,8 +108,8 @@ export default function SettlePreviousForm({
         </div>
       )}
 
-      <div className="rounded-xl border border-[#f08c2b]/25 bg-linear-to-r from-[#fff3e8] to-white p-3 space-y-2">
-        <p className="text-xs font-semibold uppercase tracking-wide text-[#de4925]">Settlement summary</p>
+      <div className="rounded-xl border border-brand/25 bg-linear-to-r from-brand/10 to-card p-3 space-y-2">
+        <p className="text-xs font-semibold uppercase tracking-wide text-brand">Settlement summary</p>
         <div className="grid grid-cols-2 gap-3 text-sm">
           <div>
             <p className="text-muted-foreground">Loan type</p>

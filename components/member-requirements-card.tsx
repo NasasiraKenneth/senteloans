@@ -122,8 +122,8 @@ export function MemberRequirementsCard() {
     rows.push({
       key: "fee",
       icon: DollarSign,
-      iconBg: "bg-orange-100 dark:bg-orange-500/10",
-      iconColor: "text-orange-600 dark:text-orange-400",
+      iconBg: "bg-brand/10 dark:bg-brand/20",
+      iconColor: "text-brand",
       title: "Membership fee",
       value: fmt(config.membershipFee),
       hint: "One-time. Can be paid in installments after registration.",
@@ -198,8 +198,8 @@ export function MemberRequirementsCard() {
 function RequirementsHeader({ clientTerminology }: { clientTerminology: string }) {
   return (
     <div className="px-4 py-2.5 border-b bg-muted/30 flex items-center gap-2">
-      <div className="flex h-6 w-6 items-center justify-center rounded-md bg-primary/10">
-        <ClipboardList className="h-3.5 w-3.5 text-primary" />
+      <div className="flex h-6 w-6 items-center justify-center rounded-md bg-brand/10">
+        <ClipboardList className="h-3.5 w-3.5 text-brand" />
       </div>
       <h3 className="text-sm font-semibold text-foreground">
         {clientTerminology} requirements

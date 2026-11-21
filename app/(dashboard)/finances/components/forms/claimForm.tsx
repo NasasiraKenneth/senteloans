@@ -233,14 +233,14 @@ export default function ClaimForm({
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-4 p-4">
       {depositSummary && (
-        <div className="overflow-hidden rounded-xl border border-[#f08c2b]/20 bg-gradient-to-br from-[#f08c2b]/10 via-white to-white shadow-sm">
-          <div className="flex items-center justify-between gap-3 border-b border-[#f08c2b]/15 bg-[#f08c2b]/5 px-4 py-3">
+        <div className="overflow-hidden rounded-xl border border-brand/20 bg-gradient-to-br from-brand/10 via-card to-card shadow-sm">
+          <div className="flex items-center justify-between gap-3 border-b border-brand/15 bg-brand/5 px-4 py-3">
             <div className="flex items-center gap-2.5">
-              <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-[#f08c2b]/20 bg-white text-[#f08c2b]">
+              <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-brand/25 bg-card text-brand">
                 <Inbox className="h-4 w-4" />
               </div>
               <div>
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-[#f08c2b]/80">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-brand/80">
                   Deposit
                 </p>
                 <p className="text-base font-semibold leading-tight text-gray-900">

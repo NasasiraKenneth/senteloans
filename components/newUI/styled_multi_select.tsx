@@ -55,17 +55,17 @@ export default function StyledMultiSelect({
     <>
       <div
         onClick={(e) => setAnchor(e.currentTarget)}
-        className={`flex items-center justify-between w-full px-3 py-2.5 text-sm border rounded-md cursor-pointer transition-all duration-200 ${
+        className={`flex items-center justify-between w-full px-3 py-2.5 text-sm border rounded-md bg-background cursor-pointer transition-all duration-200 ${
           open
-            ? "ring-[1.5px] ring-[#f08c2b] border-transparent"
-            : "border-gray-300 hover:border-gray-400"
+            ? "ring-[1.5px] ring-brand border-transparent"
+            : "border-input hover:border-brand/50"
         }`}
       >
-        <span className={selectedValues.length > 0 ? "text-gray-900 truncate pr-2" : "text-gray-400"}>
+        <span className={selectedValues.length > 0 ? "text-foreground truncate pr-2" : "text-muted-foreground"}>
           {selectedLabel || placeholder}
         </span>
         <svg
-          className={`h-4 w-4 text-gray-400 transition-transform ${open ? "rotate-180" : ""}`}
+          className={`h-4 w-4 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`}
           fill="none"
           viewBox="0 0 24 24"
           stroke="currentColor"
@@ -92,8 +92,11 @@ export default function StyledMultiSelect({
           sx: {
             width: anchor?.offsetWidth || 200,
             borderRadius: "10px",
-            boxShadow: "0 10px 40px rgba(0,0,0,0.15)",
+            boxShadow: "0 10px 40px rgba(0,0,0,0.2)",
             mt: 0.5,
+            backgroundColor: "var(--color-card, #ffffff)",
+            color: "var(--color-foreground, #1a1a1a)",
+            border: "1px solid var(--color-border, #e5e7eb)",
           },
         }}
       >
@@ -103,13 +106,13 @@ export default function StyledMultiSelect({
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search..."
-              className="w-full px-3 py-2 mb-2 border rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-[#f08c2b]"
+              className="w-full px-3 py-2 mb-2 border border-border bg-background text-foreground placeholder:text-muted-foreground rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-brand"
             />
           )}
 
           <div className="max-h-60 overflow-y-auto">
             {filteredOptions.length === 0 ? (
-              <div className="px-3 py-2 text-sm text-gray-500">No options found.</div>
+              <div className="px-3 py-2 text-sm text-muted-foreground">No options found.</div>
             ) : null}
             {filteredOptions.map((opt) => {
               const isSelected = selectedValues.includes(opt.value);
@@ -117,18 +120,18 @@ export default function StyledMultiSelect({
                 <div
                   key={opt.value}
                   onClick={() => toggleValue(opt.value)}
-                  className="flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-gray-50 rounded-lg transition-colors"
+                  className="flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-brand/10 rounded-lg transition-colors"
                 >
                   <div
                     className={`relative w-4.5 h-4.5 border-2 flex items-center justify-center rounded-md transition-all ${
                       isSelected
-                        ? "bg-[#f08c2b] border-[#f08c2b]"
-                        : "bg-white border-gray-400 hover:border-gray-600"
+                        ? "bg-brand border-brand"
+                        : "bg-background border-border hover:border-brand/60"
                     }`}
                   >
                     {isSelected && (
                       <svg
-                        className="w-3 h-3 text-white"
+                        className="w-3 h-3 text-brand-foreground"
                         fill="none"
                         viewBox="0 0 24 24"
                         stroke="currentColor"
@@ -142,17 +145,17 @@ export default function StyledMultiSelect({
                       </svg>
                     )}
                   </div>
-                  <span className="text-sm text-gray-800">{safeText(opt?.label)}</span>
+                  <span className="text-sm text-foreground">{safeText(opt?.label)}</span>
                 </div>
               );
             })}
           </div>
-          <div className="mt-2 flex items-center justify-between gap-2 border-t pt-2">
+          <div className="mt-2 flex items-center justify-between gap-2 border-t border-border pt-2">
             <button
               type="button"
               onClick={clearAll}
               disabled={selectedValues.length === 0}
-              className="px-3 py-1.5 text-xs rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="px-3 py-1.5 text-xs rounded-md border border-border text-foreground hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Clear
             </button>
@@ -162,7 +165,7 @@ export default function StyledMultiSelect({
                 setAnchor(null);
                 setSearch("");
               }}
-              className="px-3 py-1.5 text-xs rounded-md bg-[#f08c2b] text-white hover:bg-[#e27e20]"
+              className="px-3 py-1.5 text-xs rounded-md bg-brand text-brand-foreground hover:bg-brand-700"
             >
               Done
             </button>

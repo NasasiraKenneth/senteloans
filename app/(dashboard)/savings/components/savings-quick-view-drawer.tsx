@@ -70,19 +70,19 @@ export function SavingsQuickViewDrawer({
   const isShares = account.account_type === "Shares"
   const getTypePill = (type: string) => {
     const t = String(type || "").toLowerCase()
-    if (t.includes("volunt")) return "border-blue-200 text-blue-700 bg-blue-50/50"
-    if (t.includes("fix") || t.includes("deposit")) return "border-purple-200 text-purple-700 bg-purple-50/50"
-    if (t.includes("share")) return "border-orange-200 text-orange-700 bg-orange-50/50"
-    if (t.includes("group")) return "border-emerald-200 text-emerald-700 bg-emerald-50/50"
-    if (t.includes("current")) return "border-cyan-200 text-cyan-700 bg-cyan-50/50"
-    return "border-slate-200 text-slate-700 bg-slate-50"
+    if (t.includes("volunt")) return "border-blue-200 text-blue-700 bg-blue-50/50 dark:border-blue-500/30 dark:text-blue-300 dark:bg-blue-500/15"
+    if (t.includes("fix") || t.includes("deposit")) return "border-purple-200 text-purple-700 bg-purple-50/50 dark:border-purple-500/30 dark:text-purple-300 dark:bg-purple-500/15"
+    if (t.includes("share")) return "border-brand/30 text-brand bg-brand/10"
+    if (t.includes("group")) return "border-emerald-200 text-emerald-700 bg-emerald-50/50 dark:border-emerald-500/30 dark:text-emerald-300 dark:bg-emerald-500/15"
+    if (t.includes("current")) return "border-cyan-200 text-cyan-700 bg-cyan-50/50 dark:border-cyan-500/30 dark:text-cyan-300 dark:bg-cyan-500/15"
+    return "border-border text-muted-foreground bg-muted"
   }
 
   const statusStyles: Record<string, { border: string; text: string; dot: string }> = {
-    Active: { border: "border-emerald-200 text-emerald-700 bg-emerald-50/50", text: "Active", dot: "bg-emerald-500" },
-    Inactive: { border: "border-slate-200 text-slate-600 bg-slate-50", text: "Inactive", dot: "bg-slate-400" },
-    Suspended: { border: "border-rose-200 text-rose-700 bg-rose-50/50", text: "Suspended", dot: "bg-rose-500" },
-    Closed: { border: "border-slate-200 text-slate-600 bg-slate-50", text: "Closed", dot: "bg-slate-400" },
+    Active: { border: "border-emerald-200 text-emerald-700 bg-emerald-50/50 dark:border-emerald-500/30 dark:text-emerald-300 dark:bg-emerald-500/15", text: "Active", dot: "bg-emerald-500" },
+    Inactive: { border: "border-border text-muted-foreground bg-muted", text: "Inactive", dot: "bg-muted-foreground" },
+    Suspended: { border: "border-rose-200 text-rose-700 bg-rose-50/50 dark:border-rose-500/30 dark:text-rose-300 dark:bg-rose-500/15", text: "Suspended", dot: "bg-rose-500" },
+    Closed: { border: "border-border text-muted-foreground bg-muted", text: "Closed", dot: "bg-muted-foreground" },
   }
 
   const statusObj = statusStyles[account.status] || statusStyles["Inactive"]
@@ -106,7 +106,7 @@ export function SavingsQuickViewDrawer({
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={onClose}
-            className="fixed inset-0 z-40 bg-slate-900/30 backdrop-blur-[2px]"
+            className="fixed inset-0 z-40 bg-black/40 backdrop-blur-[2px]"
           />
 
           {/* Slide-over Drawer Panel */}
@@ -115,19 +115,19 @@ export function SavingsQuickViewDrawer({
             animate={{ x: 0 }}
             exit={{ x: "100%" }}
             transition={{ type: "spring", damping: 25, stiffness: 220 }}
-            className="fixed inset-y-0 right-0 z-50 w-full max-w-md bg-white shadow-2xl flex flex-col border-l border-slate-200"
+            className="fixed inset-y-0 right-0 z-50 w-full max-w-md bg-card text-foreground shadow-2xl flex flex-col border-l border-border"
           >
             {/* Drawer Header */}
-            <div className="p-6 border-b border-slate-100 flex items-start justify-between bg-gradient-to-r from-slate-50 via-white to-slate-50">
+            <div className="p-6 border-b border-border flex items-start justify-between bg-muted/30">
               <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-2xl bg-white border-2 border-[#F08C2B] text-[#F08C2B] font-black flex items-center justify-center text-sm shadow-2xs">
+                <div className="w-12 h-12 rounded-2xl bg-brand/10 border-2 border-brand text-brand font-black flex items-center justify-center text-sm shadow-2xs">
                   {getInitials(account.client_name)}
                 </div>
                 <div>
-                  <h3 className="font-bold text-slate-900 text-lg leading-tight">
+                  <h3 className="font-bold text-foreground text-lg leading-tight">
                     {account.client_name}
                   </h3>
-                  <div className="text-xs font-mono font-medium text-slate-500 mt-0.5">
+                  <div className="text-xs font-mono font-medium text-muted-foreground mt-0.5">
                     Acc No: {account.account_number}
                   </div>
 
@@ -151,24 +151,24 @@ export function SavingsQuickViewDrawer({
             </div>
 
             {/* Drawer Content Body */}
-            <div className="flex-1 overflow-y-auto p-6 space-y-4 bg-slate-50/40">
+            <div className="flex-1 overflow-y-auto p-6 space-y-4 bg-muted/20">
               {/* Financial Balance Summary Card */}
-              <div className="bg-white rounded-2xl p-4 border border-slate-200/80 shadow-2xs space-y-3">
-                <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-2">
-                  <CreditCard className="h-3.5 w-3.5 text-[#F08C2B]" /> Balance Breakdown
+              <div className="bg-card rounded-2xl p-4 border border-border shadow-2xs space-y-3">
+                <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
+                  <CreditCard className="h-3.5 w-3.5 text-brand" /> Balance Breakdown
                 </h4>
 
                 <div className="grid grid-cols-2 gap-3 pt-1">
-                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
-                    <span className="text-[11px] text-slate-400 font-semibold uppercase">Available Balance</span>
-                    <div className="text-base font-bold text-slate-900 mt-0.5">
+                  <div className="p-3 bg-muted/40 rounded-xl border border-border/60">
+                    <span className="text-[11px] text-muted-foreground font-semibold uppercase">Available Balance</span>
+                    <div className="text-base font-bold text-foreground mt-0.5">
                       {formatMoney(Number(account.available_balance || 0))}
                     </div>
                   </div>
 
-                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
-                    <span className="text-[11px] text-slate-400 font-semibold uppercase">Total Balance</span>
-                    <div className="text-base font-bold text-slate-900 mt-0.5">
+                  <div className="p-3 bg-muted/40 rounded-xl border border-border/60">
+                    <span className="text-[11px] text-muted-foreground font-semibold uppercase">Total Balance</span>
+                    <div className="text-base font-bold text-foreground mt-0.5">
                       {formatMoney(Number(account.total_balance || 0))}
                     </div>
                   </div>
@@ -177,57 +177,57 @@ export function SavingsQuickViewDrawer({
 
               {/* Fixed Deposit Details Card (If Fixed Account) */}
               {isFixed && (
-                <div className="bg-white rounded-2xl p-4 border border-purple-200/80 bg-purple-50/20 shadow-2xs space-y-3">
-                  <h4 className="text-xs font-bold text-purple-700 uppercase tracking-wider flex items-center gap-2">
-                    <Lock className="h-3.5 w-3.5 text-purple-600" /> Fixed Deposit Terms & Maturity
+                <div className="bg-purple-500/5 rounded-2xl p-4 border border-purple-500/25 shadow-2xs space-y-3">
+                  <h4 className="text-xs font-bold text-purple-600 dark:text-purple-400 uppercase tracking-wider flex items-center gap-2">
+                    <Lock className="h-3.5 w-3.5 text-purple-600 dark:text-purple-400" /> Fixed Deposit Terms & Maturity
                   </h4>
 
                   <div className="space-y-2 text-xs">
-                    <div className="flex justify-between py-1 border-b border-purple-100/60">
-                      <span className="text-slate-500">Lock-in Period</span>
-                      <span className="font-semibold text-slate-900">{tenureMonths} Months</span>
+                    <div className="flex justify-between py-1 border-b border-purple-500/15">
+                      <span className="text-muted-foreground">Lock-in Period</span>
+                      <span className="font-semibold text-foreground">{tenureMonths} Months</span>
                     </div>
 
-                    <div className="flex justify-between py-1 border-b border-purple-100/60">
-                      <span className="text-slate-500">Annual Interest Rate</span>
-                      <span className="font-semibold text-purple-700">{interestRate}% p.a.</span>
+                    <div className="flex justify-between py-1 border-b border-purple-500/15">
+                      <span className="text-muted-foreground">Annual Interest Rate</span>
+                      <span className="font-semibold text-purple-600 dark:text-purple-400">{interestRate}% p.a.</span>
                     </div>
 
-                    <div className="flex justify-between py-1 border-b border-purple-100/60">
-                      <span className="text-slate-500">Maturity Date</span>
-                      <span className="font-bold text-slate-900">{formatDate(maturityDateObj.toISOString())}</span>
+                    <div className="flex justify-between py-1 border-b border-purple-500/15">
+                      <span className="text-muted-foreground">Maturity Date</span>
+                      <span className="font-bold text-foreground">{formatDate(maturityDateObj.toISOString())}</span>
                     </div>
 
-                    <div className="flex justify-between py-1 pt-1 font-semibold text-slate-900">
-                      <span className="text-slate-600">Expected Total Payout</span>
-                      <span className="font-bold text-emerald-600">{formatMoney(totalMaturityPayout)}</span>
+                    <div className="flex justify-between py-1 pt-1 font-semibold text-foreground">
+                      <span className="text-muted-foreground">Expected Total Payout</span>
+                      <span className="font-bold text-emerald-600 dark:text-emerald-400">{formatMoney(totalMaturityPayout)}</span>
                     </div>
                   </div>
                 </div>
               )}
 
               {/* Account Metadata Audit */}
-              <div className="bg-white rounded-2xl p-4 border border-slate-200/80 shadow-2xs space-y-2 text-xs">
-                <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-2 mb-3">
-                  <Calendar className="h-3.5 w-3.5 text-[#F08C2B]" /> Account Registry Audit
+              <div className="bg-card rounded-2xl p-4 border border-border shadow-2xs space-y-2 text-xs">
+                <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-2 mb-3">
+                  <Calendar className="h-3.5 w-3.5 text-brand" /> Account Registry Audit
                 </h4>
 
-                <div className="flex justify-between py-1.5 border-b border-slate-100">
-                  <span className="text-slate-500">Opened Date</span>
-                  <span className="font-semibold text-slate-800">{formatDate(account.open_date)}</span>
+                <div className="flex justify-between py-1.5 border-b border-border/60">
+                  <span className="text-muted-foreground">Opened Date</span>
+                  <span className="font-semibold text-foreground">{formatDate(account.open_date)}</span>
                 </div>
 
                 <div className="flex justify-between py-1.5">
-                  <span className="text-slate-500">Account Type</span>
-                  <span className="font-semibold text-slate-800">{account.account_type}</span>
+                  <span className="text-muted-foreground">Account Type</span>
+                  <span className="font-semibold text-foreground">{account.account_type}</span>
                 </div>
               </div>
             </div>
 
             {/* Bottom Action Footer */}
-            <div className="p-4 bg-white border-t border-slate-200 flex items-center gap-3">
+            <div className="p-4 bg-card border-t border-border flex items-center gap-3">
               <Link href={`/savings/${account.id}`} className="flex-1">
-                <Button className="w-full bg-[#F08C2B] hover:bg-[#d9771e] text-white font-semibold rounded-xl shadow-2xs transition-colors cursor-pointer text-xs">
+                <Button className="w-full bg-brand hover:bg-brand-700 text-brand-foreground font-semibold rounded-xl shadow-2xs transition-colors cursor-pointer text-xs">
                   Full Account Details
                 </Button>
               </Link>
@@ -240,7 +240,7 @@ export function SavingsQuickViewDrawer({
                     onClose()
                     onAddTransaction(account)
                   }}
-                  className="group relative inline-flex items-center justify-center w-11 h-11 rounded-xl bg-slate-100 hover:bg-orange-50 text-slate-700 hover:text-[#F08C2B] border border-slate-200 hover:border-[#F08C2B]/40 hover:scale-105 transition-all duration-200 focus:outline-none shadow-2xs cursor-pointer"
+                  className="group relative inline-flex items-center justify-center w-11 h-11 rounded-xl bg-muted hover:bg-brand/10 text-foreground hover:text-brand border border-border hover:border-brand/40 hover:scale-105 transition-all duration-200 focus:outline-none shadow-2xs cursor-pointer"
                 >
                   <ArrowUpDown className="h-4.5 w-4.5 transition-transform group-hover:scale-110" />
                 </TooltipButton>
@@ -248,7 +248,7 @@ export function SavingsQuickViewDrawer({
                 <TooltipButton
                   tooltip="Process Transaction (No permission)"
                   disabled
-                  className="inline-flex items-center justify-center w-11 h-11 rounded-xl bg-slate-100 text-slate-400 border border-slate-200 opacity-50 cursor-not-allowed"
+                  className="inline-flex items-center justify-center w-11 h-11 rounded-xl bg-muted text-muted-foreground border border-border opacity-50 cursor-not-allowed"
                 >
                   <ArrowUpDown className="h-4.5 w-4.5" />
                 </TooltipButton>

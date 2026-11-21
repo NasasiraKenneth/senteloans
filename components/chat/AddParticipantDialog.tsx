@@ -67,7 +67,7 @@ export function AddParticipantDialog({
       <DialogContent className="gap-5 sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <UserPlus className="h-5 w-5 text-[#f08c2b]" />
+            <UserPlus className="h-5 w-5 text-brand" />
             {staffOnly ? "Add support agents" : "Add participants"}
           </DialogTitle>
           <DialogDescription>
@@ -115,7 +115,7 @@ export function AddParticipantDialog({
           </Button>
           <Button
             type="button"
-            className="bg-[#f08c2b] text-white hover:bg-[#e07d1f]"
+            className="bg-brand text-brand-foreground hover:bg-brand-700"
             disabled={!canAdd}
             onClick={handleAdd}
           >

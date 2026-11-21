@@ -62,12 +62,12 @@ const defaultValues: BankAmountFormData = {
 }
 
 const inputClass = (hasError: boolean) =>
-  `w-full pl-10 pr-3 py-2.5 text-sm border rounded-md transition-all duration-200 focus:ring-[1.5px] focus:ring-[#f08c2b] focus:border-transparent focus:outline-none ${
+  `w-full pl-10 pr-3 py-2.5 text-sm border rounded-md transition-all duration-200 focus:ring-[1.5px] focus:ring-brand focus:border-transparent focus:outline-none ${
     hasError ? "border-red-500" : "border-gray-300 hover:border-gray-400"
   }`
 
 const plainInputClass = (hasError: boolean) =>
-  `w-full px-3 py-2.5 text-sm border rounded-md transition-all duration-200 focus:ring-[1.5px] focus:ring-[#f08c2b] focus:border-transparent focus:outline-none ${
+  `w-full px-3 py-2.5 text-sm border rounded-md transition-all duration-200 focus:ring-[1.5px] focus:ring-brand focus:border-transparent focus:outline-none ${
     hasError ? "border-red-500" : "border-gray-300 hover:border-gray-400"
   }`
 
@@ -238,7 +238,7 @@ export default function BankAmountForm({
 
   return (
     <form onSubmit={handleSubmit} className="flex max-h-[calc(100vh-12rem)] flex-col gap-4 overflow-y-auto p-4">
-      <div className="rounded-lg border border-[#f08c2b]/20 bg-[#f08c2b]/5 p-3 text-sm">
+      <div className="rounded-lg border border-brand/20 bg-brand/5 p-3 text-sm">
         <p className="font-medium text-gray-900">{summary.bank_name}</p>
         <p className="font-mono text-xs text-gray-600">{summary.bank_account_number}</p>
         <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-0.5 text-xs text-muted-foreground">
@@ -265,7 +265,7 @@ export default function BankAmountForm({
             className={`${directionBtnBase} ${
               form.direction === "deposit"
                 ? "border-emerald-300 bg-emerald-50 text-emerald-700"
-                : "border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+                : "border-border bg-card text-foreground hover:bg-muted/60"
             }`}
           >
             <ArrowDownToLine className="h-4 w-4" />
@@ -278,7 +278,7 @@ export default function BankAmountForm({
             className={`${directionBtnBase} ${
               form.direction === "withdraw"
                 ? "border-rose-300 bg-rose-50 text-rose-700"
-                : "border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+                : "border-border bg-card text-foreground hover:bg-muted/60"
             }`}
           >
             <ArrowUpFromLine className="h-4 w-4" />
@@ -505,7 +505,7 @@ export default function BankAmountForm({
         <Button
           type="submit"
           disabled={disabled}
-          className="bg-[#f08c2b] text-white transition-colors hover:!bg-[#f08c2b] hover:!text-black"
+          className="bg-brand text-brand-foreground transition-colors hover:!bg-brand-700 hover:!text-brand-foreground"
         >
           {loading ? "Saving…" : "Update balance"}
         </Button>

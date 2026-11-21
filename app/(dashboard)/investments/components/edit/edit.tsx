@@ -175,7 +175,7 @@ export default function EditInvestment({ isOpen, investmentId, onClose, onSucces
     <SlideModal isOpen={isOpen} onClose={onClose} title="Edit Investment" className="z-20">
       {fetching ? (
         <div className="flex items-center justify-center py-16">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#f08c2b]" />
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand" />
         </div>
       ) : initialValues ? (
         <EditInvestmentForm

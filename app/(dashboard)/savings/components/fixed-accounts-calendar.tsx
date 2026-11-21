@@ -132,29 +132,29 @@ export function FixedAccountsCalendar({
   }, [fixedDepositSchedule, filterTab])
 
   return (
-    <Card className="border border-slate-200 bg-white shadow-2xs rounded-2xl overflow-hidden">
-      <CardHeader className="pb-3 border-b border-slate-100 bg-white flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+    <Card className="border border-border bg-card shadow-2xs rounded-2xl overflow-hidden">
+      <CardHeader className="pb-3 border-b border-border/60 bg-card flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
           <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-lg border border-purple-200 bg-purple-50 text-purple-600 flex items-center justify-center">
+            <div className="w-7 h-7 rounded-lg border border-brand/30 bg-brand/10 text-brand flex items-center justify-center">
               <CalendarIcon className="h-4 w-4" />
             </div>
-            <CardTitle className="text-sm font-bold text-slate-900">
+            <CardTitle className="text-sm font-bold text-foreground">
               Fixed Savings Calendar
             </CardTitle>
           </div>
-          <p className="text-xs text-slate-500 mt-0.5">
+          <p className="text-xs text-muted-foreground mt-0.5">
             Monitor upcoming lock-in deposit maturity dates & payout schedules
           </p>
         </div>
 
         {/* Filter Segmented Pills */}
-        <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl text-xs font-medium self-start sm:self-auto">
+        <div className="flex items-center gap-1 bg-muted p-1 rounded-xl text-xs font-medium self-start sm:self-auto">
           <button
             type="button"
             onClick={() => setFilterTab("all")}
             className={`px-3 py-1 rounded-lg transition-all cursor-pointer ${
-              filterTab === "all" ? "bg-white text-slate-900 font-bold shadow-2xs" : "text-slate-500 hover:text-slate-800"
+              filterTab === "all" ? "bg-brand text-brand-foreground font-bold shadow-2xs" : "text-muted-foreground hover:text-foreground"
             }`}
           >
             All ({fixedDepositSchedule.length})
@@ -163,7 +163,7 @@ export function FixedAccountsCalendar({
             type="button"
             onClick={() => setFilterTab("this_week")}
             className={`px-3 py-1 rounded-lg transition-all cursor-pointer ${
-              filterTab === "this_week" ? "bg-white text-slate-900 font-bold shadow-2xs" : "text-slate-500 hover:text-slate-800"
+              filterTab === "this_week" ? "bg-brand text-brand-foreground font-bold shadow-2xs" : "text-muted-foreground hover:text-foreground"
             }`}
           >
             Due This Week
@@ -172,7 +172,7 @@ export function FixedAccountsCalendar({
             type="button"
             onClick={() => setFilterTab("this_month")}
             className={`px-3 py-1 rounded-lg transition-all cursor-pointer ${
-              filterTab === "this_month" ? "bg-white text-slate-900 font-bold shadow-2xs" : "text-slate-500 hover:text-slate-800"
+              filterTab === "this_month" ? "bg-brand text-brand-foreground font-bold shadow-2xs" : "text-muted-foreground hover:text-foreground"
             }`}
           >
             Due This Month
@@ -180,9 +180,9 @@ export function FixedAccountsCalendar({
         </div>
       </CardHeader>
 
-      <CardContent className="p-0 divide-y divide-slate-100">
+      <CardContent className="p-0 divide-y divide-border/60">
         {filteredSchedule.length === 0 ? (
-          <div className="p-8 text-center text-xs text-slate-400">
+          <div className="p-8 text-center text-xs text-muted-foreground">
             No fixed deposit accounts maturing in this timeframe.
           </div>
         ) : (
@@ -196,57 +196,57 @@ export function FixedAccountsCalendar({
               <div
                 key={item.id}
                 onClick={() => onSelectAccount && onSelectAccount((item as any).rawAccount || item)}
-                className="p-4 hover:bg-slate-50/80 transition-colors flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 cursor-pointer group"
+                className="p-4 hover:bg-muted/40 transition-colors flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 cursor-pointer group"
               >
                 <div className="flex items-start gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-purple-50 border border-purple-200 text-purple-700 font-extrabold flex items-center justify-center text-xs flex-shrink-0 mt-0.5">
+                  <div className="w-10 h-10 rounded-xl bg-brand/10 border border-brand/25 text-brand font-extrabold flex items-center justify-center text-xs flex-shrink-0 mt-0.5">
                     <Lock className="h-4 w-4" />
                   </div>
                   <div>
                     <div className="flex items-center gap-2">
-                      <span className="font-bold text-slate-900 text-sm group-hover:text-[#F08C2B] transition-colors">
+                      <span className="font-bold text-foreground text-sm group-hover:text-brand transition-colors">
                         {item.memberName}
                       </span>
-                      <span className="text-xs font-mono text-slate-500">
+                      <span className="text-xs font-mono text-muted-foreground">
                         ({item.accountNumber})
                       </span>
                     </div>
-                    <div className="flex items-center gap-3 text-xs text-slate-500 mt-1 flex-wrap">
+                    <div className="flex items-center gap-3 text-xs text-muted-foreground mt-1 flex-wrap">
                       <span className="flex items-center gap-1">
-                        <Clock className="h-3 w-3 text-slate-400" />
-                        Tenure: <strong className="text-slate-700">{item.tenureMonths} Mo</strong>
+                        <Clock className="h-3 w-3 text-muted-foreground/70" />
+                        Tenure: <strong className="text-foreground/80">{item.tenureMonths} Mo</strong>
                       </span>
                       <span>&bull;</span>
                       <span>
-                        Rate: <strong className="text-purple-700 font-semibold">{item.interestRate}% p.a.</strong>
+                        Rate: <strong className="text-brand font-semibold">{item.interestRate}% p.a.</strong>
                       </span>
                       <span>&bull;</span>
                       <span>
-                        Due: <strong className="text-slate-800">{formatDate(item.maturityDate)}</strong>
+                        Due: <strong className="text-foreground">{formatDate(item.maturityDate)}</strong>
                       </span>
                     </div>
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between sm:justify-end gap-4 self-stretch sm:self-auto pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-100">
+                <div className="flex items-center justify-between sm:justify-end gap-4 self-stretch sm:self-auto pt-2 sm:pt-0 border-t sm:border-t-0 border-border/60">
                   <div className="text-left sm:text-right">
-                    <div className="text-xs text-slate-400 font-medium">Principal & Interest</div>
-                    <div className="text-sm font-bold text-slate-900">{formatMoney(totalPayout)}</div>
+                    <div className="text-xs text-muted-foreground font-medium">Principal & Interest</div>
+                    <div className="text-sm font-bold text-foreground">{formatMoney(totalPayout)}</div>
                   </div>
 
                   <div>
                     {isDueSoon ? (
-                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-amber-50 text-amber-700 border border-amber-200">
-                        <AlertTriangle className="h-3 w-3 text-amber-600" />
+                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-500/15 dark:text-amber-300 dark:border-amber-500/30">
+                        <AlertTriangle className="h-3 w-3 text-amber-600 dark:text-amber-400" />
                         {daysLeft === 0 ? "Matures Today" : `Due in ${daysLeft} ${daysLeft === 1 ? "day" : "days"}`}
                       </span>
                     ) : daysLeft < 0 ? (
-                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                        <CheckCircle2 className="h-3 w-3 text-emerald-600" />
+                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-500/15 dark:text-emerald-300 dark:border-emerald-500/30">
+                        <CheckCircle2 className="h-3 w-3 text-emerald-600 dark:text-emerald-400" />
                         Matured
                       </span>
                     ) : (
-                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-700 border border-slate-200">
+                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-muted text-muted-foreground border border-border">
                         In {daysLeft} days
                       </span>
                     )}

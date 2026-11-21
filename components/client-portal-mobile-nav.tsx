@@ -29,8 +29,8 @@ export function ClientPortalMobileNav({ items, onOpenMenu, className }: ClientPo
               key={item.href}
               href={item.href}
               className={cn(
-                "flex min-w-0 flex-1 flex-col items-center gap-1 px-2 py-1.5 text-[11px] font-medium",
-                item.active ? "text-primary" : "text-muted-foreground",
+                "flex min-w-0 flex-1 flex-col items-center gap-1 px-2 py-1.5 text-[11px] font-medium no-underline hover:no-underline",
+                item.active ? "text-brand" : "text-muted-foreground",
               )}
             >
               <Icon className="h-5 w-5" />

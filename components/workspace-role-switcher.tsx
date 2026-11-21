@@ -39,7 +39,7 @@ export function WorkspaceRoleSwitcher({ className }: { className?: string }) {
       label: "Staff Dashboard",
       path: "/dashboard",
       icon: Briefcase,
-      color: "text-[#F08C2B]",
+      color: "text-brand",
     },
     client: {
       label: "Member Portal",
@@ -96,7 +96,7 @@ export function WorkspaceRoleSwitcher({ className }: { className?: string }) {
           variant="outline"
           size="sm"
           disabled={isSwitching}
-          className={`h-9 gap-2 rounded-xl border-[#F08C2B]/30 bg-[#F08C2B]/10 text-xs font-semibold text-[#F08C2B] hover:bg-[#F08C2B]/20 hover:text-[#d97b1e] transition-all shadow-xs cursor-pointer ${className || ""}`}
+          className={`h-9 gap-2 rounded-xl border-brand/30 bg-brand/10 text-xs font-semibold text-brand hover:bg-brand/20 hover:text-brand transition-all shadow-xs cursor-pointer ${className || ""}`}
           title="Switch Workspace / Role"
         >
           {isSwitching ? (
@@ -133,10 +133,10 @@ export function WorkspaceRoleSwitcher({ className }: { className?: string }) {
             className="flex items-center justify-between text-xs font-medium cursor-pointer rounded-lg px-2.5 py-2 hover:bg-zinc-100 dark:hover:bg-zinc-900"
           >
             <div className="flex items-center gap-2.5">
-              <Briefcase className="h-4 w-4 text-[#F08C2B]" />
+              <Briefcase className="h-4 w-4 text-brand" />
               <span>Staff Dashboard</span>
             </div>
-            {activeRole === "staff" && <Check className="h-4 w-4 text-[#F08C2B]" />}
+            {activeRole === "staff" && <Check className="h-4 w-4 text-brand" />}
           </DropdownMenuItem>
         )}
 

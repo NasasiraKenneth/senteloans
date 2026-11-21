@@ -48,7 +48,7 @@ interface OpeningBalanceFormProps {
 }
 
 const inputClass =
-  "w-full px-3 py-2.5 text-sm rounded-md border transition-all duration-200 focus:ring-[1.5px] focus:ring-[#f08c2b] focus:border-transparent focus:outline-none border-gray-300 hover:border-gray-400"
+  "w-full px-3 py-2.5 text-sm rounded-md border transition-all duration-200 focus:ring-[1.5px] focus:ring-brand focus:border-transparent focus:outline-none border-gray-300 hover:border-gray-400"
 
 export default function OpeningBalanceForm({
   memberId,
@@ -348,7 +348,7 @@ export default function OpeningBalanceForm({
               className="flex w-full items-center justify-between gap-2 rounded-md border border-gray-200 bg-gray-50 px-3 py-2.5 text-left transition-colors hover:bg-gray-100"
             >
               <span className="flex items-center gap-2">
-                <Landmark className="h-4 w-4 text-orange-600" />
+                <Landmark className="h-4 w-4 text-brand" />
                 <span className="text-sm font-semibold text-gray-800">Loan Opening Balance</span>
               </span>
               <ChevronDown
@@ -357,7 +357,7 @@ export default function OpeningBalanceForm({
             </button>
           ) : (
             <div className="flex items-center gap-2 border-b border-gray-100 pb-2">
-              <Landmark className="h-4 w-4 text-orange-600" />
+              <Landmark className="h-4 w-4 text-brand" />
               <h4 className="text-sm font-semibold text-gray-800">Loan Opening Balance</h4>
             </div>
           )}
@@ -536,7 +536,7 @@ export default function OpeningBalanceForm({
           type="button"
           onClick={handleSubmit}
           disabled={loading || (!canEditSavings && !canEditLoans)}
-          className="inline-flex h-9 items-center justify-center rounded-md bg-[#f08c2b] px-4 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex h-9 items-center justify-center rounded-md bg-brand px-4 text-sm font-medium text-brand-foreground transition-colors hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-50"
         >
           <BookOpen className="mr-2 h-4 w-4" />
           {loading ? "Recording…" : submitLabel}

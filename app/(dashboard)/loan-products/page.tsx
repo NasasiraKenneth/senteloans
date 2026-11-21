@@ -430,7 +430,7 @@ export default function LoanProductsPage() {
         >
           <span className="inline-flex">
             <Button
-              className="hover:bg-black/70 hover:text-[#f08c2b]"
+              className="bg-brand text-brand-foreground hover:bg-brand-700 transition-colors"
               onClick={() => setIsAddOpen(true)}
               disabled={!loanProductPermissions.createLoanProduct}
             >

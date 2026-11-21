@@ -30,7 +30,7 @@ interface SharesFormProps {
 }
 
 const inputClass =
-  "w-full px-3 py-2.5 text-sm rounded-md border transition-all duration-200 focus:ring-[1.5px] focus:ring-[#f08c2b] focus:border-transparent focus:outline-none border-gray-300 hover:border-gray-400"
+  "w-full px-3 py-2.5 text-sm rounded-md border transition-all duration-200 focus:ring-[1.5px] focus:ring-brand focus:border-transparent focus:outline-none border-gray-300 hover:border-gray-400"
 
 const PAYMENT_MODES = [
   { value: "Cash", label: "Cash" },
@@ -259,9 +259,9 @@ export default function SharesForm({
       </div>
 
       {/* Cost preview */}
-      <div className="flex items-center justify-between rounded-lg border border-[#f08c2b]/30 bg-[#f08c2b]/5 p-4">
+      <div className="flex items-center justify-between rounded-lg border border-brand/30 bg-brand/5 p-4">
         <span className="text-sm font-medium text-gray-700">Total Cost</span>
-        <span className="text-lg font-bold text-[#f08c2b]">{fmt(totalCost)}</span>
+        <span className="text-lg font-bold text-brand">{fmt(totalCost)}</span>
       </div>
 
       {/* Mode */}
@@ -329,7 +329,7 @@ export default function SharesForm({
           type="button"
           onClick={handleSubmit}
           disabled={loading}
-          className="inline-flex h-9 items-center justify-center rounded-md bg-[#f08c2b] px-4 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex h-9 items-center justify-center rounded-md bg-brand px-4 text-sm font-medium text-brand-foreground transition-colors hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {loading ? "Processing…" : "Buy Shares"}
         </button>

@@ -926,8 +926,8 @@ export default function LoanDetailsPage() {
 
           <div className="rounded-xl border bg-card p-4">
             <div className="flex items-center gap-2 mb-2">
-              <div className="p-1.5 rounded-lg bg-orange-100">
-                <TrendingDown className="h-4 w-4 text-orange-600" />
+              <div className="p-1.5 rounded-lg bg-brand/15">
+                <TrendingDown className="h-4 w-4 text-brand" />
               </div>
               <span className="text-xs font-medium text-muted-foreground">
                 Outstanding
@@ -1213,8 +1213,8 @@ export default function LoanDetailsPage() {
                           key={review.id}
                           className={`flex items-start gap-3 rounded-lg border p-3 transition-colors ${
                             review.isEligible
-                              ? "border-green-200 bg-green-50/50"
-                              : "border-gray-200 bg-white"
+                              ? "border-green-200 dark:border-green-900/50 bg-green-50/50 dark:bg-green-950/20"
+                              : "border-border bg-card"
                           } ${disabled ? "cursor-not-allowed opacity-85" : ""}`}
                         >
                           <input
@@ -1232,13 +1232,13 @@ export default function LoanDetailsPage() {
                           <div
                             className={`relative mt-0.5 h-[18px] w-[18px] border-2 flex items-center justify-center rounded-full transition-all ${
                               review.isEligible
-                                ? "bg-[#f08c2b] border-[#f08c2b]"
-                                : "bg-white border-gray-400"
+                                ? "bg-brand border-brand"
+                                : "bg-background border-border"
                             }`}
                           >
                             {review.isEligible && (
                               <svg
-                                className="h-3 w-3 text-white"
+                                className="h-3 w-3 text-brand-foreground"
                                 fill="none"
                                 viewBox="0 0 24 24"
                                 stroke="currentColor"
@@ -1253,10 +1253,10 @@ export default function LoanDetailsPage() {
                             )}
                           </div>
                           <div className="min-w-0">
-                            <p className="text-sm font-medium text-gray-800 wrap-break-word">
+                            <p className="text-sm font-medium text-foreground wrap-break-word">
                               {review.eligibility}
                             </p>
-                            <p className="mt-0.5 text-xs text-gray-500">
+                            <p className="mt-0.5 text-xs text-muted-foreground">
                               {review.isEligible
                                 ? "Marked eligible"
                                 : "Not yet marked eligible"}
@@ -1268,7 +1268,7 @@ export default function LoanDetailsPage() {
                     })}
                   </div>
                 ) : (
-                  <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50 p-3 text-sm text-gray-600">
+                  <div className="rounded-lg border border-dashed border-border bg-muted/30 p-3 text-sm text-muted-foreground">
                     No eligibility checks configured for this loan product.
                   </div>
                 )}

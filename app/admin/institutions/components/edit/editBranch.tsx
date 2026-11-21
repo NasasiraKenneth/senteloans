@@ -55,7 +55,7 @@ export function EditBranchModal({
           type="button"
           onClick={handleOpen}
           title="Edit Branch"
-          className="opacity-0 group-hover:opacity-100 transition-opacity duration-200 p-1.5 rounded-lg bg-gray-100 hover:bg-orange-100 text-gray-500 hover:text-[#f08c2b] border border-gray-200 hover:border-orange-200 shadow-2xs cursor-pointer"
+          className="opacity-0 group-hover:opacity-100 transition-opacity duration-200 p-1.5 rounded-lg bg-muted hover:bg-brand/15 text-muted-foreground hover:text-brand border border-border hover:border-brand/30 shadow-2xs cursor-pointer"
         >
           <Pencil className="h-3.5 w-3.5" />
         </button>
@@ -65,7 +65,7 @@ export function EditBranchModal({
         isOpen={open}
         onClose={handleClose}
         title={branch?.name ? `Edit Branch - ${branch.name}` : "Edit Branch"}
-        className="w-[34rem] max-w-[95vw] border-slate-200 shadow-2xl"
+        className="w-[34rem] max-w-[95vw] border-border shadow-2xl"
       >
         <BranchForm
           institutionId={institutionId}

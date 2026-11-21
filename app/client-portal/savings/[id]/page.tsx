@@ -325,7 +325,7 @@ export default function ClientSavingsDetailPage() {
       case "Fixed":
         return "bg-purple-100 text-purple-700 border border-purple-200 dark:bg-purple-950/40 dark:text-purple-400 dark:border-purple-800";
       case "Shares":
-        return "bg-orange-100 text-orange-700 border border-orange-200 dark:bg-orange-950/40 dark:text-orange-400 dark:border-orange-800";
+        return "bg-brand/10 text-brand border border-brand/25";
       case "Current":
         return "bg-cyan-100 text-cyan-700 border border-cyan-200 dark:bg-cyan-950/40 dark:text-cyan-400 dark:border-cyan-800";
       default:
@@ -547,7 +547,7 @@ export default function ClientSavingsDetailPage() {
           </Link>
           <div>
             <div className="flex items-center space-x-2">
-              <PiggyBank className="h-5 w-5 text-[#f08c2b]" />
+              <PiggyBank className="h-5 w-5 text-brand" />
               <h1 className="text-2xl font-bold tracking-tight">
                 Account Details - {account.account_number}
               </h1>
@@ -636,7 +636,7 @@ export default function ClientSavingsDetailPage() {
                   ? `${accountAgeMonths} months`
                   : "First month"}
               </span>
-              <Sparkles className="h-4 w-4 text-[#f08c2b]" />
+              <Sparkles className="h-4 w-4 text-brand" />
             </div>
             <p className="text-[11px] text-muted-foreground mt-1">
               Opened on {formatDate(account.open_date)}
@@ -650,7 +650,7 @@ export default function ClientSavingsDetailPage() {
         {/* Account Information */}
         <Card className="border-border/80 shadow-xs bg-card">
           <CardHeader className="border-b border-border/60 bg-muted/20 pb-3 flex flex-row items-center gap-2">
-            <PiggyBank className="h-4.5 w-4.5 text-[#f08c2b]" />
+            <PiggyBank className="h-4.5 w-4.5 text-brand" />
             <CardTitle className="text-sm font-semibold">
               Account Information
             </CardTitle>
@@ -701,7 +701,7 @@ export default function ClientSavingsDetailPage() {
         {/* Member Information */}
         <Card className="border-border/80 shadow-xs bg-card">
           <CardHeader className="border-b border-border/60 bg-muted/20 pb-3 flex flex-row items-center gap-2">
-            <User className="h-4.5 w-4.5 text-[#f08c2b]" />
+            <User className="h-4.5 w-4.5 text-brand" />
             <CardTitle className="text-sm font-semibold">
               Member & Sacco Details
             </CardTitle>

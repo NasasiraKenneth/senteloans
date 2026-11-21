@@ -254,9 +254,9 @@ export default function DataTable<Row>({
                                 <motion.div
                                     whileHover={{rotate: [0, 10, -10, 0], scale: 1.1}}
                                     transition={{duration: 0.4}}
-                                    className="bg-brand text-white p-2 rounded-lg shadow-sm shadow-brand/20"
+                                    className="bg-brand text-brand-foreground p-2 rounded-lg shadow-sm shadow-brand/20"
                                 >
-                                    <Icon provider="fa" iconName="FaTable" size={18} color="white"/>
+                                    <Icon provider="fa" iconName="FaTable" size={18} color="currentColor"/>
                                 </motion.div>
                                 <span className="text-base font-semibold text-gray-900 dark:text-zinc-100">
                                     {title}
@@ -328,7 +328,7 @@ export default function DataTable<Row>({
                                     initial={{opacity: 0}}
                                     animate={{opacity: 1}}
                                     transition={{duration: 0.3}}
-                                    className={`hover:bg-brand/[0.04] dark:hover:bg-zinc-900/70 transition-colors ${onRowClick ? 'cursor-pointer' : ''}`}
+                                    className={`hover:bg-brand/[0.04] dark:hover:bg-zinc-900/70 transition-colors ${isExpanded(id) ? 'bg-brand/[0.04] dark:bg-brand/[0.07]' : ''} ${onRowClick ? 'cursor-pointer' : ''}`}
                                     onClick={(e) => {
                                         const target = e.target as HTMLElement | null
                                         if (target && target.closest('button, a, input, select, textarea, [data-no-row-click], .actions-cell, [role="button"]')) {
@@ -340,11 +340,16 @@ export default function DataTable<Row>({
                                     {hasDetail && (
                                         <td className="px-4 py-3 whitespace-nowrap">
                                             <button
+                                                type="button"
                                                 onClick={(e) => {
                                                     e.stopPropagation();
                                                     toggle(id);
                                                 }}
-                                                className="text-gray-400 hover:text-brand dark:hover:text-brand transition-colors"
+                                                className={`inline-flex items-center justify-center rounded-md p-1 transition-colors cursor-pointer ${
+                                                    isExpanded(id)
+                                                        ? 'bg-brand/15 text-brand'
+                                                        : 'text-gray-400 hover:bg-brand/10 hover:text-brand dark:text-zinc-500 dark:hover:text-brand'
+                                                }`}
                                             >
                                                 <motion.div animate={{rotate: isExpanded(id) ? 90 : 0}}
                                                             transition={{duration: 0.2}}>
@@ -380,12 +385,12 @@ export default function DataTable<Row>({
                                                     opacity: {duration: 0.3},
                                                     height: {duration: 0.4}
                                                 }}
-                                                className="bg-gray-50/60 dark:bg-zinc-900/40"
+                                                className="bg-brand/[0.02] dark:bg-zinc-900/50"
                                             >
                                                 <td colSpan={(columns.length + (hasDetail ? 1 : 0))}
                                                     className="px-4 py-4">
                                                     <div
-                                                        className="bg-white dark:bg-zinc-900/90 rounded-lg border border-gray-200 dark:border-zinc-800 shadow-sm p-4 text-gray-800 dark:text-zinc-200">
+                                                        className="bg-card text-card-foreground rounded-xl border border-border border-l-3 border-l-brand shadow-sm overflow-hidden">
                                                         {renderDetail?.(row)}
                                                     </div>
                                                 </td>

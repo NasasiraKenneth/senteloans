@@ -32,12 +32,12 @@ type FieldProps = {
 function Field({ icon, label, value, mono, className }: FieldProps) {
   return (
     <div className={`flex items-start gap-2 ${className ?? ""}`}>
-      <span className="mt-0.5 shrink-0 text-gray-400">{icon}</span>
+      <span className="mt-0.5 shrink-0 text-muted-foreground">{icon}</span>
       <div className="min-w-0">
         <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
           {label}
         </p>
-        <p className={`truncate text-sm text-gray-800 ${mono ? "font-mono" : ""}`}>
+        <p className={`truncate text-sm text-foreground ${mono ? "font-mono" : ""}`}>
           {value || "—"}
         </p>
       </div>
@@ -65,17 +65,17 @@ export default function UnclaimedDepositExpandableContent({ deposit }: Props) {
 
   return (
     <div className="space-y-4 p-5">
-      <div className="overflow-hidden rounded-xl border border-[#f08c2b]/25 bg-linear-to-br from-[#f08c2b]/10 via-white to-white">
-        <div className="flex items-center justify-between gap-3 border-b border-[#f08c2b]/15 bg-[#f08c2b]/5 px-4 py-3">
+      <div className="overflow-hidden rounded-xl border border-brand/25 bg-linear-to-br from-brand/10 via-card to-card">
+        <div className="flex items-center justify-between gap-3 border-b border-brand/15 bg-brand/5 px-4 py-3">
           <div className="flex items-center gap-2.5">
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-[#f08c2b]/20 bg-white text-[#f08c2b]">
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-brand/25 bg-card text-brand">
               <Inbox className="h-4 w-4" />
             </div>
             <div>
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-[#f08c2b]/80">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-brand">
                 Deposit
               </p>
-              <p className="text-base font-semibold leading-tight text-gray-900">
+              <p className="text-base font-semibold leading-tight text-foreground">
                 {formatCurrency(deposit.amount)}
               </p>
             </div>
@@ -139,22 +139,22 @@ export default function UnclaimedDepositExpandableContent({ deposit }: Props) {
       </div>
 
       {linked ? (
-        <div className="overflow-hidden rounded-xl border border-emerald-200 bg-linear-to-br from-emerald-50 via-white to-white">
-          <div className="flex items-center justify-between gap-3 border-b border-emerald-100 bg-emerald-50/60 px-4 py-3">
+        <div className="overflow-hidden rounded-xl border border-emerald-500/25 bg-linear-to-br from-emerald-500/10 via-card to-card">
+          <div className="flex items-center justify-between gap-3 border-b border-emerald-500/15 bg-emerald-500/10 px-4 py-3">
             <div className="flex items-center gap-2.5">
-              <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-emerald-200 bg-white text-emerald-600">
+              <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-emerald-500/25 bg-card text-emerald-600 dark:text-emerald-400">
                 <Link2 className="h-4 w-4" />
               </div>
               <div>
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-emerald-700/80">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-emerald-700 dark:text-emerald-300">
                   Linked transaction
                 </p>
-                <p className="text-base font-semibold leading-tight text-gray-900">
+                <p className="text-base font-semibold leading-tight text-foreground">
                   {formatCurrency(linked.amount)}
                 </p>
               </div>
             </div>
-            <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-emerald-700">
+            <span className="inline-flex items-center rounded-full border border-emerald-500/30 bg-emerald-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-emerald-700 dark:text-emerald-300">
               Claimed
             </span>
           </div>
@@ -192,11 +192,11 @@ export default function UnclaimedDepositExpandableContent({ deposit }: Props) {
           </div>
         </div>
       ) : (
-        <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50/60 px-4 py-3 text-sm text-muted-foreground">
+        <div className="rounded-xl border border-dashed border-border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
           <div className="flex items-start gap-2">
-            <Link2 className="mt-0.5 h-4 w-4 shrink-0 text-gray-400" />
+            <Link2 className="mt-0.5 h-4 w-4 shrink-0 text-brand" />
             <p>
-              No transaction is linked to this deposit yet. Use the <strong>Claim</strong> action to
+              No transaction is linked to this deposit yet. Use the <strong className="text-foreground">Claim</strong> action to
               assign it to a member or third party agent and optionally link a transaction.
             </p>
           </div>
@@ -204,14 +204,14 @@ export default function UnclaimedDepositExpandableContent({ deposit }: Props) {
       )}
 
       {notes ? (
-        <div className="rounded-xl border border-gray-200 bg-white px-4 py-3">
+        <div className="rounded-xl border border-border bg-card px-4 py-3">
           <div className="flex items-start gap-2">
-            <FileText className="mt-0.5 h-4 w-4 shrink-0 text-gray-400" />
+            <FileText className="mt-0.5 h-4 w-4 shrink-0 text-brand" />
             <div className="min-w-0">
               <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                 Notes
               </p>
-              <p className="mt-0.5 whitespace-pre-wrap text-sm leading-relaxed text-gray-700">
+              <p className="mt-0.5 whitespace-pre-wrap text-sm leading-relaxed text-foreground/80">
                 {notes}
               </p>
             </div>

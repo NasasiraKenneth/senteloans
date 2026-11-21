@@ -102,7 +102,7 @@ const PARTNER_ROLE_OPTIONS = [
 ]
 
 const inputClass = (hasError: boolean) =>
-  `w-full px-3 py-2.5 text-sm border rounded-md transition-all duration-200 focus:ring-[1.5px] focus:ring-[#f08c2b] focus:border-transparent focus:outline-none ${
+  `w-full px-3 py-2.5 text-sm border rounded-md transition-all duration-200 focus:ring-[1.5px] focus:ring-brand focus:border-transparent focus:outline-none ${
     hasError ? "border-red-500" : "border-gray-300 hover:border-gray-400"
   }`
 
@@ -383,8 +383,8 @@ export default function NewInvestmentForm({
     <div className="w-full max-h-[88vh] overflow-auto max-w-6xl mx-auto rounded-bl-lg">
       <form onSubmit={handleSubmit} className="space-y-5 p-4 sm:p-6">
 
-        <div className="rounded-xl border border-[#f08c2b]/20 bg-linear-to-r from-[#fff7ed] via-white to-white px-5 py-4 flex items-start gap-3">
-          <div className="mt-0.5 inline-flex h-9 w-9 items-center justify-center rounded-lg bg-[#f08c2b]/10 text-[#f08c2b]">
+        <div className="rounded-xl border border-brand/20 bg-linear-to-r from-brand/10 via-card to-card px-5 py-4 flex items-start gap-3">
+          <div className="mt-0.5 inline-flex h-9 w-9 items-center justify-center rounded-lg bg-brand/10 text-brand">
             <Briefcase className="h-4.5 w-4.5" />
           </div>
           <div className="min-w-0 flex-1">
@@ -395,7 +395,7 @@ export default function NewInvestmentForm({
           </div>
         </div>
 
-        <div className="rounded-xl border border-gray-200 bg-white shadow-sm">
+        <div className="rounded-xl border border-border bg-card shadow-sm">
           <SectionHeader
             icon={<Building2 className="h-4 w-4" />}
             title="Investment details"
@@ -455,7 +455,7 @@ export default function NewInvestmentForm({
           </div>
         </div>
 
-        <div className="rounded-xl border border-gray-200 bg-white shadow-sm">
+        <div className="rounded-xl border border-border bg-card shadow-sm">
           <SectionHeader
             icon={<PiggyBank className="h-4 w-4" />}
             title="Financial details"
@@ -508,7 +508,7 @@ export default function NewInvestmentForm({
           </div>
         </div>
 
-        <div className="rounded-xl border border-gray-200 bg-white shadow-sm">
+        <div className="rounded-xl border border-border bg-card shadow-sm">
           <SectionHeader
             icon={<CalendarClock className="h-4 w-4" />}
             title="Schedule"
@@ -534,7 +534,7 @@ export default function NewInvestmentForm({
                 }
               >
                 <div
-                  className={`flex items-center rounded-md border transition-all duration-200 focus-within:ring-[1.5px] focus-within:ring-[#f08c2b] focus-within:border-transparent ${
+                  className={`flex items-center rounded-md border transition-all duration-200 focus-within:ring-[1.5px] focus-within:ring-brand focus-within:border-transparent ${
                     errors.periodValue ? "border-red-500" : "border-gray-300 hover:border-gray-400"
                   }`}
                 >
@@ -562,7 +562,7 @@ export default function NewInvestmentForm({
                       aria-pressed={formData.periodUnit === "months"}
                       className={`rounded px-2.5 py-1 transition-colors ${
                         formData.periodUnit === "months"
-                          ? "bg-white text-gray-900 shadow-sm"
+                          ? "bg-brand text-brand-foreground shadow-sm"
                           : "text-gray-500 hover:text-gray-700"
                       }`}
                     >
@@ -574,7 +574,7 @@ export default function NewInvestmentForm({
                       aria-pressed={formData.periodUnit === "years"}
                       className={`rounded px-2.5 py-1 transition-colors ${
                         formData.periodUnit === "years"
-                          ? "bg-white text-gray-900 shadow-sm"
+                          ? "bg-brand text-brand-foreground shadow-sm"
                           : "text-gray-500 hover:text-gray-700"
                       }`}
                     >
@@ -603,7 +603,7 @@ export default function NewInvestmentForm({
           </div>
         </div>
 
-        <div className="rounded-xl border border-gray-200 bg-white shadow-sm">
+        <div className="rounded-xl border border-border bg-card shadow-sm">
           <SectionHeader
             icon={<Info className="h-4 w-4" />}
             title="Description"
@@ -623,10 +623,10 @@ export default function NewInvestmentForm({
         </div>
 
         {showPartners && (
-          <div className="rounded-xl border border-gray-200 bg-white shadow-sm">
+          <div className="rounded-xl border border-border bg-card shadow-sm">
             <div className="flex items-start justify-between gap-3 border-b border-gray-100 px-5 py-3.5">
               <div className="flex items-start gap-2.5 min-w-0">
-                <div className="mt-0.5 inline-flex h-7 w-7 items-center justify-center rounded-md bg-[#f08c2b]/10 text-[#f08c2b]">
+                <div className="mt-0.5 inline-flex h-7 w-7 items-center justify-center rounded-md bg-brand/10 text-brand">
                   <Users2 className="h-4 w-4" />
                 </div>
                 <div className="min-w-0">
@@ -663,11 +663,11 @@ export default function NewInvestmentForm({
                 formData.partners.map((row, idx) => (
                   <div
                     key={row.id}
-                    className="rounded-lg border border-gray-200 bg-white overflow-hidden"
+                    className="rounded-lg border border-border bg-card overflow-hidden"
                   >
                     <div className="flex items-center justify-between gap-2 border-b border-gray-100 bg-gray-50/70 px-4 py-2.5">
                       <div className="flex items-center gap-2 min-w-0">
-                        <span className="inline-flex h-6 w-6 items-center justify-center rounded-md bg-[#f08c2b]/10 text-[11px] font-semibold text-[#f08c2b]">
+                        <span className="inline-flex h-6 w-6 items-center justify-center rounded-md bg-brand/10 text-[11px] font-semibold text-brand">
                           {idx + 1}
                         </span>
                         <span className="text-xs font-semibold uppercase tracking-wide text-gray-600">
@@ -728,8 +728,8 @@ export default function NewInvestmentForm({
                                 updatePartnerRow(row.id, { status: e.target.checked ? "Active" : "Inactive" })
                               }
                             />
-                            <div className="h-5 w-9 rounded-full bg-gray-300 transition-colors peer-checked:bg-[#f08c2b]" />
-                            <div className="absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform peer-checked:translate-x-4" />
+                            <div className="h-5 w-9 rounded-full bg-muted-foreground/30 transition-colors peer-checked:bg-brand" />
+                            <div className="absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform peer-checked:translate-x-4 peer-checked:bg-brand-foreground" />
                           </div>
                           <span className="text-xs font-medium text-gray-700">
                             {row.status === "Active" ? "Active partner" : "Inactive"}
@@ -811,7 +811,7 @@ export default function NewInvestmentForm({
           </div>
         )}
 
-        <div className="sticky bottom-0 -mx-4 sm:-mx-6 -mb-4 sm:-mb-6 mt-2 border-t border-gray-200 bg-white/95 px-4 sm:px-6 py-3 backdrop-blur supports-backdrop-filter:bg-white/80">
+        <div className="sticky bottom-0 -mx-4 sm:-mx-6 -mb-4 sm:-mb-6 mt-2 border-t border-gray-200 bg-card/95 px-4 sm:px-6 py-3 backdrop-blur supports-backdrop-filter:bg-card/80">
           <div className="flex items-center justify-end gap-3">
             <Button type="button" variant="outline" onClick={onClose} disabled={loading}>
               <FaTimes className="mr-2 h-3 w-3" />
@@ -848,7 +848,7 @@ function SectionHeader({
 }) {
   return (
     <div className="flex items-start gap-2.5 border-b border-gray-100 px-5 py-3.5">
-      <div className="mt-0.5 inline-flex h-7 w-7 items-center justify-center rounded-md bg-[#f08c2b]/10 text-[#f08c2b]">
+      <div className="mt-0.5 inline-flex h-7 w-7 items-center justify-center rounded-md bg-brand/10 text-brand">
         {icon}
       </div>
       <div className="min-w-0">

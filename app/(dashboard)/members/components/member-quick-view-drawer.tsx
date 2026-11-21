@@ -91,26 +91,26 @@ export function MemberQuickViewDrawer({
   const isFullyPaid = fee > 0 && paid >= fee
 
   const statusStyles: Record<string, { border: string; text: string; dot: string }> = {
-    Active: { border: "border-emerald-200 text-emerald-700 bg-emerald-50/50", text: "Active", dot: "bg-emerald-500" },
-    Inactive: { border: "border-slate-200 text-slate-600 bg-slate-50", text: "Inactive", dot: "bg-slate-400" },
-    Suspended: { border: "border-rose-200 text-rose-700 bg-rose-50/50", text: "Suspended", dot: "bg-rose-500" },
+    Active: { border: "border-emerald-200 text-emerald-700 bg-emerald-50/50 dark:border-emerald-500/30 dark:text-emerald-300 dark:bg-emerald-500/15", text: "Active", dot: "bg-emerald-500" },
+    Inactive: { border: "border-border text-muted-foreground bg-muted", text: "Inactive", dot: "bg-muted-foreground" },
+    Suspended: { border: "border-rose-200 text-rose-700 bg-rose-50/50 dark:border-rose-500/30 dark:text-rose-300 dark:bg-rose-500/15", text: "Suspended", dot: "bg-rose-500" },
   }
 
   const kycStyles: Record<string, { border: string; text: string; icon: React.ReactNode }> = {
     Verified: {
-      border: "border-emerald-200 text-emerald-700 bg-emerald-50/50",
+      border: "border-emerald-200 text-emerald-700 bg-emerald-50/50 dark:border-emerald-500/30 dark:text-emerald-300 dark:bg-emerald-500/15",
       text: "Verified",
-      icon: <ShieldCheck className="h-3.5 w-3.5 text-emerald-600" />,
+      icon: <ShieldCheck className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />,
     },
     Pending: {
-      border: "border-amber-200 text-amber-700 bg-amber-50/50",
+      border: "border-amber-200 text-amber-700 bg-amber-50/50 dark:border-amber-500/30 dark:text-amber-300 dark:bg-amber-500/15",
       text: "Pending Review",
-      icon: <Clock className="h-3.5 w-3.5 text-amber-600" />,
+      icon: <Clock className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />,
     },
     Rejected: {
-      border: "border-rose-200 text-rose-700 bg-rose-50/50",
+      border: "border-rose-200 text-rose-700 bg-rose-50/50 dark:border-rose-500/30 dark:text-rose-300 dark:bg-rose-500/15",
       text: "Rejected",
-      icon: <ShieldAlert className="h-3.5 w-3.5 text-rose-600" />,
+      icon: <ShieldAlert className="h-3.5 w-3.5 text-rose-600 dark:text-rose-400" />,
     },
   }
 
@@ -127,7 +127,7 @@ export function MemberQuickViewDrawer({
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={onClose}
-            className="fixed inset-0 z-50 bg-slate-900/30 backdrop-blur-xs transition-opacity"
+            className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs transition-opacity"
           />
 
           {/* Sleek Drawer Panel */}
@@ -136,34 +136,34 @@ export function MemberQuickViewDrawer({
             animate={{ x: 0 }}
             exit={{ x: "100%" }}
             transition={{ type: "spring", damping: 30, stiffness: 340 }}
-            className="fixed inset-y-0 right-0 z-50 flex w-full max-w-md flex-col bg-white text-slate-900 shadow-2xl border-l border-slate-200"
+            className="fixed inset-y-0 right-0 z-50 flex w-full max-w-md flex-col bg-card text-foreground shadow-2xl border-l border-border"
           >
             {/* Top Navigation Bar */}
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-slate-50/50">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-border bg-muted/40">
               <div className="flex items-center gap-2">
-                <FileText className="h-4 w-4 text-[#F08C2B]" />
-                <h3 className="text-sm font-bold text-slate-900 tracking-tight">Member Summary</h3>
+                <FileText className="h-4 w-4 text-brand" />
+                <h3 className="text-sm font-bold text-foreground tracking-tight">Member Summary</h3>
               </div>
               <button
                 onClick={onClose}
-                className="rounded-full p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 transition-colors cursor-pointer"
+                className="rounded-full p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors cursor-pointer"
               >
                 <X className="h-4 w-4" />
               </button>
             </div>
 
             {/* Member Profile Overview Banner */}
-            <div className="px-6 py-5 border-b border-slate-100 bg-white">
+            <div className="px-6 py-5 border-b border-border bg-card">
               <div className="flex items-start gap-4">
-                <div className="w-12 h-12 rounded-full bg-white border-2 border-[#F08C2B] text-[#F08C2B] font-extrabold flex items-center justify-center text-base shadow-2xs flex-shrink-0">
+                <div className="w-12 h-12 rounded-full bg-brand/10 border-2 border-brand text-brand font-extrabold flex items-center justify-center text-base shadow-2xs flex-shrink-0">
                   {getInitials(member.fullName)}
                 </div>
 
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center justify-between">
-                    <h2 className="text-lg font-bold text-slate-900 truncate">{member.fullName}</h2>
+                    <h2 className="text-lg font-bold text-foreground truncate">{member.fullName}</h2>
                   </div>
-                  <div className="text-xs font-mono font-medium text-slate-500 mt-0.5">
+                  <div className="text-xs font-mono font-medium text-muted-foreground mt-0.5">
                     Member ID: {member.memberNumber}
                   </div>
 
@@ -186,52 +186,52 @@ export function MemberQuickViewDrawer({
             </div>
 
             {/* Drawer Scrollable Content Body */}
-            <div className="flex-1 overflow-y-auto p-6 space-y-4 bg-slate-50/40">
+            <div className="flex-1 overflow-y-auto p-6 space-y-4 bg-muted/20">
               {/* Contact Information */}
-              <div className="bg-white rounded-2xl p-4 border border-slate-200/80 shadow-2xs space-y-3">
-                <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-2">
-                  <User className="h-3.5 w-3.5 text-[#F08C2B]" /> Contact Details
+              <div className="bg-card rounded-2xl p-4 border border-border shadow-2xs space-y-3">
+                <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
+                  <User className="h-3.5 w-3.5 text-brand" /> Contact Details
                 </h4>
 
                 <div className="space-y-2.5 text-xs">
-                  <div className="flex items-center justify-between py-1 border-b border-slate-100">
-                    <span className="text-slate-500 flex items-center gap-2">
-                      <Phone className="h-3.5 w-3.5 text-slate-400" /> Phone
+                  <div className="flex items-center justify-between py-1 border-b border-border/60">
+                    <span className="text-muted-foreground flex items-center gap-2">
+                      <Phone className="h-3.5 w-3.5 text-muted-foreground/70" /> Phone
                     </span>
-                    <span className="font-semibold text-slate-900">{member.phoneNumber}</span>
+                    <span className="font-semibold text-foreground">{member.phoneNumber}</span>
                   </div>
 
                   {member.email && (
-                    <div className="flex items-center justify-between py-1 border-b border-slate-100">
-                      <span className="text-slate-500 flex items-center gap-2">
-                        <Mail className="h-3.5 w-3.5 text-slate-400" /> Email
+                    <div className="flex items-center justify-between py-1 border-b border-border/60">
+                      <span className="text-muted-foreground flex items-center gap-2">
+                        <Mail className="h-3.5 w-3.5 text-muted-foreground/70" /> Email
                       </span>
-                      <span className="font-semibold text-slate-900 truncate max-w-[200px]">{member.email}</span>
+                      <span className="font-semibold text-foreground truncate max-w-[200px]">{member.email}</span>
                     </div>
                   )}
 
                   <div className="flex items-center justify-between py-1">
-                    <span className="text-slate-500 flex items-center gap-2">
-                      <MapPin className="h-3.5 w-3.5 text-slate-400" /> Location
+                    <span className="text-muted-foreground flex items-center gap-2">
+                      <MapPin className="h-3.5 w-3.5 text-muted-foreground/70" /> Location
                     </span>
-                    <span className="font-semibold text-slate-900">{member.location || "Not specified"}</span>
+                    <span className="font-semibold text-foreground">{member.location || "Not specified"}</span>
                   </div>
                 </div>
               </div>
 
               {/* Membership Fee Payment Status */}
-              <div className="bg-white rounded-2xl p-4 border border-slate-200/80 shadow-2xs space-y-3">
+              <div className="bg-card rounded-2xl p-4 border border-border shadow-2xs space-y-3">
                 <div className="flex items-center justify-between">
-                  <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-2">
-                    <CreditCard className="h-3.5 w-3.5 text-[#F08C2B]" /> Membership Fee
+                  <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
+                    <CreditCard className="h-3.5 w-3.5 text-brand" /> Membership Fee
                   </h4>
                   <span
                     className={`text-xs font-semibold px-2.5 py-0.5 rounded-full border ${
                       isFullyPaid
-                        ? "border-emerald-300 text-emerald-700 bg-emerald-50"
+                        ? "border-emerald-300 text-emerald-700 bg-emerald-50 dark:border-emerald-500/30 dark:text-emerald-300 dark:bg-emerald-500/15"
                         : feePercentage > 0
-                        ? "border-amber-300 text-amber-700 bg-amber-50"
-                        : "border-slate-300 text-slate-600 bg-slate-50"
+                        ? "border-amber-300 text-amber-700 bg-amber-50 dark:border-amber-500/30 dark:text-amber-300 dark:bg-amber-500/15"
+                        : "border-border text-muted-foreground bg-muted"
                     }`}
                   >
                     {isFullyPaid ? "Fully Paid" : feePercentage > 0 ? "Partial Payment" : "Unpaid"}
@@ -240,22 +240,22 @@ export function MemberQuickViewDrawer({
 
                 <div className="flex items-baseline justify-between pt-1">
                   <div>
-                    <span className="text-[11px] text-slate-400 uppercase font-semibold">Paid Amount</span>
-                    <div className="text-base font-bold text-slate-900">{formatMoney(paid)}</div>
+                    <span className="text-[11px] text-muted-foreground uppercase font-semibold">Paid Amount</span>
+                    <div className="text-base font-bold text-foreground">{formatMoney(paid)}</div>
                   </div>
                   <div className="text-right">
-                    <span className="text-[11px] text-slate-400 uppercase font-semibold">Required Fee</span>
-                    <div className="text-sm font-semibold text-slate-600">{formatMoney(fee)}</div>
+                    <span className="text-[11px] text-muted-foreground uppercase font-semibold">Required Fee</span>
+                    <div className="text-sm font-semibold text-foreground/80">{formatMoney(fee)}</div>
                   </div>
                 </div>
 
                 {fee > 0 && (
                   <div className="space-y-1 pt-1">
-                    <div className="flex items-center justify-between text-xs text-slate-500">
+                    <div className="flex items-center justify-between text-xs text-muted-foreground">
                       <span>Progress</span>
-                      <span className="font-bold text-slate-800">{feePercentage}%</span>
+                      <span className="font-bold text-foreground">{feePercentage}%</span>
                     </div>
-                    <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden border border-slate-200/60">
+                    <div className="w-full h-2 bg-muted rounded-full overflow-hidden border border-border/60">
                       <div
                         className={`h-full rounded-full transition-all duration-500 ${
                           isFullyPaid ? "bg-emerald-500" : "bg-amber-500"
@@ -268,41 +268,41 @@ export function MemberQuickViewDrawer({
               </div>
 
               {/* Registration & KYC Audit */}
-              <div className="bg-white rounded-2xl p-4 border border-slate-200/80 shadow-2xs space-y-2 text-xs">
-                <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-2 mb-3">
-                  <Calendar className="h-3.5 w-3.5 text-[#F08C2B]" /> Registration Audit
+              <div className="bg-card rounded-2xl p-4 border border-border shadow-2xs space-y-2 text-xs">
+                <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-2 mb-3">
+                  <Calendar className="h-3.5 w-3.5 text-brand" /> Registration Audit
                 </h4>
 
-                <div className="flex justify-between py-1.5 border-b border-slate-100">
-                  <span className="text-slate-500">Join Date</span>
-                  <span className="font-semibold text-slate-800">{formatDate(member.joinDate)}</span>
+                <div className="flex justify-between py-1.5 border-b border-border/60">
+                  <span className="text-muted-foreground">Join Date</span>
+                  <span className="font-semibold text-foreground">{formatDate(member.joinDate)}</span>
                 </div>
 
-                <div className="flex justify-between py-1.5 border-b border-slate-100">
-                  <span className="text-slate-500">Registered By</span>
-                  <span className="font-semibold text-slate-800">{member.createdBy || "System"}</span>
+                <div className="flex justify-between py-1.5 border-b border-border/60">
+                  <span className="text-muted-foreground">Registered By</span>
+                  <span className="font-semibold text-foreground">{member.createdBy || "System"}</span>
                 </div>
 
                 {member.kycApprovedBy && (
-                  <div className="flex justify-between py-1.5 border-b border-slate-100">
-                    <span className="text-slate-500">KYC Reviewed By</span>
-                    <span className="font-semibold text-slate-800">{member.kycApprovedBy}</span>
+                  <div className="flex justify-between py-1.5 border-b border-border/60">
+                    <span className="text-muted-foreground">KYC Reviewed By</span>
+                    <span className="font-semibold text-foreground">{member.kycApprovedBy}</span>
                   </div>
                 )}
 
                 {member.kycApprovedAt && (
                   <div className="flex justify-between py-1.5">
-                    <span className="text-slate-500">Approval Date</span>
-                    <span className="font-semibold text-slate-800">{formatDateTime(member.kycApprovedAt)}</span>
+                    <span className="text-muted-foreground">Approval Date</span>
+                    <span className="font-semibold text-foreground">{formatDateTime(member.kycApprovedAt)}</span>
                   </div>
                 )}
               </div>
             </div>
 
             {/* Bottom Action Footer with TooltipButton Integration */}
-            <div className="p-4 bg-white border-t border-slate-200 flex items-center gap-3">
+            <div className="p-4 bg-card border-t border-border flex items-center gap-3">
               <Link href={`/members/${member.id}`} className="flex-1">
-                <Button className="w-full bg-[#F08C2B] hover:bg-[#d9771e] text-white font-semibold rounded-xl shadow-2xs transition-colors cursor-pointer">
+                <Button className="w-full bg-brand hover:bg-brand-700 text-brand-foreground font-semibold rounded-xl shadow-2xs transition-colors cursor-pointer">
                   View Full Profile
                   <ArrowRight className="h-4 w-4 ml-2" />
                 </Button>
@@ -313,7 +313,7 @@ export function MemberQuickViewDrawer({
                 <Link href={`/members/${member.id}/edit`}>
                   <TooltipButton
                     tooltip="Edit member profile"
-                    className="group relative inline-flex items-center justify-center w-11 h-11 rounded-xl bg-slate-100 hover:bg-orange-50 text-slate-700 hover:text-[#F08C2B] border border-slate-200 hover:border-[#F08C2B]/40 hover:scale-105 transition-all duration-200 focus:outline-none shadow-2xs cursor-pointer"
+                    className="group relative inline-flex items-center justify-center w-11 h-11 rounded-xl bg-muted hover:bg-brand/10 text-foreground hover:text-brand border border-border hover:border-brand/40 hover:scale-105 transition-all duration-200 focus:outline-none shadow-2xs cursor-pointer"
                   >
                     <Edit className="h-4.5 w-4.5 transition-transform group-hover:scale-110" />
                   </TooltipButton>
@@ -322,7 +322,7 @@ export function MemberQuickViewDrawer({
                 <TooltipButton
                   tooltip="Edit Member (No permission)"
                   disabled
-                  className="inline-flex items-center justify-center w-11 h-11 rounded-xl bg-slate-100 text-slate-400 border border-slate-200 opacity-50 cursor-not-allowed"
+                  className="inline-flex items-center justify-center w-11 h-11 rounded-xl bg-muted text-muted-foreground border border-border opacity-50 cursor-not-allowed"
                 >
                   <Edit className="h-4.5 w-4.5" />
                 </TooltipButton>

@@ -372,7 +372,7 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({
   return (
     <div className="w-full max-h-[85vh] overflow-auto max-w-5xl mx-auto p-4">
       <form onSubmit={handleSubmit} className="space-y-6">
-        <div className="bg-white rounded-lg shadow-sm border p-6 space-y-4">
+        <div className="bg-card rounded-lg shadow-sm border border-border p-6 space-y-4">
           <h3 className="text-lg font-medium mb-2">Invoice details</h3>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -496,7 +496,7 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({
                     {/* Track */}
                     <div className="w-10 h-5 bg-red-500 rounded-full peer-checked:bg-green-500 transition-colors" />
                     {/* Thumb */}
-                    <div className="absolute left-0.5 top-0.5 bg-white w-4 h-4 rounded-full shadow transition-transform peer-checked:translate-x-5" />
+                    <div className="absolute left-0.5 top-0.5 bg-white w-4 h-4 rounded-full shadow transition-transform peer-checked:translate-x-5 peer-checked:bg-brand-foreground" />
                   </div>
                   <span
                     className={`text-xs ${
@@ -516,7 +516,7 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.2 }}
-          className="bg-white rounded-xl border-gray-200 shadow-sm p-6"
+          className="bg-card rounded-xl border border-border shadow-sm p-6"
         >
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-semibold flex items-center gap-2">
@@ -528,7 +528,7 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({
               variant="default"
               size="sm"
               onClick={addItem}
-              className="hover:bg-[#f08c2b]"
+              className="hover:bg-brand hover:text-brand-foreground hover:border-brand"
             >
               <FaPlus className="w-3 h-3 mr-1" />
               Add item
@@ -581,7 +581,7 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({
                           Number(e.target.value) || 0,
                         )
                       }
-                      className="w-full px-2 py-1.5 border border-gray-300 rounded-md bg-white text-gray-900 text-sm
+                      className="w-full px-2 py-1.5 border border-input rounded-md bg-background text-foreground text-sm
                          focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-400
                          transition-all duration-200"
                     />
@@ -593,7 +593,7 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({
                         updateItem(item.id, "unit", e.target.value)
                       }
                       placeholder="Unit"
-                      className="w-full px-2 py-1.5 border border-gray-300 rounded-md bg-white text-gray-900 text-sm
+                      className="w-full px-2 py-1.5 border border-input rounded-md bg-background text-foreground text-sm
                          focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-400
                          transition-all duration-200"
                     />
@@ -605,7 +605,7 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({
                         updateItem(item.id, "description", e.target.value)
                       }
                       placeholder="Product / description"
-                      className="w-full px-2 py-1.5 border border-gray-300 rounded-md bg-white text-gray-900 text-sm
+                      className="w-full px-2 py-1.5 border border-input rounded-md bg-background text-foreground text-sm
                          focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-400
                          transition-all duration-200"
                     />
@@ -620,13 +620,13 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({
                           Number(e.target.value) || 0,
                         )
                       }
-                      className="w-full px-2 py-1.5 border border-gray-300 rounded-md bg-white text-gray-900 text-sm
+                      className="w-full px-2 py-1.5 border border-input rounded-md bg-background text-foreground text-sm
                          focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-400
                          transition-all duration-200"
                     />
                   </div>
                   <div className="col-span-2 items-center">
-                    <div className="px-2 py-1.5 bg-white border border-gray-300 rounded-md text-right font-semibold text-gray-900 text-sm">
+                    <div className="px-2 py-1.5 bg-muted/40 border border-border rounded-md text-right font-semibold text-foreground text-sm">
                       {formatCurrency(item.totalPrice)}
                     </div>
                   </div>
@@ -657,7 +657,7 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.2 }}
-          className="bg-white rounded-lg border shadow-sm p-6"
+          className="bg-card rounded-lg border border-border shadow-sm p-6"
         >
           <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
             <FaDollarSign className="w-5 h-5 text-green-600" />
@@ -703,7 +703,7 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({
           <button
             type="submit"
             disabled={loading}
-            className="flex items-center gap-2 px-5 py-2.5 bg-black hover:bg-[#f08c2b] text-white rounded-lg text-sm disabled:opacity-60 disabled:cursor-not-allowed"
+            className="flex items-center gap-2 px-5 py-2.5 bg-brand hover:bg-brand-700 text-brand-foreground rounded-lg text-sm disabled:opacity-60 disabled:cursor-not-allowed"
           >
             {loading ? (
               <>

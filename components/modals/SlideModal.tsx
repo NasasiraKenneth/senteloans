@@ -34,13 +34,13 @@ export const SlideModal: React.FC<ModalProps> = ({
                         animate="visible"
                         exit="exit"
                     transition={{ duration: 0.3, ease: "easeOut" }}
-                    className={`absolute top-0 max-h-full right-0 min-w-1/2 bg-white rounded-lg shadow-xl border border-gray-200 z-50 ${className}`}
+                    className={`absolute top-0 max-h-full right-0 min-w-1/2 bg-card text-card-foreground rounded-lg shadow-xl border border-border z-50 ${className}`}
                     >
-                    <div className="flex justify-between items-center mb-4 p-4 border-b border-gray-200">
-                        <h3 className="text-lg font-semibold text-gray-800">{title}</h3>
+                    <div className="flex justify-between items-center mb-4 p-4 border-b border-border">
+                        <h3 className="text-lg font-semibold text-foreground">{title}</h3>
                             <button
                                 onClick={onClose}
-                            className="text-gray-500 hover:text-gray-700 border rounded-lg p-2 border-gray-200"
+                            className="text-muted-foreground hover:text-foreground hover:bg-muted border rounded-lg p-2 border-border transition-colors"
                             >
                                 <Icon provider="io" iconName="IoMdClose" size={20} />
                             </button>

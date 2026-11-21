@@ -141,7 +141,7 @@ export default function LoanForm({ onSubmit, loading = false }: LoanFormProps) {
     return ""
   }, [form.tenure_months, selectedProduct])
   const productStyleInputClass = (hasError = false) =>
-    `w-full px-3 py-2.5 text-sm border rounded-md transition-all duration-200 focus:ring-[1.5px] focus:ring-[#f08c2b] focus:border-transparent focus:outline-none ${
+    `w-full px-3 py-2.5 text-sm border rounded-md transition-all duration-200 focus:ring-[1.5px] focus:ring-brand focus:border-transparent focus:outline-none ${
       hasError ? "border-red-500" : "border-gray-300 hover:border-gray-400"
     }`
 
@@ -473,15 +473,15 @@ export default function LoanForm({ onSubmit, loading = false }: LoanFormProps) {
   }
 
   return (
-    <div className="max-h-[78vh] overflow-y-auto p-5 bg-linear-to-b from-white via-orange-50/20 to-white">
-      <div className="mb-5 rounded-2xl border border-[#f08c2b]/35 bg-linear-to-r from-[#fff2e2] via-white to-white p-4 shadow-sm">
-        <p className="text-xs font-semibold uppercase tracking-wider text-[#de4925]">New Loan Application</p>
+    <div className="max-h-[78vh] overflow-y-auto p-5 bg-linear-to-b from-card via-brand/[0.04] to-card">
+      <div className="mb-5 rounded-2xl border border-brand/35 bg-linear-to-r from-brand/10 via-card to-card p-4 shadow-sm">
+        <p className="text-xs font-semibold uppercase tracking-wider text-brand">New Loan Application</p>
         <p className="mt-1 text-sm text-gray-600">Capture member, loan setup, and supporting details in one streamlined form.</p>
       </div>
 
       <div className="grid gap-4 md:grid-cols-[220px_1fr]">
         <aside className="rounded-2xl border border-black/10 bg-black p-4 text-white">
-          <p className="text-[11px] uppercase tracking-[0.16em] text-orange-300">Steps</p>
+          <p className="text-[11px] uppercase tracking-[0.16em] text-brand-300">Steps</p>
           <div className="relative mt-4 space-y-3">
             {steps.map((label, idx) => {
               const active = idx === step
@@ -496,7 +496,7 @@ export default function LoanForm({ onSubmit, loading = false }: LoanFormProps) {
                   transition={{ duration: 0.32, delay: idx * 0.06, ease: "easeOut" }}
                   whileHover={{ x: 4 }}
                   className={`relative w-full rounded-xl px-3 py-2 text-left transition ${
-                    active ? "border-[#f08c2b] bg-white/10" : done ? "border-green-500/40 bg-green-500/10" : "border-white/10 bg-white/5"
+                    active ? "border-brand bg-white/10" : done ? "border-green-500/40 bg-green-500/10" : "border-white/10 bg-white/5"
                   }`}
                   style={{ marginLeft: `${idx * 6}px` }}
                 >
@@ -506,17 +506,17 @@ export default function LoanForm({ onSubmit, loading = false }: LoanFormProps) {
                       transition={active ? { duration: 1.2, repeat: Infinity, repeatType: "mirror" } : { duration: 0.2 }}
                       className={`relative z-10 flex h-7 w-7 items-center justify-center rounded-full border text-xs font-bold ${
                         active
-                          ? "border-[#f08c2b] bg-[#f08c2b] text-black"
+                          ? "border-brand bg-brand text-brand-foreground"
                           : done
                             ? "border-green-400 bg-green-400 text-black"
                             : "border-white/40 bg-black text-white"
                       }`}
                     >
                       {idx + 1}
-                      {active && <span className="absolute inset-0 border rounded-3xl border-[#f08c2b] animate-ping opacity-35" />}
+                      {active && <span className="absolute inset-0 border rounded-3xl border-brand animate-ping opacity-35" />}
                     </motion.div>
                     <div>
-                      <p className={`text-sm font-semibold ${active ? "text-[#f08c2b]" : "text-white"}`}>{label}</p>
+                      <p className={`text-sm font-semibold ${active ? "text-brand" : "text-white"}`}>{label}</p>
                       <p className="text-[11px] text-white/70">
                         {idx === 0
                           ? "Member details"
@@ -536,7 +536,7 @@ export default function LoanForm({ onSubmit, loading = false }: LoanFormProps) {
           </div>
         </aside>
 
-      <div ref={stepContentRef} className="rounded-2xl max-h-[41vh] overflow-auto border border-black/10 bg-white p-4 shadow-sm space-y-4">
+      <div ref={stepContentRef} className="rounded-2xl max-h-[41vh] overflow-auto border border-border bg-card p-4 shadow-sm space-y-4">
         <AnimatePresence mode="wait">
         {step === 0 && (
         <motion.div
@@ -545,9 +545,9 @@ export default function LoanForm({ onSubmit, loading = false }: LoanFormProps) {
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: -10 }}
           transition={{ duration: 0.24 }}
-          className="space-y-3 rounded-xl border border-gray-200 bg-white p-3"
+          className="space-y-3 rounded-xl border border-border bg-card p-3"
         >
-              <Label className="flex items-center gap-2"><UserRound className="h-4 w-4 text-[#de4925]" /> Select Member</Label>
+              <Label className="flex items-center gap-2"><UserRound className="h-4 w-4 text-brand" /> Select Member</Label>
               <StyledSelect
                 value={form.member_id}
                 onChange={(value) => setForm((prev) => ({ ...prev, member_id: value }))}
@@ -556,8 +556,8 @@ export default function LoanForm({ onSubmit, loading = false }: LoanFormProps) {
                 searchable
               />
               {selectedMember && (
-                <div className="rounded-xl border border-[#f08c2b]/30 bg-orange-50 p-3">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-[#de4925]">Selected Member</p>
+                <div className="rounded-xl border border-brand/30 bg-brand/10 p-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-brand">Selected Member</p>
                   <div className="mt-2 grid grid-cols-2 gap-2 text-sm text-gray-700">
                     <p>Name: <span className="font-semibold">{selectedMember.full_name}</span></p>
                     <p>Member No: <span className="font-semibold">{selectedMember.member_number || "-"}</span></p>
@@ -575,10 +575,10 @@ export default function LoanForm({ onSubmit, loading = false }: LoanFormProps) {
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: -10 }}
           transition={{ duration: 0.24 }}
-          className="grid grid-cols-1 gap-4 rounded-xl border border-gray-200 bg-white p-3"
+          className="grid grid-cols-1 gap-4 rounded-xl border border-border bg-card p-3"
         >
               <div className="space-y-2">
-                <Label className="flex items-center gap-2"><CreditCard className="h-4 w-4 text-[#de4925]" /> Loan Product</Label>
+                <Label className="flex items-center gap-2"><CreditCard className="h-4 w-4 text-brand" /> Loan Product</Label>
                 <StyledSelect
                   value={form.loan_product_id}
                   onChange={(value) => setForm((prev) => ({ ...prev, loan_product_id: value }))}
@@ -589,7 +589,7 @@ export default function LoanForm({ onSubmit, loading = false }: LoanFormProps) {
               </div>
 
               <div className="space-y-2">
-                <Label className="flex items-center gap-2"><ShieldCheck className="h-4 w-4 text-[#de4925]" /> Loan Type</Label>
+                <Label className="flex items-center gap-2"><ShieldCheck className="h-4 w-4 text-brand" /> Loan Type</Label>
                 <StyledSelect
                   value={form.loan_type}
                   onChange={(value) =>
@@ -607,7 +607,7 @@ export default function LoanForm({ onSubmit, loading = false }: LoanFormProps) {
               </div>
               {form.loan_type === "top up" && (
                 <div className="space-y-2">
-                  <Label className="flex items-center gap-2"><CreditCard className="h-4 w-4 text-[#de4925]" /> Loan To Top Up</Label>
+                  <Label className="flex items-center gap-2"><CreditCard className="h-4 w-4 text-brand" /> Loan To Top Up</Label>
                   <StyledSelect
                     value={form.top_up_loan_id}
                     onChange={(value) => setForm((prev) => ({ ...prev, top_up_loan_id: value }))}
@@ -620,7 +620,7 @@ export default function LoanForm({ onSubmit, loading = false }: LoanFormProps) {
               {form.loan_type === "buy off" && (
                 <div className="grid grid-cols-1 gap-3">
                   <div className="space-y-2">
-                    <Label className="flex items-center gap-2"><Wallet className="h-4 w-4 text-[#de4925]" /> External Loan Outstanding Balance</Label>
+                    <Label className="flex items-center gap-2"><Wallet className="h-4 w-4 text-brand" /> External Loan Outstanding Balance</Label>
                     <input
                       type="number"
                       min="0"
@@ -632,7 +632,7 @@ export default function LoanForm({ onSubmit, loading = false }: LoanFormProps) {
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label className="flex items-center gap-2"><CreditCard className="h-4 w-4 text-[#de4925]" /> Select external lender</Label>
+                    <Label className="flex items-center gap-2"><CreditCard className="h-4 w-4 text-brand" /> Select external lender</Label>
                     <StyledSelect
                       value={form.external_lender_id}
                       onChange={(value) => setForm((prev) => ({ ...prev, external_lender_id: value }))}
@@ -645,8 +645,8 @@ export default function LoanForm({ onSubmit, loading = false }: LoanFormProps) {
               )}
 
               {selectedProduct && (
-                <div className="rounded-xl border border-[#f08c2b]/30 bg-orange-50 p-3">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-[#de4925]">Selected Product</p>
+                <div className="rounded-xl border border-brand/30 bg-brand/10 p-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-brand">Selected Product</p>
                   <div className="mt-2 grid grid-cols-2 gap-2 text-sm text-gray-700">
                     <p>Name: <span className="font-semibold">{selectedProduct.product_name}</span></p>
                     <p>Rate: <span className="font-semibold">{Number(selectedProduct.interest_rate || 0)}%</span></p>
@@ -664,14 +664,14 @@ export default function LoanForm({ onSubmit, loading = false }: LoanFormProps) {
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: -10 }}
           transition={{ duration: 0.24 }}
-          className="space-y-4 rounded-xl border border-gray-200 bg-white p-3"
+          className="space-y-4 rounded-xl border border-border bg-card p-3"
         >
               <div>
                 <h4 className="text-sm font-semibold text-gray-800 mb-3">Financial Details</h4>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label className="flex items-center gap-2"><Wallet className="h-4 w-4 text-[#de4925]" /> Principal Amount</Label>
+                  <Label className="flex items-center gap-2"><Wallet className="h-4 w-4 text-brand" /> Principal Amount</Label>
                   <input
                     type="number"
                     min="0"
@@ -684,7 +684,7 @@ export default function LoanForm({ onSubmit, loading = false }: LoanFormProps) {
                   {principalRangeError && <p className="text-xs text-red-500">{principalRangeError}</p>}
                 </div>
                 <div className="space-y-2">
-                  <Label className="flex items-center gap-2"><CalendarClock className="h-4 w-4 text-[#de4925]" /> Tenure (Months)</Label>
+                  <Label className="flex items-center gap-2"><CalendarClock className="h-4 w-4 text-brand" /> Tenure (Months)</Label>
                   <input
                     type="number"
                     min="1"
@@ -708,13 +708,13 @@ export default function LoanForm({ onSubmit, loading = false }: LoanFormProps) {
                 />
               </div>
 
-              <div className="rounded-2xl border border-[#f08c2b]/25 bg-linear-to-r from-black via-[#171717] to-black p-4 text-white shadow-sm">
+              <div className="rounded-2xl border border-brand/25 bg-linear-to-r from-black via-[#171717] to-black p-4 text-white shadow-sm">
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <p className="text-[11px] uppercase tracking-[0.16em] text-orange-300">Financial Snapshot</p>
+                    <p className="text-[11px] uppercase tracking-[0.16em] text-brand-300">Financial Snapshot</p>
                     <p className="mt-1 text-sm text-white/75">Quick summary of selected setup and amount details.</p>
                   </div>
-                  <span className="rounded-full border border-[#f08c2b]/35 bg-[#f08c2b]/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-[#f7b267]">
+                  <span className="rounded-full border border-brand/35 bg-brand/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-brand-300">
                     {form.loan_type || "normal"}
                   </span>
                 </div>
@@ -722,37 +722,37 @@ export default function LoanForm({ onSubmit, loading = false }: LoanFormProps) {
                 <div className="mt-4 grid grid-cols-2 gap-3">
                   <div className="rounded-xl border border-white/10 bg-white/5 p-3">
                     <p className="text-[11px] uppercase tracking-wide text-white/60">Principal</p>
-                    <p className="mt-1 text-base font-semibold text-[#f7b267]">
+                    <p className="mt-1 text-base font-semibold text-brand-300">
                       UGX {Number(form.principal_amount || 0).toLocaleString()}
                     </p>
                   </div>
                   <div className="rounded-xl border border-white/10 bg-white/5 p-3">
                     <p className="text-[11px] uppercase tracking-wide text-white/60">Tenure</p>
-                    <p className="mt-1 text-base font-semibold text-[#f7b267]">{form.tenure_months || "-"} months</p>
+                    <p className="mt-1 text-base font-semibold text-brand-300">{form.tenure_months || "-"} months</p>
                   </div>
                   <div className="col-span-2 rounded-xl border border-white/10 bg-white/5 p-3">
                     <p className="text-[11px] uppercase tracking-wide text-white/60">Loan Product</p>
                     <p className="mt-1 text-sm font-semibold text-white">{selectedProduct?.product_name || "-"}</p>
                   </div>
                   {form.loan_type === "top up" && (
-                    <div className="col-span-2 rounded-xl border border-[#f08c2b]/30 bg-[#f08c2b]/10 p-3">
-                      <p className="text-[11px] uppercase tracking-wide text-orange-200">Internal Outstanding Balance</p>
-                      <p className="mt-1 text-sm font-semibold text-[#f7b267]">
+                    <div className="col-span-2 rounded-xl border border-brand/30 bg-brand/10 p-3">
+                      <p className="text-[11px] uppercase tracking-wide text-brand-200">Internal Outstanding Balance</p>
+                      <p className="mt-1 text-sm font-semibold text-brand-300">
                         UGX {Number(selectedTopUpLoan?.outstanding_balance || 0).toLocaleString()}
                       </p>
-                      <p className="mt-1 text-xs text-orange-100">
-                        Source Loan: <span className="font-semibold text-[#f7b267]">{selectedTopUpLoan?.application_id || "-"}</span>
+                      <p className="mt-1 text-xs text-brand-100">
+                        Source Loan: <span className="font-semibold text-brand-300">{selectedTopUpLoan?.application_id || "-"}</span>
                       </p>
                     </div>
                   )}
                   {form.loan_type === "buy off" && (
-                    <div className="col-span-2 rounded-xl border border-[#f08c2b]/30 bg-[#f08c2b]/10 p-3">
-                      <p className="text-[11px] uppercase tracking-wide text-orange-200">External Outstanding Balance</p>
-                      <p className="mt-1 text-sm font-semibold text-[#f7b267]">
+                    <div className="col-span-2 rounded-xl border border-brand/30 bg-brand/10 p-3">
+                      <p className="text-[11px] uppercase tracking-wide text-brand-200">External Outstanding Balance</p>
+                      <p className="mt-1 text-sm font-semibold text-brand-300">
                         UGX {Number(form.external_outstanding_balance || 0).toLocaleString()}
                       </p>
-                      <p className="mt-1 text-xs text-orange-100">
-                        Lender: <span className="font-semibold text-[#f7b267]">{selectedExternalLenderName || "-"}</span>
+                      <p className="mt-1 text-xs text-brand-100">
+                        Lender: <span className="font-semibold text-brand-300">{selectedExternalLenderName || "-"}</span>
                       </p>
                     </div>
                   )}
@@ -767,7 +767,7 @@ export default function LoanForm({ onSubmit, loading = false }: LoanFormProps) {
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: -10 }}
           transition={{ duration: 0.24 }}
-          className="space-y-4 rounded-xl border border-gray-200 bg-white p-3"
+          className="space-y-4 rounded-xl border border-border bg-card p-3"
         >
               <div>
                 <h4 className="text-sm font-semibold text-gray-800 mb-1">Supporting Details</h4>
@@ -775,8 +775,8 @@ export default function LoanForm({ onSubmit, loading = false }: LoanFormProps) {
               </div>
 
               {selectedProduct && (
-                <div className="rounded-xl border border-[#f08c2b]/30 bg-orange-50 p-3">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-[#de4925]">Product Requirements</p>
+                <div className="rounded-xl border border-brand/30 bg-brand/10 p-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-brand">Product Requirements</p>
                   <div className="mt-2 grid grid-cols-2 gap-2 text-sm text-gray-700">
                     <p>Collateral: <span className="font-semibold">{selectedProduct.collateral_required ? "Required" : "Optional"}</span></p>
                     <p>Guarantors: <span className="font-semibold">{Number(selectedProduct.guarantors_required || 0)}</span></p>
@@ -830,22 +830,22 @@ export default function LoanForm({ onSubmit, loading = false }: LoanFormProps) {
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: -10 }}
           transition={{ duration: 0.24 }}
-          className="space-y-4 rounded-xl border border-gray-200 bg-white p-4"
+          className="space-y-4 rounded-xl border border-border bg-card p-4"
         >
-              <div className="rounded-2xl border border-[#f08c2b]/30 bg-linear-to-r from-[#fff2e2] via-white to-[#fff7ef] p-4">
+              <div className="rounded-2xl border border-brand/30 bg-linear-to-r from-brand/10 via-card to-brand/5 p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <p className="text-xs uppercase tracking-wide text-[#de4925] font-semibold">Final Review</p>
+                    <p className="text-xs uppercase tracking-wide text-brand font-semibold">Final Review</p>
                     <p className="mt-1 text-sm text-gray-600">Confirm every detail before creating this loan application.</p>
                   </div>
-                  <span className="rounded-full border border-[#f08c2b]/35 bg-[#f08c2b]/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-[#de4925]">
+                  <span className="rounded-full border border-brand/35 bg-brand/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-brand">
                     Step 5 of 5
                   </span>
                 </div>
               </div>
 
               <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-                <div className="rounded-xl border border-black/10 bg-white p-3 xl:col-span-2">
+                <div className="rounded-xl border border-border bg-card p-3 xl:col-span-2">
                   <p className="text-[11px] uppercase tracking-wide text-gray-500">Member Details</p>
                   <div className="mt-2 space-y-1 text-sm text-gray-700">
                     <p className="wrap-break-word">Name: <span className="font-semibold">{selectedMember?.full_name || "-"}</span></p>
@@ -855,7 +855,7 @@ export default function LoanForm({ onSubmit, loading = false }: LoanFormProps) {
                   </div>
                 </div>
 
-                <div className="rounded-xl border border-black/10 bg-white p-3">
+                <div className="rounded-xl border border-border bg-card p-3">
                   <p className="text-[11px] uppercase tracking-wide text-gray-500">Product & Type</p>
                   <div className="mt-2 space-y-1 text-sm text-gray-700">
                     <p className="wrap-break-word">Product: <span className="font-semibold">{selectedProduct?.product_name || "-"}</span></p>
@@ -865,7 +865,7 @@ export default function LoanForm({ onSubmit, loading = false }: LoanFormProps) {
                   </div>
                 </div>
 
-                <div className="rounded-xl border border-black/10 bg-white p-3">
+                <div className="rounded-xl border border-border bg-card p-3">
                   <p className="text-[11px] uppercase tracking-wide text-gray-500">Financials</p>
                   <div className="mt-2 space-y-1 text-sm text-gray-700">
                     <p className="wrap-break-word">Principal: <span className="font-semibold">UGX {Number(form.principal_amount || 0).toLocaleString()}</span></p>
@@ -874,7 +874,7 @@ export default function LoanForm({ onSubmit, loading = false }: LoanFormProps) {
                 </div>
               </div>
 
-              <div className="rounded-xl border border-black/10 bg-white p-3">
+              <div className="rounded-xl border border-border bg-card p-3">
                 <p className="text-[11px] uppercase tracking-wide text-gray-500">Loan Type Specific Details</p>
                 {form.loan_type === "top up" ? (
                   <div className="mt-2 grid grid-cols-1 gap-2 text-sm text-gray-700 md:grid-cols-2">
@@ -892,17 +892,17 @@ export default function LoanForm({ onSubmit, loading = false }: LoanFormProps) {
               </div>
 
               <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-                <div className="rounded-xl border border-black/10 bg-white p-3">
+                <div className="rounded-xl border border-border bg-card p-3">
                   <p className="text-[11px] uppercase tracking-wide text-gray-500">Purpose</p>
                   <p className="mt-2 text-sm text-gray-700">{form.purpose?.trim() || "-"}</p>
                 </div>
-                <div className="rounded-xl border border-black/10 bg-white p-3">
+                <div className="rounded-xl border border-border bg-card p-3">
                   <p className="text-[11px] uppercase tracking-wide text-gray-500">Collateral</p>
                   <p className="mt-2 text-sm text-gray-700">{form.collateral_description?.trim() || "N/A"}</p>
                 </div>
               </div>
 
-              <div className="rounded-xl border border-black/10 bg-white p-3">
+              <div className="rounded-xl border border-border bg-card p-3">
                 <p className="text-[11px] uppercase tracking-wide text-gray-500">Guarantors</p>
                 {requiredGuarantorCount > 0 ? (
                   <div className="mt-2 grid grid-cols-1 gap-2 text-sm text-gray-700 md:grid-cols-2 xl:grid-cols-3">
@@ -918,7 +918,7 @@ export default function LoanForm({ onSubmit, loading = false }: LoanFormProps) {
               </div>
 
               <div className="rounded-xl border border-black/10 bg-black p-3 text-white">
-                <p className="text-xs uppercase tracking-wide text-orange-300">Ready to submit</p>
+                <p className="text-xs uppercase tracking-wide text-brand-300">Ready to submit</p>
                 <p className="mt-1 text-sm text-white/80">Confirm details above and create the loan application.</p>
               </div>
         </motion.div>
@@ -935,11 +935,11 @@ export default function LoanForm({ onSubmit, loading = false }: LoanFormProps) {
             Back
           </Button>
           {step < steps.length - 1 ? (
-            <Button type="button" className="bg-black hover:bg-black/90 text-[#f08c2b]" onClick={goNext} disabled={loading}>
+            <Button type="button" className="bg-black hover:bg-black/90 text-brand" onClick={goNext} disabled={loading}>
               Continue
             </Button>
           ) : (
-            <Button type="button" className="bg-black hover:bg-black/90 text-[#f08c2b]" onClick={submit} disabled={loading}>
+            <Button type="button" className="bg-black hover:bg-black/90 text-brand" onClick={submit} disabled={loading}>
               {loading ? "Submitting..." : "Create Loan Application"}
             </Button>
           )}

@@ -30,7 +30,7 @@ type ConversationHeaderProps = {
 function typeBadgeClass(type: ChatConversation["type"]): string {
   switch (type) {
     case "LOAN":
-      return "bg-[#fff7ed] text-[#c46f12] border-[#f08c2b]/30"
+      return "bg-brand/10 text-brand border-brand/30"
     case "SUPPORT":
       return "bg-sky-50 text-sky-700 border-sky-200"
     case "GROUP":
@@ -117,7 +117,7 @@ export function ConversationHeader({
         ) : null}
 
         {isDirect ? (
-          <Avatar className="h-10 w-10 ring-2 ring-[#f08c2b]/20">
+          <Avatar className="h-10 w-10 ring-2 ring-brand/25">
             {peer?.avatarUrl ? <AvatarImage src={peer.avatarUrl} alt={displayTitle} /> : null}
             <AvatarFallback className="bg-primary/10 text-sm font-semibold text-primary">
               {initialsFromName(displayTitle)}
@@ -160,7 +160,7 @@ export function ConversationHeader({
             size="icon"
             className={cn(
               "shrink-0 text-muted-foreground",
-              searchActive && "bg-[#fff7ed] text-[#c46f12]",
+              searchActive && "bg-brand/10 text-brand",
             )}
             aria-label="Conversation options"
           >

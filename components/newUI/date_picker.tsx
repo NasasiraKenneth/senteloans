@@ -67,7 +67,6 @@ export default function ReeveDatePicker({
   return (
     <DatePicker
       key={value || "empty"}
-      className="orange"
       value={parsed}
       disabled={disabled}
       maxDate={normalizedMaxDate}
@@ -88,17 +87,17 @@ export default function ReeveDatePicker({
       render={(_pickerValue, openCalendar) => (
         <div
           onClick={disabled ? undefined : openCalendar}
-          className={`flex items-center justify-between gap-2 w-full px-3 py-2.5 text-sm border rounded-md transition-all duration-200 ${
+          className={`flex items-center justify-between gap-2 w-full px-3 py-2.5 text-sm border rounded-md transition-all duration-200 bg-background ${
             disabled
-              ? "bg-muted/50 text-gray-500 cursor-not-allowed border-gray-200"
+              ? "bg-muted/50 text-muted-foreground cursor-not-allowed border-border"
               : open
-                ? "ring-[1.5px] ring-[#f08c2b] border-transparent cursor-pointer"
-                : "border-gray-300 hover:border-gray-400 cursor-pointer"
+                ? "ring-[1.5px] ring-brand border-transparent cursor-pointer"
+                : "border-input hover:border-brand/50 cursor-pointer"
           } ${className || ""}`.trim()}
         >
           <div className="flex items-center gap-2 min-w-0 flex-1">
-            <FiCalendar className="text-gray-400 flex-shrink-0" />
-            <span className={`truncate ${displayDate ? "text-gray-900" : "text-gray-400"}`}>
+            <FiCalendar className="text-muted-foreground flex-shrink-0" />
+            <span className={`truncate ${displayDate ? "text-foreground" : "text-muted-foreground"}`}>
               {displayDate || placeholder}
             </span>
           </div>
@@ -109,7 +108,7 @@ export default function ReeveDatePicker({
                 e.stopPropagation()
                 onChange("")
               }}
-              className="text-gray-400 hover:text-gray-600 focus:outline-none p-0.5 rounded-full hover:bg-gray-100 transition-colors flex-shrink-0"
+              className="text-muted-foreground hover:text-foreground focus:outline-none p-0.5 rounded-full hover:bg-muted transition-colors flex-shrink-0"
               aria-label="Clear date"
               title="Clear date"
             >

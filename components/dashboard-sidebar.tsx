@@ -287,7 +287,7 @@ export function DashboardSidebar() {
   return (
     <div
       className={cn(
-        "relative flex h-full flex-col transition-all duration-300 ease-in-out shrink-0 border-r border-gray-200 dark:border-zinc-800 bg-white dark:bg-[#0f0f12] overflow-hidden select-none",
+        "relative flex h-full flex-col transition-all duration-300 ease-in-out shrink-0 border-r border-gray-200 dark:border-white/10 bg-white dark:bg-[#0f0f12] overflow-hidden select-none",
         collapsed ? "w-[68px]" : "w-[260px]",
       )}
     >
@@ -300,19 +300,19 @@ export function DashboardSidebar() {
       />
 
       {/* ── Brand header ── */}
-      <div className="relative z-10 border-b border-gray-200 dark:border-zinc-800">
+      <div className="relative z-10 border-b border-gray-200 dark:border-white/10">
         {collapsed ? (
           /* ── Collapsed: toggle on top, logo below ── */
           <div className="flex flex-col items-center gap-3 px-3 py-4">
             <button
               onClick={() => setCollapsed(false)}
               title="Expand sidebar"
-              className="flex h-7 w-7 items-center justify-center rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 dark:text-zinc-400 dark:hover:bg-zinc-800/70 dark:hover:text-zinc-100 transition-colors"
+              className="flex h-7 w-7 items-center justify-center rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 dark:text-[#a1a1aa] dark:hover:bg-white/10 dark:hover:text-white transition-colors cursor-pointer"
             >
               <ChevronRight className="h-4 w-4" />
             </button>
 
-            <Link href="/dashboard" title={institutionName}>
+            <Link href="/dashboard" title={institutionName} className="no-underline hover:no-underline">
               <InstitutionLogo
                 name={institutionName}
                 logo={session?.institution?.logo}
@@ -327,12 +327,12 @@ export function DashboardSidebar() {
             <button
               onClick={() => setCollapsed(true)}
               title="Collapse sidebar"
-              className="absolute right-3 top-3 z-10 flex h-7 w-7 items-center justify-center rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 dark:text-zinc-400 dark:hover:bg-zinc-800/70 dark:hover:text-zinc-100 transition-colors"
+              className="absolute right-3 top-3 z-10 flex h-7 w-7 items-center justify-center rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 dark:text-[#a1a1aa] dark:hover:bg-white/10 dark:hover:text-white transition-colors cursor-pointer"
             >
               <ChevronLeft className="h-4 w-4" />
             </button>
 
-            <Link href="/dashboard" className="flex flex-col items-center group">
+            <Link href="/dashboard" className="flex flex-col items-center group no-underline hover:no-underline">
               <InstitutionLogo
                 name={institutionName}
                 logo={session?.institution?.logo}
@@ -340,7 +340,7 @@ export function DashboardSidebar() {
                 initialsClassName="text-base font-bold text-brand"
               />
               <div className="mt-4 w-full text-center">
-                <div className="text-wrap text-[15px] font-bold tracking-tight text-gray-900 dark:text-zinc-100 transition-colors">
+                <div className="text-wrap text-[15px] font-bold tracking-tight text-gray-900 dark:text-white transition-colors">
                   {institutionName}
                 </div>
                 {session?.institution?.type && (
@@ -366,12 +366,12 @@ export function DashboardSidebar() {
           <div key={section.label ?? `section-${sectionIdx}`} className={cn(sectionIdx > 0 && "mt-5")}>
             {/* Section label */}
             {section.label && !collapsed && (
-              <div className="mb-2 px-3 text-[10px] font-semibold uppercase tracking-[0.08em] text-gray-400 dark:text-zinc-400">
+              <div className="mb-2 px-3 text-[10px] font-semibold uppercase tracking-[0.08em] text-gray-400 dark:text-[#71717a]">
                 {section.label}
               </div>
             )}
             {section.label && collapsed && (
-              <div className="mx-auto mb-2 h-px w-6 bg-gray-200 dark:bg-zinc-800" />
+              <div className="mx-auto mb-2 h-px w-6 bg-gray-200 dark:bg-white/10" />
             )}
 
             <div className="space-y-0.5">
@@ -388,11 +388,11 @@ export function DashboardSidebar() {
                         onClick={() => !collapsed && toggleSubmenu(item.name)}
                         title={collapsed ? item.name : undefined}
                         className={cn(
-                          "group relative flex w-full items-center rounded-xl transition-all duration-150 border",
+                          "group relative flex w-full items-center rounded-xl transition-all duration-150 border cursor-pointer",
                           collapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2.5",
                           active
                             ? "bg-brand/10 dark:bg-brand/15 text-brand dark:text-brand border-brand/25 dark:border-brand/35 shadow-xs"
-                            : "text-gray-600 hover:text-gray-900 hover:bg-gray-100/70 dark:text-zinc-300 dark:hover:bg-zinc-800/60 dark:hover:text-white border-transparent",
+                            : "text-gray-600 hover:text-gray-900 hover:bg-gray-100/70 dark:text-[#d4d4d8] dark:hover:bg-white/[0.06] dark:hover:text-white border-transparent",
                         )}
                       >
                         {/* Active accent pill */}
@@ -404,20 +404,20 @@ export function DashboardSidebar() {
                           "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-all duration-150",
                           active
                             ? "bg-brand/15 dark:bg-brand/25 text-brand shadow-[0_0_12px_rgba(var(--ui-p-rgb,240,140,43),0.2)]"
-                            : "text-gray-400 group-hover:text-gray-700 dark:text-zinc-400 dark:group-hover:text-zinc-100 group-hover:scale-105",
+                            : "text-gray-400 group-hover:text-gray-700 dark:text-[#a1a1aa] dark:group-hover:text-white group-hover:scale-105",
                         )}>
                           <Icon className="h-[18px] w-[18px]" />
                         </div>
 
                         {!collapsed && (
                           <>
-                            <span className={cn("flex-1 text-left text-[13px]", active ? "font-semibold text-gray-900 dark:text-white" : "font-medium text-gray-600 dark:text-zinc-300 group-hover:text-gray-900 dark:group-hover:text-white")}>
+                            <span className={cn("flex-1 text-left text-[13px]", active ? "font-semibold text-gray-900 dark:text-white" : "font-medium text-gray-600 dark:text-[#d4d4d8] group-hover:text-gray-900 dark:group-hover:text-white")}>
                               {item.name}
                             </span>
                             <ChevronDown
                               className={cn(
                                 "h-3.5 w-3.5 transition-transform duration-200",
-                                active ? "text-brand" : "text-gray-400 group-hover:text-gray-600 dark:text-zinc-400 dark:group-hover:text-zinc-200",
+                                active ? "text-brand" : "text-gray-400 group-hover:text-gray-600 dark:text-[#a1a1aa] dark:group-hover:text-white",
                                 isExpanded && "rotate-180",
                               )}
                             />
@@ -429,11 +429,11 @@ export function DashboardSidebar() {
                         href={item.href}
                         title={collapsed ? item.name : undefined}
                         className={cn(
-                          "group relative flex items-center rounded-xl transition-all duration-150 border",
+                          "group relative flex items-center rounded-xl transition-all duration-150 border no-underline hover:no-underline",
                           collapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2.5",
                           active
                             ? "bg-brand/10 dark:bg-brand/15 text-brand dark:text-brand border-brand/25 dark:border-brand/35 shadow-xs"
-                            : "text-gray-600 hover:text-gray-900 hover:bg-gray-100/70 dark:text-zinc-300 dark:hover:bg-zinc-800/60 dark:hover:text-white border-transparent",
+                            : "text-gray-600 hover:text-gray-900 hover:bg-gray-100/70 dark:text-[#d4d4d8] dark:hover:bg-white/[0.06] dark:hover:text-white border-transparent",
                         )}
                       >
                         {/* Active accent pill */}
@@ -445,13 +445,13 @@ export function DashboardSidebar() {
                           "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-all duration-150",
                           active
                             ? "bg-brand/15 dark:bg-brand/25 text-brand shadow-[0_0_12px_rgba(var(--ui-p-rgb,240,140,43),0.2)]"
-                            : "text-gray-400 group-hover:text-gray-700 dark:text-zinc-400 dark:group-hover:text-zinc-100 group-hover:scale-105",
+                            : "text-gray-400 group-hover:text-gray-700 dark:text-[#a1a1aa] dark:group-hover:text-white group-hover:scale-105",
                         )}>
                           <Icon className="h-[18px] w-[18px]" />
                         </div>
 
                         {!collapsed && (
-                          <span className={cn("text-[13px]", active ? "font-semibold text-gray-900 dark:text-white" : "font-medium text-gray-600 dark:text-zinc-300 group-hover:text-gray-900 dark:group-hover:text-white")}>
+                          <span className={cn("text-[13px]", active ? "font-semibold text-gray-900 dark:text-white" : "font-medium text-gray-600 dark:text-[#d4d4d8] group-hover:text-gray-900 dark:group-hover:text-white")}>
                             {item.name}
                           </span>
                         )}
@@ -468,7 +468,7 @@ export function DashboardSidebar() {
                         }}
                       >
                         <div className="overflow-hidden">
-                          <div className="ml-[22px] mt-1 space-y-0.5 border-l border-gray-200 dark:border-zinc-800 pl-5 pb-1">
+                          <div className="ml-[22px] mt-1 space-y-0.5 border-l border-gray-200 dark:border-white/10 pl-5 pb-1">
                             {item.submenu!.map((subItem, subIdx) => {
                               const subActive = pathname === subItem.href || pathname.startsWith(subItem.href + "/")
                               return (
@@ -476,10 +476,10 @@ export function DashboardSidebar() {
                                   key={subItem.name}
                                   href={subItem.href}
                                   className={cn(
-                                    "relative block rounded-lg px-3 py-2 text-[12px] transition-all duration-200 border",
+                                    "relative block rounded-lg px-3 py-2 text-[12px] transition-all duration-200 border no-underline hover:no-underline",
                                     subActive
                                       ? "text-brand bg-brand/10 dark:bg-brand/15 border-brand/25 dark:border-brand/35 font-semibold shadow-xs"
-                                      : "text-gray-500 hover:text-gray-900 hover:bg-gray-100/60 dark:text-zinc-400 dark:hover:bg-zinc-800/50 dark:hover:text-zinc-100 border-transparent font-medium",
+                                      : "text-gray-500 hover:text-gray-900 hover:bg-gray-100/60 dark:text-[#a1a1aa] dark:hover:bg-white/[0.06] dark:hover:text-white border-transparent font-medium",
                                   )}
                                   style={{
                                     transitionDelay: isExpanded ? `${subIdx * 40}ms` : "0ms",
@@ -507,19 +507,19 @@ export function DashboardSidebar() {
       </nav>
 
       {/* ── Bottom ── */}
-      <div className="relative z-10 border-t border-gray-200 dark:border-zinc-800 px-3 py-3">
+      <div className="relative z-10 border-t border-gray-200 dark:border-white/10 px-3 py-3">
         <button
           onClick={handleLogout}
           title={collapsed ? "Log out" : undefined}
           className={cn(
-            "flex w-full items-center rounded-xl text-gray-500 hover:text-red-600 hover:bg-red-50 dark:text-zinc-400 dark:hover:bg-red-500/10 dark:hover:text-red-400 border border-transparent hover:border-red-200 dark:hover:border-red-500/20 group transition-all duration-150",
+            "flex w-full items-center rounded-xl text-gray-500 hover:text-red-600 hover:bg-red-50 dark:text-[#a1a1aa] dark:hover:bg-red-500/10 dark:hover:text-red-400 border border-transparent hover:border-red-200 dark:hover:border-red-500/20 group transition-all duration-150 cursor-pointer",
             collapsed ? "justify-center py-2.5" : "gap-3 px-3 py-2.5",
           )}
         >
           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-inherit group-hover:scale-105 transition-transform">
             <LogOut className="h-[18px] w-[18px]" />
           </div>
-          {!collapsed && <span className="text-[13px] font-medium text-gray-600 dark:text-zinc-400 group-hover:text-red-600 dark:group-hover:text-red-400">Log out</span>}
+          {!collapsed && <span className="text-[13px] font-medium text-gray-600 dark:text-[#a1a1aa] group-hover:text-red-600 dark:group-hover:text-red-400">Log out</span>}
         </button>
       </div>
     </div>

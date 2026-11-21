@@ -226,7 +226,7 @@ export default function ApplyLoanPage() {
   if (isSessionLoading || !session) {
     return (
       <div className="flex items-center justify-center py-20">
-        <Loader2 className="h-8 w-8 animate-spin text-[#f08c2b]" />
+        <Loader2 className="h-8 w-8 animate-spin text-brand" />
       </div>
     )
   }
@@ -381,10 +381,10 @@ export default function ApplyLoanPage() {
   const loanDetails = calculateLoanDetails()
 
   // Sacco edit label class
-  const inputLabelClass = "text-[9px] uppercase font-bold tracking-widest text-[#f08c2b]/90 mb-1 block"
-  const formInputClass = "bg-background border-border/80 focus-visible:ring-[#f08c2b] focus-visible:border-[#f08c2b]/50 transition-all duration-200"
+  const inputLabelClass = "text-[9px] uppercase font-bold tracking-widest text-brand/90 mb-1 block"
+  const formInputClass = "bg-background border-border/80 focus-visible:ring-brand focus-visible:border-brand/50 transition-all duration-200"
   const inputClass = (hasError: boolean) =>
-    `w-full px-3 py-2.5 text-sm border rounded-md transition-all duration-200 focus:ring-[1.5px] focus:ring-[#f08c2b] focus:border-transparent focus:outline-none ${
+    `w-full px-3 py-2.5 text-sm border rounded-md transition-all duration-200 focus:ring-[1.5px] focus:ring-brand focus:border-transparent focus:outline-none ${
       hasError ? "border-red-500" : "border-gray-300 hover:border-gray-400"
     }`
 
@@ -414,10 +414,10 @@ export default function ApplyLoanPage() {
           </div>
           <Progress value={(currentStep / 4) * 100} className="h-1.5 bg-muted" indicatorClassName="bg-primary" />
           <div className="grid grid-cols-4 mt-3 text-[9px] font-bold uppercase tracking-wider text-center text-muted-foreground">
-            <span className={cn(currentStep >= 1 && "text-[#f08c2b]")}>Select Credit</span>
-            <span className={cn(currentStep >= 2 && "text-[#f08c2b]")}>Fill Details</span>
-            <span className={cn(currentStep >= 3 && "text-[#f08c2b]")}>Review & Sign</span>
-            <span className={cn(currentStep >= 4 && "text-[#f08c2b]")}>Disbursement</span>
+            <span className={cn(currentStep >= 1 && "text-brand")}>Select Credit</span>
+            <span className={cn(currentStep >= 2 && "text-brand")}>Fill Details</span>
+            <span className={cn(currentStep >= 3 && "text-brand")}>Review & Sign</span>
+            <span className={cn(currentStep >= 4 && "text-brand")}>Disbursement</span>
           </div>
         </CardContent>
       </Card>
@@ -437,7 +437,7 @@ export default function ApplyLoanPage() {
             <Card className="border-border/80 shadow-xs overflow-hidden">
               <CardHeader className="pb-3 bg-muted/10 border-b border-border/40">
                 <div className="flex items-center gap-2">
-                  <Wallet className="h-4 w-4 text-[#f08c2b]" />
+                  <Wallet className="h-4 w-4 text-brand" />
                   <CardTitle className="text-sm font-bold text-foreground">Credit Facility Type</CardTitle>
                 </div>
                 <CardDescription className="text-xs text-muted-foreground">
@@ -465,11 +465,11 @@ export default function ApplyLoanPage() {
                   {creditType === "top up" && (
                     <div className="space-y-1.5">
                       <div className="flex items-center justify-between">
-                        <label className="block text-xs font-semibold text-[#f08c2b]">
+                        <label className="block text-xs font-semibold text-brand">
                           Existing Loan to Top Up
                         </label>
                         {selectedExistingLoan && (
-                          <Badge variant="outline" className="text-[9px] bg-[#f08c2b]/10 text-[#f08c2b] border-[#f08c2b]/30">
+                          <Badge variant="outline" className="text-[9px] bg-brand/10 text-brand border-brand/30">
                             {selectedExistingLoan.status}
                           </Badge>
                         )}
@@ -494,7 +494,7 @@ export default function ApplyLoanPage() {
                 {creditType === "top up" && (
                   <>
                     {selectedExistingLoan ? (
-                      <div className="rounded-lg border border-[#f08c2b]/30 bg-[#fff8f2] dark:bg-[#f08c2b]/5 p-3 grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs">
+                      <div className="rounded-lg border border-brand/30 bg-brand/10 p-3 grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs">
                         <div>
                           <span className="text-[9px] uppercase font-bold text-muted-foreground block">Application ID</span>
                           <span className="font-mono font-bold text-foreground">{selectedExistingLoan.applicationId}</span>
@@ -505,7 +505,7 @@ export default function ApplyLoanPage() {
                         </div>
                         <div>
                           <span className="text-[9px] uppercase font-bold text-muted-foreground block">Outstanding Balance</span>
-                          <span className="font-mono font-bold text-[#f08c2b]">{formatMoney(selectedExistingLoan.outstandingBalance)}</span>
+                          <span className="font-mono font-bold text-brand">{formatMoney(selectedExistingLoan.outstandingBalance)}</span>
                         </div>
                       </div>
                     ) : existingLoans.length === 0 && !isLoadingExistingLoans ? (
@@ -551,7 +551,7 @@ export default function ApplyLoanPage() {
 
             {isLoadingProducts ? (
               <div className="flex items-center justify-center py-16">
-                <Loader2 className="h-8 w-8 animate-spin text-[#f08c2b]" />
+                <Loader2 className="h-8 w-8 animate-spin text-brand" />
               </div>
             ) : loanProducts.length === 0 ? (
               <Card className="p-8 text-center border-dashed border-border">
@@ -571,13 +571,13 @@ export default function ApplyLoanPage() {
                     {visibleProducts.map((product) => (
                       <Card
                         key={product.id}
-                        className="cursor-pointer hover:shadow-md hover:border-[#f08c2b]/50 border-border/80 border-t-2 border-t-[#f08c2b] transition-all duration-200 flex flex-col justify-between"
+                        className="cursor-pointer hover:shadow-md hover:border-brand/50 border-border/80 border-t-2 border-t-brand transition-all duration-200 flex flex-col justify-between"
                         onClick={() => handleProductSelect(product)}
                       >
                         <CardHeader className="pb-3 bg-muted/10 border-b border-border/40">
                           <div className="flex items-start justify-between gap-4">
                             <CardTitle className="text-sm font-bold text-foreground">{product.name}</CardTitle>
-                            <Badge className="text-[9px] font-bold px-2 py-0.5 bg-[#f08c2b]/10 text-[#f08c2b] border-[#f08c2b]/20" variant="outline">
+                            <Badge className="text-[9px] font-bold px-2 py-0.5 bg-brand/10 text-brand border-brand/20" variant="outline">
                               {product.interestRate}% Interest
                             </Badge>
                           </div>
@@ -602,7 +602,7 @@ export default function ApplyLoanPage() {
                             {Number(product.processingFeePercentage || 0) > 0 && (
                               <div className="col-span-2 pt-2 border-t border-border/40 flex items-center justify-between">
                                 <span className="text-[9px] uppercase font-bold tracking-widest text-muted-foreground">Processing Fee</span>
-                                <Badge variant="outline" className="text-[9px] font-bold text-[#f08c2b] border-[#f08c2b]/30 bg-[#f08c2b]/10">
+                                <Badge variant="outline" className="text-[9px] font-bold text-brand border-brand/30 bg-brand/10">
                                   {product.processingFeePercentage}%
                                 </Badge>
                               </div>
@@ -650,20 +650,20 @@ export default function ApplyLoanPage() {
               </div>
 
               {creditType === "top up" && selectedExistingLoan && (
-                <div className="rounded-lg border border-[#f08c2b]/30 bg-[#fff8f2] dark:bg-[#f08c2b]/5 p-3 text-xs flex items-center justify-between">
+                <div className="rounded-lg border border-brand/30 bg-brand/10 p-3 text-xs flex items-center justify-between">
                   <div>
-                    <span className="text-[9px] uppercase font-bold text-[#f08c2b] block">Top Up Applied Against</span>
+                    <span className="text-[9px] uppercase font-bold text-brand block">Top Up Applied Against</span>
                     <span className="font-mono font-bold text-foreground">{selectedExistingLoan.applicationId}</span>
                     <span className="text-muted-foreground ml-1">({selectedExistingLoan.loanProduct})</span>
                   </div>
                   <div className="text-right">
                     <span className="text-[9px] uppercase font-bold text-muted-foreground block">Balance to Settle</span>
-                    <span className="font-mono font-bold text-[#f08c2b]">{formatMoney(selectedExistingLoan.outstandingBalance)}</span>
+                    <span className="font-mono font-bold text-brand">{formatMoney(selectedExistingLoan.outstandingBalance)}</span>
                   </div>
                 </div>
               )}
 
-              <Card className="border-border/80 border-t-2 border-t-[#f08c2b] shadow-sm">
+              <Card className="border-border/80 border-t-2 border-t-brand shadow-sm">
                 <CardHeader className="pb-3 border-b border-border/40 bg-muted/10">
                   <CardTitle className="text-sm font-bold text-foreground">{selectedProduct.name}</CardTitle>
                   <CardDescription className="text-xs">Specify loan size, monthly duration, and credit purpose.</CardDescription>
@@ -757,7 +757,7 @@ export default function ApplyLoanPage() {
               {loanDetails ? (
                 <Card className="border-border/80 shadow-sm bg-card overflow-hidden">
                   <CardHeader className="border-b border-border/60 bg-muted/20 pb-3 flex flex-row items-center gap-2">
-                    <Calculator className="h-4.5 w-4.5 text-[#f08c2b]" />
+                    <Calculator className="h-4.5 w-4.5 text-brand" />
                     <CardTitle className="text-sm font-semibold">Repayment Estimates</CardTitle>
                   </CardHeader>
                   <CardContent className="p-4 space-y-3 text-xs">
@@ -767,7 +767,7 @@ export default function ApplyLoanPage() {
                     </div>
                     <div className="flex justify-between border-t border-border/40 pt-2.5">
                       <span className="text-muted-foreground">Interest Cost:</span>
-                      <span className="font-bold text-[#f08c2b] font-mono">+{formatMoney(loanDetails.totalInterest)}</span>
+                      <span className="font-bold text-brand font-mono">+{formatMoney(loanDetails.totalInterest)}</span>
                     </div>
                     <div className="flex justify-between border-t border-border/40 pt-2.5">
                       <span className="text-muted-foreground">Total Repayable:</span>
@@ -803,7 +803,7 @@ export default function ApplyLoanPage() {
               {/* Borrow Policy Box */}
               <Card className="border-border/80 shadow-sm bg-card overflow-hidden">
                 <CardHeader className="border-b border-border/60 bg-muted/20 pb-3 flex flex-row items-center gap-2">
-                  <Info className="h-4.5 w-4.5 text-[#f08c2b]" />
+                  <Info className="h-4.5 w-4.5 text-brand" />
                   <CardTitle className="text-sm font-semibold">Guarantors Policy</CardTitle>
                 </CardHeader>
                 <CardContent className="p-4 text-xs text-muted-foreground leading-relaxed space-y-2">
@@ -845,7 +845,7 @@ export default function ApplyLoanPage() {
 
             {/* Guarantor selection for SACCO using StyledSelect */}
             {requiresGuarantors && (
-              <Card className="border-border/80 border-t-2 border-t-[#f08c2b] shadow-sm">
+              <Card className="border-border/80 border-t-2 border-t-brand shadow-sm">
                 <CardHeader className="pb-3 border-b border-border/40 bg-muted/10">
                   <div className="flex items-center justify-between">
                     <div>
@@ -854,7 +854,7 @@ export default function ApplyLoanPage() {
                         Select fellow verified Sacco members to guarantee this credit facility (Min 1, Max 3).
                       </CardDescription>
                     </div>
-                    <Badge variant="outline" className="text-[10px] font-bold bg-[#f08c2b]/10 text-[#f08c2b] border-[#f08c2b]/30">
+                    <Badge variant="outline" className="text-[10px] font-bold bg-brand/10 text-brand border-brand/30">
                       {selectedGuarantors.length} / 3 Added
                     </Badge>
                   </div>
@@ -902,7 +902,7 @@ export default function ApplyLoanPage() {
                             className="flex items-center justify-between p-3 rounded-lg border border-border/80 bg-muted/15 hover:bg-muted/25 transition-colors"
                           >
                             <div className="flex items-center gap-2.5 min-w-0">
-                              <div className="h-8 w-8 rounded-full bg-[#f08c2b]/15 text-[#f08c2b] flex items-center justify-center font-bold text-xs shrink-0">
+                              <div className="h-8 w-8 rounded-full bg-brand/15 text-brand flex items-center justify-center font-bold text-xs shrink-0">
                                 {guarantor.full_name.charAt(0).toUpperCase()}
                               </div>
                               <div className="min-w-0">
@@ -934,7 +934,7 @@ export default function ApplyLoanPage() {
 
             {/* Collateral Security Card if required */}
             {requiresCollateral && (
-              <Card className="border-border/80 border-t-2 border-t-[#f08c2b] shadow-sm">
+              <Card className="border-border/80 border-t-2 border-t-brand shadow-sm">
                 <CardHeader className="pb-3 border-b border-border/40 bg-muted/10">
                   <div className="flex items-center justify-between">
                     <div>
@@ -943,7 +943,7 @@ export default function ApplyLoanPage() {
                         This credit facility requires asset or collateral security backing.
                       </CardDescription>
                     </div>
-                    <Badge variant="outline" className="text-[10px] font-bold bg-[#f08c2b]/10 text-[#f08c2b] border-[#f08c2b]/30">
+                    <Badge variant="outline" className="text-[10px] font-bold bg-brand/10 text-brand border-brand/30">
                       Security Required
                     </Badge>
                   </div>
@@ -973,7 +973,7 @@ export default function ApplyLoanPage() {
             {/* Application Summary */}
             <Card className="border-border/80 shadow-sm overflow-hidden">
               <CardHeader className="pb-3 border-b border-border/40 bg-muted/10 flex flex-row items-center gap-2">
-                <Shield className="h-4.5 w-4.5 text-[#f08c2b]" />
+                <Shield className="h-4.5 w-4.5 text-brand" />
                 <CardTitle className="text-sm font-semibold">Application Summary</CardTitle>
               </CardHeader>
               <CardContent className="p-4 space-y-3.5 text-xs">
@@ -983,7 +983,7 @@ export default function ApplyLoanPage() {
                 </div>
                 <div className="flex justify-between border-t border-border/40 pt-2.5">
                   <span className="text-muted-foreground">Credit Facility Type:</span>
-                  <Badge variant="outline" className="text-[10px] uppercase font-bold text-[#f08c2b] border-[#f08c2b]/30 bg-[#f08c2b]/10">
+                  <Badge variant="outline" className="text-[10px] uppercase font-bold text-brand border-brand/30 bg-brand/10">
                     {creditType === "top up" ? "Top Up Loan" : "Normal Loan"}
                   </Badge>
                 </div>
@@ -1005,12 +1005,12 @@ export default function ApplyLoanPage() {
                 </div>
                 <div className="flex justify-between border-t border-border/40 pt-2.5">
                   <span className="text-muted-foreground">Interest Rate:</span>
-                  <span className="font-bold text-[#f08c2b]">{selectedProduct.interestRate}% Year</span>
+                  <span className="font-bold text-brand">{selectedProduct.interestRate}% Year</span>
                 </div>
                 {loanDetails && (
-                  <div className="flex justify-between border-t border-[#f08c2b]/20 bg-[#f08c2b]/2 p-2 rounded border border-border/45">
-                    <span className="text-[#f08c2b] font-bold">Estimated Installment (Month):</span>
-                    <span className="font-bold text-[#f08c2b] font-mono">{formatMoney(loanDetails.monthlyPayment)}</span>
+                  <div className="flex justify-between border-t border-brand/20 bg-brand/2 p-2 rounded border border-border/45">
+                    <span className="text-brand font-bold">Estimated Installment (Month):</span>
+                    <span className="font-bold text-brand font-mono">{formatMoney(loanDetails.monthlyPayment)}</span>
                   </div>
                 )}
                 {loanDetails && loanDetails.processingFeePercentage > 0 && (
@@ -1108,7 +1108,7 @@ export default function ApplyLoanPage() {
                 </div>
                 <div className="flex justify-between border-t border-border/40 pt-2.5">
                   <span className="text-muted-foreground">Facility Type:</span>
-                  <Badge variant="outline" className="text-[9px] uppercase font-bold text-[#f08c2b] border-[#f08c2b]/30 bg-[#f08c2b]/10">
+                  <Badge variant="outline" className="text-[9px] uppercase font-bold text-brand border-brand/30 bg-brand/10">
                     {creditType === "top up" ? "Top Up Loan" : "Normal Loan"}
                   </Badge>
                 </div>

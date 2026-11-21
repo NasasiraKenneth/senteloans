@@ -50,7 +50,7 @@ interface LoanCalculatorFormProps {
 }
 
 const inputClass =
-  "w-full px-3 py-2.5 text-sm rounded-md border transition-all duration-200 focus:ring-[1.5px] focus:ring-[#f08c2b] focus:border-transparent focus:outline-none border-gray-300 hover:border-gray-400"
+  "w-full px-3 py-2.5 text-sm rounded-md border transition-all duration-200 focus:ring-[1.5px] focus:ring-brand focus:border-transparent focus:outline-none border-gray-300 hover:border-gray-400"
 
 const productStyleInputClass = (hasError = false) =>
   `${inputClass} ${hasError ? "border-red-500" : ""}`
@@ -394,8 +394,8 @@ export default function LoanCalculatorForm({
   return (
     <>
       <div className="flex items-center gap-2.5">
-        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#f08c2b]/10">
-          <Calculator className="h-4 w-4 text-[#f08c2b]" />
+        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-brand/10">
+          <Calculator className="h-4 w-4 text-brand" />
         </div>
         <div>
           <h2 className="text-base font-semibold">Loan Calculator</h2>
@@ -415,7 +415,7 @@ export default function LoanCalculatorForm({
         </div>
 
         {loanType === "top up" && (
-          <div className="space-y-3 rounded-lg border border-[#f08c2b]/20 bg-[#fff8f2] p-3">
+          <div className="space-y-3 rounded-lg border border-brand/20 bg-brand/10 p-3">
             {!isClientPortal && (
               <div className="space-y-1.5">
                 <label className="block text-sm font-medium text-gray-700">Member</label>
@@ -458,7 +458,7 @@ export default function LoanCalculatorForm({
         )}
 
         {loanType === "buy off" && (
-          <div className="space-y-1.5 rounded-lg border border-[#f08c2b]/20 bg-[#fff8f2] p-3">
+          <div className="space-y-1.5 rounded-lg border border-brand/20 bg-brand/10 p-3">
             <label className="block text-sm font-medium text-gray-700">External Loan Outstanding Balance</label>
             <input
               type="number"
@@ -562,7 +562,7 @@ export default function LoanCalculatorForm({
             )}
             <div className="flex items-center justify-between border-t border-border pt-2">
               <span className="text-sm font-medium">Net Disbursement</span>
-              <span className="text-lg font-bold tracking-tight text-[#f08c2b]">
+              <span className="text-lg font-bold tracking-tight text-brand">
                 {fmt(disbursement.completeDisbursementAmount)}
               </span>
             </div>

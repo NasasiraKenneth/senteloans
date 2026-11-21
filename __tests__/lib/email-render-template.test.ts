@@ -154,6 +154,20 @@ describe("renderEmailTemplate", () => {
     expect(out.html).toContain("Demo MFI")
   })
 
+  it("renders password reset email template with link and expiry notice", () => {
+    const out = renderEmailTemplate("auth.password_reset", {
+      institutionName: "Kabalagala SACCO",
+      recipientName: "Alice",
+      resetUrl: "https://app.nyuki.ug/reset-password?token=abc123",
+      expiresInMinutes: 60,
+    })
+    expect(out.html).toContain("Reset your password")
+    expect(out.html).toContain("Alice")
+    expect(out.html).toContain("https://app.nyuki.ug/reset-password?token=abc123")
+    expect(out.html).toContain("1 hour")
+    expect(out.text).toContain("Reset your password")
+  })
+
   it("renders kyc submitted template", () => {
     const out = renderEmailTemplate("kyc.submitted", {
       institutionName: "Test SACCO",

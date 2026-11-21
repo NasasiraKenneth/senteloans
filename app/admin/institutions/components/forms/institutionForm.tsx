@@ -15,7 +15,7 @@ interface InstitutionFormProps {
 }
 
 const inputClass = (hasError: boolean) =>
-  `w-full px-3 py-2.5 text-sm border rounded-md transition-all duration-200 focus:ring-[1.5px] focus:ring-[#f08c2b] focus:border-transparent focus:outline-none ${
+  `w-full px-3 py-2.5 text-sm border rounded-md transition-all duration-200 focus:ring-[1.5px] focus:ring-brand focus:border-transparent focus:outline-none ${
     hasError ? "border-red-500" : "border-gray-300 hover:border-gray-400"
   }`
 
@@ -268,11 +268,16 @@ export function InstitutionForm({
         alternativeLabel
         className="mb-6"
         sx={{
-          "& .MuiStepIcon-root.Mui-active": { color: "#f08c2b" },
-          "& .MuiStepIcon-root.Mui-completed": { color: "#f08c2b" },
-          "& .MuiStepConnector-line": { borderColor: "#e5e7eb" },
-          "& .Mui-active .MuiStepConnector-line": { borderColor: "#f08c2b" },
-          "& .Mui-completed .MuiStepConnector-line": { borderColor: "#f08c2b" },
+          "& .MuiStepIcon-root.Mui-active": { color: "var(--ui-p-600, #f08c2b)" },
+          "& .MuiStepIcon-root.Mui-completed": { color: "var(--ui-p-600, #f08c2b)" },
+          "& .MuiStepIcon-root.Mui-active .MuiStepIcon-text": { fill: "var(--brand-foreground, #ffffff)" },
+          "& .MuiStepLabel-label": { color: "var(--color-muted-foreground, #6b7280)" },
+          "& .MuiStepLabel-label.Mui-active, & .MuiStepLabel-label.Mui-completed": {
+            color: "var(--color-foreground, #1a1a1a)",
+          },
+          "& .MuiStepConnector-line": { borderColor: "var(--color-border, #e5e7eb)" },
+          "& .Mui-active .MuiStepConnector-line": { borderColor: "var(--ui-p-600, #f08c2b)" },
+          "& .Mui-completed .MuiStepConnector-line": { borderColor: "var(--ui-p-600, #f08c2b)" },
         }}
       >
         {activeSteps.map((label) => (
@@ -569,21 +574,21 @@ export function InstitutionForm({
       )}
 
       {/* Navigation Footer Controls */}
-      <Box sx={{ display: "flex", justifyContent: "space-between", mt: 4, pt: 3, borderTop: "1px solid #e5e7eb" }}>
+      <Box sx={{ display: "flex", justifyContent: "space-between", mt: 4, pt: 3, borderTop: "1px solid var(--color-border, #e5e7eb)" }}>
         <Button
           disabled={activeStep === 0 || submitting}
           onClick={handleBack}
           variant="outlined"
           sx={{
-            borderColor: "#777",
-            color: "#000",
+            borderColor: "var(--color-border, #d1d5db)",
+            color: "var(--color-foreground, #1a1a1a)",
             textTransform: "none",
             px: 3,
             py: 1,
             "&:hover": {
-              borderColor: "#f08c2b",
+              borderColor: "var(--ui-p-600, #f08c2b)",
               backgroundColor: "transparent",
-              color: "#000",
+              color: "var(--color-foreground, #1a1a1a)",
             },
           }}
         >
@@ -595,7 +600,17 @@ export function InstitutionForm({
             <Button
               onClick={onCancel}
               variant="outlined"
-              sx={{ borderColor: "#d1d5db", color: "#374151", textTransform: "none", px: 3, py: 1 }}
+              sx={{
+                borderColor: "var(--color-border, #d1d5db)",
+                color: "var(--color-foreground, #374151)",
+                textTransform: "none",
+                px: 3,
+                py: 1,
+                "&:hover": {
+                  borderColor: "var(--ui-p-600, #f08c2b)",
+                  backgroundColor: "transparent",
+                },
+              }}
             >
               Cancel
             </Button>
@@ -607,7 +622,14 @@ export function InstitutionForm({
               type="button"
               onClick={handleSubmit}
               disabled={submitting}
-              sx={{ backgroundColor: "#f08c2b", textTransform: "none", px: 4, py: 1, "&:hover": { backgroundColor: "#e07b1a" } }}
+              sx={{
+                backgroundColor: "var(--ui-p-600, #f08c2b)",
+                color: "var(--brand-foreground, #ffffff)",
+                textTransform: "none",
+                px: 4,
+                py: 1,
+                "&:hover": { backgroundColor: "var(--ui-p-700, #c2410c)" },
+              }}
             >
               {submitting ? (
                 <>
@@ -628,14 +650,14 @@ export function InstitutionForm({
               onClick={handleNext}
               disabled={submitting}
               sx={{
-                backgroundColor: "#000",
-                color: "#fff",
+                backgroundColor: "var(--ui-p-600, #f08c2b)",
+                color: "var(--brand-foreground, #ffffff)",
                 textTransform: "none",
                 px: 4,
                 py: 1,
                 boxShadow: "none",
                 "&:hover": {
-                  backgroundColor: "#f08c2b",
+                  backgroundColor: "var(--ui-p-700, #c2410c)",
                   boxShadow: "none",
                 },
               }}

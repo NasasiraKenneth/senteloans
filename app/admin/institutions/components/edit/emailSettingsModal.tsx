@@ -27,7 +27,7 @@ interface BranchEmailSettingsModalProps {
 }
 
 const inputClass = () =>
-  "w-full px-3 py-2.5 text-sm border border-gray-300 rounded-md transition-all duration-200 focus:ring-[1.5px] focus:ring-[#f08c2b] focus:border-transparent focus:outline-none hover:border-gray-400"
+  "w-full px-3 py-2.5 text-sm border border-gray-300 rounded-md transition-all duration-200 focus:ring-[1.5px] focus:ring-brand focus:border-transparent focus:outline-none hover:border-gray-400"
 
 const providerOptions = [
   { value: "mailgun", label: "Mailgun (API / HTTP)", description: "Recommended for transaction emails" },
@@ -137,7 +137,7 @@ export function BranchEmailSettingsModal({
         {/* Header & Status Toggle */}
         <div className="flex items-center justify-between p-3.5 bg-amber-50/60 border border-amber-200/70 rounded-xl">
           <div className="flex items-center gap-2.5">
-            <div className="p-2 rounded-lg bg-amber-100 text-[#f08c2b]">
+            <div className="p-2 rounded-lg bg-amber-100 text-brand">
               <Mail className="h-4 w-4" />
             </div>
             <div>
@@ -153,7 +153,7 @@ export function BranchEmailSettingsModal({
               onChange={(e) => setFormData((prev) => ({ ...prev, is_active: e.target.checked }))}
               className="sr-only peer"
             />
-            <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-[#f08c2b]"></div>
+            <div className="w-9 h-5 bg-muted-foreground/30 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-border after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-brand"></div>
           </label>
         </div>
 
@@ -173,7 +173,7 @@ export function BranchEmailSettingsModal({
         {/* Sender Email Credentials */}
         <div className="space-y-3 pt-1 border-t border-gray-100">
           <p className="text-xs font-semibold text-gray-700 flex items-center gap-1.5">
-            <Mail className="h-3.5 w-3.5 text-[#f08c2b]" />
+            <Mail className="h-3.5 w-3.5 text-brand" />
             Sender Addresses
           </p>
 
@@ -206,7 +206,7 @@ export function BranchEmailSettingsModal({
         {formData.provider !== "smtp" && (
           <div className="space-y-3 pt-1 border-t border-gray-100">
             <p className="text-xs font-semibold text-gray-700 flex items-center gap-1.5">
-              <Key className="h-3.5 w-3.5 text-[#f08c2b]" />
+              <Key className="h-3.5 w-3.5 text-brand" />
               Provider Domain & API Key
             </p>
 
@@ -251,7 +251,7 @@ export function BranchEmailSettingsModal({
         {formData.provider === "smtp" && (
           <div className="space-y-3 pt-1 border-t border-gray-100">
             <p className="text-xs font-semibold text-gray-700 flex items-center gap-1.5">
-              <Server className="h-3.5 w-3.5 text-[#f08c2b]" />
+              <Server className="h-3.5 w-3.5 text-brand" />
               SMTP Server Parameters
             </p>
 
@@ -324,7 +324,7 @@ export function BranchEmailSettingsModal({
           <Button
             type="submit"
             disabled={submitting}
-            className="bg-[#f08c2b] hover:bg-[#e07b1a] text-white text-xs px-5 flex items-center gap-2"
+            className="bg-brand hover:bg-brand-700 text-brand-foreground text-xs px-5 flex items-center gap-2"
           >
             {submitting ? (
               <>

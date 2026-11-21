@@ -5,7 +5,7 @@ import { useState } from "react"
 import Popover from "@mui/material/Popover"
 
 export const memberEditInputClass =
-  "w-full px-3 py-2.5 text-sm rounded-md border transition-all duration-200 focus:ring-[1.5px] focus:ring-[#f08c2b] focus:border-transparent focus:outline-none border-gray-300 hover:border-gray-400"
+  "w-full px-3 py-2.5 text-sm rounded-md border transition-all duration-200 focus:ring-[1.5px] focus:ring-brand focus:border-transparent focus:outline-none border-gray-300 hover:border-gray-400"
 
 export type SelectOption = { value: string; label: string }
 
@@ -62,7 +62,7 @@ export function StyledSelect({
         className={`flex items-center justify-between w-full px-3 py-2.5 text-sm border rounded-md transition-all duration-200 ${
           disabled
             ? "bg-muted/50 text-gray-500 cursor-not-allowed border-gray-200"
-            : open ? "ring-[1.5px] ring-[#f08c2b] border-transparent" : "border-gray-300 hover:border-gray-400"
+            : open ? "ring-[1.5px] ring-brand border-transparent" : "border-gray-300 hover:border-gray-400"
         }`}
       >
         <span className={value ? "text-gray-900" : "text-gray-400"}>{selectedLabel || placeholder}</span>
@@ -99,11 +99,11 @@ export function StyledSelect({
               >
                 <div
                   className={`relative w-4.5 h-4.5 border-2 flex items-center justify-center rounded-md transition-all ${
-                    isSelected ? "bg-[#f08c2b] border-[#f08c2b]" : "bg-white border-gray-400 hover:border-gray-600"
+                    isSelected ? "bg-brand border-brand" : "bg-background border-border hover:border-brand/60"
                   }`}
                 >
                   {isSelected && (
-                    <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                    <svg className="w-3 h-3 text-brand-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
                       <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                     </svg>
                   )}

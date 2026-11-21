@@ -136,7 +136,7 @@ export default function EditLoanProduct({ isOpen, productId, onClose, onSuccess 
     <ReeveModal isOpen={isOpen} onClose={handleClose} title="Edit Loan Product" className="z-10">
       {fetching ? (
         <div className="flex items-center justify-center py-16">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#f08c2b]" />
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand" />
         </div>
       ) : initialValues ? (
         <LoanProductForm

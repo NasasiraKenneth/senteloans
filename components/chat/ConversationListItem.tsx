@@ -23,7 +23,7 @@ type ConversationListItemProps = {
 function typeAccent(type: ChatConversation["type"]): string {
   switch (type) {
     case "LOAN":
-      return "ring-[#f08c2b]/40"
+      return "ring-brand/40"
     case "SUPPORT":
       return "ring-sky-400/40"
     case "GROUP":
@@ -70,7 +70,7 @@ export function ConversationListItem({
       onClick={() => onSelect(conversation.id)}
       className={cn(
         "flex w-full items-start gap-3 border-b border-border/60 px-4 py-3 text-left transition-colors",
-        isActive ? "bg-[#fff7ed]" : "hover:bg-muted/40",
+        isActive ? "bg-brand/10" : "hover:bg-muted/40",
       )}
     >
       <div className="relative shrink-0">
@@ -90,7 +90,7 @@ export function ConversationListItem({
       <div className="min-w-0 flex-1">
         <div className="flex items-start justify-between gap-2">
           <div className="flex min-w-0 items-center gap-1.5">
-            {hasPinnedMessages ? <Pin className="h-3 w-3 shrink-0 text-[#f08c2b]" /> : null}
+            {hasPinnedMessages ? <Pin className="h-3 w-3 shrink-0 text-brand" /> : null}
             <span
               className={cn(
                 "truncate text-sm",
@@ -112,7 +112,7 @@ export function ConversationListItem({
             className={cn(
               "truncate text-xs",
               typingLabel
-                ? "font-medium italic text-[#c46f12]"
+                ? "font-medium italic text-brand"
                 : unreadCount > 0
                   ? "font-medium text-foreground"
                   : "text-muted-foreground",
@@ -125,7 +125,7 @@ export function ConversationListItem({
                 : "No messages yet"}
           </p>
           {!typingLabel && unreadCount > 0 ? (
-            <Badge className="h-5 min-w-5 shrink-0 justify-center bg-[#f08c2b] px-1.5 text-[10px] hover:bg-[#f08c2b]">
+            <Badge className="h-5 min-w-5 shrink-0 justify-center bg-brand text-brand-foreground px-1.5 text-[10px] hover:bg-brand">
               {unreadCount > 9 ? "9+" : unreadCount}
             </Badge>
           ) : null}

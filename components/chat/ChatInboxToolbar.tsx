@@ -96,14 +96,14 @@ export function ChatInboxToolbar({
           </p>
         </div>
 
-        <div className="flex items-center rounded-full bg-amber-50 py-0.5 pl-0.5 pr-0.5 ring-1 ring-[#f08c2b]/30">
+        <div className="flex items-center rounded-full bg-brand/10 py-0.5 pl-0.5 pr-0.5 ring-1 ring-brand/30">
           <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
             <DropdownMenuTrigger asChild>
               <Button
                 type="button"
                 variant="ghost"
                 size="icon"
-                className="h-7 w-7 rounded-full text-[#c46f12] hover:bg-[#f08c2b]/10 hover:text-[#a85f0f]"
+                className="h-7 w-7 rounded-full text-brand hover:bg-brand/15 hover:text-brand"
                 aria-label="Message options"
               >
                 <MoreHorizontal className="h-4 w-4" />
@@ -154,7 +154,7 @@ export function ChatInboxToolbar({
           value={search}
           onChange={(e) => onSearchChange(e.target.value)}
           placeholder="Search conversations..."
-          className="h-9 border-border bg-background pl-9 focus-visible:ring-[#f08c2b]/40"
+          className="h-9 border-border bg-background pl-9 focus-visible:ring-brand/40"
         />
       </div>
 
@@ -167,7 +167,7 @@ export function ChatInboxToolbar({
             className={cn(
               "shrink-0 rounded-full px-3 py-1.5 text-xs font-medium transition-colors",
               filter === item.id
-                ? "bg-[#f08c2b] text-white shadow-sm"
+                ? "bg-brand text-brand-foreground shadow-sm"
                 : "bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground",
             )}
           >

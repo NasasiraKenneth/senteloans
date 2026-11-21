@@ -331,7 +331,7 @@ export default function KycForm({ memberId, initialDocs, onUploadSuccess, onClos
           type="button"
           onClick={() => void handleSave()}
           disabled={saving || pendingCount === 0}
-          className="inline-flex h-9 items-center justify-center rounded-md bg-[#f08c2b] px-4 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex h-9 items-center justify-center rounded-md bg-brand px-4 text-sm font-medium text-brand-foreground transition-colors hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {saving ? "Saving…" : "Save KYC Documents"}
         </button>

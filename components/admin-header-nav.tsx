@@ -80,34 +80,34 @@ export function AdminHeaderNav() {
   };
 
   return (
-    <header className="sticky top-0 z-50 w-full bg-white border-b border-slate-200 shadow-xs">
+    <header className="sticky top-0 z-50 w-full bg-white dark:bg-[#0f0f12] border-b border-slate-200 dark:border-white/10 shadow-xs">
       <div className="w-full px-6 lg:px-10 h-16 flex items-center justify-between">
         {/* Left: Logo + Inline Navigation Links */}
         <div className="flex items-center space-x-6">
           {/* Brand Logo */}
           <Link
             href="/admin"
-            className="flex items-center space-x-3 group transition-opacity hover:opacity-90"
+            className="flex items-center space-x-3 group transition-opacity hover:opacity-90 no-underline hover:no-underline"
           >
             <motion.div
               whileHover={{ scale: 1.05, rotate: 5 }}
               transition={{ type: "spring", stiffness: 400, damping: 17 }}
-              className="w-10 h-10 rounded-xl bg-orange-500 flex items-center justify-center shadow-lg shadow-orange-500/20"
+              className="w-10 h-10 rounded-xl bg-brand flex items-center justify-center shadow-lg shadow-brand/20"
             >
-              <Coins className="h-5 w-5 text-black" />
+              <Coins className="h-5 w-5 text-brand-foreground" />
             </motion.div>
             <div className="flex flex-col">
-              <span className="text-xl font-bold tracking-tight text-black flex items-center">
-                NYUKI<span className="text-orange-500 ml-0.5">.</span>
+              <span className="text-xl font-bold tracking-tight text-foreground flex items-center">
+                NYUKI<span className="text-brand ml-0.5">.</span>
               </span>
-              <span className="text-[10px] tracking-widest text-zinc-400 uppercase font-mono -mt-1">
+              <span className="text-[10px] tracking-widest text-muted-foreground uppercase font-mono -mt-1">
                 SACCO Management System
               </span>
             </div>
           </Link>
 
           {/* Divider */}
-          <div className="hidden md:block h-6 w-[1px] bg-slate-200" />
+          <div className="hidden md:block h-6 w-[1px] bg-border" />
 
           {/* Desktop Navigation Links */}
           <nav className="hidden md:flex items-center space-x-1">
@@ -121,16 +121,16 @@ export function AdminHeaderNav() {
                   key={item.name}
                   href={item.href}
                   className={cn(
-                    "flex items-center px-3.5 py-2 text-sm font-medium rounded-lg transition-colors relative",
+                    "flex items-center px-3.5 py-2 text-sm font-medium rounded-lg transition-colors relative no-underline hover:no-underline",
                     isActive
-                      ? "text-orange-600 font-semibold bg-orange-50/70 border-b-2 border-orange-500 rounded-b-none"
+                      ? "text-brand font-semibold bg-brand/10 border-b-2 border-brand rounded-b-none"
                       : "text-slate-600 hover:text-slate-900 hover:bg-slate-100/70",
                   )}
                 >
                   <item.icon
                     className={cn(
                       "mr-2 h-4 w-4",
-                      isActive ? "text-orange-500" : "text-slate-400",
+                      isActive ? "text-brand" : "text-slate-400",
                     )}
                   />
                   {item.name}
@@ -181,12 +181,12 @@ export function AdminHeaderNav() {
 
             {/* Dropdown Menu */}
             {userDropdownOpen && (
-              <div className="absolute right-0 mt-2 w-56 rounded-xl bg-white border border-slate-200 shadow-lg py-1.5 z-50 animate-in fade-in-50 zoom-in-95">
-                <div className="px-4 py-2 border-b border-slate-100">
-                  <p className="text-xs font-semibold text-slate-900 truncate">
+              <div className="absolute right-0 mt-2 w-56 rounded-xl bg-white dark:bg-[#16161a] border border-slate-200 dark:border-white/10 shadow-lg py-1.5 z-50 animate-in fade-in-50 zoom-in-95">
+                <div className="px-4 py-2 border-b border-slate-100 dark:border-white/10">
+                  <p className="text-xs font-semibold text-slate-900 dark:text-white truncate">
                     {userName}
                   </p>
-                  <p className="text-[11px] text-slate-500 truncate">
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
                     {userEmail}
                   </p>
                 </div>
@@ -195,7 +195,7 @@ export function AdminHeaderNav() {
                   <Link
                     href="/admin/settings"
                     onClick={() => setUserDropdownOpen(false)}
-                    className="flex items-center px-3 py-2 text-xs font-medium text-slate-700 rounded-lg hover:bg-slate-100 transition-colors"
+                    className="flex items-center px-3 py-2 text-xs font-medium text-slate-700 dark:text-slate-200 rounded-lg hover:bg-slate-100 dark:hover:bg-white/10 transition-colors no-underline"
                   >
                     <Settings className="mr-2.5 h-4 w-4 text-slate-400" />
                     System Settings
@@ -203,20 +203,20 @@ export function AdminHeaderNav() {
                   <Link
                     href="/admin/institutions"
                     onClick={() => setUserDropdownOpen(false)}
-                    className="flex items-center px-3 py-2 text-xs font-medium text-slate-700 rounded-lg hover:bg-slate-100 transition-colors"
+                    className="flex items-center px-3 py-2 text-xs font-medium text-slate-700 dark:text-slate-200 rounded-lg hover:bg-slate-100 dark:hover:bg-white/10 transition-colors no-underline"
                   >
                     <Building2 className="mr-2.5 h-4 w-4 text-slate-400" />
                     Manage Institutions
                   </Link>
                 </div>
 
-                <div className="border-t border-slate-100 px-1 pt-1">
+                <div className="border-t border-slate-100 dark:border-white/10 px-1 pt-1">
                   <Button
                     onClick={handleLogout}
                     variant="ghost"
                     size="sm"
                     disabled={loggingOut}
-                    className="w-full justify-start text-xs font-semibold text-rose-600 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                    className="w-full justify-start text-xs font-semibold text-rose-600 dark:text-rose-400 hover:text-rose-700 dark:hover:text-rose-300 hover:bg-rose-50 dark:hover:bg-rose-500/10 rounded-lg transition-colors cursor-pointer"
                   >
                     <LogOut className="mr-2.5 h-4 w-4" />
                     {loggingOut ? "Logging out..." : "Log out"}
@@ -234,10 +234,10 @@ export function AdminHeaderNav() {
             variant="ghost"
             size="icon"
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            className="text-slate-600 hover:text-slate-900 hover:bg-slate-100 border border-slate-200 rounded-lg cursor-pointer"
+            className="text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/10 border border-slate-200 dark:border-white/10 rounded-lg cursor-pointer"
           >
             {mobileMenuOpen ? (
-              <X className="h-5 w-5 text-orange-600" />
+              <X className="h-5 w-5 text-brand" />
             ) : (
               <Menu className="h-5 w-5" />
             )}
@@ -247,7 +247,7 @@ export function AdminHeaderNav() {
 
       {/* Mobile Drawer Menu */}
       {mobileMenuOpen && (
-        <div className="md:hidden border-t border-slate-200 bg-white px-6 pt-3 pb-6 space-y-3 shadow-md animate-in slide-in-from-top-4 duration-200">
+        <div className="md:hidden border-t border-slate-200 dark:border-white/10 bg-white dark:bg-[#0f0f12] px-6 pt-3 pb-6 space-y-3 shadow-md animate-in slide-in-from-top-4 duration-200">
           <div className="space-y-1">
             {navigation.map((item) => {
               const isActive =
@@ -260,13 +260,13 @@ export function AdminHeaderNav() {
                   href={item.href}
                   onClick={() => setMobileMenuOpen(false)}
                   className={cn(
-                    "flex items-center px-4 py-3 text-sm font-medium rounded-lg transition-colors",
+                    "flex items-center px-4 py-3 text-sm font-medium rounded-lg transition-colors no-underline hover:no-underline",
                     isActive
-                      ? "bg-orange-50 text-orange-600 font-semibold border-l-4 border-orange-500"
-                      : "text-[#64748b] hover:text-slate-900 hover:bg-slate-100",
+                      ? "bg-brand/10 text-brand font-semibold border-l-4 border-brand"
+                      : "text-slate-600 hover:text-slate-900 hover:bg-slate-100",
                   )}
                 >
-                  <item.icon className="mr-3 h-5 w-5 text-orange-500" />
+                  <item.icon className={cn("mr-3 h-5 w-5", isActive ? "text-brand" : "text-slate-400")} />
                   {item.name}
                 </Link>
               );

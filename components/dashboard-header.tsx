@@ -165,7 +165,7 @@ export function DashboardHeader() {
               <button className="flex items-center gap-2.5 rounded-lg px-2 py-1.5 transition-colors hover:bg-muted/60 outline-none">
                 {/* Avatar */}
                 <div
-                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[12px] font-bold text-white bg-brand shadow-xs shadow-brand/20"
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[12px] font-bold text-brand-foreground bg-brand shadow-xs shadow-brand/20"
                 >
                   {initials}
                 </div>
@@ -190,7 +190,7 @@ export function DashboardHeader() {
               <DropdownMenuLabel className="font-normal">
                 <div className="flex items-center gap-3 py-1">
                   <div
-                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-[13px] font-bold text-white bg-brand shadow-xs shadow-brand/20"
+                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-[13px] font-bold text-brand-foreground bg-brand shadow-xs shadow-brand/20"
                   >
                     {initials}
                   </div>

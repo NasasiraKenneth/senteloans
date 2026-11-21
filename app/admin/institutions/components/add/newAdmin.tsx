@@ -35,7 +35,7 @@ export function AddNewAdminModal({
         onClick={() => setIsOpen(true)}
         className={
           buttonClassName ||
-          "bg-[#f08c2b] hover:bg-[#e07b1a] text-white font-semibold text-xs rounded-xl shadow-2xs flex items-center justify-center gap-1.5 px-3.5 py-2 cursor-pointer"
+          "bg-brand hover:bg-brand-700 text-brand-foreground font-semibold text-xs rounded-xl shadow-2xs flex items-center justify-center gap-1.5 px-3.5 py-2 cursor-pointer"
         }
       >
         <Plus className="h-4 w-4" />

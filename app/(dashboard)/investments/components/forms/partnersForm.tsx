@@ -41,7 +41,7 @@ const PARTNER_ROLE_OPTIONS = [
 ]
 
 const inputClass =
-  "w-full px-3 py-2.5 text-sm border border-gray-300 rounded-md transition-all duration-200 focus:ring-[1.5px] focus:ring-[#f08c2b] focus:border-transparent focus:outline-none hover:border-gray-400"
+  "w-full px-3 py-2.5 text-sm border border-gray-300 rounded-md transition-all duration-200 focus:ring-[1.5px] focus:ring-brand focus:border-transparent focus:outline-none hover:border-gray-400"
 
 export default function PartnersForm({
   rows,
@@ -140,8 +140,8 @@ export default function PartnersForm({
                         checked={row.status === "Active"}
                         onChange={(e) => onChangeRow(row.id, { status: e.target.checked ? "Active" : "Inactive" })}
                       />
-                      <div className="w-9 h-5 bg-gray-300 rounded-full peer-checked:bg-[#f08c2b] transition-colors" />
-                      <div className="absolute left-0.5 top-0.5 bg-white w-4 h-4 rounded-full transition-transform peer-checked:translate-x-4 shadow" />
+                      <div className="w-9 h-5 bg-muted-foreground/30 rounded-full peer-checked:bg-brand transition-colors" />
+                      <div className="absolute left-0.5 top-0.5 bg-white w-4 h-4 rounded-full transition-transform peer-checked:translate-x-4 peer-checked:bg-brand-foreground shadow" />
                     </div>
                   </label>
                 </div>

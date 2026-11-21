@@ -328,9 +328,9 @@ export default function SettingsPage() {
   const [isSavingEmailSettings, setIsSavingEmailSettings] = useState(false)
   const [isSendingTestEmail, setIsSendingTestEmail] = useState(false)
   const memberInputClass =
-    "h-10 rounded-md border-gray-300 text-sm transition-all duration-200 hover:border-gray-400 focus-visible:ring-[1.5px] focus-visible:ring-[#f08c2b] focus-visible:border-transparent"
+    "h-10 rounded-md border-input bg-background text-foreground text-sm transition-all duration-200 hover:border-brand/50 focus-visible:ring-[1.5px] focus-visible:ring-brand focus-visible:border-transparent"
   const memberSelectClass =
-    "h-10 rounded-md border-gray-300 text-sm transition-all duration-200 hover:border-gray-400 focus:ring-[1.5px] focus:ring-[#f08c2b] focus:border-transparent"
+    "h-10 rounded-md border-input bg-background text-foreground text-sm transition-all duration-200 hover:border-brand/50 focus:ring-[1.5px] focus:ring-brand focus:border-transparent"
 
   useEffect(() => {
     const sessionData = getSession()
@@ -680,13 +680,20 @@ export default function SettingsPage() {
       {
         key: "account_name",
         header: "Account Name",
-        render: (row) => <span className="font-semibold text-[#111111]">{row.account_name}</span>,
+        render: (row) => <span className="font-semibold text-foreground">{row.account_name}</span>,
       },
       {
         key: "auto_bill_savings",
         header: "Auto-Bill Savings",
         render: (row) => (
-          <Badge variant={row.auto_bill_savings === "true" ? "default" : "outline"}>
+          <Badge
+            variant="outline"
+            className={
+              row.auto_bill_savings === "true"
+                ? "border-brand/30 bg-brand/15 text-brand"
+                : "border-border bg-muted/50 text-muted-foreground"
+            }
+          >
             {row.auto_bill_savings === "true" ? "Enabled" : "Disabled"}
           </Badge>
         ),
@@ -698,8 +705,8 @@ export default function SettingsPage() {
           <span
             className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
               row.status === "Active"
-                ? "bg-emerald-100 text-emerald-800"
-                : "bg-gray-100 text-gray-800"
+                ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
+                : "bg-muted text-muted-foreground"
             }`}
           >
             {row.status}
@@ -729,7 +736,7 @@ export default function SettingsPage() {
               setIsAddAccountTypeOpen(true)
             }}
             disabled={!canEditInstitutionConfig}
-            className="h-8 px-2 text-[#111111] hover:bg-[#111111]/10"
+            className="h-8 px-2 text-foreground hover:bg-brand/10 hover:text-brand"
           >
             <Pencil className="h-4 w-4 mr-1" />
             Edit
@@ -1439,30 +1446,30 @@ export default function SettingsPage() {
     <>
       <div className="container mx-auto  py-4">
             <div className="space-y-6">
-              <div className="rounded-2xl border border-[#111111]/10 bg-white shadow-sm">
+              <div className="rounded-2xl border border-border bg-card shadow-sm">
                 <div className="flex flex-wrap items-start justify-between gap-4 p-6 md:p-7">
                   <div className="min-w-0 flex-1">
-                    <p className="mb-1 text-xs font-semibold tracking-wide text-[#f08c2b]">INSTITUTION SETTINGS</p>
-                    <h1 className="text-3xl font-bold tracking-tight text-[#111111]">Control Center</h1>
+                    <p className="mb-1 text-xs font-semibold tracking-wide text-brand">INSTITUTION SETTINGS</p>
+                    <h1 className="text-3xl font-bold tracking-tight text-foreground">Control Center</h1>
                     <p className="mt-1 text-muted-foreground">
                       Manage policies, automation, and organization profile for your {terminology.type.toLowerCase()}.
                     </p>
                   </div>
                   {operationalSnapshot && (
                     <div className="flex w-full max-w-full flex-wrap justify-start gap-2 sm:w-auto sm:max-w-[min(100%,28rem)] sm:justify-end">
-                      <div className="w-[calc(50%-0.25rem)] min-w-30 shrink-0 rounded-lg border border-emerald-200/70 bg-linear-to-br from-emerald-50 to-emerald-100/40 p-2 shadow-sm backdrop-blur-sm sm:w-29">
+                      <div className="w-[calc(50%-0.25rem)] min-w-30 shrink-0 rounded-lg border border-emerald-500/25 bg-emerald-500/10 p-2 shadow-sm backdrop-blur-sm sm:w-29">
                         <div className="mb-1.5 flex items-center gap-1.5">
                           <div className="rounded-md bg-emerald-500 p-1 shadow-sm">
                             <Smartphone className="h-3 w-3 text-white" />
                           </div>
                           <div
-                            className={`h-1.5 w-1.5 shrink-0 rounded-full ${config.modules.mobile_money ? "animate-pulse bg-emerald-500" : "bg-emerald-300"}`}
+                            className={`h-1.5 w-1.5 shrink-0 rounded-full ${config.modules.mobile_money ? "animate-pulse bg-emerald-500" : "bg-emerald-400/50"}`}
                           />
-                          <span className="truncate text-[11px] font-semibold leading-tight text-emerald-900">Mobile money</span>
+                          <span className="truncate text-[11px] font-semibold leading-tight text-emerald-700 dark:text-emerald-300">Mobile money</span>
                         </div>
-                        <p className="truncate text-[10px] font-medium text-emerald-800">{operationalSnapshot.mmStatus}</p>
-                        <p className="mt-0.5 line-clamp-2 text-[9px] leading-snug text-emerald-700/90">{operationalSnapshot.mmDetail}</p>
-                        <div className="mt-1.5 h-0.5 w-full rounded-full bg-emerald-200/90">
+                        <p className="truncate text-[10px] font-medium text-emerald-700 dark:text-emerald-300">{operationalSnapshot.mmStatus}</p>
+                        <p className="mt-0.5 line-clamp-2 text-[9px] leading-snug text-emerald-700/80 dark:text-emerald-300/80">{operationalSnapshot.mmDetail}</p>
+                        <div className="mt-1.5 h-0.5 w-full rounded-full bg-emerald-500/20">
                           <div
                             className={`h-0.5 rounded-full ${config.modules.mobile_money ? "bg-emerald-500" : "bg-emerald-400"}`}
                             style={{ width: `${operationalSnapshot.mmPct}%` }}
@@ -1470,19 +1477,19 @@ export default function SettingsPage() {
                         </div>
                       </div>
 
-                      <div className="w-[calc(50%-0.25rem)] min-w-30 shrink-0 rounded-lg border border-sky-200/70 bg-linear-to-br from-sky-50 to-sky-100/40 p-2 shadow-sm backdrop-blur-sm sm:w-29">
+                      <div className="w-[calc(50%-0.25rem)] min-w-30 shrink-0 rounded-lg border border-sky-500/25 bg-sky-500/10 p-2 shadow-sm backdrop-blur-sm sm:w-29">
                         <div className="mb-1.5 flex items-center gap-1.5">
                           <div className="rounded-md bg-sky-500 p-1 shadow-sm">
                             <Mail className="h-3 w-3 text-white" />
                           </div>
                           <div
-                            className={`h-1.5 w-1.5 shrink-0 rounded-full ${operationalSnapshot.emailPct >= 72 ? "animate-pulse bg-sky-500" : "bg-sky-300"}`}
+                            className={`h-1.5 w-1.5 shrink-0 rounded-full ${operationalSnapshot.emailPct >= 72 ? "animate-pulse bg-sky-500" : "bg-sky-400/50"}`}
                           />
-                          <span className="truncate text-[11px] font-semibold leading-tight text-sky-900">Email</span>
+                          <span className="truncate text-[11px] font-semibold leading-tight text-sky-700 dark:text-sky-300">Email</span>
                         </div>
-                        <p className="truncate text-[10px] font-medium text-sky-800">{operationalSnapshot.emailStatus}</p>
-                        <p className="mt-0.5 line-clamp-2 text-[9px] leading-snug text-sky-700/90">{operationalSnapshot.emailDetail}</p>
-                        <div className="mt-1.5 h-0.5 w-full rounded-full bg-sky-200/90">
+                        <p className="truncate text-[10px] font-medium text-sky-700 dark:text-sky-300">{operationalSnapshot.emailStatus}</p>
+                        <p className="mt-0.5 line-clamp-2 text-[9px] leading-snug text-sky-700/80 dark:text-sky-300/80">{operationalSnapshot.emailDetail}</p>
+                        <div className="mt-1.5 h-0.5 w-full rounded-full bg-sky-500/20">
                           <div
                             className={`h-0.5 rounded-full bg-sky-500 ${operationalSnapshot.emailPct >= 72 ? "animate-pulse" : ""}`}
                             style={{ width: `${operationalSnapshot.emailPct}%` }}
@@ -1490,21 +1497,21 @@ export default function SettingsPage() {
                         </div>
                       </div>
 
-                      <div className="w-[calc(50%-0.25rem)] min-w-30 shrink-0 rounded-lg border border-[#111111]/12 bg-linear-to-br from-[#111111]/5 to-[#111111]/10 p-2 shadow-sm backdrop-blur-sm sm:w-29">
+                      <div className="w-[calc(50%-0.25rem)] min-w-30 shrink-0 rounded-lg border border-brand/25 bg-brand/10 p-2 shadow-sm backdrop-blur-sm sm:w-29">
                         <div className="mb-1.5 flex items-center gap-1.5">
-                          <div className="rounded-md bg-[#111111] p-1 shadow-sm">
-                            <Tags className="h-3 w-3 text-white" />
+                          <div className="rounded-md bg-brand p-1 shadow-sm">
+                            <Tags className="h-3 w-3 text-brand-foreground" />
                           </div>
-                          <div className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#111111]" />
-                          <span className="truncate text-[11px] font-semibold leading-tight text-[#111111]">Modules</span>
+                          <div className="h-1.5 w-1.5 shrink-0 rounded-full bg-brand" />
+                          <span className="truncate text-[11px] font-semibold leading-tight text-foreground">Modules</span>
                         </div>
-                        <p className="text-[10px] font-medium text-[#111111]">
+                        <p className="text-[10px] font-medium text-foreground">
                           {operationalSnapshot.moduleOn}
-                          <span className="text-[#111111]/55"> / 4</span>
+                          <span className="text-muted-foreground"> / 4</span>
                         </p>
-                        <p className="mt-0.5 line-clamp-2 text-[9px] leading-snug text-[#111111]/55">Loans · Shares · Savings · MM</p>
-                        <div className="mt-1.5 h-0.5 w-full rounded-full bg-[#111111]/12">
-                          <div className="h-0.5 rounded-full bg-[#f08c2b]" style={{ width: `${operationalSnapshot.modulePct}%` }} />
+                        <p className="mt-0.5 line-clamp-2 text-[9px] leading-snug text-muted-foreground">Loans · Shares · Savings · MM</p>
+                        <div className="mt-1.5 h-0.5 w-full rounded-full bg-brand/20">
+                          <div className="h-0.5 rounded-full bg-brand" style={{ width: `${operationalSnapshot.modulePct}%` }} />
                         </div>
                       </div>
                     </div>
@@ -1515,18 +1522,18 @@ export default function SettingsPage() {
               <div className="grid gap-6 lg:grid-cols-12">
                 <aside className="lg:col-span-3">
                   <div className="lg:sticky lg:top-4">
-                    <div className="overflow-hidden rounded-2xl border border-[#111111]/10 bg-linear-to-b from-[#f08c2b]/[0.07] via-white to-white shadow-md">
-                      <div className="h-1 bg-linear-to-r from-[#f08c2b] via-[#f08c2b]/70 to-[#111111]/25" />
+                    <div className="overflow-hidden rounded-2xl border border-border bg-linear-to-b from-brand/[0.08] via-card to-card shadow-md">
+                      <div className="h-1 bg-linear-to-r from-brand via-brand/70 to-transparent" />
                       <div className="space-y-4 p-4">
                         <div className="flex items-start justify-between gap-2">
                           <div className="min-w-0">
                             <div className="flex items-center gap-2.5">
-                              <div className="shrink-0 rounded-xl bg-[#111111] p-2 shadow-sm">
-                                <LayoutGrid className="h-4 w-4 text-white" aria-hidden />
+                              <div className="shrink-0 rounded-xl bg-brand p-2 shadow-sm shadow-brand/25">
+                                <LayoutGrid className="h-4 w-4 text-brand-foreground" aria-hidden />
                               </div>
                               <div className="min-w-0">
-                                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#c06107]">Workspace</p>
-                                <p className="text-sm font-semibold leading-tight text-[#111111]">Navigate settings</p>
+                                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-brand">Workspace</p>
+                                <p className="text-sm font-semibold leading-tight text-foreground">Navigate settings</p>
                               </div>
                             </div>
                             <p className="mt-2 pl-11 text-xs leading-snug text-muted-foreground">
@@ -1535,7 +1542,7 @@ export default function SettingsPage() {
                           </div>
                           <Badge
                             variant="secondary"
-                            className="shrink-0 border border-[#111111]/10 bg-white/80 px-2 py-0.5 text-[10px] font-semibold tabular-nums text-[#111111]"
+                            className="shrink-0 border border-brand/25 bg-brand/10 px-2 py-0.5 text-[10px] font-semibold tabular-nums text-brand"
                           >
                             {filteredWorkspaceItems.length}
                           </Badge>
@@ -1547,13 +1554,13 @@ export default function SettingsPage() {
                             value={workspaceSearch}
                             onChange={(e) => setWorkspaceSearch(e.target.value)}
                             placeholder="Search sections…"
-                            className="h-10 rounded-xl border-[#111111]/12 bg-white/90 pl-9 pr-3 text-sm shadow-sm backdrop-blur-sm transition-shadow focus-visible:ring-[#f08c2b]/30"
+                            className="h-10 rounded-xl border-border bg-background/90 pl-9 pr-3 text-sm shadow-sm backdrop-blur-sm transition-shadow focus-visible:ring-brand/40"
                             aria-label="Search settings sections"
                           />
                         </div>
 
                         <div
-                          className="flex rounded-xl border border-[#111111]/10 bg-[#111111]/4 p-1"
+                          className="flex rounded-xl border border-border bg-muted/60 p-1"
                           role="tablist"
                           aria-label="Filter settings by category"
                         >
@@ -1566,10 +1573,10 @@ export default function SettingsPage() {
                                 role="tab"
                                 aria-selected={selected}
                                 onClick={() => setWorkspaceCategory(category)}
-                                className={`flex-1 rounded-lg px-2 py-2 text-center text-xs font-semibold transition-all ${
+                                className={`flex-1 rounded-lg px-2 py-2 text-center text-xs font-semibold transition-all cursor-pointer ${
                                   selected
-                                    ? "bg-white text-[#111111] shadow-sm ring-1 ring-[#111111]/10"
-                                    : "text-[#111111]/55 hover:bg-white/60 hover:text-[#111111]"
+                                    ? "bg-brand text-brand-foreground shadow-sm"
+                                    : "text-muted-foreground hover:bg-card/80 hover:text-foreground"
                                 }`}
                               >
                                 {category}
@@ -1579,11 +1586,11 @@ export default function SettingsPage() {
                         </div>
 
                         <nav
-                          className="max-h-[min(70vh,32rem)] space-y-5 overflow-y-auto overscroll-contain pr-0.5 [-ms-overflow-style:none] [scrollbar-width:thin] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-[#111111]/20"
+                          className="max-h-[min(70vh,32rem)] space-y-5 overflow-y-auto overscroll-contain pr-0.5 [-ms-overflow-style:none] [scrollbar-width:thin] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-brand/30"
                           aria-label="Settings sections"
                         >
                           {filteredWorkspaceItems.length === 0 ? (
-                            <div className="rounded-xl border border-dashed border-[#111111]/20 bg-white/60 px-3 py-8 text-center text-sm text-muted-foreground">
+                            <div className="rounded-xl border border-dashed border-border bg-muted/30 px-3 py-8 text-center text-sm text-muted-foreground">
                               No sections match your search or filter.
                             </div>
                           ) : (
@@ -1600,27 +1607,29 @@ export default function SettingsPage() {
                                           key={item.key}
                                           type="button"
                                           onClick={() => setActiveTab(item.key)}
-                                          className={`group flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-all ${
+                                          className={`group flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-all cursor-pointer ${
                                             active
-                                              ? "border-[#111111] bg-[#111111] text-white shadow-md ring-1 ring-[#f08c2b]/35"
-                                              : "border-transparent bg-white/50 text-[#111111]/85 hover:border-[#111111]/10 hover:bg-white hover:shadow-sm"
+                                              ? "border-brand bg-brand text-brand-foreground shadow-md shadow-brand/20 ring-1 ring-brand/40"
+                                              : "border-transparent bg-card/50 text-foreground/85 hover:border-brand/25 hover:bg-card hover:shadow-sm"
                                           }`}
                                         >
                                           <span
-                                            className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${
-                                              active ? "bg-white/15 text-white" : "bg-[#111111]/8 text-[#111111]"
+                                            className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-colors ${
+                                              active
+                                                ? "bg-brand-foreground/15 text-brand-foreground"
+                                                : "bg-muted text-foreground group-hover:bg-brand/10 group-hover:text-brand"
                                             }`}
                                           >
                                             <Icon className="h-4 w-4" aria-hidden />
                                           </span>
                                           <span className="min-w-0 flex-1">
                                             <span className="block truncate text-sm font-semibold">{item.title}</span>
-                                            <span className={`mt-0.5 block truncate text-[11px] leading-snug ${active ? "text-white/75" : "text-muted-foreground"}`}>
+                                            <span className={`mt-0.5 block truncate text-[11px] leading-snug ${active ? "opacity-80" : "text-muted-foreground"}`}>
                                               {item.subtitle}
                                             </span>
                                           </span>
                                           <ChevronRight
-                                            className={`h-4 w-4 shrink-0 transition-transform ${active ? "text-white/80 translate-x-0" : "text-[#111111]/25 group-hover:translate-x-0.5 group-hover:text-[#f08c2b]"}`}
+                                            className={`h-4 w-4 shrink-0 transition-transform ${active ? "opacity-85 translate-x-0" : "text-muted-foreground/50 group-hover:translate-x-0.5 group-hover:text-brand"}`}
                                             aria-hidden
                                           />
                                         </button>
@@ -1642,27 +1651,29 @@ export default function SettingsPage() {
                                           key={item.key}
                                           type="button"
                                           onClick={() => setActiveTab(item.key)}
-                                          className={`group flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-all ${
+                                          className={`group flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-all cursor-pointer ${
                                             active
-                                              ? "border-[#111111] bg-[#111111] text-white shadow-md ring-1 ring-[#f08c2b]/35"
-                                              : "border-transparent bg-white/50 text-[#111111]/85 hover:border-[#111111]/10 hover:bg-white hover:shadow-sm"
+                                              ? "border-brand bg-brand text-brand-foreground shadow-md shadow-brand/20 ring-1 ring-brand/40"
+                                              : "border-transparent bg-card/50 text-foreground/85 hover:border-brand/25 hover:bg-card hover:shadow-sm"
                                           }`}
                                         >
                                           <span
-                                            className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${
-                                              active ? "bg-white/15 text-white" : "bg-[#111111]/8 text-[#111111]"
+                                            className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-colors ${
+                                              active
+                                                ? "bg-brand-foreground/15 text-brand-foreground"
+                                                : "bg-muted text-foreground group-hover:bg-brand/10 group-hover:text-brand"
                                             }`}
                                           >
                                             <Icon className="h-4 w-4" aria-hidden />
                                           </span>
                                           <span className="min-w-0 flex-1">
                                             <span className="block truncate text-sm font-semibold">{item.title}</span>
-                                            <span className={`mt-0.5 block truncate text-[11px] leading-snug ${active ? "text-white/75" : "text-muted-foreground"}`}>
+                                            <span className={`mt-0.5 block truncate text-[11px] leading-snug ${active ? "opacity-80" : "text-muted-foreground"}`}>
                                               {item.subtitle}
                                             </span>
                                           </span>
                                           <ChevronRight
-                                            className={`h-4 w-4 shrink-0 transition-transform ${active ? "text-white/80" : "text-[#111111]/25 group-hover:translate-x-0.5 group-hover:text-[#f08c2b]"}`}
+                                            className={`h-4 w-4 shrink-0 transition-transform ${active ? "opacity-85" : "text-muted-foreground/50 group-hover:translate-x-0.5 group-hover:text-brand"}`}
                                             aria-hidden
                                           />
                                         </button>
@@ -1675,8 +1686,8 @@ export default function SettingsPage() {
                           )}
                         </nav>
 
-                        <div className="flex gap-2.5 rounded-xl border border-[#111111]/10 bg-[#111111]/4 p-3 text-xs leading-relaxed text-muted-foreground">
-                          <Info className="mt-0.5 h-4 w-4 shrink-0 text-[#f08c2b]" aria-hidden />
+                        <div className="flex gap-2.5 rounded-xl border border-border bg-muted/50 p-3 text-xs leading-relaxed text-muted-foreground">
+                          <Info className="mt-0.5 h-4 w-4 shrink-0 text-brand" aria-hidden />
                           <span>Edits apply only after you save from the section panel (pencil icon).</span>
                         </div>
                       </div>
@@ -1684,19 +1695,19 @@ export default function SettingsPage() {
                   </div>
                 </aside>
                 <div className="lg:col-span-9 space-y-5">
-                <div className="rounded-2xl border border-[#111111]/10 bg-white p-4 md:p-5 shadow-sm">
-                  <p className="text-xs font-semibold tracking-wide text-[#f08c2b] mb-1">ACTIVE SECTION</p>
-                  <h2 className="text-xl font-semibold text-[#111111]">{tabMeta[activeTab].title}</h2>
+                <div className="rounded-2xl border border-border bg-card p-4 md:p-5 shadow-sm">
+                  <p className="text-xs font-semibold tracking-wide text-brand mb-1">ACTIVE SECTION</p>
+                  <h2 className="text-xl font-semibold text-foreground">{tabMeta[activeTab].title}</h2>
                   <p className="text-sm text-muted-foreground mt-1">{tabMeta[activeTab].subtitle}</p>
                 </div>
                 {/* Institution Configuration */}
                 {(activeTab === "general" || activeTab === "loan" || activeTab === "penalties" || activeTab === "shares") && (
-                <Card className="group border-[#1f1f1f]/10 shadow-md rounded-2xl overflow-hidden">
-                  <CardHeader className="bg-white border-b border-[#111111]/10">
+                <Card className="group border-border bg-card shadow-md rounded-2xl overflow-hidden">
+                  <CardHeader className="bg-card border-b border-border">
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <CardTitle className="flex items-center gap-2">
-                          <SettingsIcon className="h-5 w-5 text-[#f08c2b]" />
+                          <SettingsIcon className="h-5 w-5 text-brand" />
                           {terminology.name} Configuration
                         </CardTitle>
                         <CardDescription>
@@ -1723,7 +1734,7 @@ export default function SettingsPage() {
                               size="icon"
                               onClick={handleSaveInstitutionEdit}
                               disabled={isSavingInstitution}
-                              className="h-8 w-8 text-[#f08c2b] hover:text-[#c06107]"
+                              className="h-8 w-8 text-brand hover:bg-brand/10 hover:text-brand-700"
                               aria-label="Save institution settings"
                             >
                               <Save className="h-4 w-4" />
@@ -1736,7 +1747,7 @@ export default function SettingsPage() {
                             size="icon"
                             onClick={handleStartInstitutionEdit}
                             disabled={!canEditTab(activeTab as "general" | "loan" | "penalties" | "shares")}
-                            className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                            className="h-8 w-8 text-muted-foreground hover:bg-brand/10 hover:text-brand"
                             aria-label="Edit institution settings"
                           >
                             <Pencil className="h-4 w-4" />
@@ -1747,9 +1758,9 @@ export default function SettingsPage() {
                   </CardHeader>
                   <CardContent className="space-y-4">
                     {activeTab === "general" && institution && (
-                      <div className="rounded-lg border border-[#111111]/10 bg-white p-4 space-y-3">
-                        <div className="flex items-center gap-2 text-sm font-semibold text-[#1f1f1f]">
-                          <Building2 className="h-4 w-4 text-[#f08c2b]" />
+                      <div className="rounded-lg border border-border bg-card p-4 space-y-3">
+                        <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                          <Building2 className="h-4 w-4 text-brand" />
                           Organization Profile
                         </div>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1813,9 +1824,9 @@ export default function SettingsPage() {
                           <div className="md:col-span-2 pt-1">
                             <Separator className="my-3" />
                           </div>
-                          <div className="md:col-span-2 space-y-3 rounded-lg border border-[#111111]/10 bg-[#111111]/[0.02] p-4">
-                            <div className="flex items-center gap-2 text-sm font-semibold text-[#1f1f1f]">
-                              <Mail className="h-4 w-4 text-[#f08c2b]" />
+                          <div className="md:col-span-2 space-y-3 rounded-lg border border-border bg-muted/30 p-4">
+                            <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                              <Mail className="h-4 w-4 text-brand" />
                               Email delivery
                             </div>
                             <p className="text-xs text-muted-foreground">
@@ -1939,9 +1950,10 @@ export default function SettingsPage() {
                                 </>
                               )}
                             </div>
-                            <label className="flex items-center gap-2 text-sm">
+                            <label className="flex items-center gap-2 text-sm text-foreground">
                               <input
                                 type="checkbox"
+                                className="accent-brand"
                                 checked={emailSettings.isActive}
                                 disabled={!canEditInstitutionWorkspace("general")}
                                 onChange={(e) => setEmailSettings((p) => ({ ...p, isActive: e.target.checked }))}
@@ -2007,9 +2019,9 @@ export default function SettingsPage() {
                           </div>
                           <div className="space-y-2">
                             <Label>Logo</Label>
-                            <div className="rounded-xl border border-[#111111]/10 bg-[#111111]/3 p-3">
+                            <div className="rounded-xl border border-border bg-muted/30 p-3">
                               <div className="flex items-center gap-3">
-                                <div className="h-14 w-14 shrink-0 overflow-hidden rounded-lg border border-[#111111]/10 bg-white flex items-center justify-center">
+                                <div className="h-14 w-14 shrink-0 overflow-hidden rounded-lg border border-border bg-card flex items-center justify-center">
                                   {org.logo ? (
                                     // eslint-disable-next-line @next/next/no-img-element
                                     <img src={org.logo} alt="Organization logo preview" className="h-full w-full object-cover" />
@@ -2018,7 +2030,7 @@ export default function SettingsPage() {
                                   )}
                                 </div>
                                 <div className="min-w-0 flex-1">
-                                  <p className="text-sm font-medium text-[#111111]">Organization logo</p>
+                                  <p className="text-sm font-medium text-foreground">Organization logo</p>
                                   <p className="text-xs text-muted-foreground truncate">
                                     {isLogoUploading
                                       ? "Uploading image to Vercel Blob..."
@@ -2132,9 +2144,9 @@ export default function SettingsPage() {
                     )}
 
                     {activeTab === "general" && (
-                      <div className="rounded-lg border border-[#111111]/10 bg-white p-4 space-y-3">
-                        <div className="flex items-center gap-2 text-sm font-semibold text-[#1f1f1f]">
-                          <SettingsIcon className="h-4 w-4 text-[#f08c2b]" />
+                      <div className="rounded-lg border border-border bg-card p-4 space-y-3">
+                        <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                          <SettingsIcon className="h-4 w-4 text-brand" />
                           Activation Dashboard
                         </div>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -2153,23 +2165,23 @@ export default function SettingsPage() {
                                 key={item.id}
                                 className={`rounded-xl border p-4 transition-all ${
                                   item.active
-                                    ? "border-[#f08c2b]/40 bg-[#f08c2b]/5"
-                                    : "border-[#111111]/10 bg-white"
+                                    ? "border-brand/40 bg-brand/[0.07]"
+                                    : "border-border bg-card"
                                 }`}
                               >
                                 <div className="flex items-start justify-between gap-3">
                                   <div className="flex items-start gap-3">
                                     <div
                                       className={`mt-0.5 rounded-lg p-2 ${
-                                        item.active ? "bg-[#f08c2b] text-white" : "bg-[#111111]/10 text-[#111111]"
+                                        item.active ? "bg-brand text-brand-foreground" : "bg-muted text-foreground"
                                       }`}
                                     >
                                       <Icon className="h-4 w-4" />
                                     </div>
                                     <div>
-                                      <p className="text-sm font-semibold text-[#111111]">{item.label}</p>
+                                      <p className="text-sm font-semibold text-foreground">{item.label}</p>
                                       <p className="text-xs text-muted-foreground mt-1">{item.hint}</p>
-                                      <p className={`text-xs mt-2 font-medium ${item.active ? "text-emerald-700" : "text-rose-700"}`}>
+                                      <p className={`text-xs mt-2 font-medium ${item.active ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>
                                         {item.active ? "Active" : "Inactive"}
                                       </p>
                                     </div>
@@ -2186,8 +2198,8 @@ export default function SettingsPage() {
                                         else setConfigField("autoInvoices", e.target.checked)
                                       }}
                                     />
-                                    <span className="h-5 w-9 rounded-full bg-gray-300 transition-colors peer-checked:bg-[#f08c2b]" />
-                                    <span className="pointer-events-none absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform peer-checked:translate-x-4" />
+                                    <span className="h-5 w-9 rounded-full bg-muted-foreground/30 transition-colors peer-checked:bg-brand" />
+                                    <span className="pointer-events-none absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform peer-checked:translate-x-4 peer-checked:bg-brand-foreground" />
                                   </label>
                                 </div>
                               </div>
@@ -2195,7 +2207,7 @@ export default function SettingsPage() {
                           })}
                         </div>
                         {!isSaccoOrMfi && (
-                          <div className="text-xs text-muted-foreground rounded-lg border border-dashed border-[#111111]/20 px-3 py-2">
+                          <div className="text-xs text-muted-foreground rounded-lg border border-dashed border-border px-3 py-2">
                             Shares is only configurable for SACCO and MFI institutions.
                           </div>
                         )}
@@ -2203,9 +2215,9 @@ export default function SettingsPage() {
                     )}
 
                     {activeTab === "loan" && (
-                    <div className="rounded-lg border border-[#111111]/10 bg-white p-4 space-y-3">
-                      <div className="flex items-center gap-2 text-sm font-semibold text-[#1f1f1f]">
-                        <Zap className="h-4 w-4 text-[#f08c2b]" />
+                    <div className="rounded-lg border border-border bg-card p-4 space-y-3">
+                      <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                        <Zap className="h-4 w-4 text-brand" />
                         Automation & Loan Policies
                       </div>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -2258,9 +2270,9 @@ export default function SettingsPage() {
                             className={memberInputClass}
                           />
                         </div>
-                        <div className="rounded-md border border-[#111111]/10 bg-[#111111]/5 px-3 py-2 md:col-span-2">
+                        <div className="rounded-md border border-border bg-muted/40 px-3 py-2 md:col-span-2">
                           <p className="text-xs text-muted-foreground">
-                            Auto invoices are now managed in <span className="font-medium text-[#111111]">General - Activation Dashboard</span>.
+                            Auto invoices are now managed in <span className="font-medium text-foreground">General - Activation Dashboard</span>.
                           </p>
                         </div>
                       </div>
@@ -2268,9 +2280,9 @@ export default function SettingsPage() {
                     )}
 
                     {activeTab === "penalties" && (
-                    <div className="rounded-lg border border-[#111111]/10 bg-white p-4 space-y-3">
-                      <div className="flex items-center gap-2 text-sm font-semibold text-[#1f1f1f]">
-                        <ShieldAlert className="h-4 w-4 text-[#f08c2b]" />
+                    <div className="rounded-lg border border-border bg-card p-4 space-y-3">
+                      <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                        <ShieldAlert className="h-4 w-4 text-brand" />
                         Late Penalty Rules
                       </div>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -2369,8 +2381,8 @@ export default function SettingsPage() {
                     )}
 
                     {(activeTab === "shares" && isSaccoOrMfi && !config.modules.shares) && (
-                      <div className="rounded-lg border border-dashed border-[#111111]/20 bg-[#111111]/5 p-4 text-sm text-muted-foreground">
-                        Shares module is currently disabled. Enable it in <strong>General - Module Access</strong> to configure share limits and values.
+                      <div className="rounded-lg border border-dashed border-border bg-muted/30 p-4 text-sm text-muted-foreground">
+                        Shares module is currently disabled. Enable it in <strong className="text-foreground">General - Module Access</strong> to configure share limits and values.
                       </div>
                     )}
 
@@ -2416,7 +2428,7 @@ export default function SettingsPage() {
                           </div>
                           <div className="space-y-2">
                             <Label htmlFor="sharesHint">Shares Config Hint</Label>
-                            <div id="sharesHint" className="h-10 px-3 rounded-md border border-[#111111]/10 bg-[#111111]/5 text-sm flex items-center text-muted-foreground">
+                            <div id="sharesHint" className="h-10 px-3 rounded-md border border-border bg-muted/40 text-sm flex items-center text-muted-foreground">
                               Max shares can be left as 0 if you do not cap purchases.
                             </div>
                           </div>
@@ -2424,7 +2436,7 @@ export default function SettingsPage() {
 
                         <div className="pt-4">
                           <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                            <DollarSign className="h-4 w-4" />
+                            <DollarSign className="h-4 w-4 text-brand" />
                             <span>
                               Minimum capital requirement: {config.currency}{" "}
                               {((Number(config.minimumShares ?? 0) * Number(config.shareValue ?? 0)) || 0).toLocaleString()}
@@ -2467,9 +2479,9 @@ export default function SettingsPage() {
 
                     <Separator />
 
-                    <div className="rounded-xl border border-[#111111]/10 bg-white p-4 space-y-4">
-                      <div className="flex items-center gap-2 text-sm font-semibold text-[#1f1f1f]">
-                        <Clock3 className="h-4 w-4 text-[#f08c2b]" />
+                    <div className="rounded-xl border border-border bg-card p-4 space-y-4">
+                      <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                        <Clock3 className="h-4 w-4 text-brand" />
                         Financial Year & Member Invoicing Setup
                       </div>
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -2502,9 +2514,9 @@ export default function SettingsPage() {
                           />
                         </div>
                       </div>
-                      <div className="flex items-center justify-between gap-4 rounded-xl border border-[#111111]/10 bg-[#111111]/5 p-3.5">
+                      <div className="flex items-center justify-between gap-4 rounded-xl border border-border bg-muted/40 p-3.5">
                         <div>
-                          <p className="text-sm font-semibold text-[#111111]">Bill New Members For Previous Months</p>
+                          <p className="text-sm font-semibold text-foreground">Bill New Members For Previous Months</p>
                           <p className="text-xs text-muted-foreground mt-0.5">
                             Automatically bill newly registered members for unbilled prior months in the active financial year.
                           </p>
@@ -2518,8 +2530,8 @@ export default function SettingsPage() {
                             disabled={!canEditInstitutionWorkspace("general")}
                             onChange={(e) => setConfigField("newMemberBillPrevMonths", e.target.checked)}
                           />
-                          <span className="h-5 w-9 rounded-full bg-gray-300 transition-colors peer-checked:bg-[#f08c2b]" />
-                          <span className="pointer-events-none absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform peer-checked:translate-x-4" />
+                          <span className="h-5 w-9 rounded-full bg-muted-foreground/30 transition-colors peer-checked:bg-brand" />
+                          <span className="pointer-events-none absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform peer-checked:translate-x-4 peer-checked:bg-brand-foreground" />
                         </label>
                       </div>
                     </div>
@@ -2532,12 +2544,12 @@ export default function SettingsPage() {
 
                 {/* Institution Profile (Organization) */}
                 {activeTab === "organization" && (
-                <Card className="group border-[#1f1f1f]/10 shadow-md rounded-2xl">
+                <Card className="group border-border bg-card shadow-md rounded-2xl">
                   <CardHeader>
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <CardTitle className="flex items-center gap-2">
-                          <User className="h-5 w-5" />
+                          <User className="h-5 w-5 text-brand" />
                           {terminology.name} Profile
                         </CardTitle>
                         <CardDescription>Institution legal details and your branch contact (name, address, phone, email, established date).</CardDescription>
@@ -2562,7 +2574,7 @@ export default function SettingsPage() {
                               size="icon"
                               onClick={handleSaveOrgEdit}
                               disabled={isSavingOrg}
-                              className="h-8 w-8 text-[#f08c2b] hover:text-[#c06107]"
+                              className="h-8 w-8 text-brand hover:bg-brand/10 hover:text-brand-700"
                               aria-label="Save organization profile"
                             >
                               <Save className="h-4 w-4" />
@@ -2575,7 +2587,7 @@ export default function SettingsPage() {
                             size="icon"
                             onClick={handleStartOrgEdit}
                             disabled={!canEditOrganizationProfile}
-                            className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                            className="h-8 w-8 text-muted-foreground hover:bg-brand/10 hover:text-brand"
                             aria-label="Edit organization profile"
                           >
                             <Pencil className="h-4 w-4" />
@@ -2687,17 +2699,17 @@ export default function SettingsPage() {
 
                 {/* Institution Admins */}
                 {activeTab === "admin" && (
-                <Card className="border-[#1f1f1f]/10 shadow-md rounded-2xl">
+                <Card className="border-border bg-card shadow-md rounded-2xl">
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">
-                      <User className="h-5 w-5" />
+                      <User className="h-5 w-5 text-brand" />
                       Institution Admins
                     </CardTitle>
                     <CardDescription>Read-only view of administrators in your institution.</CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-4">
                     <div className="flex flex-wrap items-center gap-2 mb-1">
-                      <Badge className="bg-[#f08c2b]/15 text-[#c06107] border border-[#f08c2b]/25 hover:bg-[#f08c2b]/15">
+                      <Badge className="bg-brand/15 text-brand border border-brand/25 hover:bg-brand/20">
                         Admins: {staffMembers.filter((s) => s.role === "institution_admin").length}
                       </Badge>
                     </div>
@@ -2708,39 +2720,39 @@ export default function SettingsPage() {
                           return String(a.full_name || "").localeCompare(String(b.full_name || ""))
                         })
                         .map((member) => (
-                          <div key={member.id} className="rounded-xl border border-[#111111]/10 bg-white p-4">
+                          <div key={member.id} className="rounded-xl border border-border bg-card p-4 transition-colors hover:border-brand/35">
                             <div className="flex items-start justify-between gap-3">
                               <div className="flex items-center gap-3 min-w-0">
-                                <div className="h-10 w-10 rounded-full bg-[#f08c2b]/15 text-[#c06107] flex items-center justify-center text-xs font-bold shrink-0">
+                                <div className="h-10 w-10 rounded-full border border-brand/25 bg-brand/15 text-brand flex items-center justify-center text-xs font-bold shrink-0">
                                   {getInitials(member.full_name)}
                                 </div>
                                 <div className="min-w-0">
-                                  <p className="text-sm font-semibold text-[#111111] truncate">{member.full_name || "Unnamed Staff"}</p>
+                                  <p className="text-sm font-semibold text-foreground truncate">{member.full_name || "Unnamed Staff"}</p>
                                   <p className="text-xs text-muted-foreground truncate">{member.email || "No email"}</p>
                                 </div>
                               </div>
                               {member.role === "institution_admin" && (
-                                <Badge className="bg-[#111111] text-white hover:bg-[#111111]">Admin</Badge>
+                                <Badge className="bg-brand text-brand-foreground hover:bg-brand">Admin</Badge>
                               )}
                             </div>
                             <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
-                              <div className="rounded-md bg-[#111111]/5 px-2 py-1.5 text-muted-foreground">
-                                Role: <span className="text-[#111111] font-medium">{formatRole(member.role)}</span>
+                              <div className="rounded-md bg-muted/60 px-2 py-1.5 text-muted-foreground">
+                                Role: <span className="text-foreground font-medium">{formatRole(member.role)}</span>
                               </div>
-                              <div className="rounded-md bg-[#111111]/5 px-2 py-1.5 text-muted-foreground">
-                                Status: <span className="text-[#111111] font-medium">{member.status || "Unknown"}</span>
+                              <div className="rounded-md bg-muted/60 px-2 py-1.5 text-muted-foreground">
+                                Status: <span className="text-foreground font-medium">{member.status || "Unknown"}</span>
                               </div>
-                              <div className="col-span-2 rounded-md bg-[#111111]/5 px-2 py-1.5 text-muted-foreground truncate">
-                                Email: <span className="text-[#111111] font-medium">{member.email || "Not provided"}</span>
+                              <div className="col-span-2 rounded-md bg-muted/60 px-2 py-1.5 text-muted-foreground truncate">
+                                Email: <span className="text-foreground font-medium">{member.email || "Not provided"}</span>
                               </div>
-                              <div className="col-span-2 rounded-md bg-[#111111]/5 px-2 py-1.5 text-muted-foreground truncate">
-                                Phone: <span className="text-[#111111] font-medium">{member.phone_number || "Not provided"}</span>
+                              <div className="col-span-2 rounded-md bg-muted/60 px-2 py-1.5 text-muted-foreground truncate">
+                                Phone: <span className="text-foreground font-medium">{member.phone_number || "Not provided"}</span>
                               </div>
                             </div>
                           </div>
                         ))}
                       {staffMembers.filter((member) => member.role === "institution_admin").length === 0 && (
-                        <div className="md:col-span-2 rounded-xl border border-dashed border-[#111111]/20 bg-[#111111]/5 p-6 text-center text-sm text-muted-foreground">
+                        <div className="md:col-span-2 rounded-xl border border-dashed border-border bg-muted/30 p-6 text-center text-sm text-muted-foreground">
                           No admin records found for this institution.
                         </div>
                       )}
@@ -2753,12 +2765,12 @@ export default function SettingsPage() {
                 )}
 
                 {activeTab === "permissions" && (
-                <Card className="border-[#1f1f1f]/10 shadow-md rounded-2xl">
+                <Card className="border-border bg-card shadow-md rounded-2xl">
                   <CardHeader>
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                       <div>
                         <CardTitle className="flex items-center gap-2">
-                          <Shield className="h-5 w-5 text-[#f08c2b]" />
+                          <Shield className="h-5 w-5 text-brand" />
                           Roles & Permissions
                         </CardTitle>
                         <CardDescription>
@@ -2769,7 +2781,7 @@ export default function SettingsPage() {
                       </div>
                       <Button
                         type="button"
-                        className="bg-[#f08c2b] hover:bg-[#c06107] text-white shrink-0"
+                        className="bg-brand hover:bg-brand-700 text-brand-foreground shrink-0 cursor-pointer"
                         disabled={!settingsPermissions.editRolePermissions || !rolePermDirty || rolePermLoading || isSavingRolePermissions || !selectedRoleId}
                         onClick={() => void handleSaveRolePermissions()}
                       >
@@ -2800,14 +2812,14 @@ export default function SettingsPage() {
                           )}
                         </div>
                         {isAdminBranchRole && !actorIsSuperForPerms && (
-                          <p className="text-xs text-muted-foreground rounded-lg border border-[#111111]/10 bg-[#111111]/4 px-3 py-2">
+                          <p className="text-xs text-muted-foreground rounded-lg border border-border bg-muted/40 px-3 py-2">
                             The Admin role always keeps “Edit role permissions” enabled so branch settings stay manageable.
                           </p>
                         )}
                         <div className="max-h-[60vh] overflow-y-auto space-y-6 pr-1">
                           {rolePermissionsByModule.map(([module, perms]) => (
                             <div key={module} className="space-y-2">
-                              <p className="text-xs font-semibold uppercase tracking-wide text-[#f08c2b]">{module}</p>
+                              <p className="text-xs font-semibold uppercase tracking-wide text-brand">{module}</p>
                               <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                                 {perms.map((p) => {
                                   const locked = isPermissionLockedForRole(p)
@@ -2822,22 +2834,22 @@ export default function SettingsPage() {
                                       aria-disabled={disabled}
                                       disabled={disabled}
                                       onClick={() => handleToggleRolePermission(p)}
-                                      className={`flex w-full items-start gap-3 rounded-lg border border-[#111111]/10 bg-white px-3 py-2.5 text-left text-sm transition-colors ${
+                                      className={`flex w-full items-start gap-3 rounded-lg border border-border bg-card px-3 py-2.5 text-left text-sm transition-colors ${
                                         disabled
                                           ? "cursor-not-allowed opacity-80"
-                                          : "cursor-pointer hover:border-[#f08c2b]/40 focus-visible:outline-none focus-visible:ring-[1.5px] focus-visible:ring-[#f08c2b] focus-visible:ring-offset-1"
+                                          : "cursor-pointer hover:border-brand/45 focus-visible:outline-none focus-visible:ring-[1.5px] focus-visible:ring-brand focus-visible:ring-offset-1"
                                       }`}
                                     >
                                       <span
                                         className={`relative mt-0.5 flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-md border-2 transition-all ${
                                           checked
-                                            ? "border-[#f08c2b] bg-[#f08c2b]"
-                                            : "border-gray-400 bg-white" + (disabled ? "" : " hover:border-gray-600")
+                                            ? "border-brand bg-brand"
+                                            : "border-muted-foreground/40 bg-background" + (disabled ? "" : " hover:border-brand/60")
                                         }`}
                                       >
                                         {checked && (
                                           <svg
-                                            className="h-3 w-3 text-white"
+                                            className="h-3 w-3 text-brand-foreground"
                                             fill="none"
                                             viewBox="0 0 24 24"
                                             stroke="currentColor"
@@ -2849,7 +2861,7 @@ export default function SettingsPage() {
                                         )}
                                       </span>
                                       <span className="min-w-0">
-                                        <span className="font-medium text-[#111111]">{formatPermissionLabel(p.name)}</span>
+                                        <span className="font-medium text-foreground">{formatPermissionLabel(p.name)}</span>
                                         <span className="block text-[11px] text-muted-foreground truncate" title={p.name}>
                                           {p.name}
                                         </span>
@@ -2867,27 +2879,30 @@ export default function SettingsPage() {
                 </Card>
                 )}
                 {activeTab === "savings_plan" && (
-                <Card className="border-[#1f1f1f]/10 shadow-md rounded-2xl">
+                <Card className="border-border bg-card shadow-md rounded-2xl">
                   <CardHeader>
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                       <div>
                         <CardTitle className="flex items-center gap-2">
-                          <Calendar className="h-5 w-5 text-[#f08c2b]" />
+                          <Calendar className="h-5 w-5 text-brand" />
                           Savings Plan Schedule
                         </CardTitle>
                         <CardDescription>
                           Configure automated savings billing frequency, days, and billing start dates for your branch.
                         </CardDescription>
                       </div>
-                      <Badge variant={savingsPlan ? "outline" : "secondary"}>
+                      <Badge
+                        variant="outline"
+                        className={savingsPlan ? "border-brand/35 bg-brand/10 text-brand" : "border-border bg-muted text-muted-foreground"}
+                      >
                         {savingsPlan ? "Configured" : "Not Configured"}
                       </Badge>
                     </div>
                   </CardHeader>
                   <CardContent className="space-y-6">
-                    <div className="flex items-center justify-between gap-4 rounded-xl border border-[#111111]/10 bg-[#111111]/5 p-4">
+                    <div className="flex items-center justify-between gap-4 rounded-xl border border-border bg-muted/40 p-4">
                       <div>
-                        <p className="text-sm font-semibold text-[#111111]">Use Account Saving Day</p>
+                        <p className="text-sm font-semibold text-foreground">Use Account Saving Day</p>
                         <p className="text-xs text-muted-foreground mt-0.5">
                           When enabled, automated savings billing will use each account&apos;s configured saving day instead of the branch plan auto savings day.
                         </p>
@@ -2901,8 +2916,8 @@ export default function SettingsPage() {
                           onChange={(e) => setSavingsPlanForm((prev) => ({ ...prev, use_account_saving_day: e.target.checked ? "true" : "false" }))}
                           disabled={!canEditInstitutionConfig}
                         />
-                        <span className="h-5 w-9 rounded-full bg-gray-300 transition-colors peer-checked:bg-[#f08c2b]" />
-                        <span className="pointer-events-none absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform peer-checked:translate-x-4" />
+                        <span className="h-5 w-9 rounded-full bg-muted-foreground/30 transition-colors peer-checked:bg-brand" />
+                        <span className="pointer-events-none absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform peer-checked:translate-x-4 peer-checked:bg-brand-foreground" />
                       </label>
                     </div>
 
@@ -2942,17 +2957,17 @@ export default function SettingsPage() {
                             <div className="flex items-center justify-between gap-2 flex-wrap">
                               <Label htmlFor="sp_auto_savings_day">Auto Savings Day</Label>
                               {savingsPlanForm.frequency_unit === "MONTH" && (
-                                <div className="inline-flex items-center rounded-lg border border-[#111111]/10 bg-gray-100 p-0.5 text-xs font-medium flex-wrap">
+                                <div className="inline-flex items-center rounded-lg border border-border bg-muted p-0.5 text-xs font-medium flex-wrap">
                                   <button
                                     type="button"
                                     onClick={() => {
                                       setAutoSavingsDayMode("fixed")
                                       setSavingsPlanForm((prev) => ({ ...prev, auto_savings_day: "Monday" }))
                                     }}
-                                    className={`px-2 py-0.5 rounded-md transition-all ${
+                                    className={`px-2 py-0.5 rounded-md transition-all cursor-pointer ${
                                       autoSavingsDayMode === "fixed"
-                                        ? "bg-white text-[#111111] shadow-sm font-semibold"
-                                        : "text-gray-500 hover:text-gray-900"
+                                        ? "bg-brand text-brand-foreground shadow-sm font-semibold"
+                                        : "text-muted-foreground hover:text-foreground"
                                     }`}
                                     disabled={!canEditInstitutionConfig}
                                   >
@@ -2964,10 +2979,10 @@ export default function SettingsPage() {
                                       setAutoSavingsDayMode("ordinal")
                                       setSavingsPlanForm((prev) => ({ ...prev, auto_savings_day: "1st Monday" }))
                                     }}
-                                    className={`px-2 py-0.5 rounded-md transition-all ${
+                                    className={`px-2 py-0.5 rounded-md transition-all cursor-pointer ${
                                       autoSavingsDayMode === "ordinal"
-                                        ? "bg-white text-[#111111] shadow-sm font-semibold"
-                                        : "text-gray-500 hover:text-gray-900"
+                                        ? "bg-brand text-brand-foreground shadow-sm font-semibold"
+                                        : "text-muted-foreground hover:text-foreground"
                                     }`}
                                     disabled={!canEditInstitutionConfig}
                                   >
@@ -2979,10 +2994,10 @@ export default function SettingsPage() {
                                       setAutoSavingsDayMode("includes")
                                       setSavingsPlanForm((prev) => ({ ...prev, auto_savings_day: "includes 4" }))
                                     }}
-                                    className={`px-2 py-0.5 rounded-md transition-all ${
+                                    className={`px-2 py-0.5 rounded-md transition-all cursor-pointer ${
                                       autoSavingsDayMode === "includes"
-                                        ? "bg-white text-[#111111] shadow-sm font-semibold"
-                                        : "text-gray-500 hover:text-gray-900"
+                                        ? "bg-brand text-brand-foreground shadow-sm font-semibold"
+                                        : "text-muted-foreground hover:text-foreground"
                                     }`}
                                     disabled={!canEditInstitutionConfig}
                                   >
@@ -2994,10 +3009,10 @@ export default function SettingsPage() {
                                       setAutoSavingsDayMode("custom")
                                       setSavingsPlanForm((prev) => ({ ...prev, auto_savings_day: "1" }))
                                     }}
-                                    className={`px-2 py-0.5 rounded-md transition-all ${
+                                    className={`px-2 py-0.5 rounded-md transition-all cursor-pointer ${
                                       autoSavingsDayMode === "custom"
-                                        ? "bg-white text-[#111111] shadow-sm font-semibold"
-                                        : "text-gray-500 hover:text-gray-900"
+                                        ? "bg-brand text-brand-foreground shadow-sm font-semibold"
+                                        : "text-muted-foreground hover:text-foreground"
                                     }`}
                                     disabled={!canEditInstitutionConfig}
                                   >
@@ -3086,7 +3101,7 @@ export default function SettingsPage() {
                           <div className="space-y-2">
                             <div className="flex items-center justify-between">
                               <Label htmlFor="sp_next_billing_date">Next Billing Date</Label>
-                              <Badge variant="outline" className="text-[10px] border-[#f08c2b] text-[#f08c2b]">
+                              <Badge variant="outline" className="text-[10px] border-brand/40 bg-brand/10 text-brand">
                                 Auto-calculated
                               </Badge>
                             </div>
@@ -3102,12 +3117,12 @@ export default function SettingsPage() {
                     </div>
 
                     {canEditInstitutionConfig && (
-                      <div className="flex justify-end gap-3 pt-4 border-t border-[#111111]/10">
+                      <div className="flex justify-end gap-3 pt-4 border-t border-border">
                         <Button
                           type="button"
                           onClick={handleSaveSavingsPlan}
                           disabled={isSavingSavingsPlan}
-                          className="bg-[#111111] hover:bg-[#111111]/90 text-white"
+                          className="bg-brand hover:bg-brand-700 text-brand-foreground cursor-pointer"
                         >
                           {isSavingSavingsPlan ? "Saving Plan..." : "Save Savings Plan"}
                         </Button>
@@ -3117,12 +3132,12 @@ export default function SettingsPage() {
                 </Card>
                 )}
                 {activeTab === "account_types" && (
-                <Card className="border-[#1f1f1f]/10 shadow-md rounded-2xl">
+                <Card className="border-border bg-card shadow-md rounded-2xl">
                   <CardHeader>
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                       <div>
                         <CardTitle className="flex items-center gap-2">
-                          <Tags className="h-5 w-5 text-[#f08c2b]" />
+                          <Tags className="h-5 w-5 text-brand" />
                           Savings Account Types
                         </CardTitle>
                         <CardDescription>
@@ -3138,7 +3153,7 @@ export default function SettingsPage() {
                           setIsAddAccountTypeOpen(true)
                         }}
                         disabled={!canEditInstitutionConfig}
-                        className="bg-[#f08c2b] text-white hover:bg-[#d9781e] gap-2 rounded-xl"
+                        className="bg-brand text-brand-foreground hover:bg-brand-700 gap-2 rounded-xl cursor-pointer"
                       >
                         <Plus className="h-4 w-4" />
                         Add Account Type
@@ -3190,15 +3205,15 @@ export default function SettingsPage() {
                       }}
                     />
                     <motion.div
-                      className="relative z-10 w-full max-w-md max-h-[90vh] overflow-y-auto space-y-4 rounded-2xl border border-[#111111]/10 bg-white p-6 shadow-xl"
+                      className="relative z-10 w-full max-w-md max-h-[90vh] overflow-y-auto space-y-4 rounded-2xl border border-border bg-card text-card-foreground p-6 shadow-xl"
                       initial={{ opacity: 0, scale: 0.96, y: 10 }}
                       animate={{ opacity: 1, scale: 1, y: 0 }}
                       exit={{ opacity: 0, scale: 0.96, y: 10 }}
                       transition={{ duration: 0.2, ease: [0.4, 0, 0.2, 1] }}
                     >
-                      <div className="flex items-center justify-between pb-2 border-b border-[#111111]/10">
+                      <div className="flex items-center justify-between pb-2 border-b border-border">
                         <div>
-                          <h3 className="text-lg font-semibold text-[#111111]">
+                          <h3 className="text-lg font-semibold text-foreground">
                             {editingAccountType ? "Edit Account Type" : "Add Account Type"}
                           </h3>
                           <p className="text-xs text-muted-foreground mt-0.5">
@@ -3215,7 +3230,7 @@ export default function SettingsPage() {
                               setEditingAccountType(null)
                             }
                           }}
-                          className="rounded-lg p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"
+                          className="rounded-lg p-1 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors cursor-pointer"
                         >
                           <X className="h-5 w-5" />
                         </button>
@@ -3243,9 +3258,9 @@ export default function SettingsPage() {
                             />
                           </div>
                         </div>
-                        <div className="flex items-center justify-between gap-4 rounded-xl border border-[#111111]/10 bg-[#111111]/5 p-3.5">
+                        <div className="flex items-center justify-between gap-4 rounded-xl border border-border bg-muted/40 p-3.5">
                           <div>
-                            <p className="text-sm font-semibold text-[#111111]">Auto-Bill Savings</p>
+                            <p className="text-sm font-semibold text-foreground">Auto-Bill Savings</p>
                             <p className="text-xs text-muted-foreground mt-0.5">
                               Automatically generate recurring billing invoices for accounts of this type.
                             </p>
@@ -3258,13 +3273,13 @@ export default function SettingsPage() {
                               checked={accountTypeFormAutoBill === "true"}
                               onChange={(e) => setAccountTypeFormAutoBill(e.target.checked ? "true" : "false")}
                             />
-                            <span className="h-5 w-9 rounded-full bg-gray-300 transition-colors peer-checked:bg-[#f08c2b]" />
-                            <span className="pointer-events-none absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform peer-checked:translate-x-4" />
+                            <span className="h-5 w-9 rounded-full bg-muted-foreground/30 transition-colors peer-checked:bg-brand" />
+                            <span className="pointer-events-none absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform peer-checked:translate-x-4 peer-checked:bg-brand-foreground" />
                           </label>
                         </div>
                       </div>
 
-                      <div className="flex gap-2 justify-end pt-3 border-t border-[#111111]/10">
+                      <div className="flex gap-2 justify-end pt-3 border-t border-border">
                         <Button
                           variant="outline"
                           onClick={() => {
@@ -3278,7 +3293,7 @@ export default function SettingsPage() {
                         <Button
                           onClick={() => handleSaveAccountType(!!editingAccountType)}
                           disabled={isSavingAccountType}
-                          className="bg-[#f08c2b] text-white hover:bg-[#d9781e]"
+                          className="bg-brand text-brand-foreground hover:bg-brand-700 cursor-pointer"
                         >
                           {isSavingAccountType ? "Saving..." : editingAccountType ? "Update Account Type" : "Create Account Type"}
                         </Button>

@@ -45,7 +45,7 @@ interface RecordPaymentFormProps {
 }
 
 const inputClass =
-  "w-full px-3 py-2.5 text-sm rounded-md border transition-all duration-200 focus:ring-[1.5px] focus:ring-[#f08c2b] focus:border-transparent focus:outline-none border-gray-300 hover:border-gray-400"
+  "w-full px-3 py-2.5 text-sm rounded-md border transition-all duration-200 focus:ring-[1.5px] focus:ring-brand focus:border-transparent focus:outline-none border-gray-300 hover:border-gray-400"
 
 const todayYmd = () => {
   const d = new Date()
@@ -305,10 +305,10 @@ export default function RecordPaymentForm({
 
   return (
     <div className="max-h-[75vh] space-y-5 overflow-y-auto p-5">
-      <div className="rounded-lg border border-[#f08c2b]/20 bg-linear-to-r from-[#fff8f2] to-white p-4">
+      <div className="rounded-lg border border-brand/20 bg-linear-to-r from-brand/10 to-card p-4">
         <div className="flex items-start gap-3">
-          <div className="rounded-lg bg-[#f08c2b]/10 p-2">
-            <Banknote className="h-5 w-5 text-[#f08c2b]" />
+          <div className="rounded-lg bg-brand/10 p-2">
+            <Banknote className="h-5 w-5 text-brand" />
           </div>
           <div className="min-w-0 flex-1">
             <p className="font-semibold text-gray-900">{cashflow.assigned_name || "Cashflow"}</p>
@@ -339,12 +339,12 @@ export default function RecordPaymentForm({
         </div>
         <div className="h-2 w-full overflow-hidden rounded-full bg-gray-200">
           <div
-            className="h-full rounded-full bg-[#f08c2b] transition-all duration-300"
+            className="h-full rounded-full bg-brand transition-all duration-300"
             style={{ width: `${percentage}%` }}
           />
         </div>
         <div className="flex items-center justify-between text-xs">
-          <span className="font-medium text-[#f08c2b]">{Math.round(percentage)}% settled</span>
+          <span className="font-medium text-brand">{Math.round(percentage)}% settled</span>
           <span className="font-medium text-gray-700">
             Outstanding: {loadingTotals ? "…" : fmt(outstanding)}
           </span>
@@ -366,7 +366,7 @@ export default function RecordPaymentForm({
             value="full"
             checked={paymentType === "full"}
             onChange={() => setPaymentType("full")}
-            className="h-4 w-4 accent-[#f08c2b]"
+            className="h-4 w-4 accent-brand"
           />
           <span className="text-sm text-gray-700">Pay full amount ({fmt(outstanding)})</span>
         </label>
@@ -377,7 +377,7 @@ export default function RecordPaymentForm({
             value="partial"
             checked={paymentType === "partial"}
             onChange={() => setPaymentType("partial")}
-            className="h-4 w-4 accent-[#f08c2b]"
+            className="h-4 w-4 accent-brand"
           />
           <span className="text-sm text-gray-700">Partial amount</span>
         </label>

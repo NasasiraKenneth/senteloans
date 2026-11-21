@@ -136,7 +136,7 @@ export default function ActivateForm({
           placeholder="0.00"
           value={monthlyPayment}
           onChange={(e) => setMonthlyPayment(e.target.value)}
-          className={`w-full px-3 py-2.5 text-sm border rounded-md transition-all duration-200 focus:ring-[1.5px] focus:ring-[#f08c2b] focus:border-transparent focus:outline-none ${
+          className={`w-full px-3 py-2.5 text-sm border rounded-md transition-all duration-200 focus:ring-[1.5px] focus:ring-brand focus:border-transparent focus:outline-none ${
             showMonthlyErr ? "border-red-500" : "border-gray-300 hover:border-gray-400"
           }`}
         />

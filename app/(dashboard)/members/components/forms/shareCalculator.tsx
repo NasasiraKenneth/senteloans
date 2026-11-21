@@ -13,7 +13,7 @@ interface ShareCalculatorFormProps {
 }
 
 const inputClass =
-  "w-full px-3 py-2.5 text-sm rounded-md border transition-all duration-200 focus:ring-[1.5px] focus:ring-[#f08c2b] focus:border-transparent focus:outline-none border-gray-300 hover:border-gray-400"
+  "w-full px-3 py-2.5 text-sm rounded-md border transition-all duration-200 focus:ring-[1.5px] focus:ring-brand focus:border-transparent focus:outline-none border-gray-300 hover:border-gray-400"
 
 export default function ShareCalculatorForm({
   shareValue = 0,
@@ -31,8 +31,8 @@ export default function ShareCalculatorForm({
   return (
     <>
       <div className="flex items-center gap-2.5">
-        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#f08c2b]/10">
-          <Calculator className="h-4 w-4 text-[#f08c2b]" />
+        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-brand/10">
+          <Calculator className="h-4 w-4 text-brand" />
         </div>
         <div>
           <h2 className="text-base font-semibold">Shares Calculator</h2>
@@ -59,7 +59,7 @@ export default function ShareCalculatorForm({
         </div>
         <div className="flex items-center justify-between border-t border-border pt-2">
           <span className="text-sm font-medium">Total Cost</span>
-          <span className="text-lg font-bold tracking-tight text-[#f08c2b]">{fmt(total)}</span>
+          <span className="text-lg font-bold tracking-tight text-brand">{fmt(total)}</span>
         </div>
       </div>
 

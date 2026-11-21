@@ -20,7 +20,7 @@ interface MemberRegistrationFormProps {
 }
 
 const inputClass =
-  "w-full px-3 py-2.5 text-sm rounded-md border transition-all duration-200 focus:ring-[1.5px] focus:ring-[#f08c2b] focus:border-transparent focus:outline-none border-gray-300 hover:border-gray-400"
+  "w-full px-3 py-2.5 text-sm rounded-md border bg-background text-foreground placeholder:text-muted-foreground transition-all duration-200 focus:ring-[1.5px] focus:ring-brand focus:border-transparent focus:outline-none border-input hover:border-brand/50"
 
 type SelectOption = { value: string; label: string; description?: string }
 
@@ -462,11 +462,11 @@ export function MemberRegistrationForm({ onClose }: MemberRegistrationFormProps)
     <div className="space-y-6">
       {/* Header */}
       <div className="relative overflow-hidden rounded-xl border bg-card">
-        <div className="h-16 bg-linear-to-r from-primary/15 via-primary/8 to-transparent" />
+        <div className="h-16 bg-linear-to-r from-brand/15 via-brand/8 to-transparent" />
         <div className="px-6 pb-5">
           <div className="flex items-center gap-4 -mt-8">
-            <div className="h-16 w-16 shrink-0 rounded-full border-4 border-card bg-primary/10 shadow-sm flex items-center justify-center">
-              <UserPlus className="h-7 w-7 text-primary" />
+            <div className="h-16 w-16 shrink-0 rounded-full border-4 border-card bg-brand/10 shadow-sm flex items-center justify-center">
+              <UserPlus className="h-7 w-7 text-brand" />
             </div>
             <div className="flex-1 min-w-0 pb-0.5">
               <h1 className="text-xl font-bold tracking-tight">Register New {clientTerminology}</h1>
@@ -485,7 +485,7 @@ export function MemberRegistrationForm({ onClose }: MemberRegistrationFormProps)
             key={s.id}
             href={`#${s.id}`}
             onClick={(e) => { e.preventDefault(); scrollToSection(s.id) }}
-            className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-full border bg-card text-muted-foreground hover:text-foreground hover:border-primary/30 transition-colors"
+            className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-full border bg-card text-muted-foreground hover:text-brand hover:border-brand/40 transition-colors"
           >
             <s.icon className="h-3 w-3" />
             {s.label}

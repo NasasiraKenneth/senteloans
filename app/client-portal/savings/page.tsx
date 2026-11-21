@@ -384,7 +384,7 @@ export default function ClientSavingsPage() {
       case "Fixed":
         return "bg-purple-100 text-purple-700 border border-purple-200 font-semibold dark:bg-purple-950/40 dark:text-purple-400 dark:border-purple-800";
       case "Shares":
-        return "bg-orange-100 text-orange-700 border border-orange-200 dark:bg-orange-950/40 dark:text-orange-400 dark:border-orange-800";
+        return "bg-brand/10 text-brand border border-brand/25";
       case "Current":
         return "bg-cyan-100 text-cyan-700 border border-cyan-200 dark:bg-cyan-950/40 dark:text-cyan-400 dark:border-cyan-800";
       default:
@@ -505,7 +505,7 @@ export default function ClientSavingsPage() {
               variant="ghost"
               onClick={() => router.push(`/client-portal/savings/${row.id}`)}
               title="View Account Details"
-              className="h-8 w-8 text-[#f08c2b] hover:bg-[#f08c2b]/10 hover:text-[#d97b1e] rounded-lg transition-colors cursor-pointer"
+              className="h-8 w-8 text-brand hover:bg-brand/10 hover:text-brand-700 rounded-lg transition-colors cursor-pointer"
             >
               <Eye className="h-4 w-4" />
             </Button>
@@ -609,7 +609,7 @@ export default function ClientSavingsPage() {
     );
   }, [accounts]);
 
-  const PROPORTION_COLORS = ["#f08c2b", "#10b981", "#3b82f6", "#8b5cf6", "#ec4899"];
+  const PROPORTION_COLORS = ["var(--ui-p-600)", "#10b981", "#3b82f6", "#8b5cf6", "#ec4899"];
 
   if (isInitialLoading || guardLoading || !enabled) {
     return (
@@ -710,13 +710,13 @@ export default function ClientSavingsPage() {
       {/* Savings Statistics Grid */}
       <section className="space-y-3">
         <div className="flex items-center gap-2">
-          <Award className="h-4 w-4 text-[#f08c2b]" />
+          <Award className="h-4 w-4 text-brand" />
           <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
             Savings Statistics
           </h3>
         </div>
         <div className="grid gap-4 grid-cols-2 md:grid-cols-3 lg:grid-cols-6">
-          <Card className="border-border/85 bg-card">
+          <Card className="border-border/85 bg-card hover:border-brand/40 transition-colors">
             <CardContent className="p-4 space-y-1">
               <span className="text-[10px] uppercase font-medium text-muted-foreground">
                 Lifetime Deposited
@@ -730,7 +730,7 @@ export default function ClientSavingsPage() {
               </p>
             </CardContent>
           </Card>
-          <Card className="border-border/85 bg-card">
+          <Card className="border-border/85 bg-card hover:border-brand/40 transition-colors">
             <CardContent className="p-4 space-y-1">
               <span className="text-[10px] uppercase font-medium text-muted-foreground">
                 Total Withdrawn
@@ -744,12 +744,12 @@ export default function ClientSavingsPage() {
               </p>
             </CardContent>
           </Card>
-          <Card className="border-border/85 bg-card">
+          <Card className="border-border/85 bg-card hover:border-brand/40 transition-colors">
             <CardContent className="p-4 space-y-1">
               <span className="text-[10px] uppercase font-medium text-muted-foreground">
                 Interest Earned
               </span>
-              <p className="text-sm font-bold text-[#f08c2b]">
+              <p className="text-sm font-bold text-brand">
                 {showBalance
                   ? totals.interestEarned > 0
                     ? formatMoney(totals.interestEarned)
@@ -758,7 +758,7 @@ export default function ClientSavingsPage() {
               </p>
             </CardContent>
           </Card>
-          <Card className="border-border/85 bg-card">
+          <Card className="border-border/85 bg-card hover:border-brand/40 transition-colors">
             <CardContent className="p-4 space-y-1">
               <span className="text-[10px] uppercase font-medium text-muted-foreground">
                 Avg. Account Balance
@@ -768,7 +768,7 @@ export default function ClientSavingsPage() {
               </p>
             </CardContent>
           </Card>
-          <Card className="border-border/85 bg-card">
+          <Card className="border-border/85 bg-card hover:border-brand/40 transition-colors">
             <CardContent className="p-4 space-y-1">
               <span className="text-[10px] uppercase font-medium text-muted-foreground">
                 Active Accounts
@@ -778,14 +778,14 @@ export default function ClientSavingsPage() {
               </p>
             </CardContent>
           </Card>
-          <Card className="border-border/85 bg-card">
+          <Card className="border-border/85 bg-card hover:border-brand/40 transition-colors">
             <CardContent className="p-4 space-y-1">
               <span className="text-[10px] uppercase font-medium text-muted-foreground">
                 Savings Streak
               </span>
               <p className="text-sm font-bold text-foreground flex items-center gap-1">
                 <span>7 Months</span>
-                <Sparkles className="h-3 w-3 text-[#f08c2b]" />
+                <Sparkles className="h-3 w-3 text-brand" />
               </p>
             </CardContent>
           </Card>
@@ -800,7 +800,7 @@ export default function ClientSavingsPage() {
           <section className="space-y-4">
             <div className="flex items-end justify-between gap-4">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-wider text-[#f08c2b]">
+                <p className="text-xs font-semibold uppercase tracking-wider text-brand">
                   Accounts
                 </p>
                 <h2 className="mt-1 text-lg font-semibold text-foreground">
@@ -853,7 +853,7 @@ export default function ClientSavingsPage() {
           {/* Target Milestone Progress circle widget */}
           <Card className="border-border/80 shadow-xs bg-card overflow-hidden">
             <CardHeader className="border-b border-border/60 bg-muted/20 pb-3 flex flex-row items-center gap-2">
-              <Target className="h-4.5 w-4.5 text-[#f08c2b]" />
+              <Target className="h-4.5 w-4.5 text-brand" />
               <CardTitle className="text-sm font-semibold">
                 Monthly Savings Target
               </CardTitle>
@@ -872,7 +872,7 @@ export default function ClientSavingsPage() {
                       cy="40"
                     />
                     <circle
-                      className="text-[#f08c2b]"
+                      className="text-brand"
                       strokeWidth={strokeWidth}
                       strokeDasharray={circumference}
                       strokeDashoffset={strokeDashoffset}
@@ -909,7 +909,7 @@ export default function ClientSavingsPage() {
           {accounts.length > 1 ? (
             <Card className="border-border/80 shadow-xs bg-card overflow-hidden">
               <CardHeader className="border-b border-border/60 bg-muted/20 pb-3 flex flex-row items-center gap-2">
-                <Coins className="h-4 w-4 text-[#f08c2b]" />
+                <Coins className="h-4 w-4 text-brand" />
                 <CardTitle className="text-sm font-semibold">
                   Funds Proportion
                 </CardTitle>
@@ -941,10 +941,10 @@ export default function ClientSavingsPage() {
                       </Pie>
                       <ChartTooltip
                         contentStyle={{
-                          background: "#18181b",
-                          borderColor: "#27272a",
+                          background: "var(--popover)",
+                          borderColor: "var(--border)",
                           borderRadius: 8,
-                          color: "#fff",
+                          color: "var(--popover-foreground)",
                         }}
                         formatter={(val) => [
                           `UGX ${Number(val).toLocaleString()}`,
@@ -970,7 +970,7 @@ export default function ClientSavingsPage() {
           <Card className="border-border/80 shadow-xs overflow-hidden">
             <CardHeader className="pb-4 border-b border-border/40 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                <TrendingUp className="h-4 w-4 text-[#f08c2b]" />
+                <TrendingUp className="h-4 w-4 text-brand" />
                 Savings Growth Timeline
               </CardTitle>
               <div className="flex flex-wrap gap-1 bg-muted/40 p-1 rounded-lg border border-border/40">
@@ -982,7 +982,7 @@ export default function ClientSavingsPage() {
                     className={cn(
                       "px-2 py-1 text-[10px] font-bold rounded transition-colors uppercase tracking-wider outline-none cursor-pointer",
                       selectedPeriod === period
-                        ? "bg-[#f08c2b] text-white shadow-xs"
+                        ? "bg-brand text-brand-foreground shadow-xs"
                         : "text-muted-foreground hover:text-foreground",
                     )}
                   >
@@ -1057,12 +1057,12 @@ export default function ClientSavingsPage() {
                       type="monotone"
                       dataKey="balance"
                       name="balance"
-                      stroke="#f08c2b"
+                      stroke="var(--ui-p-600)"
                       strokeWidth={3}
                       dot={false}
                       activeDot={{
                         r: 6,
-                        stroke: "#18181b",
+                        stroke: "var(--card)",
                         strokeWidth: 2,
                       }}
                     />
@@ -1167,7 +1167,7 @@ function FixedSavingsCalendar() {
   return (
     <Card className="overflow-hidden border-border/80 shadow-xs bg-card">
       <CardHeader className="border-b border-border/60 bg-muted/20 pb-3 flex flex-row items-center gap-2">
-        <CalendarDays className="h-4.5 w-4.5 text-[#f08c2b]" />
+        <CalendarDays className="h-4.5 w-4.5 text-brand" />
         <CardTitle className="text-sm font-semibold">
           Fixed Savings Calendar
         </CardTitle>
@@ -1212,8 +1212,8 @@ function FixedSavingsCalendar() {
                 type="button"
                 className={cn(
                   "relative flex flex-col items-center justify-center py-1.5 rounded-lg transition-colors font-medium outline-none h-8 w-8 mx-auto cursor-pointer",
-                  isToday && "bg-muted font-bold text-[#f08c2b]",
-                  isSelected && !isToday && "bg-[#f08c2b]/15 text-[#f08c2b]",
+                  isToday && "bg-muted font-bold text-brand",
+                  isSelected && !isToday && "bg-brand/15 text-brand",
                   !isSelected && !isToday && "hover:bg-muted/40",
                 )}
               >
@@ -1226,7 +1226,7 @@ function FixedSavingsCalendar() {
                         className={cn(
                           "h-1 w-1 rounded-full",
                           ev.type === "deposit"
-                            ? "bg-[#f08c2b]"
+                            ? "bg-brand"
                             : "bg-emerald-500",
                         )}
                       />
@@ -1257,7 +1257,7 @@ function FixedSavingsCalendar() {
                     className={cn(
                       "w-1 rounded-full shrink-0",
                       ev.type === "deposit"
-                        ? "bg-[#f08c2b]"
+                        ? "bg-brand"
                         : "bg-emerald-500",
                     )}
                   />

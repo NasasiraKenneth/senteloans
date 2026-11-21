@@ -1192,6 +1192,35 @@ export function renderEmailTemplate(template: string, data: TemplateData = {}): 
       )
     }
 
+    case "auth.password_reset": {
+      const recipientName = String(data.recipientName || data.memberName || "there")
+      const resetUrl = String(data.resetUrl || "")
+      const expiresInMinutes = Number(data.expiresInMinutes || 60)
+      const expiresLabel =
+        expiresInMinutes === 60
+          ? "1 hour"
+          : `${expiresInMinutes} minutes`
+
+      return layout(
+        "Reset your password",
+        `<p style="margin:0 0 12px;">Hello ${esc(recipientName)},</p>
+         <p style="margin:0 0 16px;">We received a request to reset the password for your <strong>${esc(institutionName)}</strong> account. Click the button below to choose a new password:</p>
+         <div style="margin:24px 0 18px;text-align:center;">
+           <a href="${esc(resetUrl)}" style="display:inline-block;background-color:#f08c2b;color:#ffffff;font-size:14px;font-weight:700;text-decoration:none;padding:12px 28px;border-radius:8px;box-shadow:0 2px 4px rgba(240,140,43,0.3);">
+             Reset Password
+           </a>
+         </div>
+         <p style="font-size:12px;color:#64748b;text-align:center;margin:0 0 16px;">Or copy and paste this link into your browser:<br/><a href="${esc(resetUrl)}" style="color:#ea580c;word-break:break-all;">${esc(resetUrl)}</a></p>
+         ${renderNotice(
+           `<p style="margin:0 0 6px;"><strong>This link expires in ${esc(expiresLabel)}</strong> and can only be used once.</p>
+            <p style="margin:0;">If you did not request a password reset, you can safely ignore this email — your password will remain unchanged.</p>`,
+           "warning"
+         )}`,
+        institutionName,
+        { badge: "Password Reset", badgeVariant: "warning" }
+      )
+    }
+
     case "email.test":
       return layout(
         "Test email",

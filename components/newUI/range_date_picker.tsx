@@ -64,7 +64,6 @@ export default function RangeDatePicker({
   return (
     <DatePicker
       ref={datePickerRef}
-      className="orange"
       range
       value={toPickerRange()}
       onOpenPickNewDate={false}
@@ -94,13 +93,13 @@ export default function RangeDatePicker({
       render={(_pickerValue, openCalendar) => (
         <div
           onClick={openCalendar}
-          className={`flex items-center justify-between w-full gap-2 px-3 py-2.5 text-sm border rounded-md cursor-pointer transition-all duration-200 select-none ${
-            open ? "ring-[1.5px] ring-[#f08c2b] border-transparent" : "border-gray-300 hover:border-gray-400"
+          className={`flex items-center justify-between w-full gap-2 px-3 py-2.5 text-sm border rounded-md bg-background cursor-pointer transition-all duration-200 select-none ${
+            open ? "ring-[1.5px] ring-brand border-transparent" : "border-input hover:border-brand/50"
           }`}
         >
           <div className="flex items-center gap-2 min-w-0 flex-1">
-            <FiCalendar className="text-gray-400 shrink-0" />
-            <span className={`truncate ${hasSelection ? "text-gray-900 font-medium" : "text-gray-400"}`}>{labelText}</span>
+            <FiCalendar className="text-muted-foreground shrink-0" />
+            <span className={`truncate ${hasSelection ? "text-foreground font-medium" : "text-muted-foreground"}`}>{labelText}</span>
           </div>
           {hasSelection && (
             <button
@@ -111,7 +110,7 @@ export default function RangeDatePicker({
                 onChange({ start: "", end: "" })
                 datePickerRef.current?.closeCalendar?.()
               }}
-              className="shrink-0 p-1 rounded-full hover:bg-gray-200 text-gray-500 transition-colors"
+              className="shrink-0 p-1 rounded-full hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
               aria-label="Clear date range"
             >
               ×

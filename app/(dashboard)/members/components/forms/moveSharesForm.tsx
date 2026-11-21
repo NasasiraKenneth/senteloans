@@ -53,7 +53,7 @@ interface MoveSharesFormProps {
 }
 
 const inputClass =
-  "w-full px-3 py-2.5 text-sm rounded-md border transition-all duration-200 focus:ring-[1.5px] focus:ring-[#f08c2b] focus:border-transparent focus:outline-none border-gray-300 hover:border-gray-400 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-100"
+  "w-full px-3 py-2.5 text-sm rounded-md border transition-all duration-200 focus:ring-[1.5px] focus:ring-brand focus:border-transparent focus:outline-none border-gray-300 hover:border-gray-400 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-100"
 
 const SELL_PAYOUT_MODES = [
   { value: "Cash", label: "Cash" },
@@ -405,7 +405,7 @@ export default function MoveSharesForm({
           onClick={() => handleActionTypeChange("transfer")}
           className={`flex items-center justify-center gap-2 py-2.5 px-3 text-sm font-semibold rounded-md transition-all ${
             actionType === "transfer"
-              ? "bg-white text-orange-600 shadow-xs dark:bg-slate-900 dark:text-orange-400"
+              ? "bg-brand text-brand-foreground shadow-xs"
               : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200"
           }`}
         >
@@ -417,7 +417,7 @@ export default function MoveSharesForm({
           onClick={() => handleActionTypeChange("sell")}
           className={`flex items-center justify-center gap-2 py-2.5 px-3 text-sm font-semibold rounded-md transition-all ${
             actionType === "sell"
-              ? "bg-white text-orange-600 shadow-xs dark:bg-slate-900 dark:text-orange-400"
+              ? "bg-brand text-brand-foreground shadow-xs"
               : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200"
           }`}
         >
@@ -427,14 +427,14 @@ export default function MoveSharesForm({
       </div>
 
       {/* Live Calculation Preview Banner */}
-      <div className="rounded-xl border border-orange-200/80 bg-orange-50/60 p-4 dark:border-orange-900/50 dark:bg-orange-950/20">
-        <div className="flex items-center justify-between text-xs font-medium text-orange-950 dark:text-orange-200 border-b border-orange-200/60 dark:border-orange-900/40 pb-2 mb-3">
+      <div className="rounded-xl border border-brand/30 bg-brand/10 p-4">
+        <div className="flex items-center justify-between text-xs font-medium text-foreground border-b border-brand/20 pb-2 mb-3">
           <span>{memberFullName ? `${memberFullName}'s Equity Position` : "Member Equity Position"}</span>
           <span>1 Share = {formatCurrency(effectiveShareValue, currency)}</span>
         </div>
 
         <div className="grid grid-cols-3 gap-3 text-center">
-          <div className="p-2 rounded-lg bg-white/80 dark:bg-slate-900/80 border border-orange-100 dark:border-slate-800">
+          <div className="p-2 rounded-lg bg-card border border-border">
             <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">Current Holding</span>
             <div className="text-sm font-bold text-slate-900 dark:text-slate-100 mt-0.5">
               {currentShares} shares
@@ -444,19 +444,19 @@ export default function MoveSharesForm({
             </div>
           </div>
 
-          <div className="p-2 rounded-lg bg-orange-100/60 dark:bg-orange-900/30 border border-orange-200 dark:border-orange-800/60">
-            <span className="text-[11px] text-orange-800 dark:text-orange-300 font-semibold">
+          <div className="p-2 rounded-lg bg-brand/15 border border-brand/30">
+            <span className="text-[11px] text-brand font-semibold">
               {actionType === "transfer" ? "Transferring" : "Liquidating"}
             </span>
-            <div className="text-sm font-black text-orange-700 dark:text-orange-400 mt-0.5">
+            <div className="text-sm font-black text-brand mt-0.5">
               {sharesToMoveNum > 0 ? `-${sharesToMoveNum}` : "0"} shares
             </div>
-            <div className="text-[11px] text-orange-800/80 dark:text-orange-300/80 font-medium">
+            <div className="text-[11px] text-muted-foreground font-medium">
               {formatCurrency(totalMoveValue, currency)}
             </div>
           </div>
 
-          <div className="p-2 rounded-lg bg-white/80 dark:bg-slate-900/80 border border-orange-100 dark:border-slate-800">
+          <div className="p-2 rounded-lg bg-card border border-border">
             <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">Remaining</span>
             <div
               className={`text-sm font-bold mt-0.5 ${
@@ -522,7 +522,7 @@ export default function MoveSharesForm({
               type="button"
               disabled={maxAllowedToMove <= 0}
               onClick={() => setSharesToMove(String(maxAllowedToMove))}
-              className="text-xs font-semibold text-orange-600 hover:text-orange-700 hover:underline cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed disabled:no-underline"
+              className="text-xs font-semibold text-brand hover:text-brand-700 hover:underline cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed disabled:no-underline"
             >
               Move All ({maxAllowedToMove})
             </button>
@@ -691,7 +691,7 @@ export default function MoveSharesForm({
             setError(null)
           }}
           disabled={loading}
-          className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-md hover:bg-slate-50 focus:outline-none dark:bg-slate-900 dark:text-slate-200 dark:border-slate-700 dark:hover:bg-slate-800"
+          className="px-4 py-2 text-sm font-medium text-foreground bg-card border border-border rounded-md hover:bg-muted focus:outline-none dark:bg-slate-900 dark:text-slate-200 dark:border-slate-700 dark:hover:bg-slate-800"
         >
           Reset
         </button>
@@ -703,7 +703,7 @@ export default function MoveSharesForm({
             sharesToMoveNum > currentShares ||
             (actionType === "transfer" && effMin != null && remainingShares < effMin)
           }
-          className="px-5 py-2 text-sm font-semibold text-white bg-[#f08c2b] hover:bg-[#d97706] rounded-md shadow-xs disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          className="px-5 py-2 text-sm font-semibold text-brand-foreground bg-brand hover:bg-brand-700 rounded-md shadow-xs disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
           {loading
             ? "Processing..."

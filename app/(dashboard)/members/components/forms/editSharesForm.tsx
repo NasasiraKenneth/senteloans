@@ -64,7 +64,7 @@ interface EditSharesFormProps {
 }
 
 const inputClass =
-  "w-full px-3 py-2.5 text-sm rounded-md border transition-all duration-200 focus:ring-[1.5px] focus:ring-[#f08c2b] focus:border-transparent focus:outline-none border-gray-300 hover:border-gray-400"
+  "w-full px-3 py-2.5 text-sm rounded-md border transition-all duration-200 focus:ring-[1.5px] focus:ring-brand focus:border-transparent focus:outline-none border-gray-300 hover:border-gray-400"
 
 const PAYMENT_MODES = [
   { value: "Cash", label: "Cash" },
@@ -245,10 +245,10 @@ export default function EditSharesForm({
   return (
     <div className="max-h-[75vh] space-y-5 overflow-y-auto p-5">
       {/* Transaction Details Header Badge */}
-      <div className="rounded-lg border border-orange-100 bg-orange-50/50 p-3.5 text-xs text-slate-700">
+      <div className="rounded-lg border border-brand/25 bg-brand/10 p-3.5 text-xs text-slate-700">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 font-medium">
-            <FileText className="h-4 w-4 text-orange-600" />
+            <FileText className="h-4 w-4 text-brand" />
             <span>Txn Ref: <strong className="font-mono text-slate-900">{share.transaction_number || (share.transaction_id ? share.transaction_id.slice(0, 8).toUpperCase() : share.id.slice(0, 8).toUpperCase())}</strong></span>
           </div>
           <span className="text-slate-500">
@@ -265,7 +265,7 @@ export default function EditSharesForm({
         </div>
         <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
           <p className="text-xs uppercase tracking-wide text-gray-500">New Holding</p>
-          <p className="mt-0.5 text-base font-bold text-orange-600">{projectedShares.toLocaleString()} shares</p>
+          <p className="mt-0.5 text-base font-bold text-brand">{projectedShares.toLocaleString()} shares</p>
         </div>
         <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
           <p className="text-xs uppercase tracking-wide text-gray-500">Holding Value</p>
@@ -317,7 +317,7 @@ export default function EditSharesForm({
 
         <div className="space-y-2 text-xs">
           {/* Row 1: Previous Value */}
-          <div className="flex items-center justify-between rounded-lg border border-slate-200 bg-white px-3.5 py-2.5">
+          <div className="flex items-center justify-between rounded-lg border border-border bg-card px-3.5 py-2.5">
             <div>
               <p className="font-medium text-slate-600">Previous Value</p>
               <p className="text-[10px] text-slate-400">
@@ -328,7 +328,7 @@ export default function EditSharesForm({
           </div>
 
           {/* Row 2: New Value */}
-          <div className="flex items-center justify-between rounded-lg border border-slate-200 bg-white px-3.5 py-2.5">
+          <div className="flex items-center justify-between rounded-lg border border-border bg-card px-3.5 py-2.5">
             <div>
               <p className="font-medium text-slate-600">New Value</p>
               <p className="text-[10px] text-slate-400">
@@ -342,17 +342,17 @@ export default function EditSharesForm({
           <div
             className={`flex items-center justify-between rounded-lg border px-3.5 py-2.5 ${
               valueDifference > 0
-                ? "border-orange-200 bg-orange-50/70"
+                ? "border-brand/30 bg-brand/10"
                 : valueDifference < 0
                   ? "border-blue-200 bg-blue-50/70"
-                  : "border-slate-200 bg-white"
+                  : "border-border bg-card"
             }`}
           >
             <div>
               <p
                 className={`font-semibold ${
                   valueDifference > 0
-                    ? "text-orange-900"
+                    ? "text-foreground"
                     : valueDifference < 0
                       ? "text-blue-900"
                       : "text-slate-700"
@@ -370,13 +370,13 @@ export default function EditSharesForm({
             </div>
 
             <div className="flex items-center gap-1.5">
-              {valueDifference > 0 && <TrendingUp className="h-4 w-4 text-orange-600 shrink-0" />}
+              {valueDifference > 0 && <TrendingUp className="h-4 w-4 text-brand shrink-0" />}
               {valueDifference < 0 && <TrendingDown className="h-4 w-4 text-blue-600 shrink-0" />}
               {valueDifference === 0 && <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />}
               <span
                 className={`text-sm font-bold ${
                   valueDifference > 0
-                    ? "text-orange-600"
+                    ? "text-brand"
                     : valueDifference < 0
                       ? "text-blue-600"
                       : "text-slate-700"
@@ -471,7 +471,7 @@ export default function EditSharesForm({
             type="button"
             onClick={onCancel}
             disabled={loading}
-            className="inline-flex h-9 items-center justify-center rounded-md border border-gray-300 bg-white px-4 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex h-9 items-center justify-center rounded-md border border-border bg-card px-4 text-sm font-medium text-foreground transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
           >
             Cancel
           </button>
@@ -480,7 +480,7 @@ export default function EditSharesForm({
           type="button"
           onClick={handleSubmit}
           disabled={loading}
-          className="inline-flex h-9 items-center justify-center rounded-md bg-[#f08c2b] px-4 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex h-9 items-center justify-center rounded-md bg-brand px-4 text-sm font-medium text-brand-foreground transition-colors hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {loading ? "Saving Changes…" : "Update Share Record"}
         </button>

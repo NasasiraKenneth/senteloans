@@ -57,7 +57,7 @@ export function ConversationSearchBar({
               if (e.key === "Escape") onClose()
             }}
             placeholder={scopeLabel}
-            className="h-9 pl-8 pr-3 focus-visible:ring-[#f08c2b]/40"
+            className="h-9 pl-8 pr-3 focus-visible:ring-brand/40"
             aria-label={scopeLabel}
           />
         </div>

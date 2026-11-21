@@ -65,7 +65,7 @@ export function CreateGroupDialog({
       <DialogContent className="gap-5 sm:max-w-lg">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Users className="h-5 w-5 text-[#f08c2b]" />
+            <Users className="h-5 w-5 text-brand" />
             Create group
           </DialogTitle>
           <DialogDescription>
@@ -81,7 +81,7 @@ export function CreateGroupDialog({
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="e.g. Credit Committee — August"
-              className="focus-visible:ring-[#f08c2b]/40"
+              className="focus-visible:ring-brand/40"
             />
           </div>
 
@@ -93,7 +93,7 @@ export function CreateGroupDialog({
               onChange={(e) => setDescription(e.target.value)}
               placeholder="What is this group for?"
               rows={2}
-              className="resize-none focus-visible:ring-[#f08c2b]/40"
+              className="resize-none focus-visible:ring-brand/40"
             />
           </div>
 
@@ -123,7 +123,7 @@ export function CreateGroupDialog({
           </Button>
           <Button
             type="button"
-            className="bg-[#f08c2b] text-white hover:bg-[#e07d1f]"
+            className="bg-brand text-brand-foreground hover:bg-brand-700"
             disabled={!canCreate}
             onClick={handleCreate}
           >

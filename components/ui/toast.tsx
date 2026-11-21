@@ -97,8 +97,8 @@ function WarningIcon() {
 
 function DefaultIcon() {
   return (
-    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#0f0f12] shadow-[0_0_12px_rgba(240,140,43,0.3)]">
-      <svg className="h-4 w-4 text-[#f08c2b]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#0f0f12] shadow-[0_0_12px_rgba(var(--ui-p-rgb,240,140,43),0.3)]">
+      <svg className="h-4 w-4 text-brand" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
       </svg>
     </div>
@@ -108,22 +108,22 @@ function DefaultIcon() {
 function GreetingIcon({ period }: { period: GreetingPeriod }) {
   const styles: Record<GreetingPeriod, { className: string; Icon: typeof Sunrise }> = {
     morning: {
-      className: "bg-gradient-to-br from-amber-400 to-orange-500 shadow-[0_0_12px_rgba(251,191,36,0.45)]",
+      className: "bg-gradient-to-br from-brand-400 to-brand shadow-[0_0_12px_rgba(var(--ui-p-rgb,240,140,43),0.45)]",
       Icon: Sunrise,
     },
     afternoon: {
-      className: "bg-gradient-to-br from-[#f08c2b] to-[#d97b1e] shadow-[0_0_12px_rgba(240,140,43,0.45)]",
+      className: "bg-gradient-to-br from-brand to-brand-700 shadow-[0_0_12px_rgba(var(--ui-p-rgb,240,140,43),0.45)]",
       Icon: Sun,
     },
     evening: {
-      className: "bg-gradient-to-br from-indigo-500 to-violet-600 shadow-[0_0_12px_rgba(99,102,241,0.45)]",
+      className: "bg-gradient-to-br from-brand-700 to-brand-900 shadow-[0_0_12px_rgba(var(--ui-p-rgb,240,140,43),0.45)]",
       Icon: Moon,
     },
   }
   const { className, Icon } = styles[period]
   return (
     <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${className}`}>
-      <Icon className="h-4 w-4 text-white" strokeWidth={2.25} />
+      <Icon className="h-4 w-4 text-brand-foreground" strokeWidth={2.25} />
     </div>
   )
 }
@@ -143,7 +143,7 @@ function ProgressBar({ duration, variant }: { duration: number; variant?: ToastV
     variant === "success" ? "bg-emerald-500" :
     variant === "destructive" ? "bg-red-500" :
     variant === "warning" ? "bg-amber-500" :
-    "bg-[#f08c2b]"
+    "bg-brand"
 
   return (
     <div className="absolute bottom-0 left-0 right-0 h-[3px] overflow-hidden rounded-b-2xl">
@@ -200,9 +200,9 @@ export function Toaster({
                 className={[
                   "relative w-[380px] rounded-2xl border px-4 py-4 shadow-2xl backdrop-blur-sm overflow-hidden",
                   isSuccess && "bg-[#0f0f12] border-emerald-500/20 shadow-[0_8px_32px_rgba(16,185,129,0.15)]",
-                  isError && "bg-white border-red-200 shadow-[0_8px_32px_rgba(239,68,68,0.12)]",
-                  isWarning && "bg-white border-amber-200 shadow-[0_8px_32px_rgba(245,158,11,0.12)]",
-                  !isSuccess && !isError && !isWarning && "bg-[#0f0f12] border-[#f08c2b]/20 shadow-[0_8px_32px_rgba(240,140,43,0.12)]",
+                  isError && "bg-white dark:bg-[#1a1a1f] border-red-200 dark:border-red-500/30 shadow-[0_8px_32px_rgba(239,68,68,0.12)]",
+                  isWarning && "bg-white dark:bg-[#1a1a1f] border-amber-200 dark:border-amber-500/30 shadow-[0_8px_32px_rgba(245,158,11,0.12)]",
+                  !isSuccess && !isError && !isWarning && "bg-[#0f0f12] border-brand/25 shadow-[0_8px_32px_rgba(var(--ui-p-rgb,240,140,43),0.15)]",
                 ]
                   .filter(Boolean)
                   .join(" ")}

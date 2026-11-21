@@ -179,7 +179,7 @@ export function ChatComposer({
             className={cn(
               "rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
               !internalNote
-                ? "bg-[#f08c2b]/15 text-[#c46f12]"
+                ? "bg-brand/15 text-brand"
                 : "text-muted-foreground hover:bg-muted",
             )}
           >
@@ -204,9 +204,9 @@ export function ChatComposer({
       ) : null}
 
       {replyTo ? (
-        <div className="mb-2 flex items-start gap-2 rounded-lg border border-[#f08c2b]/20 bg-[#fff8f1] px-3 py-2">
-          <div className="min-w-0 flex-1 border-l-2 border-[#f08c2b] pl-2">
-            <p className="text-[11px] font-medium text-[#c46f12]">Replying to {replyTo.senderName}</p>
+        <div className="mb-2 flex items-start gap-2 rounded-lg border border-brand/20 bg-brand/5 px-3 py-2">
+          <div className="min-w-0 flex-1 border-l-2 border-brand pl-2">
+            <p className="text-[11px] font-medium text-brand">Replying to {replyTo.senderName}</p>
             <p className="truncate text-xs text-muted-foreground">
               {previewMessage(replyTo.body, replyTo.type)}
             </p>
@@ -234,7 +234,7 @@ export function ChatComposer({
               className="h-10 w-10 rounded object-cover"
             />
           ) : (
-            <div className="flex h-10 w-10 items-center justify-center rounded bg-background text-[#e07d1f] ring-1 ring-border">
+            <div className="flex h-10 w-10 items-center justify-center rounded bg-background text-brand ring-1 ring-border">
               <FileText className="h-4 w-4" />
             </div>
           )}
@@ -298,7 +298,7 @@ export function ChatComposer({
             }
             className={cn(
               "max-h-32 min-h-[42px] w-full resize-none rounded-xl border border-border bg-background px-3.5 py-2.5 text-sm",
-              "placeholder:text-muted-foreground focus:border-[#f08c2b] focus:outline-none focus:ring-2 focus:ring-[#f08c2b]/25",
+              "placeholder:text-muted-foreground focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/25",
               "disabled:cursor-not-allowed disabled:opacity-50",
               internalNote && "border-amber-300 bg-amber-50/50 focus:border-amber-400 focus:ring-amber-200/50",
             )}
@@ -309,10 +309,10 @@ export function ChatComposer({
           type="button"
           size="icon"
           className={cn(
-            "shrink-0 text-white",
+            "shrink-0",
             internalNote
-              ? "bg-amber-700 hover:bg-amber-800"
-              : "bg-[#f08c2b] hover:bg-[#e07d1f]",
+              ? "bg-amber-700 text-white hover:bg-amber-800"
+              : "bg-brand text-brand-foreground hover:bg-brand-700",
           )}
           onClick={() => void handleSend()}
           disabled={!canSend}

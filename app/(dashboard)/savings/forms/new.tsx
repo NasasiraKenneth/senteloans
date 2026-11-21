@@ -352,8 +352,8 @@ export default function NewSavingsAccountForm({
       )}
 
       {savingsPlanConfig.use_account_saving_day && (
-        <div className="space-y-3.5 rounded-xl border border-[#111111]/10 p-3.5">
-          <p className="text-xs font-semibold text-[#111111]">
+        <div className="space-y-3.5 rounded-xl border border-border p-3.5">
+          <p className="text-xs font-semibold text-foreground">
             Account Auto Savings Schedule ({savingsPlanConfig.frequency_unit} interval: {savingsPlanConfig.frequency_value})
           </p>
 
@@ -361,14 +361,14 @@ export default function NewSavingsAccountForm({
             <div className="flex items-center justify-between gap-2 flex-wrap">
               <Label className="text-xs font-medium">Auto Savings Day</Label>
               {savingsPlanConfig.frequency_unit === "MONTH" && (
-                <div className="inline-flex items-center rounded-lg border border-[#111111]/10 bg-gray-100 p-0.5 text-xs font-medium flex-wrap">
+                <div className="inline-flex items-center rounded-lg border border-border bg-muted p-0.5 text-xs font-medium flex-wrap">
                   <button
                     type="button"
                     onClick={() => {
                       setAutoSavingsDayMode("fixed")
                       setAutoSavingsDay("Monday")
                     }}
-                    className={`px-2 py-0.5 rounded-md transition-all ${autoSavingsDayMode === "fixed" ? "bg-white text-[#111111] shadow-sm font-semibold" : "text-gray-500 hover:text-gray-900"}`}
+                    className={`px-2 py-0.5 rounded-md transition-all ${autoSavingsDayMode === "fixed" ? "bg-brand text-brand-foreground shadow-sm font-semibold" : "text-muted-foreground hover:text-foreground"}`}
                   >
                     Fixed Day
                   </button>
@@ -378,7 +378,7 @@ export default function NewSavingsAccountForm({
                       setAutoSavingsDayMode("ordinal")
                       setAutoSavingsDay("1st Monday")
                     }}
-                    className={`px-2 py-0.5 rounded-md transition-all ${autoSavingsDayMode === "ordinal" ? "bg-white text-[#111111] shadow-sm font-semibold" : "text-gray-500 hover:text-gray-900"}`}
+                    className={`px-2 py-0.5 rounded-md transition-all ${autoSavingsDayMode === "ordinal" ? "bg-brand text-brand-foreground shadow-sm font-semibold" : "text-muted-foreground hover:text-foreground"}`}
                   >
                     Ordinal Day
                   </button>
@@ -388,7 +388,7 @@ export default function NewSavingsAccountForm({
                       setAutoSavingsDayMode("includes")
                       setAutoSavingsDay("includes 4")
                     }}
-                    className={`px-2 py-0.5 rounded-md transition-all ${autoSavingsDayMode === "includes" ? "bg-white text-[#111111] shadow-sm font-semibold" : "text-gray-500 hover:text-gray-900"}`}
+                    className={`px-2 py-0.5 rounded-md transition-all ${autoSavingsDayMode === "includes" ? "bg-brand text-brand-foreground shadow-sm font-semibold" : "text-muted-foreground hover:text-foreground"}`}
                   >
                     Includes
                   </button>
@@ -398,7 +398,7 @@ export default function NewSavingsAccountForm({
                       setAutoSavingsDayMode("custom")
                       setAutoSavingsDay("1")
                     }}
-                    className={`px-2 py-0.5 rounded-md transition-all ${autoSavingsDayMode === "custom" ? "bg-white text-[#111111] shadow-sm font-semibold" : "text-gray-500 hover:text-gray-900"}`}
+                    className={`px-2 py-0.5 rounded-md transition-all ${autoSavingsDayMode === "custom" ? "bg-brand text-brand-foreground shadow-sm font-semibold" : "text-muted-foreground hover:text-foreground"}`}
                   >
                     Day of Month
                   </button>
@@ -478,7 +478,7 @@ export default function NewSavingsAccountForm({
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
               <Label className="text-xs font-medium">Next Billing Date</Label>
-              <Badge variant="outline" className="text-[10px] border-[#f08c2b] text-[#f08c2b]">
+              <Badge variant="outline" className="text-[10px] border-brand text-brand">
                 Auto-calculated
               </Badge>
             </div>

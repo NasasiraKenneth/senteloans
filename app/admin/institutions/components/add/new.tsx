@@ -22,7 +22,7 @@ export default function AddNewInstitutionModal({
       <Button
         variant={buttonVariant}
         onClick={() => setIsOpen(true)}
-        className="bg-orange-500 hover:bg-orange-600 text-white font-medium shadow-xs"
+        className="bg-brand hover:bg-brand-700 text-brand-foreground font-medium shadow-xs"
       >
         <Plus className="mr-2 h-4 w-4" />
         {buttonText}

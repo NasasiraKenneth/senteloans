@@ -57,7 +57,7 @@ export default function AddPartner({ isOpen, onClose, onSuccess }: AddPartnerPro
   }, [isOpen])
 
   const inputClass =
-    "w-full px-3 py-2.5 text-sm border border-gray-300 rounded-md transition-all duration-200 focus:ring-[1.5px] focus:ring-[#f08c2b] focus:border-transparent focus:outline-none hover:border-gray-400"
+    "w-full px-3 py-2.5 text-sm border border-gray-300 rounded-md transition-all duration-200 focus:ring-[1.5px] focus:ring-brand focus:border-transparent focus:outline-none hover:border-gray-400"
 
   const handleSave = async () => {
     if (!form.counterpartyId || !form.role) return
@@ -148,8 +148,8 @@ export default function AddPartner({ isOpen, onClose, onSuccess }: AddPartnerPro
                   checked={form.status === "Active"}
                   onChange={(e) => setForm((prev) => ({ ...prev, status: e.target.checked ? "Active" : "Inactive" }))}
                 />
-                <div className="w-10 h-5 bg-gray-300 rounded-full peer-checked:bg-[#f08c2b] transition-colors" />
-                <div className="absolute left-0.5 top-0.5 bg-white w-4 h-4 rounded-full transition-transform peer-checked:translate-x-5 shadow" />
+                <div className="w-10 h-5 bg-muted-foreground/30 rounded-full peer-checked:bg-brand transition-colors" />
+                <div className="absolute left-0.5 top-0.5 bg-white w-4 h-4 rounded-full transition-transform peer-checked:translate-x-5 peer-checked:bg-brand-foreground shadow" />
               </div>
               <span className="text-xs text-muted-foreground">{form.status}</span>
             </label>

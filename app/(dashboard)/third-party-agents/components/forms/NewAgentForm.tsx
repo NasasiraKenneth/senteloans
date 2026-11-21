@@ -25,7 +25,7 @@ interface AgentFormProps {
 const STATUS_OPTIONS = ["Active", "Inactive", "Suspended"]
 
 const formInputClass =
-  "w-full pl-10 pr-3 py-2.5 text-sm border rounded-md focus:ring-[1.5px] focus:ring-[#f08c2b] focus:border-transparent focus:outline-none transition-all duration-200 border-gray-300 hover:border-gray-400"
+  "w-full pl-10 pr-3 py-2.5 text-sm border rounded-md focus:ring-[1.5px] focus:ring-brand focus:border-transparent focus:outline-none transition-all duration-200 border-gray-300 hover:border-gray-400"
 
 function StatusSelect({ value, onChange }: { value: string; onChange: (next: string) => void }) {
   const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null)
@@ -36,7 +36,7 @@ function StatusSelect({ value, onChange }: { value: string; onChange: (next: str
       <div
         onClick={(e) => setAnchorEl(e.currentTarget)}
         className={`flex items-center justify-between w-full px-3 py-2.5 text-sm border rounded-md cursor-pointer transition-all duration-200 ${
-          open ? "ring-[1.5px] ring-[#f08c2b] border-transparent" : "border-gray-300 hover:border-gray-400"
+          open ? "ring-[1.5px] ring-brand border-transparent" : "border-gray-300 hover:border-gray-400"
         }`}
       >
         <span className={value ? "text-gray-900" : "text-gray-400"}>{value || "Select status"}</span>
@@ -72,10 +72,10 @@ function StatusSelect({ value, onChange }: { value: string; onChange: (next: str
                 className="flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-gray-50 rounded-lg transition-colors"
               >
                 <div className={`relative w-4.5 h-4.5 border-2 flex items-center justify-center rounded-md transition-all ${
-                  isSelected ? "bg-[#f08c2b] border-[#f08c2b]" : "bg-white border-gray-400 hover:border-gray-600"
+                  isSelected ? "bg-brand border-brand" : "bg-background border-border hover:border-brand/60"
                 }`}>
                   {isSelected && (
-                    <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                    <svg className="w-3 h-3 text-brand-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
                       <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                     </svg>
                   )}
